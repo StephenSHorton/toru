@@ -46,26 +46,15 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: "1.3.11"
 
       - name: Frontend dependencies
         working-directory: frontend
         run: bun install --frozen-lockfile
 
-      # Bindings are committed; regenerate to catch drift, then build the frontend.
-      # (Generation needs a dist for the //go:embed, so we stage a placeholder first.)
-      - name: Verify bindings are up to date
-        run: |
-          New-Item -ItemType Directory -Force -Path frontend/dist | Out-Null
-          Set-Content frontend/dist/index.html '<!doctype html>'
-          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.98
-          wails3 generate bindings -ts -clean
-          if (git status --porcelain frontend/bindings) {
-            git --no-pager diff -- frontend/bindings
-            throw "frontend/bindings is stale — run 'wails3 generate bindings -ts -clean' and commit."
-          }
-        shell: pwsh
-
+      # frontend/bindings is committed, so the frontend builds without the Go
+      # toolchain. After changing a Go service, run `wails3 generate bindings
+      # -ts -clean` locally and commit the result (see CONTRIBUTING.md).
       - name: Frontend build
         working-directory: frontend
         run: bun run build
