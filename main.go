@@ -37,9 +37,10 @@ func main() {
 	// screen coordinates and gdigrab capture come back in true physical pixels.
 	dpi.EnsurePerMonitorV2()
 
-	// The shared capture seam. Swap StubCapturer for the real DXGI+FFmpeg
-	// implementation once Phase 0 lands — the contract does not move.
-	capturer := &capture.StubCapturer{}
+	// The shared capture seam. RealCapturer does real still (screenshot)
+	// capture via kbinani/screenshot and delegates the video path to the
+	// StubCapturer until the FFmpeg pipeline lands — the contract does not move.
+	capturer := capture.NewRealCapturer(&capture.StubCapturer{})
 
 	// Services bound to the frontend.
 	overlaySvc := overlay.NewService(capturer)

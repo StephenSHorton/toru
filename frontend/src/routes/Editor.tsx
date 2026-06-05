@@ -1,107 +1,56 @@
-import { useEffect, useRef, useState } from "react";
-import { Stage, Layer, Image as KImage } from "react-konva";
-import { Button } from "@/components/ui/button";
-import {
-  MousePointer2, Pen, Square, Circle, ArrowUpRight, Type, Smile,
-  Clipboard, Copy, Save,
-} from "lucide-react";
+// DEVELOPER 1 — screenshot annotation editor route.
+//
+// Composes the frosted Toolbar over the Konva EditorCanvas, both driven by the
+// Zustand store (the single source of truth). The base image is loaded from the
+// ?img=<path> query param, falling back to /sample.png in dev. Global keyboard
+// shortcuts and the clipboard-paste listener are mounted here.
+//
+// FOUNDATION: only the SELECT tool is wired. Tool-builders add tools by dropping
+// a Tool into the TOOLS registry (see editor/tools/index.ts) — no changes here.
 
-// DEVELOPER 1 — screenshot annotation editor (skeleton).
-// Loads the captured PNG as a Konva base layer; the toolbar tools are
-// placeholders to be implemented (shapes, multi-color pen, emoji, paste-image-
-// as-layer, copy/save via the shared ExportService).
-const TOOLS = [
-  { id: "select", icon: MousePointer2, label: "Select" },
-  { id: "pen", icon: Pen, label: "Pen" },
-  { id: "rect", icon: Square, label: "Rectangle" },
-  { id: "ellipse", icon: Circle, label: "Ellipse" },
-  { id: "arrow", icon: ArrowUpRight, label: "Arrow" },
-  { id: "text", icon: Type, label: "Text" },
-  { id: "emoji", icon: Smile, label: "Emoji" },
-];
-
-const STAGE_W = 900;
-const STAGE_H = 540;
-
-function useImage(src: string) {
-  const [img, setImg] = useState<HTMLImageElement | null>(null);
-  useEffect(() => {
-    const i = new window.Image();
-    i.crossOrigin = "anonymous";
-    i.src = src;
-    i.onload = () => setImg(i);
-  }, [src]);
-  return img;
-}
+import { useEffect, useRef, useState } from 'react';
+import type Konva from 'konva';
+import { EditorCanvas, STAGE_W, STAGE_H } from '@/editor/EditorCanvas';
+import { Toolbar } from '@/editor/Toolbar';
+import { useEditorStore } from '@/editor/store';
+import { useEditorKeyboard } from '@/editor/useEditorKeyboard';
+import { useClipboardPaste } from '@/editor/useClipboardPaste';
+import { TextEditingOverlay } from '@/editor/tools/text';
+import { CropOverlay } from '@/editor/tools/crop';
 
 export default function Editor() {
-  const [tool, setTool] = useState("select");
-  const [color, setColor] = useState("#ff3b30");
-  const imgPath = new URLSearchParams(window.location.search).get("img") ?? "";
-  // In dev we display the bundled sample; the real editor loads the captured path.
-  const image = useImage("/sample.png");
-  const stageRef = useRef<any>(null);
+  const stageRef = useRef<Konva.Stage>(null);
+  const loadBaseImage = useEditorStore((s) => s.loadBaseImage);
 
-  // Fit the image inside the stage.
-  let dw = STAGE_W, dh = STAGE_H, dx = 0, dy = 0;
-  if (image) {
-    const scale = Math.min(STAGE_W / image.width, STAGE_H / image.height);
-    dw = image.width * scale;
-    dh = image.height * scale;
-    dx = (STAGE_W - dw) / 2;
-    dy = (STAGE_H - dh) / 2;
-  }
+  const imgPath = new URLSearchParams(window.location.search).get('img') ?? '';
+  const [src] = useState(imgPath || '/sample.png');
 
-  const swatches = ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#bf5af2", "#ffffff", "#000000"];
+  useEditorKeyboard();
+  const pasteFromBackend = useClipboardPaste();
+
+  // Load the base image once: read natural size, then seed the scene graph.
+  useEffect(() => {
+    const img = new window.Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => loadBaseImage(src, img.naturalWidth, img.naturalHeight);
+    img.src = src;
+  }, [src, loadBaseImage]);
 
   return (
     <div className="flex h-full flex-col">
-      {/* frosted Markup toolbar */}
-      <div className="frost z-10 flex items-center gap-1 px-2 py-1.5">
-        {TOOLS.map((t) => (
-          <Button
-            key={t.id}
-            size="icon"
-            variant={tool === t.id ? "default" : "ghost"}
-            title={t.label}
-            onClick={() => setTool(t.id)}
-          >
-            <t.icon />
-          </Button>
-        ))}
-        <div className="mx-1 h-6 w-px bg-border" />
-        {swatches.map((c) => (
-          <button
-            key={c}
-            title={c}
-            onClick={() => setColor(c)}
-            className="size-6 border"
-            style={{ background: c, outline: color === c ? "2px solid var(--color-ring)" : "none" }}
-          />
-        ))}
-        <div className="ml-auto flex items-center gap-1">
-          <Button size="sm" variant="ghost" title="Paste image"><Clipboard /> Paste</Button>
-          <Button size="sm" variant="ghost" title="Copy to clipboard"><Copy /> Copy</Button>
-          <Button size="sm" title="Save as…"><Save /> Save</Button>
-        </div>
-      </div>
+      <Toolbar stageRef={stageRef} onPaste={pasteFromBackend} />
 
-      {/* canvas */}
       <div className="flex flex-1 items-center justify-center p-4">
-        <div className="border" style={{ width: STAGE_W, height: STAGE_H }}>
-          <Stage ref={stageRef} width={STAGE_W} height={STAGE_H}>
-            <Layer>
-              {image && <KImage image={image} x={dx} y={dy} width={dw} height={dh} />}
-            </Layer>
-            {/* annotation layers (shapes/pen/emoji/pasted images) go here */}
-            <Layer />
-          </Stage>
+        <div className="relative border" style={{ width: STAGE_W, height: STAGE_H }}>
+          <EditorCanvas stageRef={stageRef} />
+          <CropOverlay />
+          <TextEditingOverlay stageRef={stageRef} />
         </div>
       </div>
 
       <div className="px-3 pb-2 text-[11px] text-muted-foreground">
-        tool: {tool} · color: {color} · source:{" "}
-        <span className="font-mono">{imgPath || "(dev sample.png)"}</span>
+        source:{' '}
+        <span className="font-mono">{imgPath || '(dev sample.png)'}</span>
       </div>
     </div>
   );
