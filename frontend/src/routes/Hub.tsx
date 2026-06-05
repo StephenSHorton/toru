@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Camera, Video, SquareDashed, Keyboard } from "lucide-react";
+import { Updater } from "@/updater/Updater";
 
 // Dev hub — a Phase-0 convenience to open each surface. The shipping app opens
 // the overlay from a global hotkey and lives in the tray; this hub just lets
@@ -39,6 +40,8 @@ export default function Hub() {
           (stubbed — wired in Phase 0)
         </span>
       </div>
+
+      <Updater />
     </div>
   );
 }
