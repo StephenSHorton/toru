@@ -73,6 +73,33 @@ main.go      app wiring (services, windows, hotkeys, tray)
 testdata/    sample.png + sample.mp4 (the stubs both editors develop against)
 ```
 
+## Releasing & auto-update
+
+Cut a release by pushing a semver tag — that's the whole flow:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+`.github/workflows/release.yml` (on `v*.*.*`) then, on `windows-latest`:
+stamps the version into the binary (`-X main.version=`) and the Win32 resource,
+builds the app + a **per-user NSIS installer** (`wails3 task windows:build` +
+`makensis`), and publishes a GitHub Release with three assets:
+
+| Asset | |
+| --- | --- |
+| `toru-<version>-windows-amd64-installer.exe` | the installer |
+| `toru-<version>-windows-amd64.zip` | portable (just `toru.exe`) |
+| `SHA256SUMS` | checksums for both |
+
+**In-app updater** (`internal/update` + the Hub's *Check for Updates*): on
+launch (and on demand) the app queries the latest GitHub Release, compares it to
+its own `version`, and — if newer — offers a one-click **Install & Restart** that
+downloads the installer, verifies it against `SHA256SUMS`, runs it silently, and
+quits so NSIS can replace the running exe. Dev builds (`version == "dev"`) never
+prompt. You must cut a real `v*` release before the updater has anything to find.
+
 ## The seam, in one sentence
 
 The overlay emits one `CaptureRequest`; Go's single `Capture()` turns it into a

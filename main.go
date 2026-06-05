@@ -20,12 +20,21 @@ import (
 	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/StephenSHorton/toru/internal/shot"
 	"github.com/StephenSHorton/toru/internal/tray"
+	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/StephenSHorton/toru/internal/vid"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// version is the running app version, injected at release build time via
+// -ldflags "-X main.version=X.Y.Z" (see build/windows/Taskfile.yml). It stays
+// "dev" for local/dev builds, which the updater treats as "never offer updates".
+var version = "dev"
+
+// updateRepo is the GitHub repo the in-app updater checks for releases.
+const updateRepo = "StephenSHorton/toru"
 
 func init() {
 	// Typed event payloads picked up by the binding generator.
@@ -48,6 +57,7 @@ func main() {
 	shotSvc := shot.New()
 	vidSvc := vid.New()
 	windowsSvc := &WindowsService{cap: capturer}
+	updateSvc := update.New(updateRepo, version)
 
 	app := application.New(application.Options{
 		Name:        "Toru",
@@ -58,15 +68,17 @@ func main() {
 			application.NewService(shotSvc),
 			application.NewService(vidSvc),
 			application.NewService(windowsSvc),
+			application.NewService(updateSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
 	})
 
-	// Inject the running app into services that emit events / open windows.
+	// Inject the running app into services that emit events / open windows / quit.
 	overlaySvc.SetApp(app)
 	windowsSvc.app = app
+	updateSvc.SetApp(app)
 
 	// Tray + global hotkeys. The registrar is a stub until the Phase 0 spike
 	// wires real RegisterHotKey/WM_HOTKEY; wiring it here documents intent.

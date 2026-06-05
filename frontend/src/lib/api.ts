@@ -8,8 +8,13 @@
 //   ExportService.ReadClipboardImage(): Promise<string>   (data URL, or "" if none)
 //   ScreenshotService.SavePNG(pngBase64: string): Promise<string>  (accepts full data: URL, returns temp path)
 //   OverlayService.* (capture/recording coordination — exposed for completeness)
+//   UpdateService.GetVersion(): Promise<string>
+//   UpdateService.CheckForUpdate(): Promise<UpdateInfo | null>  (null === up to date)
+//   UpdateService.DownloadAndInstall(info: UpdateInfo): Promise<void>
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
+import * as UpdateService from "../../bindings/github.com/StephenSHorton/toru/internal/update/updateservice.js";
+import { UpdateInfo } from "../../bindings/github.com/StephenSHorton/toru/internal/update/models.js";
 
-export { ExportService, ScreenshotService, OverlayService };
+export { ExportService, ScreenshotService, OverlayService, UpdateService, UpdateInfo };
