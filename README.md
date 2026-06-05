@@ -1,59 +1,81 @@
-# Welcome to Your New Wails3 Project!
+# Toru (撮る)
 
-Congratulations on generating your Wails3 application! This README will guide you through the next steps to get your project up and running.
+A macOS-style screenshot & screen-recording tool for **Windows 11**. Press a
+hotkey → a dim/crop overlay appears → pick **screenshot** or **video**, adjust
+the crop, and commit. Screenshots open in an annotation editor (shapes, pen,
+emoji, paste-image-as-a-layer, copy/save); recordings open in a minimal trim
+editor. Dark, frosted-glass, sharp-edged.
 
-## Getting Started
+> 撮る (*toru*) is the Japanese verb "to take a photo / shoot video" — it names
+> both halves of the app.
 
-1. Navigate to your project directory in the terminal.
+**Status: Phase-0 skeleton.** Capture is stubbed (returns checked-in sample
+media) so both editors are fully runnable today. The real overlay, capture, and
+clipboard paths are TODOs marked in the code.
 
-2. To run your application in development mode, use the following command:
+## Stack
 
-   ```
-   wails3 dev
-   ```
+| Layer | Choice |
+| --- | --- |
+| Shell | **Wails v3** (`v3.0.0-alpha.98`) + Go |
+| Frontend | **React 19** + TypeScript + **shadcn/ui** + Tailwind v4 |
+| Editor canvas | react-konva (Konva) |
+| Stills | pure-Go DXGI (`kbinani/screenshot`) *(planned)* |
+| Video | bundled FFmpeg (`ddagrab` → `gdigrab`) *(planned)* |
+| Package manager | **bun** |
 
-   This will start your application and enable hot-reloading for both frontend and backend changes.
+Full design doc: [`docs/PLAN.md`](docs/PLAN.md). How the two developers split the
+work: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-3. To build your application for production, use:
+## Prerequisites
 
-   ```
-   wails3 build
-   ```
+- [Go](https://go.dev/dl/) (see `go.mod` for the version)
+- [Wails v3 CLI](https://v3.wails.io/): `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.98`
+- [Bun](https://bun.sh) + Node
+- WebView2 Runtime (ships with Windows 11)
+- [FFmpeg](https://ffmpeg.org) on PATH (video dev/tests) — or set `TORU_FFMPEG`
+- For installer builds (later): NSIS (`choco install nsis`)
 
-   This will create a production-ready executable in the `build` directory.
+## Quickstart
 
-## Exploring Wails3 Features
+```sh
+# from the repo root
+cd frontend && bun install && cd ..
+wails3 dev            # hot-reloads Go + frontend; opens the dev hub window
+```
 
-Now that you have your project set up, it's time to explore the features that Wails3 offers:
+The **dev hub** window has buttons to open each surface (overlay, screenshot
+editor, trim editor). Each opens its own route so you can work on your half in
+isolation against the bundled `sample.png` / `sample.mp4`.
 
-1. **Check out the examples**: The best way to learn is by example. Visit the `examples` directory in the `v3/examples` directory to see various sample applications.
+Build a binary:
 
-2. **Run an example**: To run any of the examples, navigate to the example's directory and use:
+```sh
+cd frontend && bun run build && cd ..
+go build -o build/bin/toru.exe .      # or: wails3 build
+```
 
-   ```
-   go run .
-   ```
+## Project layout
 
-   Note: Some examples may be under development during the alpha phase.
+```
+internal/
+  capture/   ★ SHARED seam — contract.go (frozen), Capture(), ffmpeg args (golden-tested)
+  overlay/   ★ SHARED — dim/crop overlay + the single ListScreens() source of truth
+  export/    ★ SHARED — copy-to-clipboard (image bitmap / video CF_HDROP) + save-as
+  dpi/ hotkey/ thumbnail/ tray/   ★ SHARED plumbing
+  shot/      ◆ DEVELOPER 1 — screenshot editor helpers
+  vid/       ◆ DEVELOPER 2 — video record + trim
+frontend/src/
+  routes/    Overlay.tsx (shared) · Editor.tsx (Dev 1) · Trim.tsx (Dev 2) · Hub.tsx
+  components/ui/  shadcn primitives + the dark/frosted/zero-radius theme
+  lib/contract.ts TS mirror of contract.go
+main.go      app wiring (services, windows, hotkeys, tray)
+testdata/    sample.png + sample.mp4 (the stubs both editors develop against)
+```
 
-3. **Explore the documentation**: Visit the [Wails3 documentation](https://v3.wails.io/) for in-depth guides and API references.
+## The seam, in one sentence
 
-4. **Join the community**: Have questions or want to share your progress? Join the [Wails Discord](https://discord.gg/JDdSxwjhGf) or visit the [Wails discussions on GitHub](https://github.com/wailsapp/wails/discussions).
-
-## Project Structure
-
-Take a moment to familiarize yourself with your project structure:
-
-- `frontend/`: Contains your frontend code (HTML, CSS, JavaScript/TypeScript)
-- `main.go`: The entry point of your Go backend
-- `app.go`: Define your application structure and methods here
-- `wails.json`: Configuration file for your Wails project
-
-## Next Steps
-
-1. Modify the frontend in the `frontend/` directory to create your desired UI.
-2. Add backend functionality in `main.go`.
-3. Use `wails3 dev` to see your changes in real-time.
-4. When ready, build your application with `wails3 build`.
-
-Happy coding with Wails3! If you encounter any issues or have questions, don't hesitate to consult the documentation or reach out to the Wails community.
+The overlay emits one `CaptureRequest`; Go's single `Capture()` turns it into a
+PNG (DXGI) or MP4 (FFmpeg) path; the `capture:done` event routes **by mode** to
+either the Konva editor (Dev 1) or the trim editor (Dev 2) — neither imports the
+other, only `internal/capture/contract.go`.

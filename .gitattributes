@@ -1,0 +1,14 @@
+# Normalize line endings: LF in the repo, checkout native on Windows.
+* text=auto
+
+# Go and shell scripts stay LF.
+*.go text eol=lf
+*.sh text eol=lf
+
+# Binary assets — never touch line endings.
+*.png binary
+*.mp4 binary
+*.ico binary
+*.icns binary
+*.ttf binary
+*.exe binary

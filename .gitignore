@@ -1,6 +1,16 @@
 .task
 bin
+build/bin
 frontend/dist
 frontend/node_modules
+node_modules
 build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+
+# build artifacts / local
+*.exe
+*.log
+.DS_Store
+
+# staged ffmpeg (delivered by installer / first-run download, never committed)
+third_party/ffmpeg/ffmpeg.exe

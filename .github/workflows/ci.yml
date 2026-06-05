@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Windows-only: Toru is a Windows-first Wails app.
+jobs:
+  go:
+    name: Go (contract gate · vet · test · lint)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # THE contract gate: the frozen Dev1<->Dev2 seam MUST compile before anything else.
+      - name: Contract compile gate
+        run: go build ./internal/capture
+
+      - name: Vet
+        run: go vet ./internal/...
+
+      - name: Test
+        run: go test ./internal/...
+
+      - name: Lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          golangci-lint run ./internal/...
+
+  app:
+    name: App (frontend + full build)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Frontend dependencies
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      # Bindings are committed; regenerate to catch drift, then build the frontend.
+      # (Generation needs a dist for the //go:embed, so we stage a placeholder first.)
+      - name: Verify bindings are up to date
+        run: |
+          New-Item -ItemType Directory -Force -Path frontend/dist | Out-Null
+          Set-Content frontend/dist/index.html '<!doctype html>'
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.98
+          wails3 generate bindings -ts -clean
+          if (git status --porcelain frontend/bindings) {
+            git --no-pager diff -- frontend/bindings
+            throw "frontend/bindings is stale — run 'wails3 generate bindings -ts -clean' and commit."
+          }
+        shell: pwsh
+
+      - name: Frontend build
+        working-directory: frontend
+        run: bun run build
+
+      - name: Build app
+        run: go build -o build/bin/toru.exe .
+
+    # NOTE: NSIS installer + signing are deferred (Phase 2). Add a release job that
+    # runs `choco install nsis` then `wails3 build -nsis` when packaging is in scope.

@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+/* Toru design language (SHARED — owned here, do not restyle per-route):
+   - DARK MODE ONLY for v1.
+   - FROSTED GLASS chrome via .frost (CSS backdrop-blur; OS acrylic/mica is a
+     Wails window option, added in the overlay spike).
+   - SHARP EDGES: --radius is 0. shadcn ships rounded by default; we zero it so
+     every button/card/popover/dialog renders crisp square corners.        */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* dark-only palette (oklch) */
+  --background: oklch(0.145 0.004 264);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.18 0.004 264);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.18 0.004 264);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.72 0.15 248);
+  --primary-foreground: oklch(0.145 0.02 264);
+  --secondary: oklch(0.25 0.006 264);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.25 0.006 264);
+  --muted-foreground: oklch(0.708 0.01 264);
+  --accent: oklch(0.28 0.01 264);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.62 0.21 25);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.3 0.006 264);
+  --input: oklch(0.28 0.006 264);
+  --ring: oklch(0.72 0.15 248);
+
+  /* SHARP EDGES — every radius derives from 0. */
+  --radius: 0rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* All radius tokens collapse to 0 → sharp corners everywhere. */
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: ui-sans-serif, system-ui, "Inter", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    /* subtle backdrop so the frosted glass reads as glass */
+    background-image:
+      radial-gradient(60rem 60rem at 15% -10%, oklch(0.72 0.15 248 / 0.10), transparent 60%),
+      radial-gradient(50rem 50rem at 110% 120%, oklch(0.62 0.16 320 / 0.08), transparent 60%);
+    background-attachment: fixed;
+  }
+}
+
+@layer components {
+  /* Frosted-glass surface for all app chrome (toolbars, panels, the overlay
+     control bar, the floating thumbnail). Sharp corners by design. */
+  .frost {
+    background-color: color-mix(in oklch, var(--color-card) 60%, transparent);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    border: 1px solid color-mix(in oklch, var(--color-border) 75%, transparent);
+    box-shadow: 0 8px 30px oklch(0 0 0 / 0.45);
+  }
+}
+
+/* thin, dark, square scrollbars to match */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
