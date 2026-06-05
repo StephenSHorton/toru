@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Toru
+Comment=macOS-style screenshot & screen recording for Windows
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/toru.exe %u
+Terminal=false
+Type=Application
+Icon=toru.exe
+Categories=Utility;
+StartupWMClass=toru.exe
+
+ 
