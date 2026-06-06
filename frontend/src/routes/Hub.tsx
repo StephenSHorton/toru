@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
-import { Camera, Video, SquareDashed, Keyboard } from "lucide-react";
+import { Camera, Video, SquareDashed } from "lucide-react";
 import { Updater } from "@/updater/Updater";
+import { Shortcuts } from "@/shortcuts/Shortcuts";
 
 // Dev hub — a Phase-0 convenience to open each surface. The shipping app opens
 // the overlay from a global hotkey and lives in the tray; this hub just lets
@@ -33,13 +34,7 @@ export default function Hub() {
         </Button>
       </div>
 
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Keyboard className="size-3.5" />
-        <span>
-          Ctrl+Shift+2 overlay · Ctrl+Shift+1 shot · Ctrl+Shift+3 record
-          (stubbed — wired in Phase 0)
-        </span>
-      </div>
+      <Shortcuts />
 
       <Updater />
     </div>

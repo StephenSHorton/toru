@@ -60,6 +60,13 @@ func main() {
 	windowsSvc := &WindowsService{cap: capturer}
 	updateSvc := update.New(updateRepo, version)
 
+	// Global hotkeys. The Manager owns a low-level keyboard hook (WH_KEYBOARD_LL)
+	// so it can capture AND swallow Win-key combos — the default is Win+Shift+S,
+	// which RegisterHotKey can't claim from the Snipping Tool. HotkeyService
+	// exposes the combo-builder to the React Shortcuts panel.
+	keys := hotkey.New()
+	hotkeySvc := hotkey.NewService(keys)
+
 	app := application.New(application.Options{
 		Name:        "Toru",
 		Description: "macOS-style screenshot & screen recording for Windows",
@@ -70,6 +77,7 @@ func main() {
 			application.NewService(vidSvc),
 			application.NewService(windowsSvc),
 			application.NewService(updateSvc),
+			application.NewService(hotkeySvc),
 		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
@@ -97,13 +105,17 @@ func main() {
 	overlaySvc.SetHubOpener(windowsSvc.OpenHub)
 	overlaySvc.SetEditorOpener(windowsSvc.OpenEditor)
 
-	// Tray + global hotkeys. The registrar is a stub until the Phase 0 spike
-	// wires real RegisterHotKey/WM_HOTKEY; wiring it here documents intent.
+	// Tray.
 	trayCtl := tray.New()
 	trayCtl.SetState(tray.Idle)
 
-	keys := hotkey.New()
-	_ = keys.Register("overlay", hotkey.DefaultOverlay, windowsSvc.OpenOverlay)
+	// Install the global hotkey hook AFTER injection (windowsSvc.overlay is set
+	// above), so a hotkey press that lands before app.Run can still open the
+	// overlay (OpenOverlay also nil-guards w.overlay). Register the persisted
+	// "overlay" binding (default Win+Shift+S); the first Register installs the
+	// low-level keyboard hook on a dedicated OS thread.
+	overlayBinding := hotkey.LoadBinding("overlay", hotkey.DefaultOverlay)
+	_ = keys.Register("overlay", overlayBinding, windowsSvc.OpenOverlay)
 	defer keys.Close()
 
 	// LAUNCH -> OVERLAY. Opening Toru immediately paints the real all-monitors
