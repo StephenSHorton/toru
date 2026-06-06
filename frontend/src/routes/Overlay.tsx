@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Camera, Video, X } from "lucide-react";
-import { OverlayService } from "@/lib/api";
+import { OverlayService, WindowsService } from "@/lib/api";
 import {
   parseOverlayQuery,
   type Rect,
@@ -111,7 +111,10 @@ export default function Overlay() {
       copyOnCommit: false,
     };
     try {
-      await OverlayService.StartRecording(req);
+      const handle = await OverlayService.StartRecording(req);
+      // The pill (timer + Stop) is the only stop affordance until the tray
+      // Stop square lands — without it the recording would run forever.
+      await WindowsService.OpenRecordingControls(handle);
     } finally {
       setBusy(false);
     }

@@ -82,6 +82,41 @@ func (w *WindowsService) OpenTrim(videoPath string) {
 	})
 }
 
+// OpenRecordingControls opens the small frameless always-on-top "recording
+// pill" (timer + Stop) for an in-flight recording. The overlay calls this
+// right after StartRecording — without it a recording has NO stop affordance
+// (the tray Stop square is still a Phase-0 stub).
+//
+// Placement: top-center of the PRIMARY monitor's work area. The pill can
+// appear inside the recorded region (e.g. fullscreen recordings) — acceptable
+// for v1, same trade-off Loom makes; the tray Stop square later removes it.
+func (w *WindowsService) OpenRecordingControls(handleID string) {
+	const pillW, pillH = 240, 64
+	opts := application.WebviewWindowOptions{
+		Name:             "toru-recording-pill",
+		Title:            "Toru — Recording",
+		URL:              "/?view=recording&handle=" + url.QueryEscape(handleID),
+		Width:            pillW,
+		Height:           pillH,
+		Frameless:        true,
+		AlwaysOnTop:      true,
+		DisableResize:    true,
+		BackgroundColour: dark,
+		Windows: application.WindowsWindow{
+			DisableFramelessWindowDecorations: true,
+			HiddenOnTaskbar:                   true,
+		},
+	}
+	// Position at top-center of the primary screen's work area (DIP coords,
+	// matching the overlay windows' use of InitialPosition WindowXY).
+	if scr := w.app.Screen.GetPrimary(); scr != nil {
+		opts.X = scr.WorkArea.X + (scr.WorkArea.Width-pillW)/2
+		opts.Y = scr.WorkArea.Y + 16
+		opts.InitialPosition = application.WindowXY
+	}
+	w.app.Window.NewWithOptions(opts)
+}
+
 // SimulateCapture runs the (stubbed) capture seam for the given mode and opens
 // the matching editor window. This is the dev-hub shortcut that exercises the
 // whole path — capture -> CaptureResult -> route-by-mode -> editor window —

@@ -48,9 +48,10 @@ func main() {
 	dpi.EnsurePerMonitorV2()
 
 	// The shared capture seam. RealCapturer does real still (screenshot)
-	// capture via kbinani/screenshot and delegates the video path to the
-	// StubCapturer until the FFmpeg pipeline lands — the contract does not move.
-	capturer := capture.NewRealCapturer(&capture.StubCapturer{})
+	// capture via kbinani/screenshot and delegates the video path to the real
+	// FFmpeg Recorder (ddagrab GPU path with gdigrab software fallback; VP9/
+	// WebM by default per the codec policy in internal/capture/encoders.go).
+	capturer := capture.NewRealCapturer(capture.NewRecorder())
 
 	// Services bound to the frontend.
 	overlaySvc := overlay.NewService(capturer)

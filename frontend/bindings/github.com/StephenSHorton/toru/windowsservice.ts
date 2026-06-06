@@ -19,6 +19,11 @@ import * as capture$0 from "./internal/capture/models.js";
 
 /**
  * OpenEditor opens Developer 1's screenshot annotation editor for imagePath.
+ * 
+ * The SPA routes on the ?view= query param (App.tsx) and the embedded asset
+ * server has no /editor path, so the window URL MUST be /?view=editor (a bare
+ * /editor 404s). The webview also can't load a raw C:\ path as <img src>, so the
+ * committed PNG is handed over as the /__file/<basename> served URL.
  */
 export function OpenEditor(imagePath: string): $CancellablePromise<void> {
     return $Call.ByID(642594709, imagePath);
@@ -44,7 +49,22 @@ export function OpenOverlay(): $CancellablePromise<void> {
 }
 
 /**
- * OpenTrim opens Developer 2's trim editor for videoPath.
+ * OpenRecordingControls opens the small frameless always-on-top "recording
+ * pill" (timer + Stop) for an in-flight recording. The overlay calls this
+ * right after StartRecording — without it a recording has NO stop affordance
+ * (the tray Stop square is still a Phase-0 stub).
+ * 
+ * Placement: top-center of the PRIMARY monitor's work area. The pill can
+ * appear inside the recorded region (e.g. fullscreen recordings) — acceptable
+ * for v1, same trade-off Loom makes; the tray Stop square later removes it.
+ */
+export function OpenRecordingControls(handleID: string): $CancellablePromise<void> {
+    return $Call.ByID(4141771617, handleID);
+}
+
+/**
+ * OpenTrim opens Developer 2's trim editor for videoPath. Same routing + served-
+ * file rules as OpenEditor (/?view=trim, /__file/<basename> for the media src).
  */
 export function OpenTrim(videoPath: string): $CancellablePromise<void> {
     return $Call.ByID(1119648552, videoPath);

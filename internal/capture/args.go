@@ -2,7 +2,9 @@ package capture
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // args.go is the SOLE owner of translating a CaptureRequest's virtual-desktop
@@ -25,7 +27,7 @@ func findScreen(screens []ScreenInfo, id int) (ScreenInfo, error) {
 //
 // ddagrab offsets are MONITOR-RELATIVE and the monitor is chosen by output_idx,
 // so the virtual-desktop Rect MUST be rebased: offset = Rect - screen origin.
-func BuildVideoArgsDDA(req CaptureRequest, screens []ScreenInfo, outPath string) ([]string, error) {
+func BuildVideoArgsDDA(req CaptureRequest, screens []ScreenInfo, enc VideoEncoder, outPath string) ([]string, error) {
 	screen, err := findScreen(screens, req.MonitorID)
 	if err != nil {
 		return nil, err
@@ -36,23 +38,27 @@ func BuildVideoArgsDDA(req CaptureRequest, screens []ScreenInfo, outPath string)
 		"ddagrab=output_idx=%d:framerate=60:video_size=%dx%d:offset_x=%d:offset_y=%d:draw_mouse=%s",
 		req.MonitorID, req.Rect.W, req.Rect.H, relX, relY, boolToInt(req.IncludeCursor),
 	)
-	return []string{
+	args := []string{
 		"-y",
 		"-filter_complex", dda + ",hwdownload,format=bgra",
-		"-c:v", "h264_nvenc", // encoder is selected at runtime in encoders.go
-		"-pix_fmt", "yuv420p",
-		"-movflags", "+faststart",
+		"-c:v", enc.Name, // selected by the codec policy in encoders.go
+	}
+	args = append(args, enc.Args...)
+	args = append(args, "-pix_fmt", "yuv420p")
+	args = append(args, containerFlags(outPath)...)
+	args = append(args,
 		"-g", "60", // keyframe every 60f so -c copy trims land <=1s off
 		outPath,
-	}, nil
+	)
+	return args, nil
 }
 
 // BuildVideoArgsGDI builds ffmpeg args for the software gdigrab fallback.
 //
 // gdigrab offsets ARE virtual-desktop coordinates (negatives allowed), so the
 // Rect is used DIRECTLY with no rebasing.
-func BuildVideoArgsGDI(req CaptureRequest, outPath string) []string {
-	return []string{
+func BuildVideoArgsGDI(req CaptureRequest, enc VideoEncoder, outPath string) []string {
+	args := []string{
 		"-y",
 		"-f", "gdigrab",
 		"-framerate", "60",
@@ -61,11 +67,24 @@ func BuildVideoArgsGDI(req CaptureRequest, outPath string) []string {
 		"-video_size", fmt.Sprintf("%dx%d", req.Rect.W, req.Rect.H),
 		"-draw_mouse", boolToInt(req.IncludeCursor),
 		"-i", "desktop",
-		"-c:v", "libx264", // NOTE: x264 is GPL+AVC-royalty; default output is VP9/WebM (see encoders.go)
-		"-pix_fmt", "yuv420p",
-		"-movflags", "+faststart",
-		"-g", "60",
-		outPath,
+		"-c:v", enc.Name, // selected by the codec policy in encoders.go
+	}
+	args = append(args, enc.Args...)
+	args = append(args, "-pix_fmt", "yuv420p")
+	args = append(args, containerFlags(outPath)...)
+	args = append(args, "-g", "60", outPath)
+	return args
+}
+
+// containerFlags returns muxer-specific flags for outPath's container.
+// `-movflags +faststart` is a mov/mp4 PRIVATE option: passing it to the WebM
+// muxer is an error, so it must be gated on the extension, not always-on.
+func containerFlags(outPath string) []string {
+	switch strings.ToLower(filepath.Ext(outPath)) {
+	case ".mp4", ".mov", ".m4v":
+		return []string{"-movflags", "+faststart"}
+	default:
+		return nil
 	}
 }
 
@@ -88,16 +107,27 @@ func BuildStillFallbackArgs(req CaptureRequest, outPath string) []string {
 // BuildTrimArgs builds ffmpeg args for Developer 2's trim. Precise=false uses
 // stream-copy (fast, snaps to nearest preceding keyframe); Precise=true
 // re-encodes for frame accuracy.
+//
+// The precise re-encode codec follows the OUTPUT container: WebM (the default
+// recording container, see encoders.go) can only carry VP8/VP9/AV1 + Opus/
+// Vorbis — emitting H.264/AAC into it is an error.
 func BuildTrimArgs(req TrimRequest) []string {
 	ss := msToTimecode(req.StartMs)
 	to := msToTimecode(req.EndMs)
 	if req.Precise {
-		return []string{"-y", "-i", req.VideoPath, "-ss", ss, "-to", to,
-			"-c:v", "libx264", "-c:a", "aac", "-movflags", "+faststart", req.OutPath}
+		args := []string{"-y", "-i", req.VideoPath, "-ss", ss, "-to", to}
+		if strings.EqualFold(filepath.Ext(req.OutPath), ".webm") {
+			args = append(args, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "30", "-c:a", "libopus")
+		} else {
+			args = append(args, "-c:v", "libx264", "-c:a", "aac")
+		}
+		args = append(args, containerFlags(req.OutPath)...)
+		return append(args, req.OutPath)
 	}
 	// -ss before -i for fast seek; -c copy for lossless stream copy.
-	return []string{"-y", "-ss", ss, "-to", to, "-i", req.VideoPath,
-		"-c", "copy", "-movflags", "+faststart", req.OutPath}
+	args := []string{"-y", "-ss", ss, "-to", to, "-i", req.VideoPath, "-c", "copy"}
+	args = append(args, containerFlags(req.OutPath)...)
+	return append(args, req.OutPath)
 }
 
 func boolToInt(b bool) string {

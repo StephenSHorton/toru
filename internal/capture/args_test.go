@@ -27,11 +27,12 @@ func TestVideoArgsRebasing(t *testing.T) {
 		Rect: Rect{X: -2460, Y: 100, W: 800, H: 600},
 	}
 
-	dda, err := BuildVideoArgsDDA(req, screens, "out.mp4")
+	enc := VideoEncoder{Name: "h264_nvenc", Ext: ".mp4"}
+	dda, err := BuildVideoArgsDDA(req, screens, enc, "out.mp4")
 	if err != nil {
 		t.Fatalf("BuildVideoArgsDDA: %v", err)
 	}
-	gdi := BuildVideoArgsGDI(req, "out.mp4")
+	gdi := BuildVideoArgsGDI(req, enc, "out.mp4")
 
 	ddaStr, gdiStr := joined(dda), joined(gdi)
 
