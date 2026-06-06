@@ -175,6 +175,9 @@ func (r *Recorder) spawn(bin string, args []string, req CaptureRequest, outPath 
 		_ = stdin.Close()
 		return nil, fmt.Errorf("spawn ffmpeg: %w", err)
 	}
+	// Kill-on-job-close guard: a force-killed/crashed app must never leave an
+	// orphaned ffmpeg silently recording the screen.
+	tieToProcessLifetime(cmd)
 
 	rec := &recording{
 		cmd: cmd, stdin: stdin, outPath: outPath, req: req,

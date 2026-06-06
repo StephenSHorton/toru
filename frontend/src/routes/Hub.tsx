@@ -1,12 +1,20 @@
 import { Button } from "@/components/ui/button";
 import { Camera, Video, SquareDashed, Keyboard } from "lucide-react";
 import { Updater } from "@/updater/Updater";
+import { WindowsService } from "@/lib/api";
 
 // Dev hub — a Phase-0 convenience to open each surface. The shipping app opens
 // the overlay from a global hotkey and lives in the tray; this hub just lets
 // both developers jump straight to their route during development.
 function go(view: string) {
   window.location.search = `?view=${view}`;
+}
+
+// The capture overlay is NOT an in-window route: it needs the real Go session
+// (frozen stills + one window per monitor + query params). Navigating this
+// window to ?view=overlay renders a dead black overlay with no params.
+function openOverlay() {
+  void WindowsService.OpenOverlay();
 }
 
 export default function Hub() {
@@ -22,7 +30,7 @@ export default function Hub() {
       </div>
 
       <div className="frost flex flex-col gap-3 p-5" style={{ width: 360 }}>
-        <Button onClick={() => go("overlay")} className="justify-start">
+        <Button onClick={openOverlay} className="justify-start">
           <SquareDashed /> Open capture overlay
         </Button>
         <Button variant="secondary" onClick={() => go("editor")} className="justify-start">

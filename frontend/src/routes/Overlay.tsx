@@ -5,10 +5,11 @@
 // and serves it at /__shot/<id>; this route paints that still fullscreen, dims it
 // with a CSS mask, and reveals the bright (undimmed) still under the crop hole.
 //
-// ONLY the primary monitor's window is interactive: it draws the crop rectangle
-// (body drag + 8 resize handles, min-size, CLAMPED to the monitor for v1), a
-// dimension badge in PHYSICAL px, and the frosted control pill (Screenshot/Record
-// toggle + Capture + Cancel). Non-primary windows are dim-only.
+// EVERY monitor's window is interactive: each draws its own crop rectangle
+// (body drag + 8 resize handles, min-size, CLAMPED to the monitor — cross-
+// monitor crops are still deferred), a dimension badge in PHYSICAL px, and the
+// frosted control pill (Screenshot/Record toggle + Full screen + Capture +
+// Cancel). Committing from a monitor's pill captures THAT monitor's crop.
 //
 // CORRECTNESS: committing a SCREENSHOT crops the FROZEN still in Go (never a live
 // re-capture, which would photograph these dim windows). VIDEO dismisses the
@@ -21,7 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Video, X } from "lucide-react";
+import { Camera, Maximize, Video, X } from "lucide-react";
 import { OverlayService } from "@/lib/api";
 import {
   parseOverlayQuery,
@@ -102,7 +103,7 @@ export default function Overlay() {
     const { emit } = cropToPhysical(crop, q.scale, q.bx, q.by, q.mw, q.mh);
     const req: CaptureRequest = {
       mode: "video",
-      sub: "region",
+      sub: isFullScreen ? "fullscreen" : "region",
       monitorId: q.mon,
       rect: emit,
       dpiScale: q.scale,
@@ -131,12 +132,13 @@ export default function Overlay() {
     return () => window.removeEventListener("keydown", onKey);
   }, [cancel]);
 
-  // ----- interactive crop (primary only) -----
+  // ----- interactive crop (every monitor) -----
   // A pointer drag either MOVES the crop body or RESIZES via a handle. All math
-  // is in CSS px and clamped to the monitor (cross-monitor crop is deferred).
+  // is in CSS px and clamped to the monitor (cross-monitor crop is deferred —
+  // each monitor owns its OWN crop; committing from a monitor's pill captures
+  // THAT monitor's crop, carried by q.mon).
   const beginDrag = useCallback(
     (e: React.PointerEvent, handle: Handle | "body") => {
-      if (!q.primary) return;
       e.preventDefault();
       e.stopPropagation();
       (e.target as Element).setPointerCapture?.(e.pointerId);
@@ -167,8 +169,22 @@ export default function Overlay() {
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
     },
-    [q.primary, crop, monW, monH, persistCrop],
+    [crop, monW, monH, persistCrop],
   );
+
+  // Full screen: snap the crop to the entire monitor. The commit then carries
+  // sub="fullscreen" (the contract's sub-mode for whole-monitor capture).
+  const selectFullScreen = useCallback(() => {
+    const full = { left: 0, top: 0, width: monW, height: monH };
+    setCrop(full);
+    persistCrop(full);
+  }, [monW, monH, persistCrop]);
+
+  const isFullScreen =
+    crop.left <= 0 &&
+    crop.top <= 0 &&
+    crop.width >= monW &&
+    crop.height >= monH;
 
   // Badge values are the SAME rounded physical numbers as the saved crop.
   const { sub } = cropToPhysical(crop, q.scale, q.bx, q.by, q.mw, q.mh);
@@ -186,19 +202,13 @@ export default function Overlay() {
         />
       ) : null}
 
-      {/* Non-primary windows are DIM-ONLY: no crop hole, no ring. Cross-monitor
-          crop is deferred for v1, so the capture target only ever lives on the
-          primary — painting a bright centered "crop" here would mislead the user
-          about what Capture grabs and leave this monitor partially undimmed.
-          Primary windows get the four-panel mask (transparent crop hole). */}
-      {q.primary ? (
-        <DimMask crop={crop} monW={monW} monH={monH} />
-      ) : (
-        <div className="pointer-events-none absolute inset-0 bg-black/45" />
-      )}
+      {/* Four-panel dim mask with a transparent crop hole. EVERY monitor is
+          interactive: each window owns its own crop, and committing from a
+          monitor's pill captures that monitor (q.mon). */}
+      <DimMask crop={crop} monW={monW} monH={monH} />
 
-      {/* Interactive crop rectangle — PRIMARY ONLY. */}
-      {q.primary ? (
+      {/* Interactive crop rectangle — every monitor. */}
+      {!isFullScreen ? (
         <div
           className="absolute ring-1 ring-primary/90"
           style={{
@@ -226,11 +236,17 @@ export default function Overlay() {
             />
           ))}
         </div>
-      ) : null}
+      ) : (
+        /* Full-screen mode: whole-monitor ring + badge, no drag affordances. */
+        <div className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-primary/90">
+          <div className="frost absolute left-1/2 top-3 -translate-x-1/2 px-2 py-0.5 text-[11px] tabular-nums">
+            Entire screen · {sub.w} × {sub.h}
+          </div>
+        </div>
+      )}
 
-      {/* frosted control pill — primary monitor only */}
-      {q.primary ? (
-        <div className="frost absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-1 p-1.5">
+      {/* frosted control pill — every monitor (commit captures THIS monitor) */}
+      <div className="frost absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-1 p-1.5">
           <Button
             size="sm"
             variant={mode === "screenshot" ? "default" : "ghost"}
@@ -246,6 +262,15 @@ export default function Overlay() {
             <Video /> Record
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />
+          <Button
+            size="sm"
+            variant={isFullScreen ? "default" : "ghost"}
+            onClick={selectFullScreen}
+            title="Capture the entire monitor"
+          >
+            <Maximize /> Full screen
+          </Button>
+          <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="ghost" onClick={cancel}>
             <X /> Cancel
           </Button>
@@ -257,7 +282,6 @@ export default function Overlay() {
             {mode === "video" ? "Start Recording" : "Capture"}
           </Button>
         </div>
-      ) : null}
     </div>
   );
 }

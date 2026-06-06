@@ -40,8 +40,9 @@ type OverlayService struct {
 	// for a started recording (injected by main via SetRecordingControlsOpener).
 	// It MUST be opened from Go: StartRecording dismisses the overlay windows
 	// first, which destroys the calling window's JS context mid-await — a
-	// frontend follow-up call after StartRecording never executes.
-	recordingControlsOpener func(handleID string)
+	// frontend follow-up call after StartRecording never executes. monitorID
+	// lets the opener place the pill OFF the recorded monitor.
+	recordingControlsOpener func(handleID string, monitorID int)
 
 	mu sync.RWMutex
 	// windows are the live overlay windows (one per monitor); handles kept so
@@ -86,7 +87,7 @@ func (s *OverlayService) SetEditorOpener(fn func(imagePath string)) { s.editorOp
 // SetRecordingControlsOpener injects the recording-pill opener callback. Go-only.
 //
 //wails:ignore
-func (s *OverlayService) SetRecordingControlsOpener(fn func(handleID string)) {
+func (s *OverlayService) SetRecordingControlsOpener(fn func(handleID string, monitorID int)) {
 	s.recordingControlsOpener = fn
 }
 
@@ -389,7 +390,7 @@ func (s *OverlayService) StartRecording(req capture.CaptureRequest) (string, err
 		return "", err
 	}
 	if s.recordingControlsOpener != nil {
-		s.recordingControlsOpener(handle)
+		s.recordingControlsOpener(handle, req.MonitorID)
 	}
 	return handle, nil
 }

@@ -100,8 +100,13 @@ export function SaveCrop(monitorID: number, sub: capture$0.Rect): $CancellablePr
 
 /**
  * StartRecording dismisses the overlay FIRST (so ffmpeg records the live region,
- * not the dim overlays), THEN begins recording. req.Rect is the virtual-desktop
- * physical Rect the front end emits.
+ * not the dim overlays), THEN begins recording, THEN opens the recording pill
+ * (timer + Stop). req.Rect is the virtual-desktop physical Rect the front end
+ * emits.
+ * 
+ * The pill is opened HERE, not by the calling frontend: DismissSession destroys
+ * the overlay window that invoked this binding, so any JS after the await is
+ * dead code — a recording with no Go-opened pill would be unstoppable.
  */
 export function StartRecording(req: capture$0.CaptureRequest): $CancellablePromise<string> {
     return $Call.ByID(3056857500, req);

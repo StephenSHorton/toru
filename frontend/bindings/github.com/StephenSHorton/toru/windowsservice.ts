@@ -50,16 +50,16 @@ export function OpenOverlay(): $CancellablePromise<void> {
 
 /**
  * OpenRecordingControls opens the small frameless always-on-top "recording
- * pill" (timer + Stop) for an in-flight recording. The overlay calls this
- * right after StartRecording — without it a recording has NO stop affordance
- * (the tray Stop square is still a Phase-0 stub).
+ * pill" (timer + Stop) for an in-flight recording. The overlay service calls
+ * this from Go right after StartRecording — without it a recording has NO
+ * stop affordance (the tray Stop square is still a Phase-0 stub).
  * 
- * Placement: top-center of the PRIMARY monitor's work area. The pill can
- * appear inside the recorded region (e.g. fullscreen recordings) — acceptable
- * for v1, same trade-off Loom makes; the tray Stop square later removes it.
+ * Placement: top-center of a monitor that is NOT being recorded when one
+ * exists (so the pill never appears inside a fullscreen recording); otherwise
+ * top-center of the recorded monitor's work area — same trade-off Loom makes.
  */
-export function OpenRecordingControls(handleID: string): $CancellablePromise<void> {
-    return $Call.ByID(4141771617, handleID);
+export function OpenRecordingControls(handleID: string, monitorID: number): $CancellablePromise<void> {
+    return $Call.ByID(4141771617, handleID, monitorID);
 }
 
 /**
