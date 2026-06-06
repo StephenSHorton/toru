@@ -27,20 +27,25 @@ func TestVideoArgsRebasing(t *testing.T) {
 		Rect: Rect{X: -2460, Y: 100, W: 800, H: 600},
 	}
 
-	dda, err := BuildVideoArgsDDA(req, screens, "out.mp4")
+	enc := VideoEncoder{Name: "h264_nvenc", Ext: ".mp4"}
+	// ddaIdx 0 while MonitorID is 1: the DXGI output order is NOT the kbinani
+	// order (observed inverted in the wild), so output_idx comes from the
+	// resolved DXGI index while the offset rebase uses the kbinani screen.
+	dda, err := BuildVideoArgsDDA(req, screens, 0, enc, "out.mp4")
 	if err != nil {
 		t.Fatalf("BuildVideoArgsDDA: %v", err)
 	}
-	gdi := BuildVideoArgsGDI(req, "out.mp4")
+	gdi := BuildVideoArgsGDI(req, enc, "out.mp4")
 
 	ddaStr, gdiStr := joined(dda), joined(gdi)
 
-	// ddagrab: rebased to monitor-relative (100,100) + output_idx=1.
+	// ddagrab: rebased to monitor-relative (100,100) via MonitorID's screen…
 	if !strings.Contains(ddaStr, "offset_x=100:offset_y=100") {
 		t.Errorf("ddagrab not rebased to monitor-relative (want offset_x=100:offset_y=100):\n%s", ddaStr)
 	}
-	if !strings.Contains(ddaStr, "output_idx=1") {
-		t.Errorf("ddagrab missing output_idx=1:\n%s", ddaStr)
+	// …while output_idx is the caller-resolved DXGI index, NOT MonitorID.
+	if !strings.Contains(ddaStr, "output_idx=0") {
+		t.Errorf("ddagrab output_idx must be the resolved DXGI index (0), not MonitorID:\n%s", ddaStr)
 	}
 
 	// gdigrab: uses the raw virtual-desktop coordinate (-2460), NOT rebased.

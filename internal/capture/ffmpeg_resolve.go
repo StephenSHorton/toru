@@ -65,6 +65,7 @@ func RunFFmpeg(ctx context.Context, args []string) error {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
+	configureSysProcAttr(cmd) // no console flash from a -H windowsgui app
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("ffmpeg failed: %w\n%s", err, out)

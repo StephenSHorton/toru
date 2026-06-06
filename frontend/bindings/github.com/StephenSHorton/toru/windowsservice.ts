@@ -37,6 +37,20 @@ export function OpenOverlay(): $CancellablePromise<void> {
 }
 
 /**
+ * OpenRecordingControls opens the small frameless always-on-top "recording
+ * pill" (timer + Stop) for an in-flight recording. The overlay service calls
+ * this from Go right after StartRecording — without it a recording has NO
+ * stop affordance (the tray Stop square is still a Phase-0 stub).
+ * 
+ * Placement: top-center of a monitor that is NOT being recorded when one
+ * exists (so the pill never appears inside a fullscreen recording); otherwise
+ * top-center of the recorded monitor's work area — same trade-off Loom makes.
+ */
+export function OpenRecordingControls(handleID: string, monitorID: number): $CancellablePromise<void> {
+    return $Call.ByID(4141771617, handleID, monitorID);
+}
+
+/**
  * OpenSettings opens Toru's Settings/home window: the tray-driven hub that hosts
  * the Shortcuts panel, the updater/about, and a Capture button. Reached from the
  * tray menu, the tray left-click, the ApplicationStarted launch, and the editor's

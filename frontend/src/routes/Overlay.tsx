@@ -15,9 +15,11 @@
 //     annotation Toolbar. No separate editor window is ever opened for screenshots.
 // Both events broadcast to EVERY overlay window; each filters by its URL ?mon=.
 //
-// CAPTURE: the primary window draws the crop rectangle (body drag + 8 handles,
-// min-size, CLAMPED to the monitor); Capture calls OverlayService.EnterEdit (Go
-// crops the FROZEN in-memory pixels -> /__file PNG -> emits overlay:edit). EDIT:
+// CAPTURE: the ACTIVE window (one at a time, synced via overlay:activeMonitor;
+// starts on the primary, click any monitor to claim it) draws the crop
+// rectangle (body drag + 8 handles, min-size, CLAMPED to the monitor) or the
+// Full-screen ring; Capture calls OverlayService.EnterEdit (Go crops the
+// FROZEN in-memory pixels -> /__file PNG -> emits overlay:edit). EDIT:
 // the embedded EditorCanvas + overlays annotate in place; Copy/Save export the
 // native-resolution annotated PNG (exportActions math unchanged). Done/Esc hides
 // the overlay back to the tray (windows kept alive for instant re-engage).
@@ -30,7 +32,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type Konva from "konva";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
-import { Camera, Video, X } from "lucide-react";
+import { Camera, Maximize, Video, X } from "lucide-react";
 import { OverlayService } from "@/lib/api";
 import {
   parseOverlayQuery,
@@ -102,6 +104,19 @@ export default function Overlay() {
   // crop on each overlay:engage.
   const [crop, setCrop] = useState<CssRect>(() => centeredCrop(monW, monH));
 
+  // Exactly ONE monitor owns the capture selection at a time (starts on the
+  // primary each engage). Clicking an inactive monitor claims it via a Go
+  // broadcast; every window — including the claimer — syncs off the same
+  // event, so two crops can never look simultaneously active.
+  const [active, setActive] = useState(q.primary);
+  const claimActive = useCallback(() => {
+    void OverlayService.SetActiveMonitor(q.mon);
+  }, [q.mon]);
+
+  // prevRegionCrop remembers the region crop across the Full-screen toggle so
+  // toggling OFF full screen restores what the user had, not a default.
+  const prevRegionCrop = useRef<CssRect | null>(null);
+
   const saveTimer = useRef<number | null>(null);
 
   // Editor keyboard + clipboard paste — mounted once, GATED to edit mode. In
@@ -128,6 +143,8 @@ export default function Overlay() {
       setCrop(seedCrop(d.crop, d.scale, monW, monH)); // reset crop from restored
       setEditPayload(null);
       setMode("capture"); // a window last in edit returns to capture
+      setActive(q.primary); // selection resets to the primary each engage
+      prevRegionCrop.current = null;
       // Preload + decode the cache-busted backdrop, THEN ACK so Go can Show.
       const img = new window.Image();
       const ack = () => void OverlayService.OverlayReady(q.mon);
@@ -144,6 +161,12 @@ export default function Overlay() {
       const d = ev.data as MonitorSession;
       if (d.monitorId !== q.mon) return; // filter by this window
       applyEngage(d);
+    });
+
+    // Selection sync: exactly one monitor owns the capture chrome at a time.
+    const offActive = WailsEvents.On("overlay:activeMonitor", (ev) => {
+      const mon = Array.isArray(ev.data) ? ev.data[0] : ev.data;
+      setActive(mon === q.mon);
     });
 
     const offEdit = WailsEvents.On(Events.OverlayEdit, (ev) => {
@@ -175,6 +198,7 @@ export default function Overlay() {
 
     return () => {
       offEngage();
+      offActive();
       offEdit();
     };
   }, [q.mon, loadBaseImage, applyEngage]);
@@ -205,6 +229,27 @@ export default function Overlay() {
   const cancel = useCallback(() => {
     void OverlayService.Cancel();
   }, []);
+
+  // Full screen is a TOGGLE: on snaps the crop to the entire monitor; off
+  // restores the region crop the user had before (or the seeded one). Without
+  // the toggle-off there is no way back to region mode.
+  const isFullScreen =
+    crop.left <= 0 &&
+    crop.top <= 0 &&
+    crop.width >= monW &&
+    crop.height >= monH;
+  const toggleFullScreen = useCallback(() => {
+    if (isFullScreen) {
+      const restored = prevRegionCrop.current ?? centeredCrop(monW, monH);
+      setCrop(restored);
+      persistCrop(restored);
+    } else {
+      prevRegionCrop.current = crop;
+      const full = { left: 0, top: 0, width: monW, height: monH };
+      setCrop(full);
+      persistCrop(full);
+    }
+  }, [isFullScreen, crop, monW, monH, persistCrop]);
 
   // Screenshot Capture -> EnterEdit (Go crops the FROZEN pixels and emits
   // overlay:edit, which flips THIS window to edit mode). We do NOT optimistically
@@ -249,7 +294,7 @@ export default function Overlay() {
     );
     const req: CaptureRequest = {
       mode: "video",
-      sub: "region",
+      sub: isFullScreen ? "fullscreen" : "region",
       monitorId: q.mon,
       rect: emit,
       dpiScale: session.scale,
@@ -262,7 +307,7 @@ export default function Overlay() {
     } finally {
       setBusy(false);
     }
-  }, [busy, crop, session, q.mon]);
+  }, [busy, crop, session, q.mon, isFullScreen]);
 
   // Window-level Esc: ONLY cancels in capture mode. In edit mode, useEditorKeyboard
   // owns Esc (clear selection / back to select tool); the Toolbar Done button is
@@ -278,10 +323,9 @@ export default function Overlay() {
     return () => window.removeEventListener("keydown", onKey);
   }, [mode, cancel]);
 
-  // ----- interactive crop (primary only, capture mode) -----
+  // ----- interactive crop (ACTIVE monitor, capture mode) -----
   const beginDrag = useCallback(
     (e: React.PointerEvent, handle: Handle | "body") => {
-      if (!q.primary) return;
       e.preventDefault();
       e.stopPropagation();
       (e.target as Element).setPointerCapture?.(e.pointerId);
@@ -311,7 +355,7 @@ export default function Overlay() {
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
     },
-    [q.primary, crop, monW, monH, persistCrop],
+    [crop, monW, monH, persistCrop],
   );
 
   // ===== EDIT MODE =====
@@ -380,16 +424,23 @@ export default function Overlay() {
         />
       ) : null}
 
-      {/* Non-primary windows are DIM-ONLY (cross-monitor crop deferred); primary
-          gets the four-panel mask (transparent crop hole). */}
-      {q.primary ? (
-        <DimMask crop={crop} monW={monW} monH={monH} />
-      ) : (
-        <div className="pointer-events-none absolute inset-0 bg-black/45" />
-      )}
+      {/* Inactive monitors are dim-only with a click-to-select hint: only the
+          ACTIVE monitor shows crop + pill, so there is never any ambiguity
+          about what Capture/Record will grab. */}
+      {!active ? (
+        <div className="absolute inset-0 cursor-pointer" onPointerDown={claimActive}>
+          <div className="pointer-events-none absolute inset-0 bg-black/45" />
+          <div className="frost pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 text-xs text-muted-foreground">
+            Click to capture this screen
+          </div>
+        </div>
+      ) : null}
 
-      {/* Interactive crop rectangle — PRIMARY ONLY. */}
-      {q.primary ? (
+      {/* Four-panel mask with a transparent crop hole — ACTIVE monitor only. */}
+      {active ? <DimMask crop={crop} monW={monW} monH={monH} /> : null}
+
+      {/* Interactive crop rectangle — ACTIVE monitor, region mode. */}
+      {active && !isFullScreen ? (
         <div
           className="absolute ring-1 ring-primary/90"
           style={{
@@ -417,11 +468,19 @@ export default function Overlay() {
             />
           ))}
         </div>
+      ) : active ? (
+        /* Full-screen mode: whole-monitor ring + badge; click Full screen
+           again (or this badge) to return to the region crop. */
+        <div className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-primary/90">
+          <div className="frost absolute left-1/2 top-3 -translate-x-1/2 px-2 py-0.5 text-[11px] tabular-nums">
+            Entire screen · {sub.w} × {sub.h}
+          </div>
+        </div>
       ) : null}
 
-      {/* frosted control pill — primary monitor only. bottom-4 to match the
+      {/* frosted control pill — ACTIVE monitor only. bottom-4 to match the
           Toolbar's anchor so the capture->edit swap reads as a morph. */}
-      {q.primary ? (
+      {active ? (
         <div className="frost absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 p-1.5">
           <Button
             size="sm"
@@ -436,6 +495,15 @@ export default function Overlay() {
             onClick={() => setToolMode("video")}
           >
             <Video /> Record
+          </Button>
+          <div className="mx-1 h-5 w-px bg-border" />
+          <Button
+            size="sm"
+            variant={isFullScreen ? "default" : "ghost"}
+            onClick={toggleFullScreen}
+            title={isFullScreen ? "Back to region selection" : "Capture the entire monitor"}
+          >
+            <Maximize /> Full screen
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="ghost" onClick={cancel}>

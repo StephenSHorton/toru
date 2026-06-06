@@ -127,6 +127,72 @@ func (w *WindowsService) OpenTrim(videoPath string) {
 	})
 }
 
+// OpenRecordingControls opens the small frameless always-on-top "recording
+// pill" (timer + Stop) for an in-flight recording. The overlay service calls
+// this from Go right after StartRecording — without it a recording has NO
+// stop affordance (the tray Stop square is still a Phase-0 stub).
+//
+// Placement: top-center of a monitor that is NOT being recorded when one
+// exists (so the pill never appears inside a fullscreen recording); otherwise
+// top-center of the recorded monitor's work area — same trade-off Loom makes.
+func (w *WindowsService) OpenRecordingControls(handleID string, monitorID int) {
+	const pillW, pillH = 240, 64
+	opts := application.WebviewWindowOptions{
+		Name:             "toru-recording-pill",
+		Title:            "Toru — Recording",
+		URL:              "/?view=recording&handle=" + url.QueryEscape(handleID),
+		Width:            pillW,
+		Height:           pillH,
+		Frameless:        true,
+		AlwaysOnTop:      true,
+		DisableResize:    true,
+		BackgroundColour: dark,
+		Windows: application.WindowsWindow{
+			DisableFramelessWindowDecorations: true,
+			HiddenOnTaskbar:                   true,
+		},
+	}
+	if scr := pillScreen(w.app, monitorID); scr != nil {
+		opts.X = scr.WorkArea.X + (scr.WorkArea.Width-pillW)/2
+		opts.Y = scr.WorkArea.Y + 16
+		opts.InitialPosition = application.WindowXY
+	}
+	w.app.Window.NewWithOptions(opts)
+}
+
+// pillScreen picks the Wails screen for the recording pill: prefer one whose
+// PHYSICAL bounds do not overlap the recorded monitor (contract MonitorID ==
+// kbinani EnumDisplays index), fall back to the primary. Matching is by
+// rectangle overlap, same as the overlay's screen enrichment.
+func pillScreen(app *application.App, monitorID int) *application.Screen {
+	if app == nil {
+		return nil
+	}
+	screens := app.Screen.GetAll()
+	if len(screens) == 0 {
+		return nil
+	}
+	var rec *capture.DisplayBounds
+	for _, d := range capture.EnumDisplays() {
+		if d.Index == monitorID {
+			d := d
+			rec = &d
+			break
+		}
+	}
+	if rec != nil {
+		for _, scr := range screens {
+			b := scr.PhysicalBounds
+			overlapsX := b.X < rec.X+rec.W && rec.X < b.X+b.Width
+			overlapsY := b.Y < rec.Y+rec.H && rec.Y < b.Y+b.Height
+			if !(overlapsX && overlapsY) {
+				return scr
+			}
+		}
+	}
+	return app.Screen.GetPrimary()
+}
+
 // SimulateCapture runs the capture seam for the given mode and opens the matching
 // editor window. It exercises the whole path — capture -> CaptureResult ->
 // route-by-mode -> editor window — without going through the overlay/hotkey.

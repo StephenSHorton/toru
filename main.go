@@ -63,9 +63,10 @@ func main() {
 	dpi.EnsurePerMonitorV2()
 
 	// The shared capture seam. RealCapturer does real still (screenshot)
-	// capture via kbinani/screenshot and delegates the video path to the
-	// StubCapturer until the FFmpeg pipeline lands — the contract does not move.
-	capturer := capture.NewRealCapturer(&capture.StubCapturer{})
+	// capture via kbinani/screenshot and delegates the video path to the real
+	// FFmpeg Recorder (ddagrab GPU path with gdigrab software fallback; VP9/
+	// WebM by default per the codec policy in internal/capture/encoders.go).
+	capturer := capture.NewRealCapturer(capture.NewRecorder())
 
 	// Services bound to the frontend.
 	overlaySvc := overlay.NewService(capturer)
@@ -118,6 +119,11 @@ func main() {
 	// overlay-v2: screenshots are annotated IN PLACE on the same overlay surface
 	// (single-surface morph via OverlayService.EnterEdit) — NO separate editor
 	// window is opened. windowsSvc.OpenEditor stays only for SimulateCapture/dev.
+	//
+	// Video keeps its Go-side window opener: StartRecording dismisses the overlay
+	// windows (record the live region, not the dim), which destroys the calling
+	// JS context — so the recording pill (timer + Stop) MUST be opened from Go.
+	overlaySvc.SetRecordingControlsOpener(windowsSvc.OpenRecordingControls)
 
 	// Install the global hotkey hook AFTER injection (windowsSvc.overlay is set
 	// above), so a hotkey press that lands before app.Run can still open the

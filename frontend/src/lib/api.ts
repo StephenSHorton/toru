@@ -16,6 +16,7 @@
 //   HotkeyService.ResetShortcut(action: string): Promise<void>
 //   WindowsService.OpenOverlay(): Promise<void>   (capture overlay session)
 //   WindowsService.OpenSettings(): Promise<void>  (Settings/home window)
+//   WindowsService.OpenTrim(videoPath): Promise<void>  (Dev 2 trim editor)
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";

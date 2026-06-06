@@ -32,6 +32,14 @@ type OverlayService struct {
 	app *application.App
 	cap capture.Capturer
 
+	// recordingControlsOpener opens the floating recording pill (timer + Stop)
+	// for a started recording (injected by main via SetRecordingControlsOpener).
+	// It MUST be opened from Go: StartRecording hides the overlay windows
+	// first, which leaves no live JS context owning the recording — a frontend
+	// follow-up call after StartRecording is dead code. monitorID lets the
+	// opener place the pill OFF the recorded monitor.
+	recordingControlsOpener func(handleID string, monitorID int)
+
 	mu sync.RWMutex
 	// windows are the REUSED overlay windows, keyed by monitorID. Created once
 	// (Hidden), kept alive across captures, Hidden on Done/Cancel/Record, and
@@ -79,6 +87,13 @@ func NewService(cap capture.Capturer) *OverlayService {
 //
 //wails:ignore
 func (s *OverlayService) SetApp(app *application.App) { s.app = app }
+
+// SetRecordingControlsOpener injects the recording-pill opener callback. Go-only.
+//
+//wails:ignore
+func (s *OverlayService) SetRecordingControlsOpener(fn func(handleID string, monitorID int)) {
+	s.recordingControlsOpener = fn
+}
 
 // ListScreens is THE single source of truth for monitor enumeration that both
 // halves trust. ID == kbinani idx == ddagrab output_idx.
@@ -615,11 +630,24 @@ func (s *OverlayService) Cancel() error {
 }
 
 // StartRecording hides the overlay FIRST (so ffmpeg records the live region, not
-// the dim overlays) while KEEPING the windows alive, THEN begins recording.
-// req.Rect is the virtual-desktop physical Rect the front end emits.
+// the dim overlays) while KEEPING the windows alive, THEN begins recording, THEN
+// opens the recording pill (timer + Stop). req.Rect is the virtual-desktop
+// physical Rect the front end emits.
+//
+// The pill is opened HERE, not by the calling frontend: the overlay surface is
+// hidden the moment recording starts, so no live JS context owns the recording —
+// a frontend follow-up call after this await would be dead code, leaving the
+// recording unstoppable.
 func (s *OverlayService) StartRecording(req capture.CaptureRequest) (string, error) {
 	s.HideOverlay()
-	return s.cap.StartRecording(req)
+	handle, err := s.cap.StartRecording(req)
+	if err != nil {
+		return "", err
+	}
+	if s.recordingControlsOpener != nil {
+		s.recordingControlsOpener(handle, req.MonitorID)
+	}
+	return handle, nil
 }
 
 // servedFileURL turns an absolute temp-file path (under %TEMP%/toru) into the
@@ -672,4 +700,17 @@ const (
 	EventCaptureThumbnail = "capture:thumbnail"
 	EventOverlayEngage    = "overlay:engage"
 	EventOverlayEdit      = "overlay:edit"
+
+	// EventOverlayActive is overlay-INTERNAL (window-to-window selection sync,
+	// not a Dev1<->Dev2 contract event): exactly ONE monitor owns the capture
+	// selection at a time; every other overlay window drops its crop/pill
+	// chrome and shows a "click to select" hint.
+	EventOverlayActive = "overlay:activeMonitor"
 )
+
+// SetActiveMonitor broadcasts which monitor owns the capture selection. Called
+// by an overlay window when the user clicks into it; all windows (including
+// the caller) receive the event and show/hide their selection chrome.
+func (s *OverlayService) SetActiveMonitor(monitorID int) {
+	s.emit(EventOverlayActive, monitorID)
+}

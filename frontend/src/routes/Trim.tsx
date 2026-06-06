@@ -24,7 +24,7 @@ export default function Trim() {
       <div className="flex flex-1 items-center justify-center p-4">
         <video
           ref={vidRef}
-          src="/sample.mp4"
+          src={vidPath || "/sample.mp4"}
           className="max-h-full max-w-full border"
           onEnded={() => setPlaying(false)}
         />
