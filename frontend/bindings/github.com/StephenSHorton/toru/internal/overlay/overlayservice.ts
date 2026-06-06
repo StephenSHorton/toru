@@ -19,11 +19,31 @@ import * as capture$0 from "../capture/models.js";
 import * as $models from "./models.js";
 
 /**
- * BeginSession is the launch entrypoint. It enumerates screens, freezes EVERY
- * monitor's still BEFORE any overlay window is shown, restores the persisted
- * primary crop (or a centered default), opens one window per monitor, and
- * returns the per-monitor session payloads. Returning []MonitorSession also lets
- * the binding generator emit the MonitorSession TS type.
+ * BeginSession is THE engage entrypoint (Win+Shift+S / tray / Settings Capture).
+ * In overlay-v2 it REUSES the per-monitor windows (created once, kept hidden):
+ * 
+ * 	(1) ensureWindows — create any missing window Hidden; Hide() any still-visible,
+ * 	    and (only if one WAS visible, e.g. New-from-edit) settle one DWM frame so the
+ * 	    fading overlay can't be baked into the next freeze.
+ * 	(2) freezeAll — concurrent in-memory freeze + JPEG backdrop, while HIDDEN.
+ * 	(3) install the fresh frozenImg/jpegCache maps (dropping the previous refs).
+ * 	(4) per monitor (STILL hidden): SetBounds, publish the session to s.pending,
+ * 	    then Emit(overlay:engage) so the reused React window swaps its backdrop <img>
+ * 	    to the fresh ?g= URL.
+ * 
+ * It DOES NOT Show the windows here. Showing is gated on a JS ACK: the React
+ * overlay:engage (or RequestEngage-pull) handler, AFTER it has set the session and
+ * the new backdrop <img> has DECODED, calls OverlayReady(monitorID), which Shows
+ * THAT window. Firing-and-hoping (Emit-then-Show) is racy — app.Event.Emit
+ * dispatches to windows on a NEWLY SPAWNED goroutine and returns immediately, so a
+ * Go-side Show could win the main-thread queue and reveal the PRIOR session's DOM
+ * (stale backdrop, or a whole stale annotation editor) before React repaints. The
+ * ACK closes that race AND the "first capture before WebView2 finished loading"
+ * blank-overlay window (a window that hasn't mounted simply never ACKs until it
+ * has, and RequestEngage lets a late mount pull the session it missed).
+ * 
+ * Returning []MonitorSession also lets the binding generator emit the
+ * MonitorSession TS type.
  */
 export function BeginSession(): $CancellablePromise<$models.MonitorSession[]> {
     return $Call.ByID(142875180).then(($result: any) => {
@@ -32,19 +52,21 @@ export function BeginSession(): $CancellablePromise<$models.MonitorSession[]> {
 }
 
 /**
- * Cancel dismisses ALL overlay windows then re-opens the dev Hub so editors stay
- * reachable during Phase 0, and notifies the UI.
+ * Cancel hides the overlay (keeping windows alive) and returns the user to idle
+ * (the tray), emitting capture:cancelled. Toru lives in the tray; no window is
+ * opened on cancel.
  */
 export function Cancel(): $CancellablePromise<void> {
     return $Call.ByID(63226937);
 }
 
 /**
- * Commit is a thin compatibility shim kept so existing bindings/tests don't
- * break. For screenshots it routes through the frozen-still crop using req.Rect
- * as the contract Rect and deriving the monitor-local sub-rect from the owning
- * screen's origin. New code should call CommitScreenshot directly. Video is
- * delegated to StartRecording (the overlay records the live region).
+ * Commit is a thin compatibility shim kept so existing bindings/tests don't break.
+ * For screenshots it crops the in-memory frozen pixels (NEVER a live re-capture)
+ * using req.Rect as the contract Rect and deriving the monitor-local sub-rect from
+ * the owning screen's origin, returning the cropped PNG path WITHOUT dismissing or
+ * opening anything. The single-surface React path calls EnterEdit, not this. Video
+ * is delegated to StartRecording (the overlay records the live region).
  */
 export function Commit(req: capture$0.CaptureRequest): $CancellablePromise<capture$0.CaptureResult> {
     return $Call.ByID(3467496406, req).then(($result: any) => {
@@ -53,11 +75,12 @@ export function Commit(req: capture$0.CaptureRequest): $CancellablePromise<captu
 }
 
 /**
- * CommitScreenshot is THE screenshot path. It crops the FROZEN still for
- * monitorID (NEVER a live re-capture), dismisses the overlay, emits capture:done,
- * and opens the editor. rect is the contract Rect (virtual-desktop physical px)
- * carried in the result; sub is the monitor-local physical crop region applied to
- * the frozen PNG. Both are computed by the front end via CropToPhysical.
+ * CommitScreenshot crops the in-memory FROZEN pixels for monitorID (NEVER a live
+ * re-capture) to a LOSSLESS PNG, emits capture:done, and returns the result. In
+ * overlay-v2 it does NOT dismiss the overlay and does NOT open any editor window —
+ * the React screenshot path uses EnterEdit (single-surface morph) instead. This is
+ * retained for the Commit() shim / tests / dev. rect is the contract Rect
+ * (virtual-desktop physical px); sub is the monitor-local physical crop region.
  */
 export function CommitScreenshot(monitorID: number, rect: capture$0.Rect, sub: capture$0.Rect, copyOnCommit: boolean): $CancellablePromise<capture$0.CaptureResult> {
     return $Call.ByID(2125643298, monitorID, rect, sub, copyOnCommit).then(($result: any) => {
@@ -66,12 +89,39 @@ export function CommitScreenshot(monitorID: number, rect: capture$0.Rect, sub: c
 }
 
 /**
- * DismissSession closes ALL overlay windows (via the kept handles), clears the
- * session state, and best-effort deletes the temp frozen PNGs. Emitting
- * overlay:dismiss alone does NOT destroy the native windows — Close() does.
+ * EnterEdit is THE single-surface screenshot morph. It crops the in-memory FROZEN
+ * pixels for monitorID to a small LOSSLESS PNG (served at /__file/<base>) and
+ * emits overlay:edit to the SAME overlay window — NO separate editor window is
+ * opened. React loads the crop as the editor base image, sizes the Konva stage to
+ * the crop's CSS rect, positions it where the bright region was, and morphs the
+ * dock into the annotation toolbar.
+ * 
+ * sub is the monitor-local PHYSICAL crop (front end via CropToPhysical); cssLeft/
+ * cssTop/cssW/cssH are that region in CSS px within this window (echoed back so
+ * React positions/sizes the embedded stage). The window stays SHOWN — this is the
+ * same surface, not a re-engage.
  */
-export function DismissSession(): $CancellablePromise<void> {
-    return $Call.ByID(3873625871);
+export function EnterEdit(monitorID: number, sub: capture$0.Rect, cssLeft: number, cssTop: number, cssW: number, cssH: number): $CancellablePromise<void> {
+    return $Call.ByID(3165688663, monitorID, sub, cssLeft, cssTop, cssW, cssH);
+}
+
+/**
+ * Finish is the explicit edit-mode "Done" (hide to tray) with NO cancel
+ * semantics: it hides the overlay (keeping windows alive) WITHOUT firing
+ * capture:cancelled (which other code may treat as a real cancel).
+ */
+export function Finish(): $CancellablePromise<void> {
+    return $Call.ByID(4141131832);
+}
+
+/**
+ * HideOverlay is the NORMAL idle path (Done / Cancel / Record). It HIDES every
+ * visible overlay window — keeping the windows ALIVE for the next instant engage —
+ * and frees the in-memory frozen pixels + backdrop JPEGs (~100MB). It does NOT
+ * Close() the windows; Teardown does that, only at app shutdown.
+ */
+export function HideOverlay(): $CancellablePromise<void> {
+    return $Call.ByID(2148344373);
 }
 
 /**
@@ -86,6 +136,34 @@ export function DismissSession(): $CancellablePromise<void> {
 export function ListScreens(): $CancellablePromise<capture$0.ScreenInfo[]> {
     return $Call.ByID(3187571944).then(($result: any) => {
         return $$createType4($result);
+    });
+}
+
+/**
+ * OverlayReady is the JS ACK that gates Show. React calls it from the
+ * overlay:engage / RequestEngage handler AFTER it has applied the fresh session
+ * (capture mode) AND the new backdrop <img> has DECODED, so revealing the window
+ * can never flash the prior session's DOM (stale backdrop or stale editor). It
+ * Shows the window for monitorID (and Focuses it if primary), then drops that
+ * monitor's pending entry. Idempotent: a duplicate ACK after the pending entry is
+ * gone is a no-op.
+ */
+export function OverlayReady(monitorID: number): $CancellablePromise<void> {
+    return $Call.ByID(2196076020, monitorID);
+}
+
+/**
+ * RequestEngage is the defense-in-depth pull: a freshly-mounted overlay window
+ * (e.g. the FIRST capture, where WebView2 finished navigating only AFTER
+ * BeginSession broadcast overlay:engage) calls this to fetch the CURRENT engage's
+ * session for its monitor instead of waiting for a broadcast it may have missed.
+ * Returns nil when there is no active engage for that monitor (already shown, or
+ * idle). The React mount applies the returned session exactly like overlay:engage,
+ * then ACKs via OverlayReady once the backdrop decodes.
+ */
+export function RequestEngage(monitorID: number): $CancellablePromise<$models.MonitorSession | null> {
+    return $Call.ByID(1626364143, monitorID).then(($result: any) => {
+        return $$createType5($result);
     });
 }
 
@@ -108,14 +186,15 @@ export function SetActiveMonitor(monitorID: number): $CancellablePromise<void> {
 }
 
 /**
- * StartRecording dismisses the overlay FIRST (so ffmpeg records the live region,
- * not the dim overlays), THEN begins recording, THEN opens the recording pill
- * (timer + Stop). req.Rect is the virtual-desktop physical Rect the front end
- * emits.
+ * StartRecording hides the overlay FIRST (so ffmpeg records the live region, not
+ * the dim overlays) while KEEPING the windows alive, THEN begins recording, THEN
+ * opens the recording pill (timer + Stop). req.Rect is the virtual-desktop
+ * physical Rect the front end emits.
  * 
- * The pill is opened HERE, not by the calling frontend: DismissSession destroys
- * the overlay window that invoked this binding, so any JS after the await is
- * dead code — a recording with no Go-opened pill would be unstoppable.
+ * The pill is opened HERE, not by the calling frontend: the overlay surface is
+ * hidden the moment recording starts, so no live JS context owns the recording —
+ * a frontend follow-up call after this await would be dead code, leaving the
+ * recording unstoppable.
  */
 export function StartRecording(req: capture$0.CaptureRequest): $CancellablePromise<string> {
     return $Call.ByID(3056857500, req);
@@ -136,3 +215,4 @@ const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = capture$0.CaptureResult.createFrom;
 const $$createType3 = capture$0.ScreenInfo.createFrom;
 const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = $Create.Nullable($$createType0);

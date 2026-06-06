@@ -14,7 +14,9 @@ package overlay
 
 import (
 	"fmt"
+	"image"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,40 +32,54 @@ type OverlayService struct {
 	app *application.App
 	cap capture.Capturer
 
-	// openHub re-opens the dev Hub on dismiss-to-hub (injected by main via
-	// SetHubOpener). Held as a Go-only field — never exposed to JS.
-	openHub func()
-	// editorOpener opens the screenshot editor for a committed image path
-	// (injected by main via SetEditorOpener). Go-only; never exposed to JS.
-	editorOpener func(imagePath string)
 	// recordingControlsOpener opens the floating recording pill (timer + Stop)
 	// for a started recording (injected by main via SetRecordingControlsOpener).
-	// It MUST be opened from Go: StartRecording dismisses the overlay windows
-	// first, which destroys the calling window's JS context mid-await — a
-	// frontend follow-up call after StartRecording never executes. monitorID
-	// lets the opener place the pill OFF the recorded monitor.
+	// It MUST be opened from Go: StartRecording hides the overlay windows
+	// first, which leaves no live JS context owning the recording — a frontend
+	// follow-up call after StartRecording is dead code. monitorID lets the
+	// opener place the pill OFF the recorded monitor.
 	recordingControlsOpener func(handleID string, monitorID int)
 
 	mu sync.RWMutex
-	// windows are the live overlay windows (one per monitor); handles kept so
-	// DismissSession can Close() each — emitting overlay:dismiss alone does NOT
-	// destroy the native windows.
-	windows []*application.WebviewWindow
-	// stills maps screenID (string) -> frozen PNG path, served via /__shot/<id>.
-	stills map[string]string
-	// frozen maps monitorID (kbinani idx) -> frozen PNG path, used to crop on
-	// screenshot commit.
-	frozen map[int]string
+	// windows are the REUSED overlay windows, keyed by monitorID. Created once
+	// (Hidden), kept alive across captures, Hidden on Done/Cancel/Record, and
+	// re-positioned + Shown on engage. Closed only by Teardown (app shutdown).
+	windows map[int]*application.WebviewWindow
+	// frozenImg holds the in-memory frozen pixels per monitor for the duration of
+	// an ACTIVE session (one *image.RGBA each; ~33MB per 4K monitor). Cropped
+	// LOSSLESSLY on commit/save; freed on HideOverlay and overwritten on engage.
+	frozenImg map[int]*image.RGBA
+	// jpegCache holds the pre-encoded fast dim-backdrop JPEG per monitor, served
+	// from memory by ShotMiddleware. Freed on HideOverlay, overwritten on engage.
+	jpegCache map[int][]byte
 	// screens is the enumeration snapshot taken at BeginSession (ID == kbinani idx).
 	screens []capture.ScreenInfo
+	// gen is the engage generation; it cache-busts the reused webview's backdrop
+	// <img> URL (/__shot/<id>?g=<gen>) so a re-engaged window never shows a stale
+	// JPEG.
+	gen int
+	// pending holds the CURRENT engage's per-monitor sessions, keyed by monitorID,
+	// for the duration between BeginSession and the window being shown. It is the
+	// source a late-mounting overlay window pulls via RequestEngage (defense against
+	// a missed overlay:engage broadcast), and what OverlayReady reads to know which
+	// window to reveal. Cleared on HideOverlay/Teardown.
+	pending map[int]MonitorSession
+	// cropTemps are the served crop PNG temp files (toru-shot-*.png) produced by
+	// EnterEdit/CommitScreenshot for THIS session. They are served at /__file/<base>
+	// while the editor holds them as the base-image src; once the session ends they
+	// are dead (Save-As writes its OWN file via ExportService). Removed + reset on
+	// HideOverlay/Teardown so captures don't leak a small PNG each.
+	cropTemps []string
 }
 
 // NewService wires the overlay to the shared capture seam.
 func NewService(cap capture.Capturer) *OverlayService {
 	return &OverlayService{
-		cap:    cap,
-		stills: map[string]string{},
-		frozen: map[int]string{},
+		cap:       cap,
+		windows:   map[int]*application.WebviewWindow{},
+		frozenImg: map[int]*image.RGBA{},
+		jpegCache: map[int][]byte{},
+		pending:   map[int]MonitorSession{},
 	}
 }
 
@@ -71,18 +87,6 @@ func NewService(cap capture.Capturer) *OverlayService {
 //
 //wails:ignore
 func (s *OverlayService) SetApp(app *application.App) { s.app = app }
-
-// SetHubOpener injects the Hub-opener callback. Called once from main with
-// windowsSvc.OpenHub so Cancel/Esc can return to the dev Hub. This takes a func
-// param and is therefore NOT a bindable method — it is invoked from Go only.
-//
-//wails:ignore
-func (s *OverlayService) SetHubOpener(fn func()) { s.openHub = fn }
-
-// SetEditorOpener injects the screenshot-editor opener callback. Go-only.
-//
-//wails:ignore
-func (s *OverlayService) SetEditorOpener(fn func(imagePath string)) { s.editorOpener = fn }
 
 // SetRecordingControlsOpener injects the recording-pill opener callback. Go-only.
 //
@@ -174,15 +178,32 @@ func (s *OverlayService) warnf(format string, args ...any) {
 	}
 }
 
-// BeginSession is the launch entrypoint. It enumerates screens, freezes EVERY
-// monitor's still BEFORE any overlay window is shown, restores the persisted
-// primary crop (or a centered default), opens one window per monitor, and
-// returns the per-monitor session payloads. Returning []MonitorSession also lets
-// the binding generator emit the MonitorSession TS type.
+// BeginSession is THE engage entrypoint (Win+Shift+S / tray / Settings Capture).
+// In overlay-v2 it REUSES the per-monitor windows (created once, kept hidden):
+//
+//	(1) ensureWindows — create any missing window Hidden; Hide() any still-visible,
+//	    and (only if one WAS visible, e.g. New-from-edit) settle one DWM frame so the
+//	    fading overlay can't be baked into the next freeze.
+//	(2) freezeAll — concurrent in-memory freeze + JPEG backdrop, while HIDDEN.
+//	(3) install the fresh frozenImg/jpegCache maps (dropping the previous refs).
+//	(4) per monitor (STILL hidden): SetBounds, publish the session to s.pending,
+//	    then Emit(overlay:engage) so the reused React window swaps its backdrop <img>
+//	    to the fresh ?g= URL.
+//
+// It DOES NOT Show the windows here. Showing is gated on a JS ACK: the React
+// overlay:engage (or RequestEngage-pull) handler, AFTER it has set the session and
+// the new backdrop <img> has DECODED, calls OverlayReady(monitorID), which Shows
+// THAT window. Firing-and-hoping (Emit-then-Show) is racy — app.Event.Emit
+// dispatches to windows on a NEWLY SPAWNED goroutine and returns immediately, so a
+// Go-side Show could win the main-thread queue and reveal the PRIOR session's DOM
+// (stale backdrop, or a whole stale annotation editor) before React repaints. The
+// ACK closes that race AND the "first capture before WebView2 finished loading"
+// blank-overlay window (a window that hasn't mounted simply never ACKs until it
+// has, and RequestEngage lets a late mount pull the session it missed).
+//
+// Returning []MonitorSession also lets the binding generator emit the
+// MonitorSession TS type.
 func (s *OverlayService) BeginSession() ([]MonitorSession, error) {
-	// If a session is already live, tear it down first (idempotent launch).
-	s.DismissSession()
-
 	// Guard the launch-path DPI hazard: Wails only populates the Screen cache
 	// inside app.Run() (newPlatformApp). If BeginSession runs before that, every
 	// monitor's ScaleFactor/IsPrimary and DIP bounds fall back to scale=1.0 and
@@ -202,34 +223,152 @@ func (s *OverlayService) BeginSession() ([]MonitorSession, error) {
 
 	s.mu.Lock()
 	s.screens = screens
+	s.gen++
+	gen := s.gen
 	s.mu.Unlock()
 
-	// (1) Freeze every monitor FIRST (records s.frozen / s.stills). No window has
-	// been shown yet, so no still photographs a dim overlay.
-	sessions, err := s.buildSessions(screens)
+	// (1) Reuse-or-create windows, hiding any still-visible one BEFORE the freeze.
+	// settleDWM is true iff at least one window was actually visible (e.g. New from
+	// edit mode) — only then must we wait a frame for the compositor to drop the
+	// overlay's pixels before grabbing the live desktop.
+	settleDWM := s.ensureWindows(screens)
+
+	// (1b) On the New-from-edit path the windows were VISIBLE microseconds ago;
+	// ShowWindow(SW_HIDE) returns synchronously but DWM composition is async, so a
+	// freeze fired immediately could photograph the still-fading overlay. Wait one+
+	// DWM frame. Skipped on the cold/idle paths (windows hidden long before) so
+	// instant re-engage from the tray stays instant.
+	if settleDWM {
+		settleCompositor()
+	}
+
+	// (2) Freeze every monitor in memory + pre-encode its backdrop JPEG, concurrently
+	// and while every overlay window is hidden, so no still photographs an overlay.
+	frozen, jpegs, err := s.freezeAll(screens)
 	if err != nil {
 		return nil, err
 	}
 
-	// (2) Only now open the per-monitor overlay windows.
-	s.openOverlayWindows(sessions)
+	// (3) Swap in the fresh maps; drop the previous frozen refs so at most one set
+	// is ever resident (never accumulating per engage).
+	s.mu.Lock()
+	s.dropImagesLocked()
+	s.frozenImg = frozen
+	s.jpegCache = jpegs
+	s.mu.Unlock()
+
+	// (4) Build payloads (StillURL carries ?g=<gen> to cache-bust the reused webview).
+	sessions := s.buildSessionPayloads(screens, gen)
+
+	// (5) Publish the sessions (so a late-mounting window can RequestEngage-pull the
+	// one it missed), SetBounds each STILL-HIDDEN window, then broadcast
+	// overlay:engage. Show is deferred to OverlayReady (the JS ACK) — see the doc.
+	s.mu.Lock()
+	s.pending = make(map[int]MonitorSession, len(sessions))
+	for _, mon := range sessions {
+		s.pending[mon.MonitorID] = mon
+	}
+	s.mu.Unlock()
+
+	for _, mon := range sessions {
+		win := s.window(mon.MonitorID)
+		if win == nil {
+			continue
+		}
+		dip := s.dipBoundsFor(mon)
+		win.SetBounds(application.Rect{X: dip.X, Y: dip.Y, Width: dip.Width, Height: dip.Height})
+		s.emit(EventOverlayEngage, mon) // broadcast; React filters by ?mon=
+	}
 
 	return sessions, nil
 }
 
-// ShotMiddleware serves two families of local files the webview cannot otherwise
-// fetch (a webview <img>/<video> can't load a raw C:\ path):
+// OverlayReady is the JS ACK that gates Show. React calls it from the
+// overlay:engage / RequestEngage handler AFTER it has applied the fresh session
+// (capture mode) AND the new backdrop <img> has DECODED, so revealing the window
+// can never flash the prior session's DOM (stale backdrop or stale editor). It
+// Shows the window for monitorID (and Focuses it if primary), then drops that
+// monitor's pending entry. Idempotent: a duplicate ACK after the pending entry is
+// gone is a no-op.
+func (s *OverlayService) OverlayReady(monitorID int) {
+	s.mu.Lock()
+	mon, ok := s.pending[monitorID]
+	if ok {
+		delete(s.pending, monitorID)
+	}
+	s.mu.Unlock()
+	if !ok {
+		return
+	}
+	if win := s.window(monitorID); win != nil {
+		win.Show()
+		if mon.IsPrimary {
+			win.Focus()
+		}
+	}
+}
+
+// RequestEngage is the defense-in-depth pull: a freshly-mounted overlay window
+// (e.g. the FIRST capture, where WebView2 finished navigating only AFTER
+// BeginSession broadcast overlay:engage) calls this to fetch the CURRENT engage's
+// session for its monitor instead of waiting for a broadcast it may have missed.
+// Returns nil when there is no active engage for that monitor (already shown, or
+// idle). The React mount applies the returned session exactly like overlay:engage,
+// then ACKs via OverlayReady once the backdrop decodes.
+func (s *OverlayService) RequestEngage(monitorID int) *MonitorSession {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if mon, ok := s.pending[monitorID]; ok {
+		m := mon
+		return &m
+	}
+	return nil
+}
+
+// PrewarmWindows creates the per-monitor overlay WebviewWindow objects at launch
+// (called from main on ApplicationStarted, after OpenSettings) so the FIRST
+// capture has its window handles ready.
 //
-//   - /__shot/<screenID> : the session FROZEN stills, looked up in s.stills.
+// DELIBERATELY ensureWindows-only: it creates the window objects (impl stays nil,
+// no navigation, no paint) but does NOT Show/Hide them. A Show/Hide pre-warm WOULD
+// force webview navigation up-front, but at the cost of a black-window
+// micro-flicker at launch. The honest tradeoff: the FIRST real engage pays the
+// one-time navigation cost; every subsequent RE-engage (the primary goal) is then
+// instant. We choose no launch flicker.
+//
+//wails:ignore
+func (s *OverlayService) PrewarmWindows() {
+	if s.app != nil && len(s.app.Screen.GetAll()) == 0 {
+		s.warnf("overlay: PrewarmWindows ran with an EMPTY Wails screen cache — call it on ApplicationStarted, not before app.Run()")
+	}
+	screens, err := s.ListScreens()
+	if err != nil || len(screens) == 0 {
+		return
+	}
+	s.ensureWindows(screens)
+}
+
+// window returns the reused window for monitorID (nil if none), under the lock.
+func (s *OverlayService) window(monitorID int) *application.WebviewWindow {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.windows[monitorID]
+}
+
+// ShotMiddleware serves two families of bytes the webview cannot otherwise fetch
+// (a webview <img>/<video> can't load a raw C:\ path):
+//
+//   - /__shot/<monitorID>?g=<gen> : the session dim BACKDROP, the pre-encoded fast
+//     JPEG held IN MEMORY in s.jpegCache (overlay-v2 — no disk round-trip). The
+//     ?g= cache-buster forces a reused webview to refetch the fresh backdrop.
 //   - /__file/<basename> : a committed temp artifact (the cropped screenshot PNG
-//     from CropStill, or a recording) living in the toru temp dir. Served by
+//     from CropImage, or a recording) living in the toru temp dir. Served by
 //     basename only — filepath.Base strips any path traversal and the lookup is
 //     confined to %TEMP%/toru — so this cannot read arbitrary disk files.
 //
-// Both stream the file (NOT a base64 data URL) with Cache-Control: no-store so a
-// re-opened session never serves a stale image. Registered in main via
-// AssetOptions.Middleware. Returns an http middleware — nonsensical over the
-// wire, so keep it Go-only.
+// Both respond with Cache-Control: no-store so a re-opened session never serves a
+// stale image. Registered in main via AssetOptions.Middleware. Returns an http
+// middleware — nonsensical over the wire, so keep it Go-only.
 //
 //wails:ignore
 func (s *OverlayService) ShotMiddleware() application.Middleware {
@@ -240,17 +379,27 @@ func (s *OverlayService) ShotMiddleware() application.Middleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case strings.HasPrefix(r.URL.Path, shotPrefix):
-				id := strings.TrimPrefix(r.URL.Path, shotPrefix)
-				s.mu.RLock()
-				path, ok := s.stills[id]
-				s.mu.RUnlock()
-				if ok {
-					w.Header().Set("Content-Type", "image/png")
-					w.Header().Set("Cache-Control", "no-store")
-					http.ServeFile(w, r, path)
+				// The path tail is the monitor ID; the ?g= cache-buster lives in
+				// r.URL.RawQuery and is excluded from r.URL.Path, so TrimPrefix
+				// yields a bare integer.
+				mid, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, shotPrefix))
+				if err != nil {
+					http.NotFound(w, r)
 					return
 				}
-				http.NotFound(w, r)
+				// RLock only to copy the []byte slice header out; release BEFORE
+				// w.Write so the engage goroutine is never blocked on the response.
+				s.mu.RLock()
+				jpg := s.jpegCache[mid]
+				s.mu.RUnlock()
+				if jpg == nil {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "image/jpeg")
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Content-Length", strconv.Itoa(len(jpg)))
+				_, _ = w.Write(jpg)
 				return
 			case strings.HasPrefix(r.URL.Path, filePrefix):
 				// filepath.Base collapses any ../ so only a leaf name survives;
@@ -271,36 +420,146 @@ func (s *OverlayService) ShotMiddleware() application.Middleware {
 	}
 }
 
-// DismissSession closes ALL overlay windows (via the kept handles), clears the
-// session state, and best-effort deletes the temp frozen PNGs. Emitting
-// overlay:dismiss alone does NOT destroy the native windows — Close() does.
-func (s *OverlayService) DismissSession() {
+// HideOverlay is the NORMAL idle path (Done / Cancel / Record). It HIDES every
+// visible overlay window — keeping the windows ALIVE for the next instant engage —
+// and frees the in-memory frozen pixels + backdrop JPEGs (~100MB). It does NOT
+// Close() the windows; Teardown does that, only at app shutdown.
+func (s *OverlayService) HideOverlay() {
+	s.mu.RLock()
+	wins := make([]*application.WebviewWindow, 0, len(s.windows))
+	for _, w := range s.windows {
+		wins = append(wins, w)
+	}
+	s.mu.RUnlock()
+
+	for _, w := range wins {
+		if w != nil && w.IsVisible() {
+			w.Hide()
+		}
+	}
+
+	s.mu.Lock()
+	s.dropImagesLocked()
+	s.jpegCache = map[int][]byte{}
+	s.pending = map[int]MonitorSession{}
+	temps := s.takeCropTempsLocked()
+	s.mu.Unlock()
+
+	removeFiles(temps)
+	s.emit(EventOverlayDismiss, nil)
+}
+
+// dropImagesLocked drops every frozen-image reference so the RGBA buffers become
+// GC-eligible. Caller MUST hold s.mu (write lock).
+func (s *OverlayService) dropImagesLocked() { s.frozenImg = map[int]*image.RGBA{} }
+
+// trackCropTemp records a served crop PNG temp path so HideOverlay/Teardown can
+// remove it when the session ends (it is dead once the editor closes).
+func (s *OverlayService) trackCropTemp(path string) {
+	if path == "" {
+		return
+	}
+	s.mu.Lock()
+	s.cropTemps = append(s.cropTemps, path)
+	s.mu.Unlock()
+}
+
+// takeCropTempsLocked returns and clears the tracked crop temp paths. Caller MUST
+// hold s.mu (write lock); the os.Remove is done OUTSIDE the lock by the caller.
+func (s *OverlayService) takeCropTempsLocked() []string {
+	temps := s.cropTemps
+	s.cropTemps = nil
+	return temps
+}
+
+// Teardown CLOSES every overlay window and clears all session state. Wired only on
+// app shutdown (process exit frees everything regardless, so this is best-effort
+// cosmetic). Go-only — never over the wire.
+//
+//wails:ignore
+func (s *OverlayService) Teardown() {
 	s.mu.Lock()
 	wins := s.windows
-	frozen := s.frozen
-	s.windows = nil
-	s.stills = map[string]string{}
-	s.frozen = map[int]string{}
+	s.windows = map[int]*application.WebviewWindow{}
+	s.dropImagesLocked()
+	s.jpegCache = map[int][]byte{}
+	s.pending = map[int]MonitorSession{}
+	temps := s.takeCropTempsLocked()
 	s.screens = nil
 	s.mu.Unlock()
 
+	removeFiles(temps)
 	for _, w := range wins {
 		if w != nil {
 			w.Close()
 		}
 	}
-	for _, p := range frozen {
-		_ = removeFile(p)
-	}
-
-	s.emit(EventOverlayDismiss, nil)
 }
 
-// Commit is a thin compatibility shim kept so existing bindings/tests don't
-// break. For screenshots it routes through the frozen-still crop using req.Rect
-// as the contract Rect and deriving the monitor-local sub-rect from the owning
-// screen's origin. New code should call CommitScreenshot directly. Video is
-// delegated to StartRecording (the overlay records the live region).
+// removeFiles best-effort deletes each path (the served crop temps). Errors are
+// ignored: the OS reclaims %TEMP% regardless and a missing file is already gone.
+func removeFiles(paths []string) {
+	for _, p := range paths {
+		_ = os.Remove(p)
+	}
+}
+
+// EnterEdit is THE single-surface screenshot morph. It crops the in-memory FROZEN
+// pixels for monitorID to a small LOSSLESS PNG (served at /__file/<base>) and
+// emits overlay:edit to the SAME overlay window — NO separate editor window is
+// opened. React loads the crop as the editor base image, sizes the Konva stage to
+// the crop's CSS rect, positions it where the bright region was, and morphs the
+// dock into the annotation toolbar.
+//
+// sub is the monitor-local PHYSICAL crop (front end via CropToPhysical); cssLeft/
+// cssTop/cssW/cssH are that region in CSS px within this window (echoed back so
+// React positions/sizes the embedded stage). The window stays SHOWN — this is the
+// same surface, not a re-engage.
+func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, cssTop, cssW, cssH int) error {
+	s.mu.RLock()
+	img := s.frozenImg[monitorID]
+	s.mu.RUnlock()
+	if img == nil {
+		return fmt.Errorf("overlay: no frozen image for monitor %d (session not active?)", monitorID)
+	}
+
+	// Persist the crop (monitor-local physical px) before morphing to edit.
+	_ = s.SaveCrop(monitorID, sub)
+
+	// The frozen RGBA is immutable after the freeze, so cropping it lock-free after
+	// grabbing the pointer is safe — nothing mutates an already-frozen image.
+	cropPath, err := capture.CropImage(img, sub)
+	if err != nil {
+		return err
+	}
+	s.trackCropTemp(cropPath)
+
+	s.emit(EventOverlayEdit, OverlayEditPayload{
+		MonitorID: monitorID,
+		CropURL:   servedFileURL(cropPath),
+		CSSLeft:   cssLeft,
+		CSSTop:    cssTop,
+		CSSW:      cssW,
+		CSSH:      cssH,
+		Sub:       sub,
+	})
+	return nil
+}
+
+// Finish is the explicit edit-mode "Done" (hide to tray) with NO cancel
+// semantics: it hides the overlay (keeping windows alive) WITHOUT firing
+// capture:cancelled (which other code may treat as a real cancel).
+func (s *OverlayService) Finish() error {
+	s.HideOverlay()
+	return nil
+}
+
+// Commit is a thin compatibility shim kept so existing bindings/tests don't break.
+// For screenshots it crops the in-memory frozen pixels (NEVER a live re-capture)
+// using req.Rect as the contract Rect and deriving the monitor-local sub-rect from
+// the owning screen's origin, returning the cropped PNG path WITHOUT dismissing or
+// opening anything. The single-surface React path calls EnterEdit, not this. Video
+// is delegated to StartRecording (the overlay records the live region).
 func (s *OverlayService) Commit(req capture.CaptureRequest) (capture.CaptureResult, error) {
 	if req.Mode == capture.ModeVideo {
 		handle, err := s.StartRecording(req)
@@ -328,28 +587,28 @@ func (s *OverlayService) Commit(req capture.CaptureRequest) (capture.CaptureResu
 	return s.CommitScreenshot(req.MonitorID, req.Rect, sub, req.CopyOnCommit)
 }
 
-// CommitScreenshot is THE screenshot path. It crops the FROZEN still for
-// monitorID (NEVER a live re-capture), dismisses the overlay, emits capture:done,
-// and opens the editor. rect is the contract Rect (virtual-desktop physical px)
-// carried in the result; sub is the monitor-local physical crop region applied to
-// the frozen PNG. Both are computed by the front end via CropToPhysical.
+// CommitScreenshot crops the in-memory FROZEN pixels for monitorID (NEVER a live
+// re-capture) to a LOSSLESS PNG, emits capture:done, and returns the result. In
+// overlay-v2 it does NOT dismiss the overlay and does NOT open any editor window —
+// the React screenshot path uses EnterEdit (single-surface morph) instead. This is
+// retained for the Commit() shim / tests / dev. rect is the contract Rect
+// (virtual-desktop physical px); sub is the monitor-local physical crop region.
 func (s *OverlayService) CommitScreenshot(monitorID int, rect capture.Rect, sub capture.Rect, copyOnCommit bool) (capture.CaptureResult, error) {
 	s.mu.RLock()
-	frozenPath := s.frozen[monitorID]
+	img := s.frozenImg[monitorID]
 	s.mu.RUnlock()
-	if frozenPath == "" {
-		return capture.CaptureResult{}, fmt.Errorf("overlay: no frozen still for monitor %d (session not active?)", monitorID)
+	if img == nil {
+		return capture.CaptureResult{}, fmt.Errorf("overlay: no frozen image for monitor %d (session not active?)", monitorID)
 	}
 
-	// Persist the crop (monitor-local physical px) before tearing down.
+	// Persist the crop (monitor-local physical px).
 	_ = s.SaveCrop(monitorID, sub)
 
-	out, err := capture.CropStill(frozenPath, sub)
+	out, err := capture.CropImage(img, sub)
 	if err != nil {
 		return capture.CaptureResult{}, err
 	}
-
-	s.DismissSession()
+	s.trackCropTemp(out)
 
 	res := capture.CaptureResult{
 		Mode:      capture.ModeScreenshot,
@@ -358,33 +617,29 @@ func (s *OverlayService) CommitScreenshot(monitorID int, rect capture.Rect, sub 
 		MonitorID: monitorID,
 	}
 	s.emit(EventCaptureDone, res)
-	if s.editorOpener != nil {
-		s.editorOpener(out)
-	}
 	return res, nil
 }
 
-// Cancel dismisses ALL overlay windows then re-opens the dev Hub so editors stay
-// reachable during Phase 0, and notifies the UI.
+// Cancel hides the overlay (keeping windows alive) and returns the user to idle
+// (the tray), emitting capture:cancelled. Toru lives in the tray; no window is
+// opened on cancel.
 func (s *OverlayService) Cancel() error {
-	s.DismissSession()
-	if s.openHub != nil {
-		s.openHub()
-	}
+	s.HideOverlay()
 	s.emit(EventCaptureCancelled, nil)
 	return nil
 }
 
-// StartRecording dismisses the overlay FIRST (so ffmpeg records the live region,
-// not the dim overlays), THEN begins recording, THEN opens the recording pill
-// (timer + Stop). req.Rect is the virtual-desktop physical Rect the front end
-// emits.
+// StartRecording hides the overlay FIRST (so ffmpeg records the live region, not
+// the dim overlays) while KEEPING the windows alive, THEN begins recording, THEN
+// opens the recording pill (timer + Stop). req.Rect is the virtual-desktop
+// physical Rect the front end emits.
 //
-// The pill is opened HERE, not by the calling frontend: DismissSession destroys
-// the overlay window that invoked this binding, so any JS after the await is
-// dead code — a recording with no Go-opened pill would be unstoppable.
+// The pill is opened HERE, not by the calling frontend: the overlay surface is
+// hidden the moment recording starts, so no live JS context owns the recording —
+// a frontend follow-up call after this await would be dead code, leaving the
+// recording unstoppable.
 func (s *OverlayService) StartRecording(req capture.CaptureRequest) (string, error) {
-	s.DismissSession()
+	s.HideOverlay()
 	handle, err := s.cap.StartRecording(req)
 	if err != nil {
 		return "", err
@@ -393,6 +648,14 @@ func (s *OverlayService) StartRecording(req capture.CaptureRequest) (string, err
 		s.recordingControlsOpener(handle, req.MonitorID)
 	}
 	return handle, nil
+}
+
+// servedFileURL turns an absolute temp-file path (under %TEMP%/toru) into the
+// /__file/<basename> URL ShotMiddleware serves. Duplicated from package main
+// (windows.go) because the overlay package cannot import package main; keep the
+// two trivial copies in sync.
+func servedFileURL(absPath string) string {
+	return "/__file/" + url.PathEscape(filepath.Base(absPath))
 }
 
 // StopRecording finalizes a recording and broadcasts capture:done.
@@ -422,22 +685,21 @@ func (s *OverlayService) emit(name string, data any) {
 	}
 }
 
-// removeFile is a best-effort temp-file delete (errors ignored by callers).
-func removeFile(path string) error {
-	if path == "" {
-		return nil
-	}
-	return os.Remove(path)
-}
-
 // Event names broadcast Go->JS. The "capture:done" payload's Mode field is what
 // routes the result to Developer 1's editor (screenshot) vs Developer 2's (video).
+//
+// overlay:engage (MonitorSession) resets a REUSED overlay window to capture mode
+// with the fresh backdrop; overlay:edit (OverlayEditPayload) morphs the SAME
+// window into edit mode with the served crop URL + CSS geometry. Both broadcast to
+// every overlay window; React filters by its URL ?mon=.
 const (
 	EventCaptureDone      = "capture:done"
 	EventCaptureCancelled = "capture:cancelled"
 	EventRecordProgress   = "record:progress"
 	EventOverlayDismiss   = "overlay:dismiss"
 	EventCaptureThumbnail = "capture:thumbnail"
+	EventOverlayEngage    = "overlay:engage"
+	EventOverlayEdit      = "overlay:edit"
 
 	// EventOverlayActive is overlay-INTERNAL (window-to-window selection sync,
 	// not a Dev1<->Dev2 contract event): exactly ONE monitor owns the capture

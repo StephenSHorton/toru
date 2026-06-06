@@ -9,14 +9,21 @@ import { Create as $Create } from "@wailsio/runtime";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as capture$0 from "../../../../StephenSHorton/toru/internal/capture/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as overlay$0 from "../../../../StephenSHorton/toru/internal/overlay/models.js";
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
         "capture:done": $$createType0,
+        "overlay:edit": $$createType1,
+        "overlay:engage": $$createType2,
     }));
 }
 
 // Private type creation functions
 const $$createType0 = capture$0.CaptureResult.createFrom;
+const $$createType1 = overlay$0.OverlayEditPayload.createFrom;
+const $$createType2 = overlay$0.MonitorSession.createFrom;
 
 configure();

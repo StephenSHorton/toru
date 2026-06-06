@@ -27,7 +27,7 @@ export function StrokeWidthControl() {
         <span className="tabular-nums">{activeStrokeWidth}px</span>
       </Button>
       {open && (
-        <div className="frost absolute left-0 top-full z-20 mt-1 flex flex-col gap-1 p-1.5">
+        <div className="frost absolute bottom-full left-0 z-20 mb-1 flex flex-col gap-1 p-1.5">
           {WIDTHS.map((w) => (
             <button
               key={w}

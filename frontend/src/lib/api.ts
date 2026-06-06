@@ -11,12 +11,28 @@
 //   UpdateService.GetVersion(): Promise<string>
 //   UpdateService.CheckForUpdate(): Promise<UpdateInfo | null>  (null === up to date)
 //   UpdateService.DownloadAndInstall(info: UpdateInfo): Promise<void>
-//   WindowsService.* (window management — recording pill, trim editor, hub)
+//   HotkeyService.GetShortcuts(): Promise<Shortcut[]>
+//   HotkeyService.SetShortcut(action: string, sc: Shortcut): Promise<void>  (rejects on validation error)
+//   HotkeyService.ResetShortcut(action: string): Promise<void>
+//   WindowsService.OpenOverlay(): Promise<void>   (capture overlay session)
+//   WindowsService.OpenSettings(): Promise<void>  (Settings/home window)
+//   WindowsService.OpenTrim(videoPath): Promise<void>  (Dev 2 trim editor)
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
 import * as UpdateService from "../../bindings/github.com/StephenSHorton/toru/internal/update/updateservice.js";
-import * as WindowsService from "../../bindings/github.com/StephenSHorton/toru/windowsservice.js";
 import { UpdateInfo } from "../../bindings/github.com/StephenSHorton/toru/internal/update/models.js";
+import * as HotkeyService from "../../bindings/github.com/StephenSHorton/toru/internal/hotkey/hotkeyservice.js";
+import { Shortcut } from "../../bindings/github.com/StephenSHorton/toru/internal/hotkey/models.js";
+import * as WindowsService from "../../bindings/github.com/StephenSHorton/toru/windowsservice.js";
 
-export { ExportService, ScreenshotService, OverlayService, UpdateService, WindowsService, UpdateInfo };
+export {
+  ExportService,
+  ScreenshotService,
+  OverlayService,
+  UpdateService,
+  UpdateInfo,
+  HotkeyService,
+  Shortcut,
+  WindowsService,
+};

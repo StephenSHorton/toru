@@ -105,9 +105,16 @@ export async function pasteFromBackend(): Promise<void> {
   if (url) await insertPastedImage(url);
 }
 
-/** Mount the window 'paste' listener — the single paste-anything entry point. */
-export function useClipboardPaste(): void {
+/**
+ * Mount the window 'paste' listener — the single paste-anything entry point.
+ * `enabled` (default true) lets the overlay gate paste to EDIT mode only: in
+ * capture mode the editor canvas isn't rendered, so a paste would silently addNode
+ * into a hidden store (later wiped by loadBaseImage) — a no-op the user can't see.
+ * The standalone Editor route omits the arg and stays always-on.
+ */
+export function useClipboardPaste(enabled = true): void {
   useEffect(() => {
+    if (!enabled) return;
     function onPaste(ev: ClipboardEvent) {
       // Editing text -> let the browser paste into the field.
       if (isEditableTarget()) return;
@@ -145,5 +152,5 @@ export function useClipboardPaste(): void {
     }
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, []);
+  }, [enabled]);
 }

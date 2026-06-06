@@ -14,6 +14,13 @@ func FreezeMonitor(b image.Rectangle) (string, error) {
 	return "", errors.New("toru/capture: monitor freeze is Windows-only")
 }
 
+// FreezeMonitorImage is Windows-only (kbinani/screenshot via GDI BitBlt). This
+// stub exists so the module cross-compiles for tooling/CI on non-Windows hosts.
+func FreezeMonitorImage(b image.Rectangle) (*image.RGBA, error) {
+	_ = b
+	return nil, errors.New("toru/capture: monitor freeze is Windows-only")
+}
+
 // DisplayBounds describes one enumerated monitor (virtual-desktop PHYSICAL px).
 // Mirrors the Windows definition so internal/overlay stays cross-platform.
 type DisplayBounds struct {
