@@ -89,6 +89,19 @@ export function isTextEditing(): boolean {
   return useTextEditSession.getState().nodeId !== null;
 }
 
+/**
+ * Force-close any open text-editing session (module singleton) WITHOUT committing
+ * or aborting a draft. Used when the overlay re-engages / re-enters edit mode: the
+ * scene store is reset by loadBaseImage, but this session store is separate, so a
+ * textarea left open on a prior capture would otherwise resurface over the new
+ * image at stale coords. A bare close() is correct here — any draft node lived in
+ * the (now reset) scene store, so there is nothing to abort.
+ */
+export function resetTextEditSession(): void {
+  if (useTextEditSession.getState().nodeId === null) return;
+  useTextEditSession.getState().close();
+}
+
 // ---------------------------------------------------------------------------
 // Hit-testing helpers (image space)
 // ---------------------------------------------------------------------------

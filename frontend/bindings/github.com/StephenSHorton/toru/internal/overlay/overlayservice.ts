@@ -22,16 +22,28 @@ import * as $models from "./models.js";
  * BeginSession is THE engage entrypoint (Win+Shift+S / tray / Settings Capture).
  * In overlay-v2 it REUSES the per-monitor windows (created once, kept hidden):
  * 
- * 	(1) ensureWindows — create any missing window Hidden; Hide() any still-visible.
+ * 	(1) ensureWindows — create any missing window Hidden; Hide() any still-visible,
+ * 	    and (only if one WAS visible, e.g. New-from-edit) settle one DWM frame so the
+ * 	    fading overlay can't be baked into the next freeze.
  * 	(2) freezeAll — concurrent in-memory freeze + JPEG backdrop, while HIDDEN.
  * 	(3) install the fresh frozenImg/jpegCache maps (dropping the previous refs).
- * 	(4) per monitor (STILL hidden): SetBounds, then Emit(overlay:engage) so the
- * 	    reused React window swaps its backdrop <img> to the fresh ?g= URL.
- * 	(5) per monitor: Show() (+ Focus the primary). Emit (ExecJS) is submitted
- * 	    before Show; both marshal to the main thread via InvokeSync in submission
- * 	    order, so JS swaps the backdrop before the window is revealed — no stale
- * 	    flash. Returning []MonitorSession also lets the binding generator emit the
- * 	    MonitorSession TS type.
+ * 	(4) per monitor (STILL hidden): SetBounds, publish the session to s.pending,
+ * 	    then Emit(overlay:engage) so the reused React window swaps its backdrop <img>
+ * 	    to the fresh ?g= URL.
+ * 
+ * It DOES NOT Show the windows here. Showing is gated on a JS ACK: the React
+ * overlay:engage (or RequestEngage-pull) handler, AFTER it has set the session and
+ * the new backdrop <img> has DECODED, calls OverlayReady(monitorID), which Shows
+ * THAT window. Firing-and-hoping (Emit-then-Show) is racy — app.Event.Emit
+ * dispatches to windows on a NEWLY SPAWNED goroutine and returns immediately, so a
+ * Go-side Show could win the main-thread queue and reveal the PRIOR session's DOM
+ * (stale backdrop, or a whole stale annotation editor) before React repaints. The
+ * ACK closes that race AND the "first capture before WebView2 finished loading"
+ * blank-overlay window (a window that hasn't mounted simply never ACKs until it
+ * has, and RequestEngage lets a late mount pull the session it missed).
+ * 
+ * Returning []MonitorSession also lets the binding generator emit the
+ * MonitorSession TS type.
  */
 export function BeginSession(): $CancellablePromise<$models.MonitorSession[]> {
     return $Call.ByID(142875180).then(($result: any) => {
@@ -128,6 +140,34 @@ export function ListScreens(): $CancellablePromise<capture$0.ScreenInfo[]> {
 }
 
 /**
+ * OverlayReady is the JS ACK that gates Show. React calls it from the
+ * overlay:engage / RequestEngage handler AFTER it has applied the fresh session
+ * (capture mode) AND the new backdrop <img> has DECODED, so revealing the window
+ * can never flash the prior session's DOM (stale backdrop or stale editor). It
+ * Shows the window for monitorID (and Focuses it if primary), then drops that
+ * monitor's pending entry. Idempotent: a duplicate ACK after the pending entry is
+ * gone is a no-op.
+ */
+export function OverlayReady(monitorID: number): $CancellablePromise<void> {
+    return $Call.ByID(2196076020, monitorID);
+}
+
+/**
+ * RequestEngage is the defense-in-depth pull: a freshly-mounted overlay window
+ * (e.g. the FIRST capture, where WebView2 finished navigating only AFTER
+ * BeginSession broadcast overlay:engage) calls this to fetch the CURRENT engage's
+ * session for its monitor instead of waiting for a broadcast it may have missed.
+ * Returns nil when there is no active engage for that monitor (already shown, or
+ * idle). The React mount applies the returned session exactly like overlay:engage,
+ * then ACKs via OverlayReady once the backdrop decodes.
+ */
+export function RequestEngage(monitorID: number): $CancellablePromise<$models.MonitorSession | null> {
+    return $Call.ByID(1626364143, monitorID).then(($result: any) => {
+        return $$createType5($result);
+    });
+}
+
+/**
  * SaveCrop persists the monitor-local PHYSICAL-px crop for monitorID. Called by
  * the front end on crop drag-end (debounced) and again inside CommitScreenshot
  * before dismiss.
@@ -160,3 +200,4 @@ const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = capture$0.CaptureResult.createFrom;
 const $$createType3 = capture$0.ScreenInfo.createFrom;
 const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = $Create.Nullable($$createType0);

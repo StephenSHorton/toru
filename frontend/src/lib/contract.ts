@@ -123,7 +123,29 @@ export const Events = {
   RecordProgress: "record:progress",
   OverlayDismiss: "overlay:dismiss",
   CaptureThumbnail: "capture:thumbnail",
+  // overlay-v2: per-window engage (reset to capture mode w/ fresh backdrop) and
+  // edit (enter single-surface morph w/ the served crop). Both broadcast to every
+  // overlay window; React filters by its URL ?mon=.
+  OverlayEngage: "overlay:engage",
+  OverlayEdit: "overlay:edit",
 } as const;
+
+/**
+ * OverlayEditPayload mirrors the Go overlay.OverlayEditPayload (overlay:edit
+ * event). It carries the served crop PNG URL + the region's CSS geometry so the
+ * embedded editor sizes/positions its stage to where the bright crop was on
+ * screen. After bindings regen, prefer the generated model; this hand-mirror
+ * keeps the build green and documents the shape.
+ */
+export interface OverlayEditPayload {
+  monitorId: number;
+  cropUrl: string; // served crop PNG, e.g. "/__file/<base>"
+  cssLeft: number; // region left in CSS px within the window
+  cssTop: number; // region top in CSS px
+  cssW: number; // region width in CSS px = stage width
+  cssH: number; // region height in CSS px = stage height
+  sub: Rect; // monitor-local physical crop (Save provenance)
+}
 
 /** Media types for ExportService.CopyToClipboard. */
 export const Media = { Image: "image", Video: "video" } as const;

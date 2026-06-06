@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import {
   MousePointer2, Pen, Square, Circle, ArrowUpRight, Minus, Type, Crop,
   Undo2, Redo2, BringToFront, SendToBack, Trash2, Copy, Save,
-  Settings as SettingsIcon,
+  Settings as SettingsIcon, Camera, Check,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEditorStore, BASE_IMAGE_ID } from './store';
@@ -45,9 +45,13 @@ const Divider = () => <div className="mx-1 h-6 w-px bg-border" />;
 
 export interface ToolbarProps {
   stageRef: React.RefObject<Konva.Stage | null>;
+  /** When provided (overlay edit mode), renders a "New" button to start a fresh capture. */
+  onNewCapture?: () => void;
+  /** When provided (overlay edit mode), renders a "Done" button to hide the overlay. */
+  onDone?: () => void;
 }
 
-export function Toolbar({ stageRef }: ToolbarProps) {
+export function Toolbar({ stageRef, onNewCapture, onDone }: ToolbarProps) {
   const activeTool = useEditorStore((s) => s.activeTool);
   const setTool = useEditorStore((s) => s.setTool);
   const selectedId = useEditorStore((s) => s.selectedId);
@@ -141,6 +145,18 @@ export function Toolbar({ stageRef }: ToolbarProps) {
       <Button size="sm" title="Save as…" onClick={() => void handleSave()}>
         <Save /> Save
       </Button>
+
+      {(onNewCapture || onDone) && <Divider />}
+      {onNewCapture && (
+        <Button size="sm" variant="ghost" title="New capture" onClick={onNewCapture}>
+          <Camera /> New
+        </Button>
+      )}
+      {onDone && (
+        <Button size="sm" title="Done (hide)" onClick={onDone}>
+          <Check /> Done
+        </Button>
+      )}
     </div>
   );
 }

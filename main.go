@@ -49,6 +49,12 @@ const updateRepo = "StephenSHorton/toru"
 func init() {
 	// Typed event payloads picked up by the binding generator.
 	application.RegisterEvent[capture.CaptureResult](overlay.EventCaptureDone)
+	// overlay-v2 Go->JS events: engage resets a reused window to capture mode with
+	// the fresh backdrop; edit morphs the same window into the annotation editor.
+	// RegisterEvent is init-time + constant-name + panics on dup — these names are
+	// new, so safe.
+	application.RegisterEvent[overlay.MonitorSession](overlay.EventOverlayEngage)
+	application.RegisterEvent[overlay.OverlayEditPayload](overlay.EventOverlayEdit)
 }
 
 func main() {
@@ -109,10 +115,9 @@ func main() {
 	windowsSvc.overlay = overlaySvc
 	updateSvc.SetApp(app)
 
-	// Overlay -> Windows callback: a committed screenshot opens the editor.
-	// Passed as a Go-only func (not JS-bound). Cancel/Esc no longer opens any
-	// window — it just dismisses the overlay back to idle (the tray).
-	overlaySvc.SetEditorOpener(windowsSvc.OpenEditor)
+	// overlay-v2: screenshots are annotated IN PLACE on the same overlay surface
+	// (single-surface morph via OverlayService.EnterEdit) — NO separate editor
+	// window is opened. windowsSvc.OpenEditor stays only for SimulateCapture/dev.
 
 	// Install the global hotkey hook AFTER injection (windowsSvc.overlay is set
 	// above), so a hotkey press that lands before app.Run can still open the
@@ -157,7 +162,18 @@ func main() {
 		// Show the Settings/home window ONCE so the user sees Toru is running.
 		// Do NOT auto-pop the capture overlay on launch anymore.
 		windowsSvc.OpenSettings()
+
+		// Pre-warm the reused overlay windows so their handles are ready. This only
+		// creates the WebviewWindow objects (no navigation, no paint, no flicker);
+		// the FIRST capture pays the one-time webview-navigation cost, and every
+		// subsequent RE-engage is instant (freeze + Show only). The Screen cache is
+		// populated here (we are inside app.Run()), so DPI bounds are correct.
+		overlaySvc.PrewarmWindows()
 	})
+
+	// Best-effort: close the reused overlay windows on app shutdown. Process exit
+	// frees everything regardless, so this is purely cosmetic belt-and-suspenders.
+	app.OnShutdown(func() { overlaySvc.Teardown() })
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

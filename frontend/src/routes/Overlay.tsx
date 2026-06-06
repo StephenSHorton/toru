@@ -1,33 +1,66 @@
-// REAL capture overlay — one instance renders per monitor (one Wails window each).
+// OVERLAY V2 — single-surface morph + instant re-engage.
 //
-// Each window is a frameless, always-on-top, OPAQUE window covering its monitor's
-// full DIP bounds. Go froze a still of every monitor BEFORE any window appeared,
-// and serves it at /__shot/<id>; this route paints that still fullscreen, dims it
-// with a CSS mask, and reveals the bright (undimmed) still under the crop hole.
+// One instance renders per monitor (one Wails window each). Each window is a
+// frameless, always-on-top, OPAQUE window covering its monitor's full DIP bounds.
+// The windows are created ONCE (pre-warmed / lazily) and kept ALIVE+HIDDEN between
+// captures, so this React tree stays MOUNTED across captures — listeners bind once.
 //
-// ONLY the primary monitor's window is interactive: it draws the crop rectangle
-// (body drag + 8 resize handles, min-size, CLAMPED to the monitor for v1), a
-// dimension badge in PHYSICAL px, and the frosted control pill (Screenshot/Record
-// toggle + Capture + Cancel). Non-primary windows are dim-only.
+// STATE MACHINE: 'capture' | 'edit' (idle == the Wails window is Hidden, no React
+// state). ALL per-session data arrives via Go->JS events, NOT the URL:
+//   • overlay:engage (MonitorSession)  -> reset to capture mode w/ the fresh
+//     backdrop (cache-busted /__shot JPEG). Fires on every BeginSession/re-engage.
+//   • overlay:edit (OverlayEditPayload)-> enter the single-surface morph: load the
+//     served crop PNG as the editor base image, size the Konva stage to the crop's
+//     CSS rect, position it where the bright region was, morph the dock into the
+//     annotation Toolbar. No separate editor window is ever opened for screenshots.
+// Both events broadcast to EVERY overlay window; each filters by its URL ?mon=.
 //
-// CORRECTNESS: committing a SCREENSHOT crops the FROZEN still in Go (never a live
-// re-capture, which would photograph these dim windows). VIDEO dismisses the
-// overlay first (Go side), then records the live region. Esc / Cancel tears down
-// ALL overlay windows and returns the user to idle (the tray) — no window opens.
+// CAPTURE: the primary window draws the crop rectangle (body drag + 8 handles,
+// min-size, CLAMPED to the monitor); Capture calls OverlayService.EnterEdit (Go
+// crops the FROZEN in-memory pixels -> /__file PNG -> emits overlay:edit). EDIT:
+// the embedded EditorCanvas + overlays annotate in place; Copy/Save export the
+// native-resolution annotated PNG (exportActions math unchanged). Done/Esc hides
+// the overlay back to the tray (windows kept alive for instant re-engage).
 //
-// DPI: all of the crop->physical math lives in cropToPhysical() using the LOCKED
-// formulas — round ONCE, reuse for the emitted Rect, the frozen-still sub-rect,
-// and the on-screen badge so they are byte-identical.
+// DPI: all crop->physical math lives in cropToPhysical() using the LOCKED formulas
+// — round ONCE, reuse for the emitted Rect, the frozen-still sub-rect, and the
+// on-screen badge so they are byte-identical.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type Konva from "konva";
+import { Events as WailsEvents } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
 import { Camera, Video, X } from "lucide-react";
 import { OverlayService } from "@/lib/api";
 import {
   parseOverlayQuery,
+  Events,
   type Rect,
   type CaptureRequest,
+  type MonitorSession,
+  type OverlayEditPayload,
 } from "@/lib/contract";
+import { EditorCanvas } from "@/editor/EditorCanvas";
+import { Toolbar } from "@/editor/Toolbar";
+import { useEditorStore } from "@/editor/store";
+import { useEditorKeyboard } from "@/editor/useEditorKeyboard";
+import { useClipboardPaste } from "@/editor/useClipboardPaste";
+import { TextEditingOverlay, resetTextEditSession } from "@/editor/tools/text";
+import { CropOverlay, resetCropDraft } from "@/editor/tools/crop";
+import { setStageSize } from "@/editor/viewStore";
+
+// resetEditor clears the editor sub-stores that loadBaseImage does NOT touch — the
+// crop tool's module-level draft and the text-editing session — and resets the
+// active tool to 'select'. loadBaseImage already resets the Zustand SCENE store
+// (nodes/history/selection); these two are separate module singletons that would
+// otherwise survive a 'New' (capture-mode hides them, but the next overlay:edit
+// only resets the scene) and render a stale crop rect / textarea over the new
+// image. Call it on every engage and at the top of every edit.
+function resetEditor(): void {
+  resetCropDraft();
+  resetTextEditSession();
+  useEditorStore.getState().setTool("select");
+}
 
 const MIN_CROP = 24; // minimum crop size, CSS px (drag/resize floor)
 const HANDLE_HIT = 14; // resize-handle hit area, CSS px
@@ -45,67 +78,181 @@ type Handle = "nw" | "n" | "ne" | "w" | "e" | "sw" | "s" | "se";
 const HANDLES: Handle[] = ["nw", "n", "ne", "w", "e", "sw", "s", "se"];
 
 export default function Overlay() {
+  // Read ONCE for the stable per-window identity (mon/primary). All session data
+  // now arrives via overlay:engage — the URL no longer carries still/crop.
   const q = parseOverlayQuery(window.location.search);
-  const [mode, setMode] = useState<"screenshot" | "video">("screenshot");
+
+  const [mode, setMode] = useState<"capture" | "edit">("capture");
+  const [tool, setToolMode] = useState<"screenshot" | "video">("screenshot");
   const [busy, setBusy] = useState(false);
 
+  // Per-session data, seeded empty and replaced by overlay:engage / overlay:edit.
+  const [session, setSession] = useState<MonitorSession | null>(null);
+  const [editPayload, setEditPayload] = useState<OverlayEditPayload | null>(null);
+
+  const stageRef = useRef<Konva.Stage>(null);
+  const loadBaseImage = useEditorStore((s) => s.loadBaseImage);
+
   // The monitor's CSS size IS the window viewport (each window already covers the
-  // full monitor in DIP), so layout uses innerWidth/innerHeight, NOT the physical
-  // w/h from the query.
+  // full monitor in DIP), so layout uses innerWidth/innerHeight.
   const monW = window.innerWidth;
   const monH = window.innerHeight;
 
-  // Seed the crop. On the primary window, restore the persisted monitor-local
-  // PHYSICAL crop (query `crop`) by dividing through by scale; fall back to a
-  // centered default. Non-primary windows carry no crop.
-  const [crop, setCrop] = useState<CssRect>(() =>
-    seedCrop(q.crop, q.scale, monW, monH),
-  );
+  // The crop rectangle (capture mode). Seeded centered; reset from the restored
+  // crop on each overlay:engage.
+  const [crop, setCrop] = useState<CssRect>(() => centeredCrop(monW, monH));
 
   const saveTimer = useRef<number | null>(null);
+
+  // Editor keyboard + clipboard paste — mounted once, GATED to edit mode. In
+  // capture mode the editor canvas isn't rendered, so leaving them live would let a
+  // tool key / Ctrl+V mutate a hidden store; gating keeps capture mode clean. In
+  // edit mode, an Esc with nothing left to deselect hides the overlay to the tray
+  // (the spec's "Done / Esc from edit mode -> hide"); a first Esc still deselects.
+  const finishEdit = useCallback(() => void OverlayService.Finish(), []);
+  useEditorKeyboard(mode === "edit", finishEdit);
+  useClipboardPaste(mode === "edit");
+
+  // applyEngage resets THIS window to capture mode with a fresh session, then ACKs
+  // Go (OverlayReady) ONLY AFTER the new backdrop JPEG has DECODED — so Go reveals
+  // the window with the fresh backdrop already painted, never the prior session's
+  // stale DOM (the HIGH stale-flash fix) and never a blank/black first-capture
+  // screen (the WebView2-still-loading fix). Auxiliary editor sub-stores (crop
+  // draft, text-edit session) are module singletons loadBaseImage does NOT touch,
+  // so we reset them here too, or a New from a pending crop/text session would leak
+  // a stale overlay into the NEXT edit (the stale-edit-state fix).
+  const applyEngage = useCallback(
+    (d: MonitorSession) => {
+      resetEditor();
+      setSession(d);
+      setCrop(seedCrop(d.crop, d.scale, monW, monH)); // reset crop from restored
+      setEditPayload(null);
+      setMode("capture"); // a window last in edit returns to capture
+      // Preload + decode the cache-busted backdrop, THEN ACK so Go can Show.
+      const img = new window.Image();
+      const ack = () => void OverlayService.OverlayReady(q.mon);
+      img.onload = ack;
+      img.onerror = ack; // never strand the window hidden on a decode hiccup
+      img.src = d.stillUrl;
+    },
+    [q.mon, monW, monH],
+  );
+
+  // ----- Go->JS event wiring (bind ONCE; stable deps) -----
+  useEffect(() => {
+    const offEngage = WailsEvents.On(Events.OverlayEngage, (ev) => {
+      const d = ev.data as MonitorSession;
+      if (d.monitorId !== q.mon) return; // filter by this window
+      applyEngage(d);
+    });
+
+    const offEdit = WailsEvents.On(Events.OverlayEdit, (ev) => {
+      const d = ev.data as OverlayEditPayload;
+      if (d.monitorId !== q.mon) return; // no-op on non-target windows
+      // Clear auxiliary editor stores BEFORE entering edit so a stale crop draft /
+      // text session from a prior capture never renders over the NEW image (in old
+      // image coords). loadBaseImage already resets the scene store; resetEditor
+      // covers the two module singletons it can't reach + the active tool.
+      resetEditor();
+      const img = new window.Image();
+      img.onload = () => {
+        // Stage size BEFORE loadBaseImage so the first fit uses the correct size
+        // (EditorCanvas's resetFit effect reads stageW/stageH on base-dim change).
+        setStageSize(d.cssW, d.cssH);
+        loadBaseImage(d.cropUrl, img.naturalWidth, img.naturalHeight);
+        setEditPayload(d);
+        setMode("edit");
+      };
+      img.src = d.cropUrl;
+    });
+
+    // Defense-in-depth: a window that finished navigating only AFTER BeginSession
+    // broadcast overlay:engage (the FIRST capture) misses the event. Pull the
+    // current engage for this monitor on mount; if Go has one pending, apply it.
+    void OverlayService.RequestEngage(q.mon).then((d) => {
+      if (d && d.monitorId === q.mon) applyEngage(d);
+    });
+
+    return () => {
+      offEngage();
+      offEdit();
+    };
+  }, [q.mon, loadBaseImage, applyEngage]);
+
+  // ----- persistence + actions (capture mode) -----
 
   // Persist the crop (monitor-local PHYSICAL px) on drag/resize end, debounced.
   const persistCrop = useCallback(
     (c: CssRect) => {
+      if (!session) return;
       if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
-        const { sub } = cropToPhysical(c, q.scale, q.bx, q.by, q.mw, q.mh);
+        const { sub } = cropToPhysical(
+          c,
+          session.scale,
+          session.x,
+          session.y,
+          session.w,
+          session.h,
+        );
         void OverlayService.SaveCrop(q.mon, sub);
       }, SAVE_DEBOUNCE_MS);
     },
-    [q.scale, q.bx, q.by, q.mw, q.mh, q.mon],
+    [session, q.mon],
   );
 
-  // Cancel/Esc: tear down ALL overlay windows (Go) and return to idle (tray).
+  // Capture-mode Cancel/Esc: hide the overlay (Go keeps windows alive) + tray.
   const cancel = useCallback(() => {
     void OverlayService.Cancel();
   }, []);
 
-  // Screenshot commit: crop the FROZEN still (Go), never a live re-capture.
+  // Screenshot Capture -> EnterEdit (Go crops the FROZEN pixels and emits
+  // overlay:edit, which flips THIS window to edit mode). We do NOT optimistically
+  // setMode('edit') — we wait for the event so the served crop URL + authoritative
+  // CSS geometry (the stage size) arrive together. We do NOT call CommitScreenshot.
   const captureScreenshot = useCallback(async () => {
-    if (busy) return;
+    if (busy || !session) return;
     setBusy(true);
-    const { emit, sub } = cropToPhysical(crop, q.scale, q.bx, q.by, q.mw, q.mh);
+    const { sub } = cropToPhysical(
+      crop,
+      session.scale,
+      session.x,
+      session.y,
+      session.w,
+      session.h,
+    );
     try {
-      // Persist immediately (Go also persists, but flush our debounce intent).
-      void OverlayService.SaveCrop(q.mon, sub);
-      await OverlayService.CommitScreenshot(q.mon, emit, sub, false);
+      await OverlayService.EnterEdit(
+        q.mon,
+        sub,
+        Math.round(crop.left),
+        Math.round(crop.top),
+        Math.round(crop.width),
+        Math.round(crop.height),
+      );
     } finally {
       setBusy(false);
     }
-  }, [busy, crop, q.scale, q.bx, q.by, q.mw, q.mh, q.mon]);
+  }, [busy, crop, session, q.mon]);
 
-  // Record: Go dismisses the overlay FIRST, then records the live region.
+  // Record: Go hides the overlay FIRST, then records the live region.
   const startRecording = useCallback(async () => {
-    if (busy) return;
+    if (busy || !session) return;
     setBusy(true);
-    const { emit } = cropToPhysical(crop, q.scale, q.bx, q.by, q.mw, q.mh);
+    const { emit } = cropToPhysical(
+      crop,
+      session.scale,
+      session.x,
+      session.y,
+      session.w,
+      session.h,
+    );
     const req: CaptureRequest = {
       mode: "video",
       sub: "region",
       monitorId: q.mon,
       rect: emit,
-      dpiScale: q.scale,
+      dpiScale: session.scale,
       includeCursor: true,
       countdownSec: 0,
       copyOnCommit: false,
@@ -115,23 +262,23 @@ export default function Overlay() {
     } finally {
       setBusy(false);
     }
-  }, [busy, crop, q.scale, q.bx, q.by, q.mw, q.mh, q.mon]);
+  }, [busy, crop, session, q.mon]);
 
-  // Esc cancels (wired on every overlay window for safety).
+  // Window-level Esc: ONLY cancels in capture mode. In edit mode, useEditorKeyboard
+  // owns Esc (clear selection / back to select tool); the Toolbar Done button is
+  // the explicit hide-to-tray from edit mode.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && mode === "capture") {
         e.preventDefault();
         cancel();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [cancel]);
+  }, [mode, cancel]);
 
-  // ----- interactive crop (primary only) -----
-  // A pointer drag either MOVES the crop body or RESIZES via a handle. All math
-  // is in CSS px and clamped to the monitor (cross-monitor crop is deferred).
+  // ----- interactive crop (primary only, capture mode) -----
   const beginDrag = useCallback(
     (e: React.PointerEvent, handle: Handle | "body") => {
       if (!q.primary) return;
@@ -156,7 +303,6 @@ export default function Overlay() {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         (e.target as Element).releasePointerCapture?.(ev.pointerId);
-        // Read the freshest crop off the next state via functional updater.
         setCrop((c) => {
           persistCrop(c);
           return c;
@@ -168,15 +314,65 @@ export default function Overlay() {
     [q.primary, crop, monW, monH, persistCrop],
   );
 
+  // ===== EDIT MODE =====
+  if (mode === "edit" && editPayload) {
+    return (
+      <div className="relative h-screen w-screen overflow-hidden bg-black">
+        {/* Keep the region's surroundings dimmed; the bright hole == the region. */}
+        <DimMask
+          crop={{
+            left: editPayload.cssLeft,
+            top: editPayload.cssTop,
+            width: editPayload.cssW,
+            height: editPayload.cssH,
+          }}
+          monW={monW}
+          monH={monH}
+        />
+
+        {/* The embedded editor, positioned at the region origin so the stage sits
+            exactly where the bright crop was -> "annotate in place". This div is the
+            positioned element so TextEditingOverlay's getBoundingClientRect()
+            returns the region's true viewport origin (its textarea is fixed). */}
+        <div
+          className="absolute"
+          style={{
+            left: editPayload.cssLeft,
+            top: editPayload.cssTop,
+            width: editPayload.cssW,
+            height: editPayload.cssH,
+          }}
+        >
+          <EditorCanvas stageRef={stageRef} />
+          <CropOverlay />
+          <TextEditingOverlay stageRef={stageRef} />
+        </div>
+
+        {/* MORPHED DOCK: same bottom-center anchor as the capture pill; contents
+            are the editor Toolbar (self-positions bottom-4 left-1/2). */}
+        <Toolbar
+          stageRef={stageRef}
+          onNewCapture={() => void OverlayService.BeginSession()}
+          onDone={finishEdit}
+        />
+      </div>
+    );
+  }
+
+  // ===== CAPTURE MODE =====
+  // Backdrop + scale/origin come from `session` (empty until the first engage).
+  const backdrop = session?.stillUrl ?? "";
   // Badge values are the SAME rounded physical numbers as the saved crop.
-  const { sub } = cropToPhysical(crop, q.scale, q.bx, q.by, q.mw, q.mh);
+  const { sub } = session
+    ? cropToPhysical(crop, session.scale, session.x, session.y, session.w, session.h)
+    : { sub: { x: 0, y: 0, w: 0, h: 0 } as Rect };
 
   return (
     <div className="relative h-screen w-screen select-none overflow-hidden bg-black">
-      {/* Frozen still, painted fullscreen (1:1 with the monitor in DIP). */}
-      {q.stillUrl ? (
+      {/* Frozen still backdrop (fast JPEG), painted fullscreen (1:1 in DIP). */}
+      {backdrop ? (
         <img
-          src={q.stillUrl}
+          src={backdrop}
           alt=""
           draggable={false}
           className="pointer-events-none absolute inset-0 h-full w-full"
@@ -184,11 +380,8 @@ export default function Overlay() {
         />
       ) : null}
 
-      {/* Non-primary windows are DIM-ONLY: no crop hole, no ring. Cross-monitor
-          crop is deferred for v1, so the capture target only ever lives on the
-          primary — painting a bright centered "crop" here would mislead the user
-          about what Capture grabs and leave this monitor partially undimmed.
-          Primary windows get the four-panel mask (transparent crop hole). */}
+      {/* Non-primary windows are DIM-ONLY (cross-monitor crop deferred); primary
+          gets the four-panel mask (transparent crop hole). */}
       {q.primary ? (
         <DimMask crop={crop} monW={monW} monH={monH} />
       ) : (
@@ -226,20 +419,21 @@ export default function Overlay() {
         </div>
       ) : null}
 
-      {/* frosted control pill — primary monitor only */}
+      {/* frosted control pill — primary monitor only. bottom-4 to match the
+          Toolbar's anchor so the capture->edit swap reads as a morph. */}
       {q.primary ? (
-        <div className="frost absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-1 p-1.5">
+        <div className="frost absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 p-1.5">
           <Button
             size="sm"
-            variant={mode === "screenshot" ? "default" : "ghost"}
-            onClick={() => setMode("screenshot")}
+            variant={tool === "screenshot" ? "default" : "ghost"}
+            onClick={() => setToolMode("screenshot")}
           >
             <Camera /> Screenshot
           </Button>
           <Button
             size="sm"
-            variant={mode === "video" ? "default" : "ghost"}
-            onClick={() => setMode("video")}
+            variant={tool === "video" ? "default" : "ghost"}
+            onClick={() => setToolMode("video")}
           >
             <Video /> Record
           </Button>
@@ -249,10 +443,10 @@ export default function Overlay() {
           </Button>
           <Button
             size="sm"
-            disabled={busy}
-            onClick={() => (mode === "video" ? startRecording() : captureScreenshot())}
+            disabled={busy || !session}
+            onClick={() => (tool === "video" ? startRecording() : captureScreenshot())}
           >
-            {mode === "video" ? "Start Recording" : "Capture"}
+            {tool === "video" ? "Start Recording" : "Capture"}
           </Button>
         </div>
       ) : null}
@@ -261,9 +455,7 @@ export default function Overlay() {
 }
 
 // DimMask paints four black panels around the crop so the crop interior stays
-// bright (the frozen still shows through unmodified). Using panels — rather than a
-// single box-shadow — keeps the hole crisp at sharp corners and avoids a giant
-// blur layer.
+// bright (the backdrop / editor shows through). Panels keep the hole crisp.
 function DimMask({
   crop,
   monW,
@@ -307,8 +499,8 @@ function DimMask({
 // ----- pure geometry helpers -----
 
 // seedCrop derives the initial CSS crop. `restored` is the monitor-local PHYSICAL
-// crop from the query (0,0,0,0 == none). We divide by scale to get CSS px and
-// validate it fits the monitor; otherwise we center a default (half the monitor).
+// crop (0,0,0,0 == none). We divide by scale to get CSS px and validate it fits
+// the monitor; otherwise we center a default (half the monitor).
 function seedCrop(restored: Rect, scale: number, monW: number, monH: number): CssRect {
   const s = scale > 0 ? scale : 1;
   if (restored.w > 0 && restored.h > 0) {
@@ -391,18 +583,12 @@ function clamp(v: number, lo: number, hi: number): number {
 // cropToPhysical is the LOCKED DPI math (mirrors capture.CropToPhysical in Go).
 // Round the crop EDGES once, clamp the far edges to the monitor's physical size,
 // and reuse for emit (virtual-desktop physical Rect), sub (monitor-local physical
-// crop of the frozen PNG), and the badge.
+// crop of the frozen pixels), and the badge.
 //
 // EDGE-based (not width-based) on purpose: the CSS extent (innerWidth) is the
 // Wails DIP Bounds = ceil(physical/scale). round(width*scale) on a ceil'd DIP can
-// land 1px PAST the native monitor (e.g. 2560@150%: DIP 1707 -> round(1707*1.5)
-// = 2561 > 2560), making the badge/emit/recorded Rect overshoot the frozen still.
-// Rounding left and right independently and clamping the right edge to mw (and
-// bottom to mh) guarantees the result fits the monitor and the saved PNG.
-//   rl=round(cl*s); rr=min(round((cl+cw)*s), mw); rw=rr-rl  (and likewise y/h)
-//   sub  = { rl, rt, rw, rh }            (crops the frozen still, monitor-local)
-//   emit = { bx+rl, by+rt, rw, rh }      (CaptureRequest.Rect, virtual-desktop)
-//   badge = rw × rh = sub.w × sub.h
+// land 1px PAST the native monitor; rounding left/right independently and clamping
+// the right edge to mw (and bottom to mh) guarantees the result fits the monitor.
 function cropToPhysical(
   c: CssRect,
   scale: number,

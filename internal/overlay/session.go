@@ -3,7 +3,6 @@ package overlay
 import (
 	"fmt"
 	"image"
-	"net/url"
 	"strconv"
 	"sync"
 
@@ -33,55 +32,76 @@ type MonitorSession struct {
 	Crop capture.Rect `json:"crop"`
 }
 
-// buildSessions enumerates screens (from s.screens, already populated by
-// ListScreens), freezes every monitor, restores the persisted primary crop, and
-// returns one MonitorSession per screen. Stills are recorded into s.stills /
-// s.frozen under the lock. Freezing happens BEFORE any window is shown (the
-// caller opens windows only after this returns).
-func (s *OverlayService) buildSessions(screens []capture.ScreenInfo) ([]MonitorSession, error) {
+// OverlayEditPayload is the overlay:edit event payload (Go->JS). It is emitted by
+// EnterEdit to the SAME overlay window (no separate editor window) so React can
+// load the served crop PNG as the editor base image, size the Konva stage to the
+// crop's CSS rect, position it exactly where the bright region was on screen, and
+// morph the dock into the annotation toolbar. React filters by MonitorID == its
+// URL ?mon=, so a non-target window ignores it and stays dimmed.
+type OverlayEditPayload struct {
+	MonitorID int          `json:"monitorId"`
+	CropURL   string       `json:"cropUrl"` // served crop PNG, e.g. "/__file/<base>"
+	CSSLeft   int          `json:"cssLeft"` // region left in CSS px within the window
+	CSSTop    int          `json:"cssTop"`  // region top  in CSS px
+	CSSW      int          `json:"cssW"`    // region width  in CSS px = stage width
+	CSSH      int          `json:"cssH"`    // region height in CSS px = stage height
+	Sub       capture.Rect `json:"sub"`     // monitor-local physical crop (Save provenance)
+}
+
+// freezeAll freezes every monitor's pixels IN MEMORY (image.RGBA) and pre-encodes
+// each monitor's fast dim-backdrop JPEG, fanning out CONCURRENTLY. It writes ONLY
+// per-index local slices from the goroutines and assembles the two maps after
+// WaitGroup.Wait, so the shared maps are never touched off the engage goroutine —
+// the caller installs them under one Lock. Freezing happens BEFORE any window is
+// shown (the windows are hidden when this runs), so no still photographs an
+// overlay. No temp files are produced, so there is nothing to clean on error.
+func (s *OverlayService) freezeAll(screens []capture.ScreenInfo) (map[int]*image.RGBA, map[int][]byte, error) {
 	if len(screens) == 0 {
-		return nil, fmt.Errorf("overlay: no screens to build a session for")
+		return nil, nil, fmt.Errorf("overlay: no screens to freeze")
 	}
 
-	st := loadCrops()
-
-	// Freeze every monitor CONCURRENTLY. capture+PNG-encode is the dominant
-	// "engage" cost and was previously serial across monitors, so a 2-3 monitor
-	// setup stalled for seconds before any overlay window appeared. Each freeze
-	// grabs an independent screen region into its own temp file, so they fan out
-	// cleanly; total time is now ~the slowest single monitor, not the sum.
-	paths := make([]string, len(screens))
+	imgs := make([]*image.RGBA, len(screens))
+	jpgs := make([][]byte, len(screens))
 	errs := make([]error, len(screens))
 	var wg sync.WaitGroup
 	wg.Add(len(screens))
 	for i, sc := range screens {
 		go func(i int, sc capture.ScreenInfo) {
 			defer wg.Done()
-			paths[i], errs[i] = capture.FreezeMonitor(image.Rect(sc.X, sc.Y, sc.X+sc.W, sc.Y+sc.H))
+			img, err := capture.FreezeMonitorImage(image.Rect(sc.X, sc.Y, sc.X+sc.W, sc.Y+sc.H))
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			imgs[i] = img
+			jpgs[i], errs[i] = capture.EncodeJPEG(img, 85)
 		}(i, sc)
 	}
 	wg.Wait()
 
-	// If any freeze failed, clean up the ones that succeeded and bail.
-	// removeFile tolerates the "" left by a failed freeze.
 	for i, sc := range screens {
 		if errs[i] != nil {
-			for _, p := range paths {
-				_ = removeFile(p)
-			}
-			return nil, fmt.Errorf("overlay: freeze monitor %d: %w", sc.ID, errs[i])
+			return nil, nil, fmt.Errorf("overlay: freeze monitor %d: %w", sc.ID, errs[i])
 		}
 	}
 
-	sessions := make([]MonitorSession, 0, len(screens))
-	frozen := make(map[int]string, len(screens))
-	stills := make(map[string]string, len(screens))
-
+	frozen := make(map[int]*image.RGBA, len(screens))
+	jpegs := make(map[int][]byte, len(screens))
 	for i, sc := range screens {
-		path := paths[i]
-		frozen[sc.ID] = path
-		stills[strconv.Itoa(sc.ID)] = path
+		frozen[sc.ID] = imgs[i]
+		jpegs[sc.ID] = jpgs[i]
+	}
+	return frozen, jpegs, nil
+}
 
+// buildSessionPayloads builds one MonitorSession per screen WITHOUT freezing
+// (freezeAll already did that). The primary's crop is restored from persisted
+// state (or a centered default). StillURL carries the engage generation as ?g= so
+// a REUSED webview's backdrop <img> is cache-busted to the fresh JPEG.
+func (s *OverlayService) buildSessionPayloads(screens []capture.ScreenInfo, gen int) []MonitorSession {
+	st := loadCrops()
+	sessions := make([]MonitorSession, 0, len(screens))
+	for _, sc := range screens {
 		var crop capture.Rect
 		if sc.IsPrimary {
 			if r, ok := st.Crops[strconv.Itoa(sc.ID)]; ok && validCrop(r, sc.W, sc.H) {
@@ -90,10 +110,9 @@ func (s *OverlayService) buildSessions(screens []capture.ScreenInfo) ([]MonitorS
 				crop = centeredDefault(sc.W, sc.H)
 			}
 		}
-
 		sessions = append(sessions, MonitorSession{
 			MonitorID: sc.ID,
-			StillURL:  "/__shot/" + strconv.Itoa(sc.ID),
+			StillURL:  "/__shot/" + strconv.Itoa(sc.ID) + "?g=" + strconv.Itoa(gen),
 			X:         sc.X,
 			Y:         sc.Y,
 			W:         sc.W,
@@ -103,38 +122,54 @@ func (s *OverlayService) buildSessions(screens []capture.ScreenInfo) ([]MonitorS
 			Crop:      crop,
 		})
 	}
-
-	s.mu.Lock()
-	s.frozen = frozen
-	s.stills = stills
-	s.mu.Unlock()
-
-	return sessions, nil
+	return sessions
 }
 
-// openOverlayWindows creates one frameless, always-on-top, opaque, non-resizable
-// window per monitor, sized to that monitor's DIP Bounds (NEVER physical px,
-// which would double-scale on HiDPI). It looks up the Wails Screen by matching
-// PhysicalBounds origin to the session's physical X/Y. Window handles are kept in
-// s.windows so DismissSession can Close() each one.
-func (s *OverlayService) openOverlayWindows(sessions []MonitorSession) {
+// ensureWindows creates each per-monitor overlay window ONCE (Hidden:true) and
+// keeps it alive across captures, keyed by monitor ID in s.windows. Any window
+// that is somehow still VISIBLE is Hidden FIRST so the subsequent freeze runs
+// while every overlay is hidden (otherwise the frozen still would bake in the dim
+// overlay). A vanished monitor's window simply stays hidden — multi-monitor
+// topology change between engages is out of scope for v2.
+//
+// It returns wasVisible == true iff at least one window was actually VISIBLE when
+// hidden here (the New-from-edit path). The caller uses that to settle one DWM
+// frame before freezing so the just-hidden overlay can't be baked into the still;
+// on the cold/idle paths (nothing visible) it returns false so re-engage stays
+// instant.
+//
+// IsVisible() on a never-shown window is SAFE (Wails guards impl==nil -> false).
+// Windows are created with their DIP bounds baked into the creation options; the
+// first Show() reveals at those bounds, and BeginSession re-asserts bounds via
+// SetBounds on every engage (a no-op until the window has been shown once).
+func (s *OverlayService) ensureWindows(screens []capture.ScreenInfo) bool {
 	if s.app == nil {
-		return
+		return false
 	}
-
-	wins := make([]*application.WebviewWindow, 0, len(sessions))
-	for _, mon := range sessions {
-		dip := s.dipBoundsFor(mon)
-
-		win := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name:             "toru-overlay-" + strconv.Itoa(mon.MonitorID),
-			URL:              overlayURL(mon),
+	wasVisible := false
+	s.mu.Lock()
+	if s.windows == nil {
+		s.windows = map[int]*application.WebviewWindow{}
+	}
+	for _, sc := range screens {
+		if w := s.windows[sc.ID]; w != nil {
+			if w.IsVisible() {
+				wasVisible = true
+				w.Hide()
+			}
+			continue
+		}
+		dip := s.dipBoundsFor(MonitorSession{MonitorID: sc.ID, X: sc.X, Y: sc.Y, W: sc.W, H: sc.H, Scale: sc.ScaleFactor})
+		w := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
+			Name:             "toru-overlay-" + strconv.Itoa(sc.ID),
+			URL:              overlayURL(sc.ID, sc.IsPrimary, sc.ScaleFactor, sc.X, sc.Y, sc.W, sc.H),
 			X:                dip.X,
 			Y:                dip.Y,
 			Width:            dip.Width,
 			Height:           dip.Height,
 			Screen:           nil,
 			InitialPosition:  application.WindowXY,
+			Hidden:           true,
 			Frameless:        true,
 			AlwaysOnTop:      true,
 			DisableResize:    true,
@@ -145,24 +180,10 @@ func (s *OverlayService) openOverlayWindows(sessions []MonitorSession) {
 				HiddenOnTaskbar:                   true,
 			},
 		})
-
-		// Belt-and-suspenders for the primary (DIP origin (0,0)): Wails' creation
-		// path already calls setPosition(0,0) when Screen==nil + InitialPosition
-		// is WindowXY, so the primary is placed correctly without this. We also
-		// open the overlay on ApplicationStarted, so the window impl is live and
-		// SetBounds is NOT a no-op — it just re-asserts the (0,0)+size bounds in
-		// case the OS treated the initial 0,0 as CW_USEDEFAULT. application.Rect
-		// uses Width/Height (not W/H).
-		if dip.X == 0 && dip.Y == 0 {
-			win.SetBounds(application.Rect{X: 0, Y: 0, Width: dip.Width, Height: dip.Height})
-		}
-
-		wins = append(wins, win)
+		s.windows[sc.ID] = w
 	}
-
-	s.mu.Lock()
-	s.windows = append(s.windows, wins...)
 	s.mu.Unlock()
+	return wasVisible
 }
 
 // dipBoundsFor returns the DIP Bounds of the Wails Screen whose PhysicalBounds
@@ -189,29 +210,25 @@ func (s *OverlayService) dipBoundsFor(mon MonitorSession) application.Rect {
 	}
 }
 
-// overlayURL builds the per-window URL carrying the session numbers so the front
-// end can render on first paint without a binding round-trip. Params:
-// mon, primary, scale, bx, by, mw, mh (monitor physical W/H), still (urlenc),
-// crop (urlenc "x,y,w,h"). mw/mh let the front end clamp the rounded crop EDGES
-// to the true native monitor size so a ceil'd DIP width can never push the
-// emitted Rect / badge 1px past the monitor (see cropToPhysical).
-func overlayURL(mon MonitorSession) string {
+// overlayURL builds the per-window URL carrying ONLY the STABLE identity numbers
+// (mon, primary, scale, bx, by, mw, mh = monitor physical W/H) the React side
+// reads once at mount. In overlay-v2 the per-session data (backdrop URL + restored
+// crop) is NO LONGER in the URL — it is pushed to the reused webview via the
+// overlay:engage event so a window can re-engage without a navigation. mw/mh let
+// the front end clamp the rounded crop EDGES to the true native monitor size so a
+// ceil'd DIP width can never push the emitted Rect / badge 1px past the monitor
+// (see cropToPhysical).
+func overlayURL(monitorID int, isPrimary bool, scale float64, bx, by, mw, mh int) string {
 	return fmt.Sprintf(
-		"/?view=overlay&mon=%d&primary=%d&scale=%s&bx=%d&by=%d&mw=%d&mh=%d&still=%s&crop=%s",
-		mon.MonitorID,
-		b2i(mon.IsPrimary),
-		formatFloat(mon.Scale),
-		mon.X,
-		mon.Y,
-		mon.W,
-		mon.H,
-		url.QueryEscape(mon.StillURL),
-		url.QueryEscape(cropCSV(mon.Crop)),
+		"/?view=overlay&mon=%d&primary=%d&scale=%s&bx=%d&by=%d&mw=%d&mh=%d",
+		monitorID,
+		b2i(isPrimary),
+		formatFloat(scale),
+		bx,
+		by,
+		mw,
+		mh,
 	)
-}
-
-func cropCSV(r capture.Rect) string {
-	return fmt.Sprintf("%d,%d,%d,%d", r.X, r.Y, r.W, r.H)
 }
 
 func b2i(b bool) int {

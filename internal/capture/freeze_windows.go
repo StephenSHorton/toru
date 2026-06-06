@@ -61,6 +61,25 @@ func FreezeMonitor(b image.Rectangle) (string, error) {
 	return f.Name(), nil
 }
 
+// FreezeMonitorImage grabs the LIVE desktop region described by b (virtual-desktop
+// PHYSICAL pixels) and returns the *image.RGBA IN MEMORY — no disk round-trip.
+//
+// This is the overlay-v2 freeze: the frozen pixels stay resident on the service
+// (mutex-guarded) so the dim BACKDROP can be served as fast JPEG and the FINAL
+// screenshot cropped LOSSLESSLY from these exact pixels, keeping the slow full-res
+// PNG encode off the hot path. Like FreezeMonitor it MUST run BEFORE any overlay
+// window is shown, otherwise the still would photograph the dim overlay itself.
+func FreezeMonitorImage(b image.Rectangle) (*image.RGBA, error) {
+	if b.Dx() <= 0 || b.Dy() <= 0 {
+		return nil, fmt.Errorf("freeze monitor: invalid bounds %dx%d (W/H must be > 0)", b.Dx(), b.Dy())
+	}
+	img, err := screenshot.CaptureRect(b) // returns *image.RGBA, the only screen grab
+	if err != nil {
+		return nil, fmt.Errorf("freeze monitor: %w", err)
+	}
+	return img, nil
+}
+
 // DisplayBounds describes one enumerated monitor in virtual-desktop PHYSICAL px
 // (origin = primary top-left; monitors left/above carry NEGATIVE X/Y). It is the
 // raw kbinani enumeration the overlay enriches with DPI scale + primary flag.

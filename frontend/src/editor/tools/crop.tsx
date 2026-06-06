@@ -30,8 +30,7 @@ import { cn } from '@/lib/utils';
 import type { Tool, ToolContext } from './types';
 import type { EditorNode } from '../types';
 import { useEditorStore, BASE_IMAGE_ID } from '../store';
-import { STAGE_W, STAGE_H } from '../EditorCanvas';
-import { useView } from '../viewStore';
+import { useView, useStageSize } from '../viewStore';
 
 // --- minimum crop size (image px) below which a drag is discarded ----------
 const MIN_CROP = 8;
@@ -227,6 +226,8 @@ export function CropOverlay() {
   const d = useCropDraft();
   // Live view so the crop rect/mask track the canvas while Ctrl+wheel-zoomed.
   const view = useView();
+  // Live stage size (== crop region CSS size when embedded in the overlay).
+  const { w: SW, h: SH } = useStageSize();
 
   // Only meaningful while cropping and the base image is present.
   if (activeTool !== 'crop' || !base || base.type !== 'image') return null;
@@ -251,7 +252,7 @@ export function CropOverlay() {
   return (
     <div
       className="pointer-events-none absolute inset-0 select-none"
-      style={{ width: STAGE_W, height: STAGE_H }}
+      style={{ width: SW, height: SH }}
       // Capture keyboard while a pending crop exists (Enter=confirm, Esc=cancel).
       onKeyDown={(e) => {
         if (!d.pending) return;
@@ -268,7 +269,7 @@ export function CropOverlay() {
       {/* Dim mask outside the selection (four panels around the rect). */}
       {screen && (
         <>
-          <MaskPanel left={0} top={0} width={STAGE_W} height={screen.top} />
+          <MaskPanel left={0} top={0} width={SW} height={screen.top} />
           <MaskPanel
             left={0}
             top={screen.top}
@@ -278,14 +279,14 @@ export function CropOverlay() {
           <MaskPanel
             left={screen.left + screen.width}
             top={screen.top}
-            width={STAGE_W - (screen.left + screen.width)}
+            width={SW - (screen.left + screen.width)}
             height={screen.height}
           />
           <MaskPanel
             left={0}
             top={screen.top + screen.height}
-            width={STAGE_W}
-            height={STAGE_H - (screen.top + screen.height)}
+            width={SW}
+            height={SH - (screen.top + screen.height)}
           />
         </>
       )}
