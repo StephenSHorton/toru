@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Keyboard } from "lucide-react";
 import { Shortcut } from "@/lib/api";
 import { useShortcuts } from "./useShortcuts";
@@ -16,21 +17,23 @@ function isSnip(sc: { win: boolean; shift: boolean; ctrl: boolean; alt: boolean;
   return sc.win && sc.shift && !sc.ctrl && !sc.alt && sc.key.toUpperCase() === "S";
 }
 
-// Chip — a small sharp-bordered token used to render the current combo.
-function Chip({ children }: { children: React.ReactNode }) {
-  return <span className="border border-border px-1.5 py-0.5 text-xs">{children}</span>;
+// The Windows-logo key has no reliable single character in system fonts, so ⊞
+// (U+229E) is the conventional stand-in (Microsoft's own docs use it). The title
+// gives a hover label since the glyph isn't self-evident.
+function WinKey() {
+  return <Kbd title="Windows key">⊞</Kbd>;
 }
 
-// ComboChips renders a combo as ⊞ Win / Ctrl / Alt / Shift / KEY chips.
-function ComboChips({ sc }: { sc: Shortcut }) {
+// ComboKeys renders a combo as key-caps: ⊞ / Ctrl / Alt / Shift / KEY.
+function ComboKeys({ sc }: { sc: Shortcut }) {
   return (
-    <div className="flex items-center gap-1">
-      {sc.win && <Chip>⊞ Win</Chip>}
-      {sc.ctrl && <Chip>Ctrl</Chip>}
-      {sc.alt && <Chip>Alt</Chip>}
-      {sc.shift && <Chip>Shift</Chip>}
-      {sc.key && <Chip>{sc.key}</Chip>}
-    </div>
+    <KbdGroup>
+      {sc.win && <WinKey />}
+      {sc.ctrl && <Kbd>Ctrl</Kbd>}
+      {sc.alt && <Kbd>Alt</Kbd>}
+      {sc.shift && <Kbd>Shift</Kbd>}
+      {sc.key && <Kbd>{sc.key}</Kbd>}
+    </KbdGroup>
   );
 }
 
@@ -103,7 +106,7 @@ function ShortcutRow({
         <span className="text-sm">{sc.label}</span>
         {!editing && (
           <div className="flex items-center gap-2">
-            <ComboChips sc={sc} />
+            <ComboKeys sc={sc} />
             <Button size="sm" variant="ghost" onClick={beginEdit}>
               Edit
             </Button>
@@ -117,9 +120,10 @@ function ShortcutRow({
             <Button
               size="sm"
               variant={draft.win ? "default" : "outline"}
+              title="Windows key"
               onClick={() => toggleMod("win")}
             >
-              ⊞ Win
+              ⊞
             </Button>
             <Button
               size="sm"
