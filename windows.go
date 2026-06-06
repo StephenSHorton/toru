@@ -7,6 +7,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 // servedFileURL turns an absolute temp-file path (a committed screenshot crop or
@@ -25,6 +26,16 @@ type WindowsService struct {
 	app     *application.App
 	cap     capture.Capturer
 	overlay *overlay.OverlayService
+
+	// settingsWin is the single live Settings/home window. Toru is a tray app that
+	// lives forever, so the tray left-click + tray "Settings…" + editor gear all
+	// route through OpenSettings repeatedly; without a singleton each call would
+	// stack ANOTHER frameless window (and DisableQuitOnLastWindowClosed keeps the
+	// orphans alive). Held here so OpenSettings can Show().Focus() the existing one
+	// instead. Cleared on the window's WindowClosing event. Only ever touched from
+	// the main thread (ApplicationStarted listener, tray callbacks marshal to it,
+	// the editor gear's JS call lands on the main thread), so no extra locking.
+	settingsWin *application.WebviewWindow
 }
 
 // dark is Toru's window background (matches the dark theme; sharp, no chrome rounding).
@@ -42,15 +53,43 @@ func (w *WindowsService) OpenOverlay() {
 	_, _ = w.overlay.BeginSession()
 }
 
-// OpenHub opens the dev Hub window (buttons to drive both editors during Phase
-// 0). Cancel/Esc on the overlay returns here.
-func (w *WindowsService) OpenHub() {
-	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Toru",
-		URL:              "/?view=hub",
+// OpenSettings opens Toru's Settings/home window: the tray-driven hub that hosts
+// the Shortcuts panel, the updater/about, and a Capture button. Reached from the
+// tray menu, the tray left-click, the ApplicationStarted launch, and the editor's
+// floating gear button.
+//
+// SINGLETON: the Settings window is the app's persistent home, hit repeatedly from
+// the tray. If one is already open this Show().Focus()es it (restoring it first if
+// minimised) instead of spawning a duplicate frameless window — without this, every
+// tray click would stack another window that DisableQuitOnLastWindowClosed then
+// keeps alive forever, reintroducing the exact multi-window confusion this redesign
+// removed. The handle is cleared when the window closes.
+func (w *WindowsService) OpenSettings() {
+	if w.app == nil {
+		return
+	}
+	if w.settingsWin != nil {
+		w.settingsWin.Restore() // no-op if normal; un-minimises if minimised
+		w.settingsWin.Show().Focus()
+		return
+	}
+	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:            "Toru — Settings",
+		URL:              "/?view=settings",
 		Width:            720,
 		Height:           560,
 		BackgroundColour: dark,
+		// AlwaysOnTop so summoning Settings from the editor's ⚙ raises it ABOVE the
+		// always-on-top capture/edit overlay — otherwise Show().Focus() lands it
+		// behind the overlay and the user (mid-edit) never sees it appear.
+		AlwaysOnTop: true,
+	})
+	w.settingsWin = win
+	// Drop the handle when this window closes so the next OpenSettings creates a
+	// fresh one (a closed WebviewWindow's Show/Focus are no-ops, which would
+	// otherwise leave the tray's "open home" silently dead).
+	win.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
+		w.settingsWin = nil
 	})
 }
 
@@ -61,6 +100,9 @@ func (w *WindowsService) OpenHub() {
 // /editor 404s). The webview also can't load a raw C:\ path as <img src>, so the
 // committed PNG is handed over as the /__file/<basename> served URL.
 func (w *WindowsService) OpenEditor(imagePath string) {
+	if w.app == nil {
+		return
+	}
 	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "Toru — Edit Screenshot",
 		URL:              "/?view=editor&img=" + url.QueryEscape(servedFileURL(imagePath)),
@@ -73,6 +115,9 @@ func (w *WindowsService) OpenEditor(imagePath string) {
 // OpenTrim opens Developer 2's trim editor for videoPath. Same routing + served-
 // file rules as OpenEditor (/?view=trim, /__file/<basename> for the media src).
 func (w *WindowsService) OpenTrim(videoPath string) {
+	if w.app == nil {
+		return
+	}
 	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "Toru — Trim Recording",
 		URL:              "/?view=trim&vid=" + url.QueryEscape(servedFileURL(videoPath)),
@@ -82,10 +127,15 @@ func (w *WindowsService) OpenTrim(videoPath string) {
 	})
 }
 
-// SimulateCapture runs the (stubbed) capture seam for the given mode and opens
-// the matching editor window. This is the dev-hub shortcut that exercises the
-// whole path — capture -> CaptureResult -> route-by-mode -> editor window —
-// before global hotkeys + the real overlay are wired.
+// SimulateCapture runs the capture seam for the given mode and opens the matching
+// editor window. It exercises the whole path — capture -> CaptureResult ->
+// route-by-mode -> editor window — without going through the overlay/hotkey.
+//
+// Go-only test/dev hook: the dev hub that used to call it is gone and the frontend
+// no longer references it, so it is marked //wails:ignore to drop it from the JS
+// binding rather than widen the bound surface with an unused method.
+//
+//wails:ignore
 func (w *WindowsService) SimulateCapture(mode string) (capture.CaptureResult, error) {
 	req := capture.CaptureRequest{
 		Mode:      mode,

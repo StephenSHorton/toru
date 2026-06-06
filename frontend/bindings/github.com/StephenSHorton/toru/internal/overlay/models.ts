@@ -96,5 +96,86 @@ export class MonitorSession {
     }
 }
 
+/**
+ * OverlayEditPayload is the overlay:edit event payload (Go->JS). It is emitted by
+ * EnterEdit to the SAME overlay window (no separate editor window) so React can
+ * load the served crop PNG as the editor base image, size the Konva stage to the
+ * crop's CSS rect, position it exactly where the bright region was on screen, and
+ * morph the dock into the annotation toolbar. React filters by MonitorID == its
+ * URL ?mon=, so a non-target window ignores it and stays dimmed.
+ */
+export class OverlayEditPayload {
+    "monitorId": number;
+
+    /**
+     * served crop PNG, e.g. "/__file/<base>"
+     */
+    "cropUrl": string;
+
+    /**
+     * region left in CSS px within the window
+     */
+    "cssLeft": number;
+
+    /**
+     * region top  in CSS px
+     */
+    "cssTop": number;
+
+    /**
+     * region width  in CSS px = stage width
+     */
+    "cssW": number;
+
+    /**
+     * region height in CSS px = stage height
+     */
+    "cssH": number;
+
+    /**
+     * monitor-local physical crop (Save provenance)
+     */
+    "sub": capture$0.Rect;
+
+    /** Creates a new OverlayEditPayload instance. */
+    constructor($$source: Partial<OverlayEditPayload> = {}) {
+        if (!("monitorId" in $$source)) {
+            this["monitorId"] = 0;
+        }
+        if (!("cropUrl" in $$source)) {
+            this["cropUrl"] = "";
+        }
+        if (!("cssLeft" in $$source)) {
+            this["cssLeft"] = 0;
+        }
+        if (!("cssTop" in $$source)) {
+            this["cssTop"] = 0;
+        }
+        if (!("cssW" in $$source)) {
+            this["cssW"] = 0;
+        }
+        if (!("cssH" in $$source)) {
+            this["cssH"] = 0;
+        }
+        if (!("sub" in $$source)) {
+            this["sub"] = (new capture$0.Rect());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new OverlayEditPayload instance from a string or object.
+     */
+    static createFrom($$source: any = {}): OverlayEditPayload {
+        const $$createField6_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("sub" in $$parsedSource) {
+            $$parsedSource["sub"] = $$createField6_0($$parsedSource["sub"]);
+        }
+        return new OverlayEditPayload($$parsedSource as Partial<OverlayEditPayload>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = capture$0.Rect.createFrom;

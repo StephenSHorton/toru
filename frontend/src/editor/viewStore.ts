@@ -13,6 +13,10 @@
 import { useSyncExternalStore } from 'react';
 import type { ViewTransform } from './geometry';
 
+// STAGE_W/STAGE_H are the DEFAULT stage size (the standalone Editor dev route
+// uses these). In overlay-v2 the embedded editor's stage is sized to the captured
+// CROP REGION via setStageSize(), so the live size is module state (stageW/stageH)
+// seeded from these defaults.
 export const STAGE_W = 900;
 export const STAGE_H = 540;
 
@@ -24,13 +28,47 @@ export interface View extends ViewTransform {
   dh: number;
 }
 
+// --- live stage size (module singleton) -------------------------------------
+// The Konva Stage element + both DOM overlays read this so the embedded editor
+// fills exactly the crop region. setStageSize re-fits + emits, sharing the SAME
+// listener set as the view, so size and transform update atomically.
+let stageW = STAGE_W;
+let stageH = STAGE_H;
+// Cached snapshot object — useSyncExternalStore's getSnapshot must return a
+// STABLE reference per value (a fresh {w,h} literal each call makes React 19
+// loop-warn). Replace it ONLY in setStageSize.
+let sizeSnap = { w: STAGE_W, h: STAGE_H };
+
+export function getStageSize(): { w: number; h: number } {
+  return sizeSnap;
+}
+
+/**
+ * Resize the stage (the embedded editor sets this to the crop region's CSS size).
+ * Re-fits the current base image at the new size and notifies subscribers. MUST
+ * be called BEFORE loadBaseImage in the overlay:edit handler so the first fit
+ * uses the correct size (EditorCanvas's resetFit effect reads stageW/stageH).
+ */
+export function setStageSize(w: number, h: number): void {
+  stageW = w;
+  stageH = h;
+  sizeSnap = { w, h };
+  current = computeFit(baseSize.w, baseSize.h);
+  emit();
+}
+
+/** Subscribe the Stage element + overlays to the live stage size. */
+export function useStageSize(): { w: number; h: number } {
+  return useSyncExternalStore(subscribe, getStageSize, getStageSize);
+}
+
 /** Fit a width×height image centered in the Stage at zoom 1 (no user zoom). */
 export function computeFit(imgW: number, imgH: number): View {
-  if (!imgW || !imgH) return { dx: 0, dy: 0, scale: 1, dw: STAGE_W, dh: STAGE_H };
-  const scale = Math.min(STAGE_W / imgW, STAGE_H / imgH);
+  if (!imgW || !imgH) return { dx: 0, dy: 0, scale: 1, dw: stageW, dh: stageH };
+  const scale = Math.min(stageW / imgW, stageH / imgH);
   const dw = imgW * scale;
   const dh = imgH * scale;
-  return { dx: (STAGE_W - dw) / 2, dy: (STAGE_H - dh) / 2, scale, dw, dh };
+  return { dx: (stageW - dw) / 2, dy: (stageH - dh) / 2, scale, dw, dh };
 }
 
 // --- live state (module singleton) ------------------------------------------
@@ -110,8 +148,8 @@ export function zoomAtPointer(px: number, py: number, deltaY: number): void {
   const dh = baseSize.h * newScale;
   current = {
     scale: newScale,
-    dx: clampAxis(px - imgX * newScale, dw, STAGE_W),
-    dy: clampAxis(py - imgY * newScale, dh, STAGE_H),
+    dx: clampAxis(px - imgX * newScale, dw, stageW),
+    dy: clampAxis(py - imgY * newScale, dh, stageH),
     dw,
     dh,
   };
@@ -127,8 +165,8 @@ export function panBy(ddx: number, ddy: number): void {
   const dh = baseSize.h * current.scale;
   current = {
     ...current,
-    dx: clampAxis(current.dx + ddx, dw, STAGE_W),
-    dy: clampAxis(current.dy + ddy, dh, STAGE_H),
+    dx: clampAxis(current.dx + ddx, dw, stageW),
+    dy: clampAxis(current.dy + ddy, dh, stageH),
   };
   emit();
 }

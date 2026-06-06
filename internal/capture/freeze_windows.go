@@ -44,7 +44,12 @@ func FreezeMonitor(b image.Rectangle) (string, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	if err := png.Encode(f, img); err != nil {
+	// Encode at BestSpeed: this is the dominant overlay-startup cost (default
+	// compression PNG-encoding a 4K monitor is ~0.5-1s). BestSpeed is still
+	// LOSSLESS — required, because CommitScreenshot crops the saved screenshot
+	// out of this exact PNG — but encodes several times faster.
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	if err := enc.Encode(f, img); err != nil {
 		_ = f.Close()
 		_ = os.Remove(f.Name())
 		return "", fmt.Errorf("freeze monitor: encode png: %w", err)
@@ -54,6 +59,25 @@ func FreezeMonitor(b image.Rectangle) (string, error) {
 		return "", fmt.Errorf("freeze monitor: close png: %w", err)
 	}
 	return f.Name(), nil
+}
+
+// FreezeMonitorImage grabs the LIVE desktop region described by b (virtual-desktop
+// PHYSICAL pixels) and returns the *image.RGBA IN MEMORY — no disk round-trip.
+//
+// This is the overlay-v2 freeze: the frozen pixels stay resident on the service
+// (mutex-guarded) so the dim BACKDROP can be served as fast JPEG and the FINAL
+// screenshot cropped LOSSLESSLY from these exact pixels, keeping the slow full-res
+// PNG encode off the hot path. Like FreezeMonitor it MUST run BEFORE any overlay
+// window is shown, otherwise the still would photograph the dim overlay itself.
+func FreezeMonitorImage(b image.Rectangle) (*image.RGBA, error) {
+	if b.Dx() <= 0 || b.Dy() <= 0 {
+		return nil, fmt.Errorf("freeze monitor: invalid bounds %dx%d (W/H must be > 0)", b.Dx(), b.Dy())
+	}
+	img, err := screenshot.CaptureRect(b) // returns *image.RGBA, the only screen grab
+	if err != nil {
+		return nil, fmt.Errorf("freeze monitor: %w", err)
+	}
+	return img, nil
 }
 
 // DisplayBounds describes one enumerated monitor in virtual-desktop PHYSICAL px

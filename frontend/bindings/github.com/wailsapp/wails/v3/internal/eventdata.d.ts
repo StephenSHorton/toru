@@ -8,11 +8,16 @@ import type { Events } from "@wailsio/runtime";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import type * as capture$0 from "../../../../StephenSHorton/toru/internal/capture/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import type * as overlay$0 from "../../../../StephenSHorton/toru/internal/overlay/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "capture:done": capture$0.CaptureResult;
+            "overlay:edit": overlay$0.OverlayEditPayload;
+            "overlay:engage": overlay$0.MonitorSession;
         }
     }
 }

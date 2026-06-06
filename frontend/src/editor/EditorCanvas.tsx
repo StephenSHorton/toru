@@ -19,7 +19,7 @@ import { renderNode } from './nodes';
 import { toImageSpace } from './geometry';
 import type { NodeId, LineNode, ArrowNode } from './types';
 import { PointPairHandles } from './PointPairHandles';
-import { STAGE_W, STAGE_H, useView, resetFit, zoomAtPointer, getView } from './viewStore';
+import { STAGE_W, STAGE_H, useView, useStageSize, resetFit, zoomAtPointer, getView } from './viewStore';
 
 useStrictMode(true);
 
@@ -48,6 +48,9 @@ export function EditorCanvas({ stageRef }: EditorCanvasProps) {
   const baseH = base && base.type === 'image' ? base.height : 0;
   // Live view (fit + user Ctrl+wheel zoom/pan), shared with the crop/text overlays.
   const view = useView();
+  // Live stage size — fixed defaults on the standalone route, the crop region's
+  // CSS size when embedded in the overlay edit mode.
+  const { w: sw, h: sh } = useStageSize();
 
   const annotationNodes = nodes.slice(1);
   const tool = TOOLS[activeTool];
@@ -130,8 +133,8 @@ export function EditorCanvas({ stageRef }: EditorCanvasProps) {
   return (
     <Stage
       ref={stageRef}
-      width={STAGE_W}
-      height={STAGE_H}
+      width={sw}
+      height={sh}
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}

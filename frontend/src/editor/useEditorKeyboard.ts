@@ -17,7 +17,7 @@
 
 import { useEffect } from 'react';
 import { useEditorStore } from './store';
-import { resetFit, zoomAtPointer, STAGE_W, STAGE_H } from './viewStore';
+import { resetFit, zoomAtPointer, getStageSize } from './viewStore';
 import type { ToolId } from './types';
 
 function isEditableTarget(): boolean {
@@ -43,8 +43,20 @@ const KEY_TOOLS: Record<string, ToolId> = {
   c: 'crop',
 };
 
-export function useEditorKeyboard() {
+// `enabled` (default true) lets the overlay gate the editor shortcuts to EDIT mode
+// only: in capture mode the editor canvas isn't rendered, so a tool-key/z-order/
+// undo would mutate a hidden store (later wiped by loadBaseImage). The standalone
+// Editor route omits the arg and stays always-on.
+//
+// `onEscapeEmpty` (optional) escalates Esc: in the overlay edit mode, Esc first
+// clears selection / returns to the select tool (normal editor UX); when there is
+// NOTHING left to clear (no selection AND already on select), it fires this to hide
+// the overlay to the tray — matching the spec's "Done / Esc from edit mode -> hide"
+// without surprising the user mid-edit. The standalone Editor route omits it, so
+// Esc there only ever deselects.
+export function useEditorKeyboard(enabled = true, onEscapeEmpty?: () => void) {
   useEffect(() => {
+    if (!enabled) return;
     function onKeyDown(ev: KeyboardEvent) {
       if (isEditableTarget()) return;
       const s = useEditorStore.getState();
@@ -94,17 +106,27 @@ export function useEditorKeyboard() {
       }
       if (ctrl && (ev.key === '=' || ev.key === '+')) {
         ev.preventDefault();
-        zoomAtPointer(STAGE_W / 2, STAGE_H / 2, -1);
+        const { w, h } = getStageSize();
+        zoomAtPointer(w / 2, h / 2, -1);
         return;
       }
       if (ctrl && ev.key === '-') {
         ev.preventDefault();
-        zoomAtPointer(STAGE_W / 2, STAGE_H / 2, 1);
+        const { w, h } = getStageSize();
+        zoomAtPointer(w / 2, h / 2, 1);
         return;
       }
 
       // escape
       if (ev.key === 'Escape') {
+        // Nothing to clear (no selection, already on select) -> escalate to hide.
+        if (!s.selectedId && s.activeTool === 'select') {
+          if (onEscapeEmpty) {
+            ev.preventDefault();
+            onEscapeEmpty();
+          }
+          return;
+        }
         s.select(null);
         if (s.activeTool !== 'select') s.setTool('select');
         return;
@@ -122,5 +144,5 @@ export function useEditorKeyboard() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [enabled, onEscapeEmpty]);
 }

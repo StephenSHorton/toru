@@ -1,13 +1,22 @@
-// Toolbar — frosted (.frost), shadcn Buttons, lucide icons. Tool buttons are
-// driven by a registry-aligned list (TOOL_BUTTONS), mirroring the TOOLS registry
-// in tools/index.ts. Color + stroke controls bind to the store. Paste/Copy/Save
-// call the clipboard hook + export actions. Sharp corners only (no rounded-*).
+// Toolbar — a COMPACT FLOATING bar (macOS Screenshot style) pinned bottom-center
+// OVER the canvas. Frosted (.frost), shadcn Buttons, lucide icons, sharp corners
+// only (no rounded-*). Tool buttons are driven by a registry-aligned list
+// (TOOL_BUTTONS), mirroring the TOOLS registry in tools/index.ts. Color + stroke
+// controls bind to the store. Copy/Save call the export actions; a Settings gear
+// opens the tray-driven Settings/home window.
+//
+// The bar is HTML OUTSIDE the Konva Stage, so Copy/Save (which flatten the Stage)
+// never bake it into the exported PNG. It sits above CropOverlay/TextEditingOverlay
+// (z-20) and is pointer-events-auto so its buttons stay clickable; it positions
+// itself absolutely (bottom-4 left-1/2 -translate-x-1/2) with no full-window
+// wrapper, so clicks elsewhere still reach the canvas underneath.
 
 import type Konva from 'konva';
 import { Button } from '@/components/ui/button';
 import {
   MousePointer2, Pen, Square, Circle, ArrowUpRight, Minus, Type, Crop,
   Undo2, Redo2, BringToFront, SendToBack, Trash2, Copy, Save,
+  Settings as SettingsIcon, Camera, Check,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEditorStore, BASE_IMAGE_ID } from './store';
@@ -16,6 +25,7 @@ import { ColorPalette } from './ColorPalette';
 import { StrokeWidthControl } from './StrokeWidthControl';
 import { EmojiPicker } from './tools/emoji';
 import { copyToClipboard, saveAs } from './exportActions';
+import { WindowsService } from '@/lib/api';
 
 // Aligns with the TOOLS registry (tools/index.ts). Order mirrors macOS Markup.
 const TOOL_BUTTONS: { id: ToolId; icon: LucideIcon; label: string }[] = [
@@ -35,9 +45,13 @@ const Divider = () => <div className="mx-1 h-6 w-px bg-border" />;
 
 export interface ToolbarProps {
   stageRef: React.RefObject<Konva.Stage | null>;
+  /** When provided (overlay edit mode), renders a "New" button to start a fresh capture. */
+  onNewCapture?: () => void;
+  /** When provided (overlay edit mode), renders a "Done" button to hide the overlay. */
+  onDone?: () => void;
 }
 
-export function Toolbar({ stageRef }: ToolbarProps) {
+export function Toolbar({ stageRef, onNewCapture, onDone }: ToolbarProps) {
   const activeTool = useEditorStore((s) => s.activeTool);
   const setTool = useEditorStore((s) => s.setTool);
   const selectedId = useEditorStore((s) => s.selectedId);
@@ -59,7 +73,7 @@ export function Toolbar({ stageRef }: ToolbarProps) {
   }
 
   return (
-    <div className="frost z-10 flex items-center gap-1 px-2 py-1.5">
+    <div className="frost pointer-events-auto absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 px-2 py-1.5 shadow-lg">
       {TOOL_BUTTONS.map((t) => (
         <Button
           key={t.id}
@@ -115,14 +129,34 @@ export function Toolbar({ stageRef }: ToolbarProps) {
       <ColorPalette />
       <StrokeWidthControl />
 
-      <div className="ml-auto flex items-center gap-1">
-        <Button size="sm" variant="ghost" title="Copy to clipboard" onClick={() => void handleCopy()}>
-          <Copy /> Copy
+      <Divider />
+
+      <Button
+        size="icon"
+        variant="ghost"
+        title="Settings"
+        onClick={() => void WindowsService.OpenSettings()}
+      >
+        <SettingsIcon />
+      </Button>
+      <Button size="sm" variant="ghost" title="Copy to clipboard" onClick={() => void handleCopy()}>
+        <Copy /> Copy
+      </Button>
+      <Button size="sm" title="Save as…" onClick={() => void handleSave()}>
+        <Save /> Save
+      </Button>
+
+      {(onNewCapture || onDone) && <Divider />}
+      {onNewCapture && (
+        <Button size="sm" variant="ghost" title="New capture" onClick={onNewCapture}>
+          <Camera /> New
         </Button>
-        <Button size="sm" title="Save as…" onClick={() => void handleSave()}>
-          <Save /> Save
+      )}
+      {onDone && (
+        <Button size="sm" title="Done (hide)" onClick={onDone}>
+          <Check /> Done
         </Button>
-      </div>
+      )}
     </div>
   );
 }

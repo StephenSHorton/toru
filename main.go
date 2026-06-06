@@ -19,7 +19,6 @@ import (
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/StephenSHorton/toru/internal/shot"
-	"github.com/StephenSHorton/toru/internal/tray"
 	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/StephenSHorton/toru/internal/vid"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -28,6 +27,16 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// trayIconPNG is the system-tray icon. //go:embed requires the embedded path to
+// live under the embedding package's directory (no parent ".." paths), so the
+// embed MUST be in package main here — this is why the tray is built on the App
+// in main.go rather than in a separate internal/tray package. The Windows tray
+// (w32.CreateSmallHIconFromImage) magic-byte-checks PNG/ICO and auto-scales the
+// 1024px PNG down to the system small-icon size, so no manual .ico is needed.
+//
+//go:embed build/appicon.png
+var trayIconPNG []byte
 
 // version is the running app version, injected at release build time via
 // -ldflags "-X main.version=X.Y.Z" (see build/windows/Taskfile.yml). It stays
@@ -40,6 +49,12 @@ const updateRepo = "StephenSHorton/toru"
 func init() {
 	// Typed event payloads picked up by the binding generator.
 	application.RegisterEvent[capture.CaptureResult](overlay.EventCaptureDone)
+	// overlay-v2 Go->JS events: engage resets a reused window to capture mode with
+	// the fresh backdrop; edit morphs the same window into the annotation editor.
+	// RegisterEvent is init-time + constant-name + panics on dup — these names are
+	// new, so safe.
+	application.RegisterEvent[overlay.MonitorSession](overlay.EventOverlayEngage)
+	application.RegisterEvent[overlay.OverlayEditPayload](overlay.EventOverlayEdit)
 }
 
 func main() {
@@ -60,6 +75,13 @@ func main() {
 	windowsSvc := &WindowsService{cap: capturer}
 	updateSvc := update.New(updateRepo, version)
 
+	// Global hotkeys. The Manager owns a low-level keyboard hook (WH_KEYBOARD_LL)
+	// so it can capture AND swallow Win-key combos — the default is Win+Shift+S,
+	// which RegisterHotKey can't claim from the Snipping Tool. HotkeyService
+	// exposes the combo-builder to the React Shortcuts panel.
+	keys := hotkey.New()
+	hotkeySvc := hotkey.NewService(keys)
+
 	app := application.New(application.Options{
 		Name:        "Toru",
 		Description: "macOS-style screenshot & screen recording for Windows",
@@ -70,6 +92,7 @@ func main() {
 			application.NewService(vidSvc),
 			application.NewService(windowsSvc),
 			application.NewService(updateSvc),
+			application.NewService(hotkeySvc),
 		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
@@ -92,37 +115,65 @@ func main() {
 	windowsSvc.overlay = overlaySvc
 	updateSvc.SetApp(app)
 
-	// Overlay -> Windows callbacks: Cancel/Esc returns to the Hub; a committed
-	// screenshot opens the editor. Passed as Go-only funcs (not JS-bound).
-	overlaySvc.SetHubOpener(windowsSvc.OpenHub)
-	overlaySvc.SetEditorOpener(windowsSvc.OpenEditor)
+	// overlay-v2: screenshots are annotated IN PLACE on the same overlay surface
+	// (single-surface morph via OverlayService.EnterEdit) — NO separate editor
+	// window is opened. windowsSvc.OpenEditor stays only for SimulateCapture/dev.
 
-	// Tray + global hotkeys. The registrar is a stub until the Phase 0 spike
-	// wires real RegisterHotKey/WM_HOTKEY; wiring it here documents intent.
-	trayCtl := tray.New()
-	trayCtl.SetState(tray.Idle)
-
-	keys := hotkey.New()
-	_ = keys.Register("overlay", hotkey.DefaultOverlay, windowsSvc.OpenOverlay)
+	// Install the global hotkey hook AFTER injection (windowsSvc.overlay is set
+	// above), so a hotkey press that lands before app.Run can still open the
+	// overlay (OpenOverlay also nil-guards w.overlay). Register the persisted
+	// "overlay" binding (default Win+Shift+S); the first Register installs the
+	// low-level keyboard hook on a dedicated OS thread.
+	overlayBinding := hotkey.LoadBinding("overlay", hotkey.DefaultOverlay)
+	_ = keys.Register("overlay", overlayBinding, windowsSvc.OpenOverlay)
 	defer keys.Close()
 
-	// LAUNCH -> OVERLAY. Opening Toru immediately paints the real all-monitors
-	// frozen-still dim+crop overlay (BeginSession freezes every monitor BEFORE
-	// any window is shown), with a crop pre-placed on the primary. Esc/Cancel
-	// tears it all down and opens the dev Hub (which keeps both editors reachable
-	// during Phase 0).
+	// LAUNCH -> TRAY + SETTINGS. Toru is a tray ("menu-bar style") app: on launch
+	// it installs the system-tray icon and opens the Settings/home window ONCE so
+	// the user can see Toru is running, change the shortcut, and hit Capture. It
+	// no longer auto-pops the fullscreen capture overlay — capture is reached via
+	// Win+Shift+S, the tray menu's Capture item, or the tray's double-click.
 	//
-	// This MUST run on ApplicationStarted, NOT synchronously before app.Run():
-	// Wails only builds the platform app (and populates the Screen cache) inside
-	// Run() via newPlatformApp. Calling BeginSession before then would read an
-	// EMPTY Screen.GetAll(), so every monitor's ScaleFactor/IsPrimary and DIP
-	// window bounds would silently fall back to scale=1.0 — breaking sizing and
-	// crop math on every HiDPI monitor (the launch path is the whole feature).
-	// The listener runs on a goroutine; Window.NewWithOptions marshals window
-	// creation to the main thread internally, so this is safe.
+	// This MUST run on events.Common.ApplicationStarted, NOT synchronously before
+	// app.Run(): Wails only builds the platform app (running==true) and populates
+	// the Screen cache inside Run() via newPlatformApp. SystemTray.New early-runs
+	// only once running==true (runOrDeferToAppRun); any window opened here reads a
+	// populated Screen.GetAll() so DPI/scale is correct (the same EMPTY-cache
+	// hazard that the overlay path guards against). The listener fires exactly
+	// once per process, so New() is called exactly once (no duplicate tray icons).
+	// The menu/click callbacks run on goroutines, but Window.NewWithOptions and
+	// app.Quit marshal to the main thread internally, so the direct calls are safe.
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
-		windowsSvc.OpenOverlay()
+		// Build the menu-bar/tray home. Safe here: app.running==true and the
+		// Screen cache is populated (newPlatformApp ran inside app.Run()).
+		systray := app.SystemTray.New()
+		systray.SetIcon(trayIconPNG) // PNG bytes; Win32 decodes via CreateSmallHIconFromImage + auto-scales
+		systray.SetTooltip("Toru — screen capture (⊞ Shift S)")
+		menu := application.NewMenu()
+		menu.Add("Capture (⊞ Shift S)").OnClick(func(*application.Context) { windowsSvc.OpenOverlay() })
+		menu.Add("Settings…").OnClick(func(*application.Context) { windowsSvc.OpenSettings() })
+		menu.AddSeparator()
+		menu.Add("Quit Toru").OnClick(func(*application.Context) { app.Quit() })
+		systray.SetMenu(menu)
+		systray.OnClick(func() { windowsSvc.OpenSettings() })      // left-click = open home (menu-bar feel)
+		systray.OnDoubleClick(func() { windowsSvc.OpenOverlay() }) // double-click = quick capture
+		// Right-click opens the menu automatically (Wails smart default).
+
+		// Show the Settings/home window ONCE so the user sees Toru is running.
+		// Do NOT auto-pop the capture overlay on launch anymore.
+		windowsSvc.OpenSettings()
+
+		// Pre-warm the reused overlay windows so their handles are ready. This only
+		// creates the WebviewWindow objects (no navigation, no paint, no flicker);
+		// the FIRST capture pays the one-time webview-navigation cost, and every
+		// subsequent RE-engage is instant (freeze + Show only). The Screen cache is
+		// populated here (we are inside app.Run()), so DPI bounds are correct.
+		overlaySvc.PrewarmWindows()
 	})
+
+	// Best-effort: close the reused overlay windows on app shutdown. Process exit
+	// frees everything regardless, so this is purely cosmetic belt-and-suspenders.
+	app.OnShutdown(func() { overlaySvc.Teardown() })
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
