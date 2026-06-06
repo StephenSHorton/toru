@@ -79,6 +79,10 @@ func (w *WindowsService) OpenSettings() {
 		Width:            720,
 		Height:           560,
 		BackgroundColour: dark,
+		// AlwaysOnTop so summoning Settings from the editor's ⚙ raises it ABOVE the
+		// always-on-top capture/edit overlay — otherwise Show().Focus() lands it
+		// behind the overlay and the user (mid-edit) never sees it appear.
+		AlwaysOnTop: true,
 	})
 	w.settingsWin = win
 	// Drop the handle when this window closes so the next OpenSettings creates a
