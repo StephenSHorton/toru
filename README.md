@@ -108,3 +108,7 @@ The overlay emits one `CaptureRequest`; Go's single `Capture()` turns it into a
 PNG (DXGI) or MP4 (FFmpeg) path; the `capture:done` event routes **by mode** to
 either the Konva editor (Dev 1) or the trim editor (Dev 2) — neither imports the
 other, only `internal/capture/contract.go`.
+
+## License
+
+[MIT](LICENSE) © Stephen Horton and the Toru contributors.
