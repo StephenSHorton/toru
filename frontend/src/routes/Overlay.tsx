@@ -5,11 +5,14 @@
 // and serves it at /__shot/<id>; this route paints that still fullscreen, dims it
 // with a CSS mask, and reveals the bright (undimmed) still under the crop hole.
 //
-// EVERY monitor's window is interactive: each draws its own crop rectangle
-// (body drag + 8 resize handles, min-size, CLAMPED to the monitor — cross-
-// monitor crops are still deferred), a dimension badge in PHYSICAL px, and the
-// frosted control pill (Screenshot/Record toggle + Full screen + Capture +
-// Cancel). Committing from a monitor's pill captures THAT monitor's crop.
+// EVERY monitor's window can take the capture selection, but exactly ONE owns
+// it at a time (starts on the primary; synced via the overlay:activeMonitor
+// broadcast). The ACTIVE window draws the crop rectangle (body drag + 8 resize
+// handles, min-size, CLAMPED to the monitor — cross-monitor crops are still
+// deferred), a dimension badge in PHYSICAL px, and the frosted control pill
+// (Screenshot/Record toggle + Full screen + Capture + Cancel). Inactive
+// windows are dim-only with a "Click to capture this screen" hint; clicking
+// claims the selection. Committing captures the active monitor's crop.
 //
 // CORRECTNESS: committing a SCREENSHOT crops the FROZEN still in Go (never a live
 // re-capture, which would photograph these dim windows). VIDEO dismisses the
@@ -21,6 +24,7 @@
 // and the on-screen badge so they are byte-identical.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Events } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
 import { Camera, Maximize, Video, X } from "lucide-react";
 import { OverlayService } from "@/lib/api";
@@ -49,6 +53,22 @@ export default function Overlay() {
   const q = parseOverlayQuery(window.location.search);
   const [mode, setMode] = useState<"screenshot" | "video">("screenshot");
   const [busy, setBusy] = useState(false);
+
+  // Exactly ONE monitor owns the capture selection at a time (starts on the
+  // primary). Clicking an inactive monitor claims it via a Go broadcast; every
+  // window — including the claimer — syncs off the same event, so two crops
+  // can never look simultaneously active.
+  const [active, setActive] = useState(q.primary);
+  useEffect(() => {
+    const off = Events.On("overlay:activeMonitor", (ev: { data: unknown }) => {
+      const mon = Array.isArray(ev.data) ? ev.data[0] : ev.data;
+      setActive(mon === q.mon);
+    });
+    return off;
+  }, [q.mon]);
+  const claimActive = useCallback(() => {
+    void OverlayService.SetActiveMonitor(q.mon);
+  }, [q.mon]);
 
   // The monitor's CSS size IS the window viewport (each window already covers the
   // full monitor in DIP), so layout uses innerWidth/innerHeight, NOT the physical
@@ -202,13 +222,28 @@ export default function Overlay() {
         />
       ) : null}
 
+      {/* Inactive monitors are dim-only with a click-to-select hint: only the
+          ACTIVE monitor shows crop + pill, so there is never any ambiguity
+          about what Capture/Record will grab. */}
+      {!active ? (
+        <div
+          className="absolute inset-0 cursor-pointer"
+          onPointerDown={claimActive}
+        >
+          <div className="pointer-events-none absolute inset-0 bg-black/45" />
+          <div className="frost pointer-events-none absolute bottom-8 left-1/2 -translate-x-1/2 px-3 py-1.5 text-xs text-muted-foreground">
+            Click to capture this screen
+          </div>
+        </div>
+      ) : null}
+
       {/* Four-panel dim mask with a transparent crop hole. EVERY monitor is
           interactive: each window owns its own crop, and committing from a
           monitor's pill captures that monitor (q.mon). */}
-      <DimMask crop={crop} monW={monW} monH={monH} />
+      {active ? <DimMask crop={crop} monW={monW} monH={monH} /> : null}
 
-      {/* Interactive crop rectangle — every monitor. */}
-      {!isFullScreen ? (
+      {/* Interactive crop rectangle — active monitor only. */}
+      {active && !isFullScreen ? (
         <div
           className="absolute ring-1 ring-primary/90"
           style={{
@@ -236,17 +271,18 @@ export default function Overlay() {
             />
           ))}
         </div>
-      ) : (
+      ) : active ? (
         /* Full-screen mode: whole-monitor ring + badge, no drag affordances. */
         <div className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-primary/90">
           <div className="frost absolute left-1/2 top-3 -translate-x-1/2 px-2 py-0.5 text-[11px] tabular-nums">
             Entire screen · {sub.w} × {sub.h}
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* frosted control pill — every monitor (commit captures THIS monitor) */}
-      <div className="frost absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-1 p-1.5">
+      {/* frosted control pill — ACTIVE monitor only (commit captures it) */}
+      {active ? (
+        <div className="frost absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-1 p-1.5">
           <Button
             size="sm"
             variant={mode === "screenshot" ? "default" : "ghost"}
@@ -282,6 +318,7 @@ export default function Overlay() {
             {mode === "video" ? "Start Recording" : "Capture"}
           </Button>
         </div>
+      ) : null}
     </div>
   );
 }

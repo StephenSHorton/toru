@@ -99,6 +99,15 @@ export function SaveCrop(monitorID: number, sub: capture$0.Rect): $CancellablePr
 }
 
 /**
+ * SetActiveMonitor broadcasts which monitor owns the capture selection. Called
+ * by an overlay window when the user clicks into it; all windows (including
+ * the caller) receive the event and show/hide their selection chrome.
+ */
+export function SetActiveMonitor(monitorID: number): $CancellablePromise<void> {
+    return $Call.ByID(1008328671, monitorID);
+}
+
+/**
  * StartRecording dismisses the overlay FIRST (so ffmpeg records the live region,
  * not the dim overlays), THEN begins recording, THEN opens the recording pill
  * (timer + Stop). req.Rect is the virtual-desktop physical Rect the front end

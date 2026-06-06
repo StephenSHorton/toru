@@ -438,4 +438,17 @@ const (
 	EventRecordProgress   = "record:progress"
 	EventOverlayDismiss   = "overlay:dismiss"
 	EventCaptureThumbnail = "capture:thumbnail"
+
+	// EventOverlayActive is overlay-INTERNAL (window-to-window selection sync,
+	// not a Dev1<->Dev2 contract event): exactly ONE monitor owns the capture
+	// selection at a time; every other overlay window drops its crop/pill
+	// chrome and shows a "click to select" hint.
+	EventOverlayActive = "overlay:activeMonitor"
 )
+
+// SetActiveMonitor broadcasts which monitor owns the capture selection. Called
+// by an overlay window when the user clicks into it; all windows (including
+// the caller) receive the event and show/hide their selection chrome.
+func (s *OverlayService) SetActiveMonitor(monitorID int) {
+	s.emit(EventOverlayActive, monitorID)
+}
