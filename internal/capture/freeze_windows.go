@@ -44,7 +44,12 @@ func FreezeMonitor(b image.Rectangle) (string, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	if err := png.Encode(f, img); err != nil {
+	// Encode at BestSpeed: this is the dominant overlay-startup cost (default
+	// compression PNG-encoding a 4K monitor is ~0.5-1s). BestSpeed is still
+	// LOSSLESS — required, because CommitScreenshot crops the saved screenshot
+	// out of this exact PNG — but encodes several times faster.
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	if err := enc.Encode(f, img); err != nil {
 		_ = f.Close()
 		_ = os.Remove(f.Name())
 		return "", fmt.Errorf("freeze monitor: encode png: %w", err)

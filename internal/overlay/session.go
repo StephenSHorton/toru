@@ -5,6 +5,7 @@ import (
 	"image"
 	"net/url"
 	"strconv"
+	"sync"
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -44,19 +45,40 @@ func (s *OverlayService) buildSessions(screens []capture.ScreenInfo) ([]MonitorS
 
 	st := loadCrops()
 
+	// Freeze every monitor CONCURRENTLY. capture+PNG-encode is the dominant
+	// "engage" cost and was previously serial across monitors, so a 2-3 monitor
+	// setup stalled for seconds before any overlay window appeared. Each freeze
+	// grabs an independent screen region into its own temp file, so they fan out
+	// cleanly; total time is now ~the slowest single monitor, not the sum.
+	paths := make([]string, len(screens))
+	errs := make([]error, len(screens))
+	var wg sync.WaitGroup
+	wg.Add(len(screens))
+	for i, sc := range screens {
+		go func(i int, sc capture.ScreenInfo) {
+			defer wg.Done()
+			paths[i], errs[i] = capture.FreezeMonitor(image.Rect(sc.X, sc.Y, sc.X+sc.W, sc.Y+sc.H))
+		}(i, sc)
+	}
+	wg.Wait()
+
+	// If any freeze failed, clean up the ones that succeeded and bail.
+	// removeFile tolerates the "" left by a failed freeze.
+	for i, sc := range screens {
+		if errs[i] != nil {
+			for _, p := range paths {
+				_ = removeFile(p)
+			}
+			return nil, fmt.Errorf("overlay: freeze monitor %d: %w", sc.ID, errs[i])
+		}
+	}
+
 	sessions := make([]MonitorSession, 0, len(screens))
 	frozen := make(map[int]string, len(screens))
 	stills := make(map[string]string, len(screens))
 
-	for _, sc := range screens {
-		path, err := capture.FreezeMonitor(image.Rect(sc.X, sc.Y, sc.X+sc.W, sc.Y+sc.H))
-		if err != nil {
-			// Best-effort cleanup of any stills frozen so far before bailing.
-			for _, p := range frozen {
-				_ = removeFile(p)
-			}
-			return nil, fmt.Errorf("overlay: freeze monitor %d: %w", sc.ID, err)
-		}
+	for i, sc := range screens {
+		path := paths[i]
 		frozen[sc.ID] = path
 		stills[strconv.Itoa(sc.ID)] = path
 
