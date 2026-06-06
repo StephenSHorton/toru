@@ -17,6 +17,7 @@
 //   WindowsService.OpenOverlay(): Promise<void>   (capture overlay session)
 //   WindowsService.OpenSettings(): Promise<void>  (Settings/home window)
 //   WindowsService.OpenTrim(videoPath): Promise<void>  (Dev 2 trim editor)
+//   VideoService.Trim(req: TrimRequest): Promise<string>  (returns outPath)
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
@@ -25,6 +26,8 @@ import { UpdateInfo } from "../../bindings/github.com/StephenSHorton/toru/intern
 import * as HotkeyService from "../../bindings/github.com/StephenSHorton/toru/internal/hotkey/hotkeyservice.js";
 import { Shortcut } from "../../bindings/github.com/StephenSHorton/toru/internal/hotkey/models.js";
 import * as WindowsService from "../../bindings/github.com/StephenSHorton/toru/windowsservice.js";
+import * as VideoService from "../../bindings/github.com/StephenSHorton/toru/internal/vid/videoservice.js";
+import { TrimRequest } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
 
 export {
   ExportService,
@@ -35,4 +38,6 @@ export {
   HotkeyService,
   Shortcut,
   WindowsService,
+  VideoService,
+  TrimRequest,
 };
