@@ -7,5 +7,6 @@ export {
 };
 
 export {
-    MonitorSession
+    MonitorSession,
+    OverlayEditPayload
 } from "./models.js";
