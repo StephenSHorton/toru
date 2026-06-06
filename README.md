@@ -1,3 +1,5 @@
+<p align="center"><img src=".github/assets/toru-banner.png" alt="Toru" width="720"></p>
+
 # Toru (撮る)
 
 A macOS-style screenshot & screen-recording tool for **Windows 11**. Press a
