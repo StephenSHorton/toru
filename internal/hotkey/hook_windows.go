@@ -87,6 +87,16 @@ var (
 	hookCB uintptr
 	active *Manager
 	actMu  sync.Mutex
+
+	// chordHeld + heldVK implement fire-on-first-down latching (guarded by actMu).
+	// Holding a chord generates auto-repeat WM_KEYDOWNs (~30/sec); without a latch
+	// each one would dispatch another OpenOverlay (overlay teardown+refreeze storm).
+	// On the first matched down we set chordHeld=true + remember the trigger VK; the
+	// repeats are still swallowed (return 1) but not re-dispatched. We clear the
+	// latch when that trigger key's WM_KEYUP/WM_SYSKEYUP arrives, re-arming the next
+	// real press.
+	chordHeld bool
+	heldVK    uint32
 )
 
 // keyDown reports whether vk is currently down via GetAsyncKeyState's high bit.
@@ -126,7 +136,17 @@ func (m *Manager) installHook() {
 			return
 		}
 
+		// Close-before-install race: stopHook may have run while we were still
+		// inside SetWindowsHookExW, before m.hook/m.threadID were published — it
+		// would have found 0/0 and skipped the unhook + WM_QUIT, leaving a leaked
+		// system-wide LL hook and a locked OS thread pumping forever. If a stop
+		// landed first, self-unhook here and bail WITHOUT entering the pump.
 		m.mu.Lock()
+		if m.closing {
+			m.mu.Unlock()
+			_, _, _ = procUnhookWindowsHookEx.Call(hook)
+			return
+		}
 		m.hook = hook
 		m.threadID = uint32(tid)
 		m.mu.Unlock()
@@ -148,6 +168,11 @@ func (m *Manager) installHook() {
 // cleanly, then clears active (if it still points at m). Callable from any thread.
 func (m *Manager) stopHook() {
 	m.mu.Lock()
+	// Mark closing under the same lock the install goroutine re-checks after
+	// SetWindowsHookExW. This closes the window where a stop arrives before the
+	// hook/threadID are published: if hook==0 here, the goroutine will see
+	// m.closing and self-unhook instead of pumping forever.
+	m.closing = true
 	hook := m.hook
 	tid := m.threadID
 	m.hook = 0
@@ -173,7 +198,10 @@ func (m *Manager) stopHook() {
 // matching key-down it does a non-blocking buffered send and RETURNS 1 to swallow
 // the key (so Snipping Tool never sees Win+Shift+S); everything else chains on.
 func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
-	if nCode == hcAction && (wParam == wmKeyDown || wParam == wmSysKeyDown) {
+	isDown := wParam == wmKeyDown || wParam == wmSysKeyDown
+	isUp := wParam == wmKeyUp || wParam == wmSysKeyUp
+
+	if nCode == hcAction && (isDown || isUp) {
 		// Copy the KBDLLHOOKSTRUCT out of lParam via RtlMoveMemory rather than
 		// casting the uintptr to an unsafe.Pointer (go vet's unsafeptr analyzer
 		// rejects that for a non-syscall-return uintptr). The pointer is never
@@ -186,17 +214,50 @@ func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 		)
 		vk := ks.VkCode
 
+		// Key-up of the latched trigger key clears the held latch so the next
+		// real press fires again. Fall through (do NOT swallow) — the up event is
+		// harmless and the OS may need it.
+		if isUp {
+			actMu.Lock()
+			if chordHeld && vk == heldVK {
+				chordHeld = false
+				heldVK = 0
+			}
+			actMu.Unlock()
+			r, _, _ := procCallNextHookEx.Call(0, uintptr(uint32(nCode)), wParam, lParam)
+			return r
+		}
+
+		// isDown from here on.
 		actMu.Lock()
 		m := active
 		actMu.Unlock()
 
 		if m != nil {
-			matched := ""
+			// Snapshot ONLY the candidate bindings (those whose trigger VK == vk)
+			// under m.mu, then release the lock BEFORE the GetAsyncKeyState modifier
+			// checks. m.mu is shared with SetBinding/snapshot/Trigger/dispatch, and
+			// the LL-hook proc is the most latency-sensitive path in the system
+			// (Windows silently drops a hook that exceeds LowLevelHooksTimeout), so
+			// no user32 syscalls run under the shared lock. The async key state is
+			// global + lock-independent, so reading it lock-free is race-safe.
+			type cand struct {
+				action string
+				b      Binding
+			}
+			var cands []cand
 			m.mu.Lock()
 			for action, b := range m.bindings {
 				if b.Key == 0 || triggerVK(b.Key) != vk {
 					continue
 				}
+				cands = append(cands, cand{action, b})
+			}
+			m.mu.Unlock()
+
+			matched := ""
+			for _, c := range cands {
+				b := c.b
 				// Every modifier the binding sets must currently be down.
 				// Shift/Ctrl/Alt use the merged L+R virtual keys; only Win needs
 				// the explicit L/R check.
@@ -212,20 +273,38 @@ func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 				if b.Alt && !keyDown(vkMenu) {
 					continue
 				}
-				matched = action
+				matched = c.action
 				break
 			}
-			m.mu.Unlock()
 
 			if matched != "" {
-				// Non-blocking send; drop if the dispatch goroutine is backed up.
-				// NEVER block the hook proc.
-				select {
-				case m.sig <- matched:
-				default:
+				// Fire-on-first-down: only dispatch on the FIRST matched key-down.
+				// Auto-repeat key-downs (holding the chord, ~30/sec) are still
+				// swallowed (return 1, so Snipping Tool never sees them) but NOT
+				// re-dispatched — otherwise each repeat would trigger another
+				// OpenOverlay (overlay teardown+refreeze storm). The latch is
+				// cleared on the trigger key's key-up above.
+				actMu.Lock()
+				// First down = no chord latched, OR a different trigger key is
+				// latched (so distinct chords don't suppress each other; only the
+				// SAME held key's auto-repeats are coalesced).
+				firstDown := !chordHeld || heldVK != vk
+				if firstDown {
+					chordHeld = true
+					heldVK = vk
 				}
-				// Swallow: do NOT chain to the next hook, so the OS snip (and any
-				// other consumer) never sees this key-down.
+				actMu.Unlock()
+
+				if firstDown {
+					// Non-blocking send; drop if the dispatch goroutine is backed
+					// up. NEVER block the hook proc.
+					select {
+					case m.sig <- matched:
+					default:
+					}
+				}
+				// Swallow EVERY matched down (first + repeats): do NOT chain to the
+				// next hook, so the OS snip (and any other consumer) never sees it.
 				return 1
 			}
 		}

@@ -91,6 +91,12 @@ function ShortcutRow({
 
   const shown = editing ? draft : sc;
 
+  // Mirror the Go rule (validateShortcut: needs >=1 modifier) on the client for
+  // instant feedback. The <select> always holds a valid A-Z/0-9 key, so the only
+  // invalid state the builder can produce is zero modifiers. The Go side stays the
+  // authoritative backstop; this just avoids a pointless round-trip + hints early.
+  const noModifiers = !draft.win && !draft.ctrl && !draft.alt && !draft.shift;
+
   return (
     <div className="flex flex-col gap-2 border-t border-border pt-2 first:border-t-0 first:pt-0">
       <div className="flex items-center justify-between gap-3">
@@ -149,10 +155,15 @@ function ShortcutRow({
             </select>
           </div>
 
+          {noModifiers && (
+            <p className="text-xs text-muted-foreground">
+              Pick at least one modifier (Win / Ctrl / Alt / Shift).
+            </p>
+          )}
           {err && <p className="text-xs text-destructive">{err}</p>}
 
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => void save()} disabled={busy}>
+            <Button size="sm" onClick={() => void save()} disabled={busy || noModifiers}>
               Save
             </Button>
             <Button size="sm" variant="ghost" onClick={cancel} disabled={busy}>

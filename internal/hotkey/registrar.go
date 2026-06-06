@@ -12,6 +12,15 @@
 // stub lives in hook_other.go (//go:build !windows). Splitting only
 // installHook/stopHook behind build tags keeps ONE Manager definition that
 // compiles everywhere.
+//
+// Known v1 limitations (documented, not bugs):
+//   - Trigger keys are A-Z and 0-9 only; F-keys, punctuation, etc. are future.
+//   - Modifier matching is a SUPERSET test: a binding matches (and swallows) any
+//     chord where every modifier it sets is down, even if EXTRA modifiers are also
+//     down (e.g. {Ctrl,'S'} also fires on Ctrl+Shift+S). This is conventional,
+//     forgiving global-hotkey behavior and is harmless for the single-action v1; if
+//     future actions need to distinguish e.g. Ctrl+Shift+1 from Ctrl+Shift+Alt+1,
+//     add an exact-match check (require unset modifiers to be UP) in the proc.
 package hotkey
 
 import "sync"
@@ -76,6 +85,8 @@ type Manager struct {
 	stop    chan struct{} // closed by Close to end the dispatch goroutine
 	started bool          // dispatch goroutine + hook installed
 	closed  bool          // guards double Close
+	closing bool          // set by stopHook; the install goroutine self-unhooks if
+	//                       a stop landed before SetWindowsHookExW published the hook
 }
 
 // New returns an idle Manager. The engine starts lazily on the first Register.
