@@ -13,10 +13,6 @@
 // @ts-ignore: Unused imports
 import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
-import * as capture$0 from "./internal/capture/models.js";
-
 /**
  * OpenEditor opens Developer 1's screenshot annotation editor for imagePath.
  * 
@@ -43,7 +39,15 @@ export function OpenOverlay(): $CancellablePromise<void> {
 /**
  * OpenSettings opens Toru's Settings/home window: the tray-driven hub that hosts
  * the Shortcuts panel, the updater/about, and a Capture button. Reached from the
- * tray menu and from the editor's floating gear button.
+ * tray menu, the tray left-click, the ApplicationStarted launch, and the editor's
+ * floating gear button.
+ * 
+ * SINGLETON: the Settings window is the app's persistent home, hit repeatedly from
+ * the tray. If one is already open this Show().Focus()es it (restoring it first if
+ * minimised) instead of spawning a duplicate frameless window — without this, every
+ * tray click would stack another window that DisableQuitOnLastWindowClosed then
+ * keeps alive forever, reintroducing the exact multi-window confusion this redesign
+ * removed. The handle is cleared when the window closes.
  */
 export function OpenSettings(): $CancellablePromise<void> {
     return $Call.ByID(489256705);
@@ -56,18 +60,3 @@ export function OpenSettings(): $CancellablePromise<void> {
 export function OpenTrim(videoPath: string): $CancellablePromise<void> {
     return $Call.ByID(1119648552, videoPath);
 }
-
-/**
- * SimulateCapture runs the (stubbed) capture seam for the given mode and opens
- * the matching editor window. This is the dev-hub shortcut that exercises the
- * whole path — capture -> CaptureResult -> route-by-mode -> editor window —
- * before global hotkeys + the real overlay are wired.
- */
-export function SimulateCapture(mode: string): $CancellablePromise<capture$0.CaptureResult> {
-    return $Call.ByID(1982809100, mode).then(($result: any) => {
-        return $$createType0($result);
-    });
-}
-
-// Private type creation functions
-const $$createType0 = capture$0.CaptureResult.createFrom;

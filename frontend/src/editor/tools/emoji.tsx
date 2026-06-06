@@ -131,7 +131,7 @@ export function EmojiPicker() {
         <Smile />
       </Button>
       {open && (
-        <div className="frost absolute left-0 top-full z-20 mt-1 w-max p-1.5">
+        <div className="frost absolute bottom-full left-0 z-20 mb-1 w-max p-1.5">
           <div className="mb-1.5 max-w-[16rem] px-0.5 text-[11px] leading-snug text-muted-foreground">
             Press <span className="font-mono text-foreground">⊞&nbsp;Win&nbsp;+&nbsp;.</span> for the
             system emoji panel, or pick one:
