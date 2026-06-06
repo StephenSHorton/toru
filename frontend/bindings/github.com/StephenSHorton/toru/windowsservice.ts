@@ -30,14 +30,6 @@ export function OpenEditor(imagePath: string): $CancellablePromise<void> {
 }
 
 /**
- * OpenHub opens the dev Hub window (buttons to drive both editors during Phase
- * 0). Cancel/Esc on the overlay returns here.
- */
-export function OpenHub(): $CancellablePromise<void> {
-    return $Call.ByID(3348539563);
-}
-
-/**
  * OpenOverlay opens the shared dim/crop capture overlay session: one frameless,
  * always-on-top, opaque window per monitor showing a FROZEN still dimmed with a
  * crop hole. Delegates to OverlayService.BeginSession, which freezes every
@@ -46,6 +38,15 @@ export function OpenHub(): $CancellablePromise<void> {
  */
 export function OpenOverlay(): $CancellablePromise<void> {
     return $Call.ByID(4149419780);
+}
+
+/**
+ * OpenSettings opens Toru's Settings/home window: the tray-driven hub that hosts
+ * the Shortcuts panel, the updater/about, and a Capture button. Reached from the
+ * tray menu and from the editor's floating gear button.
+ */
+export function OpenSettings(): $CancellablePromise<void> {
+    return $Call.ByID(489256705);
 }
 
 /**

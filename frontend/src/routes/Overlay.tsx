@@ -13,7 +13,7 @@
 // CORRECTNESS: committing a SCREENSHOT crops the FROZEN still in Go (never a live
 // re-capture, which would photograph these dim windows). VIDEO dismisses the
 // overlay first (Go side), then records the live region. Esc / Cancel tears down
-// ALL overlay windows and re-opens the dev Hub.
+// ALL overlay windows and returns the user to idle (the tray) — no window opens.
 //
 // DPI: all of the crop->physical math lives in cropToPhysical() using the LOCKED
 // formulas — round ONCE, reuse for the emitted Rect, the frozen-still sub-rect,
@@ -76,7 +76,7 @@ export default function Overlay() {
     [q.scale, q.bx, q.by, q.mw, q.mh, q.mon],
   );
 
-  // Cancel/Esc: tear down ALL overlay windows (Go) and re-open the Hub.
+  // Cancel/Esc: tear down ALL overlay windows (Go) and return to idle (tray).
   const cancel = useCallback(() => {
     void OverlayService.Cancel();
   }, []);

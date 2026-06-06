@@ -42,12 +42,13 @@ func (w *WindowsService) OpenOverlay() {
 	_, _ = w.overlay.BeginSession()
 }
 
-// OpenHub opens the dev Hub window (buttons to drive both editors during Phase
-// 0). Cancel/Esc on the overlay returns here.
-func (w *WindowsService) OpenHub() {
+// OpenSettings opens Toru's Settings/home window: the tray-driven hub that hosts
+// the Shortcuts panel, the updater/about, and a Capture button. Reached from the
+// tray menu and from the editor's floating gear button.
+func (w *WindowsService) OpenSettings() {
 	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Toru",
-		URL:              "/?view=hub",
+		Title:            "Toru — Settings",
+		URL:              "/?view=settings",
 		Width:            720,
 		Height:           560,
 		BackgroundColour: dark,

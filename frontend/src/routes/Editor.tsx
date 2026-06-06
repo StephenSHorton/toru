@@ -37,10 +37,8 @@ export default function Editor() {
   }, [src, loadBaseImage]);
 
   return (
-    <div className="flex h-full flex-col">
-      <Toolbar stageRef={stageRef} />
-
-      <div className="flex flex-1 items-center justify-center p-4">
+    <div className="relative h-full w-full overflow-hidden">
+      <div className="flex h-full w-full items-center justify-center p-4">
         <div className="relative border" style={{ width: STAGE_W, height: STAGE_H }}>
           <EditorCanvas stageRef={stageRef} />
           <CropOverlay />
@@ -48,10 +46,10 @@ export default function Editor() {
         </div>
       </div>
 
-      <div className="px-3 pb-2 text-[11px] text-muted-foreground">
-        source:{' '}
-        <span className="font-mono">{imgPath || '(dev sample.png)'}</span>
-      </div>
+      {/* Compact floating tool bar (macOS Screenshot style) over the canvas. It
+          is HTML OUTSIDE the Konva Stage, so Copy/Save (which flatten the Stage)
+          never bake it into the exported PNG. */}
+      <Toolbar stageRef={stageRef} />
     </div>
   );
 }

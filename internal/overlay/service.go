@@ -30,9 +30,6 @@ type OverlayService struct {
 	app *application.App
 	cap capture.Capturer
 
-	// openHub re-opens the dev Hub on dismiss-to-hub (injected by main via
-	// SetHubOpener). Held as a Go-only field — never exposed to JS.
-	openHub func()
 	// editorOpener opens the screenshot editor for a committed image path
 	// (injected by main via SetEditorOpener). Go-only; never exposed to JS.
 	editorOpener func(imagePath string)
@@ -64,13 +61,6 @@ func NewService(cap capture.Capturer) *OverlayService {
 //
 //wails:ignore
 func (s *OverlayService) SetApp(app *application.App) { s.app = app }
-
-// SetHubOpener injects the Hub-opener callback. Called once from main with
-// windowsSvc.OpenHub so Cancel/Esc can return to the dev Hub. This takes a func
-// param and is therefore NOT a bindable method — it is invoked from Go only.
-//
-//wails:ignore
-func (s *OverlayService) SetHubOpener(fn func()) { s.openHub = fn }
 
 // SetEditorOpener injects the screenshot-editor opener callback. Go-only.
 //
@@ -350,13 +340,10 @@ func (s *OverlayService) CommitScreenshot(monitorID int, rect capture.Rect, sub 
 	return res, nil
 }
 
-// Cancel dismisses ALL overlay windows then re-opens the dev Hub so editors stay
-// reachable during Phase 0, and notifies the UI.
+// Cancel dismisses ALL overlay windows and returns the user to idle (the tray).
+// Toru lives in the tray; no window is opened on cancel.
 func (s *OverlayService) Cancel() error {
 	s.DismissSession()
-	if s.openHub != nil {
-		s.openHub()
-	}
 	s.emit(EventCaptureCancelled, nil)
 	return nil
 }

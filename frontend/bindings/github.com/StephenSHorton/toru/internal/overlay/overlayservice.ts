@@ -32,8 +32,8 @@ export function BeginSession(): $CancellablePromise<$models.MonitorSession[]> {
 }
 
 /**
- * Cancel dismisses ALL overlay windows then re-opens the dev Hub so editors stay
- * reachable during Phase 0, and notifies the UI.
+ * Cancel dismisses ALL overlay windows and returns the user to idle (the tray).
+ * Toru lives in the tray; no window is opened on cancel.
  */
 export function Cancel(): $CancellablePromise<void> {
     return $Call.ByID(63226937);

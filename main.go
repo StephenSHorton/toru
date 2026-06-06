@@ -19,7 +19,6 @@ import (
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/StephenSHorton/toru/internal/shot"
-	"github.com/StephenSHorton/toru/internal/tray"
 	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/StephenSHorton/toru/internal/vid"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -28,6 +27,16 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// trayIconPNG is the system-tray icon. //go:embed requires the embedded path to
+// live under the embedding package's directory (no parent ".." paths), so the
+// embed MUST be in package main here — this is why the tray is built on the App
+// in main.go rather than in a separate internal/tray package. The Windows tray
+// (w32.CreateSmallHIconFromImage) magic-byte-checks PNG/ICO and auto-scales the
+// 1024px PNG down to the system small-icon size, so no manual .ico is needed.
+//
+//go:embed build/appicon.png
+var trayIconPNG []byte
 
 // version is the running app version, injected at release build time via
 // -ldflags "-X main.version=X.Y.Z" (see build/windows/Taskfile.yml). It stays
@@ -100,14 +109,10 @@ func main() {
 	windowsSvc.overlay = overlaySvc
 	updateSvc.SetApp(app)
 
-	// Overlay -> Windows callbacks: Cancel/Esc returns to the Hub; a committed
-	// screenshot opens the editor. Passed as Go-only funcs (not JS-bound).
-	overlaySvc.SetHubOpener(windowsSvc.OpenHub)
+	// Overlay -> Windows callback: a committed screenshot opens the editor.
+	// Passed as a Go-only func (not JS-bound). Cancel/Esc no longer opens any
+	// window — it just dismisses the overlay back to idle (the tray).
 	overlaySvc.SetEditorOpener(windowsSvc.OpenEditor)
-
-	// Tray.
-	trayCtl := tray.New()
-	trayCtl.SetState(tray.Idle)
 
 	// Install the global hotkey hook AFTER injection (windowsSvc.overlay is set
 	// above), so a hotkey press that lands before app.Run can still open the
@@ -118,22 +123,40 @@ func main() {
 	_ = keys.Register("overlay", overlayBinding, windowsSvc.OpenOverlay)
 	defer keys.Close()
 
-	// LAUNCH -> OVERLAY. Opening Toru immediately paints the real all-monitors
-	// frozen-still dim+crop overlay (BeginSession freezes every monitor BEFORE
-	// any window is shown), with a crop pre-placed on the primary. Esc/Cancel
-	// tears it all down and opens the dev Hub (which keeps both editors reachable
-	// during Phase 0).
+	// LAUNCH -> TRAY + SETTINGS. Toru is a tray ("menu-bar style") app: on launch
+	// it installs the system-tray icon and opens the Settings/home window ONCE so
+	// the user can see Toru is running, change the shortcut, and hit Capture. It
+	// no longer auto-pops the fullscreen capture overlay — capture is reached via
+	// Win+Shift+S, the tray menu's Capture item, or the tray's double-click.
 	//
-	// This MUST run on ApplicationStarted, NOT synchronously before app.Run():
-	// Wails only builds the platform app (and populates the Screen cache) inside
-	// Run() via newPlatformApp. Calling BeginSession before then would read an
-	// EMPTY Screen.GetAll(), so every monitor's ScaleFactor/IsPrimary and DIP
-	// window bounds would silently fall back to scale=1.0 — breaking sizing and
-	// crop math on every HiDPI monitor (the launch path is the whole feature).
-	// The listener runs on a goroutine; Window.NewWithOptions marshals window
-	// creation to the main thread internally, so this is safe.
+	// This MUST run on events.Common.ApplicationStarted, NOT synchronously before
+	// app.Run(): Wails only builds the platform app (running==true) and populates
+	// the Screen cache inside Run() via newPlatformApp. SystemTray.New early-runs
+	// only once running==true (runOrDeferToAppRun); any window opened here reads a
+	// populated Screen.GetAll() so DPI/scale is correct (the same EMPTY-cache
+	// hazard that the overlay path guards against). The listener fires exactly
+	// once per process, so New() is called exactly once (no duplicate tray icons).
+	// The menu/click callbacks run on goroutines, but Window.NewWithOptions and
+	// app.Quit marshal to the main thread internally, so the direct calls are safe.
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
-		windowsSvc.OpenOverlay()
+		// Build the menu-bar/tray home. Safe here: app.running==true and the
+		// Screen cache is populated (newPlatformApp ran inside app.Run()).
+		systray := app.SystemTray.New()
+		systray.SetIcon(trayIconPNG) // PNG bytes; Win32 decodes via CreateSmallHIconFromImage + auto-scales
+		systray.SetTooltip("Toru — screen capture (Win+Shift+S)")
+		menu := application.NewMenu()
+		menu.Add("Capture (Win+Shift+S)").OnClick(func(*application.Context) { windowsSvc.OpenOverlay() })
+		menu.Add("Settings…").OnClick(func(*application.Context) { windowsSvc.OpenSettings() })
+		menu.AddSeparator()
+		menu.Add("Quit Toru").OnClick(func(*application.Context) { app.Quit() })
+		systray.SetMenu(menu)
+		systray.OnClick(func() { windowsSvc.OpenSettings() })      // left-click = open home (menu-bar feel)
+		systray.OnDoubleClick(func() { windowsSvc.OpenOverlay() }) // double-click = quick capture
+		// Right-click opens the menu automatically (Wails smart default).
+
+		// Show the Settings/home window ONCE so the user sees Toru is running.
+		// Do NOT auto-pop the capture overlay on launch anymore.
+		windowsSvc.OpenSettings()
 	})
 
 	if err := app.Run(); err != nil {
