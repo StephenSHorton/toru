@@ -25,7 +25,7 @@ export default function Settings() {
           className="justify-start"
           onClick={() => void WindowsService.OpenOverlay()}
         >
-          <SquareDashed /> Capture (Win+Shift+S)
+          <SquareDashed /> Capture
         </Button>
       </div>
 

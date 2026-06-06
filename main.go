@@ -143,9 +143,9 @@ func main() {
 		// Screen cache is populated (newPlatformApp ran inside app.Run()).
 		systray := app.SystemTray.New()
 		systray.SetIcon(trayIconPNG) // PNG bytes; Win32 decodes via CreateSmallHIconFromImage + auto-scales
-		systray.SetTooltip("Toru — screen capture (Win+Shift+S)")
+		systray.SetTooltip("Toru — screen capture (⊞ Shift S)")
 		menu := application.NewMenu()
-		menu.Add("Capture (Win+Shift+S)").OnClick(func(*application.Context) { windowsSvc.OpenOverlay() })
+		menu.Add("Capture (⊞ Shift S)").OnClick(func(*application.Context) { windowsSvc.OpenOverlay() })
 		menu.Add("Settings…").OnClick(func(*application.Context) { windowsSvc.OpenSettings() })
 		menu.AddSeparator()
 		menu.Add("Quit Toru").OnClick(func(*application.Context) { app.Quit() })
