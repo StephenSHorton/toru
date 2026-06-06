@@ -71,14 +71,21 @@ func main() {
 			application.NewService(updateSvc),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler:    application.AssetFileServerFS(assets),
+			Middleware: overlaySvc.ShotMiddleware(),
 		},
 	})
 
 	// Inject the running app into services that emit events / open windows / quit.
 	overlaySvc.SetApp(app)
 	windowsSvc.app = app
+	windowsSvc.overlay = overlaySvc
 	updateSvc.SetApp(app)
+
+	// Overlay -> Windows callbacks: Cancel/Esc returns to the Hub; a committed
+	// screenshot opens the editor. Passed as Go-only funcs (not JS-bound).
+	overlaySvc.SetHubOpener(windowsSvc.OpenHub)
+	overlaySvc.SetEditorOpener(windowsSvc.OpenEditor)
 
 	// Tray + global hotkeys. The registrar is a stub until the Phase 0 spike
 	// wires real RegisterHotKey/WM_HOTKEY; wiring it here documents intent.
@@ -89,15 +96,12 @@ func main() {
 	_ = keys.Register("overlay", hotkey.DefaultOverlay, windowsSvc.OpenOverlay)
 	defer keys.Close()
 
-	// Dev hub window. Real app launches the overlay from a hotkey and lives in
-	// the tray; the hub is a convenience to drive both editors during Phase 0.
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Toru",
-		URL:              "/",
-		Width:            720,
-		Height:           560,
-		BackgroundColour: dark,
-	})
+	// LAUNCH -> OVERLAY. Opening Toru immediately paints the real all-monitors
+	// frozen-still dim+crop overlay (BeginSession freezes every monitor BEFORE
+	// any window is shown), with a crop pre-placed on the primary. Esc/Cancel
+	// tears it all down and opens the dev Hub (which keeps both editors reachable
+	// during Phase 0).
+	windowsSvc.OpenOverlay()
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

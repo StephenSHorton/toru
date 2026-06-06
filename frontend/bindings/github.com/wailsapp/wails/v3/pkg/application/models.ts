@@ -339,6 +339,13 @@ export class MenuManager {
     }
 }
 
+/**
+ * Middleware defines HTTP middleware that can be applied to the AssetServer.
+ * The handler passed as next is the next handler in the chain. One can decide to call the next handler
+ * or implement a specialized handling.
+ */
+export type Middleware = any;
+
 export class ScreenManager {
 
     /** Creates a new ScreenManager instance. */

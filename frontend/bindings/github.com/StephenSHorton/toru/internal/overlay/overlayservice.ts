@@ -17,34 +17,88 @@ import * as capture$0 from "../capture/models.js";
 // @ts-ignore: Unused imports
 import * as application$0 from "../../../../wailsapp/wails/v3/pkg/application/models.js";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as $models from "./models.js";
+
 /**
- * Cancel dismisses ALL overlay windows (one broadcast) and notifies the UI.
+ * BeginSession is the launch entrypoint. It enumerates screens, freezes EVERY
+ * monitor's still BEFORE any overlay window is shown, restores the persisted
+ * primary crop (or a centered default), opens one window per monitor, and
+ * returns the per-monitor session payloads. Returning []MonitorSession also lets
+ * the binding generator emit the MonitorSession TS type.
+ */
+export function BeginSession(): $CancellablePromise<$models.MonitorSession[]> {
+    return $Call.ByID(142875180).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+/**
+ * Cancel dismisses ALL overlay windows then re-opens the dev Hub so editors stay
+ * reachable during Phase 0, and notifies the UI.
  */
 export function Cancel(): $CancellablePromise<void> {
     return $Call.ByID(63226937);
 }
 
 /**
- * Commit runs a screenshot (synchronous) capture and broadcasts capture:done.
+ * Commit is a thin compatibility shim kept so existing bindings/tests don't
+ * break. For screenshots it routes through the frozen-still crop using req.Rect
+ * as the contract Rect and deriving the monitor-local sub-rect from the owning
+ * screen's origin. New code should call CommitScreenshot directly. Video is
+ * delegated to StartRecording (the overlay records the live region).
  */
 export function Commit(req: capture$0.CaptureRequest): $CancellablePromise<capture$0.CaptureResult> {
     return $Call.ByID(3467496406, req).then(($result: any) => {
-        return $$createType0($result);
+        return $$createType2($result);
     });
 }
 
 /**
+ * CommitScreenshot is THE screenshot path. It crops the FROZEN still for
+ * monitorID (NEVER a live re-capture), dismisses the overlay, emits capture:done,
+ * and opens the editor. rect is the contract Rect (virtual-desktop physical px)
+ * carried in the result; sub is the monitor-local physical crop region applied to
+ * the frozen PNG. Both are computed by the front end via CropToPhysical.
+ */
+export function CommitScreenshot(monitorID: number, rect: capture$0.Rect, sub: capture$0.Rect, copyOnCommit: boolean): $CancellablePromise<capture$0.CaptureResult> {
+    return $Call.ByID(2125643298, monitorID, rect, sub, copyOnCommit).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
+ * DismissSession closes ALL overlay windows (via the kept handles), clears the
+ * session state, and best-effort deletes the temp frozen PNGs. Emitting
+ * overlay:dismiss alone does NOT destroy the native windows — Close() does.
+ */
+export function DismissSession(): $CancellablePromise<void> {
+    return $Call.ByID(3873625871);
+}
+
+/**
  * ListScreens is THE single source of truth for monitor enumeration that both
- * halves trust. ID == ddagrab output_idx.
+ * halves trust. ID == kbinani idx == ddagrab output_idx.
  * 
- * TODO(overlay-lead): replace this stub with real enumeration via
- * EnumDisplayMonitors + GetMonitorInfo + per-monitor DPI (Per-Monitor-V2).
- * Returns physical-pixel, virtual-desktop-origin coordinates.
+ * It enumerates via capture.EnumDisplays (kbinani; Windows-only behind a build
+ * tag) for physical, virtual-desktop-origin bounds, then enriches ScaleFactor +
+ * IsPrimary from the Wails ScreenManager matched by PhysicalBounds origin. The
+ * slice is never sorted or deduped so the index stays == output_idx.
  */
 export function ListScreens(): $CancellablePromise<capture$0.ScreenInfo[]> {
     return $Call.ByID(3187571944).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType4($result);
     });
+}
+
+/**
+ * SaveCrop persists the monitor-local PHYSICAL-px crop for monitorID. Called by
+ * the front end on crop drag-end (debounced) and again inside CommitScreenshot
+ * before dismiss.
+ */
+export function SaveCrop(monitorID: number, sub: capture$0.Rect): $CancellablePromise<void> {
+    return $Call.ByID(803232484, monitorID, sub);
 }
 
 /**
@@ -55,7 +109,34 @@ export function SetApp(app: application$0.App | null): $CancellablePromise<void>
 }
 
 /**
- * StartRecording begins a long-lived recording and returns its handle.
+ * SetEditorOpener injects the screenshot-editor opener callback. Go-only.
+ */
+export function SetEditorOpener(fn: any): $CancellablePromise<void> {
+    return $Call.ByID(2673083127, fn);
+}
+
+/**
+ * SetHubOpener injects the Hub-opener callback. Called once from main with
+ * windowsSvc.OpenHub so Cancel/Esc can return to the dev Hub. This takes a func
+ * param and is therefore NOT a bindable method — it is invoked from Go only.
+ */
+export function SetHubOpener(fn: any): $CancellablePromise<void> {
+    return $Call.ByID(418452731, fn);
+}
+
+/**
+ * ShotMiddleware serves the frozen stills at /__shot/<screenID>. It streams the
+ * PNG file (NOT a base64 data URL) with Cache-Control: no-store so a re-opened
+ * session never serves a stale image. Registered in main via AssetOptions.Middleware.
+ */
+export function ShotMiddleware(): $CancellablePromise<application$0.Middleware> {
+    return $Call.ByID(3340897351);
+}
+
+/**
+ * StartRecording dismisses the overlay FIRST (so ffmpeg records the live region,
+ * not the dim overlays), THEN begins recording. req.Rect is the virtual-desktop
+ * physical Rect the front end emits.
  */
 export function StartRecording(req: capture$0.CaptureRequest): $CancellablePromise<string> {
     return $Call.ByID(3056857500, req);
@@ -66,11 +147,13 @@ export function StartRecording(req: capture$0.CaptureRequest): $CancellablePromi
  */
 export function StopRecording(handleID: string): $CancellablePromise<capture$0.CaptureResult> {
     return $Call.ByID(1557301730, handleID).then(($result: any) => {
-        return $$createType0($result);
+        return $$createType2($result);
     });
 }
 
 // Private type creation functions
-const $$createType0 = capture$0.CaptureResult.createFrom;
-const $$createType1 = capture$0.ScreenInfo.createFrom;
-const $$createType2 = $Create.Array($$createType1);
+const $$createType0 = $models.MonitorSession.createFrom;
+const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = capture$0.CaptureResult.createFrom;
+const $$createType3 = capture$0.ScreenInfo.createFrom;
+const $$createType4 = $Create.Array($$createType3);

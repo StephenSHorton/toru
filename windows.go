@@ -4,6 +4,7 @@ import (
 	"net/url"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -12,24 +13,34 @@ import (
 // multi-window backbone that lets Developer 1 and Developer 2 own independent
 // windows. (JS binding name: WindowsService.*)
 type WindowsService struct {
-	app *application.App
-	cap capture.Capturer
+	app     *application.App
+	cap     capture.Capturer
+	overlay *overlay.OverlayService
 }
 
 // dark is Toru's window background (matches the dark theme; sharp, no chrome rounding).
 var dark = application.NewRGB(10, 10, 12)
 
-// OpenOverlay opens the shared dim/crop capture overlay.
-//
-// NOTE: the real overlay is transparent + frameless + always-on-top + one per
-// monitor (the Phase 0 spike). Kept as a normal window here so the skeleton
-// builds and runs before that spike lands.
+// OpenOverlay opens the shared dim/crop capture overlay session: one frameless,
+// always-on-top, opaque window per monitor showing a FROZEN still dimmed with a
+// crop hole. Delegates to OverlayService.BeginSession, which freezes every
+// monitor BEFORE any window is shown. This is the launch + hotkey + tray
+// entrypoint.
 func (w *WindowsService) OpenOverlay() {
+	if w.overlay == nil {
+		return
+	}
+	_, _ = w.overlay.BeginSession()
+}
+
+// OpenHub opens the dev Hub window (buttons to drive both editors during Phase
+// 0). Cancel/Esc on the overlay returns here.
+func (w *WindowsService) OpenHub() {
 	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Toru — Capture",
-		URL:              "/overlay",
-		Width:            1100,
-		Height:           700,
+		Title:            "Toru",
+		URL:              "/?view=hub",
+		Width:            720,
+		Height:           560,
 		BackgroundColour: dark,
 	})
 }

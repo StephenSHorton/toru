@@ -16,3 +16,7 @@ export {
     SystemTrayManager,
     WindowManager
 } from "./models.js";
+
+export type {
+    Middleware
+} from "./models.js";
