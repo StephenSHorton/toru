@@ -2,54 +2,80 @@ package main
 
 import (
 	"net/url"
+	"path/filepath"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+// servedFileURL turns an absolute temp-file path (a committed screenshot crop or
+// recording, always under %TEMP%/toru) into the /__file/<basename> URL the
+// ShotMiddleware serves, so the webview can actually fetch it. The raw path stays
+// the contract value in CaptureResult; only the window's media src is rewritten.
+func servedFileURL(absPath string) string {
+	return "/__file/" + url.PathEscape(filepath.Base(absPath))
+}
 
 // WindowsService opens Toru's separate windows (overlay, screenshot editor,
 // trim editor). Each window loads a distinct frontend route. This is the
 // multi-window backbone that lets Developer 1 and Developer 2 own independent
 // windows. (JS binding name: WindowsService.*)
 type WindowsService struct {
-	app *application.App
-	cap capture.Capturer
+	app     *application.App
+	cap     capture.Capturer
+	overlay *overlay.OverlayService
 }
 
 // dark is Toru's window background (matches the dark theme; sharp, no chrome rounding).
 var dark = application.NewRGB(10, 10, 12)
 
-// OpenOverlay opens the shared dim/crop capture overlay.
-//
-// NOTE: the real overlay is transparent + frameless + always-on-top + one per
-// monitor (the Phase 0 spike). Kept as a normal window here so the skeleton
-// builds and runs before that spike lands.
+// OpenOverlay opens the shared dim/crop capture overlay session: one frameless,
+// always-on-top, opaque window per monitor showing a FROZEN still dimmed with a
+// crop hole. Delegates to OverlayService.BeginSession, which freezes every
+// monitor BEFORE any window is shown. This is the launch + hotkey + tray
+// entrypoint.
 func (w *WindowsService) OpenOverlay() {
+	if w.overlay == nil {
+		return
+	}
+	_, _ = w.overlay.BeginSession()
+}
+
+// OpenHub opens the dev Hub window (buttons to drive both editors during Phase
+// 0). Cancel/Esc on the overlay returns here.
+func (w *WindowsService) OpenHub() {
 	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Toru — Capture",
-		URL:              "/overlay",
-		Width:            1100,
-		Height:           700,
+		Title:            "Toru",
+		URL:              "/?view=hub",
+		Width:            720,
+		Height:           560,
 		BackgroundColour: dark,
 	})
 }
 
 // OpenEditor opens Developer 1's screenshot annotation editor for imagePath.
+//
+// The SPA routes on the ?view= query param (App.tsx) and the embedded asset
+// server has no /editor path, so the window URL MUST be /?view=editor (a bare
+// /editor 404s). The webview also can't load a raw C:\ path as <img src>, so the
+// committed PNG is handed over as the /__file/<basename> served URL.
 func (w *WindowsService) OpenEditor(imagePath string) {
 	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "Toru — Edit Screenshot",
-		URL:              "/editor?img=" + url.QueryEscape(imagePath),
+		URL:              "/?view=editor&img=" + url.QueryEscape(servedFileURL(imagePath)),
 		Width:            1000,
 		Height:           720,
 		BackgroundColour: dark,
 	})
 }
 
-// OpenTrim opens Developer 2's trim editor for videoPath.
+// OpenTrim opens Developer 2's trim editor for videoPath. Same routing + served-
+// file rules as OpenEditor (/?view=trim, /__file/<basename> for the media src).
 func (w *WindowsService) OpenTrim(videoPath string) {
 	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "Toru — Trim Recording",
-		URL:              "/trim?vid=" + url.QueryEscape(videoPath),
+		URL:              "/?view=trim&vid=" + url.QueryEscape(servedFileURL(videoPath)),
 		Width:            900,
 		Height:           620,
 		BackgroundColour: dark,

@@ -25,11 +25,19 @@ export function OpenEditor(imagePath: string): $CancellablePromise<void> {
 }
 
 /**
- * OpenOverlay opens the shared dim/crop capture overlay.
- * 
- * NOTE: the real overlay is transparent + frameless + always-on-top + one per
- * monitor (the Phase 0 spike). Kept as a normal window here so the skeleton
- * builds and runs before that spike lands.
+ * OpenHub opens the dev Hub window (buttons to drive both editors during Phase
+ * 0). Cancel/Esc on the overlay returns here.
+ */
+export function OpenHub(): $CancellablePromise<void> {
+    return $Call.ByID(3348539563);
+}
+
+/**
+ * OpenOverlay opens the shared dim/crop capture overlay session: one frameless,
+ * always-on-top, opaque window per monitor showing a FROZEN still dimmed with a
+ * crop hole. Delegates to OverlayService.BeginSession, which freezes every
+ * monitor BEFORE any window is shown. This is the launch + hotkey + tray
+ * entrypoint.
  */
 export function OpenOverlay(): $CancellablePromise<void> {
     return $Call.ByID(4149419780);

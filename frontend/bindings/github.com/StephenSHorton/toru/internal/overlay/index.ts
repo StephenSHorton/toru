@@ -5,3 +5,7 @@ import * as OverlayService from "./overlayservice.js";
 export {
     OverlayService
 };
+
+export {
+    MonitorSession
+} from "./models.js";

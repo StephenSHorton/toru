@@ -23,6 +23,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/StephenSHorton/toru/internal/vid"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed all:frontend/dist
@@ -71,14 +72,30 @@ func main() {
 			application.NewService(updateSvc),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler:    application.AssetFileServerFS(assets),
+			Middleware: overlaySvc.ShotMiddleware(),
+		},
+		// Closing every overlay window (Cancel/Esc/commit) drops the live window
+		// count to zero. On Windows that posts WM_QUIT the instant windowMap
+		// empties (application_windows.go), which would race-quit the app before
+		// the Hub/Editor window is created — and would reliably kill an
+		// in-progress video recording (StartRecording dismisses the overlay and
+		// opens no window). Keep the app alive across a fully-windowless moment.
+		Windows: application.WindowsOptions{
+			DisableQuitOnLastWindowClosed: true,
 		},
 	})
 
 	// Inject the running app into services that emit events / open windows / quit.
 	overlaySvc.SetApp(app)
 	windowsSvc.app = app
+	windowsSvc.overlay = overlaySvc
 	updateSvc.SetApp(app)
+
+	// Overlay -> Windows callbacks: Cancel/Esc returns to the Hub; a committed
+	// screenshot opens the editor. Passed as Go-only funcs (not JS-bound).
+	overlaySvc.SetHubOpener(windowsSvc.OpenHub)
+	overlaySvc.SetEditorOpener(windowsSvc.OpenEditor)
 
 	// Tray + global hotkeys. The registrar is a stub until the Phase 0 spike
 	// wires real RegisterHotKey/WM_HOTKEY; wiring it here documents intent.
@@ -89,14 +106,22 @@ func main() {
 	_ = keys.Register("overlay", hotkey.DefaultOverlay, windowsSvc.OpenOverlay)
 	defer keys.Close()
 
-	// Dev hub window. Real app launches the overlay from a hotkey and lives in
-	// the tray; the hub is a convenience to drive both editors during Phase 0.
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Toru",
-		URL:              "/",
-		Width:            720,
-		Height:           560,
-		BackgroundColour: dark,
+	// LAUNCH -> OVERLAY. Opening Toru immediately paints the real all-monitors
+	// frozen-still dim+crop overlay (BeginSession freezes every monitor BEFORE
+	// any window is shown), with a crop pre-placed on the primary. Esc/Cancel
+	// tears it all down and opens the dev Hub (which keeps both editors reachable
+	// during Phase 0).
+	//
+	// This MUST run on ApplicationStarted, NOT synchronously before app.Run():
+	// Wails only builds the platform app (and populates the Screen cache) inside
+	// Run() via newPlatformApp. Calling BeginSession before then would read an
+	// EMPTY Screen.GetAll(), so every monitor's ScaleFactor/IsPrimary and DIP
+	// window bounds would silently fall back to scale=1.0 — breaking sizing and
+	// crop math on every HiDPI monitor (the launch path is the whole feature).
+	// The listener runs on a goroutine; Window.NewWithOptions marshals window
+	// creation to the main thread internally, so this is safe.
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		windowsSvc.OpenOverlay()
 	})
 
 	if err := app.Run(); err != nil {

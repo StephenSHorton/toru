@@ -56,12 +56,12 @@ export interface EllipseNode extends BaseNode {
 }
 export interface LineNode extends BaseNode {
   type: 'line';
-  points: number[];            // [x1,y1,x2,y2]
+  points: number[];            // [x1,y1, x2,y2] straight | [x1,y1, cx,cy, x2,y2] curved
   stroke: string; strokeWidth: number;
 }
 export interface ArrowNode extends BaseNode {
   type: 'arrow';
-  points: number[];            // [x1,y1,x2,y2]
+  points: number[];            // [x1,y1, x2,y2] straight | [x1,y1, cx,cy, x2,y2] curved
   stroke: string; strokeWidth: number;
   pointerLength: number; pointerWidth: number; fill: string;
 }
