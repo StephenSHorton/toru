@@ -36,6 +36,12 @@ type OverlayService struct {
 	// editorOpener opens the screenshot editor for a committed image path
 	// (injected by main via SetEditorOpener). Go-only; never exposed to JS.
 	editorOpener func(imagePath string)
+	// recordingControlsOpener opens the floating recording pill (timer + Stop)
+	// for a started recording (injected by main via SetRecordingControlsOpener).
+	// It MUST be opened from Go: StartRecording dismisses the overlay windows
+	// first, which destroys the calling window's JS context mid-await — a
+	// frontend follow-up call after StartRecording never executes.
+	recordingControlsOpener func(handleID string)
 
 	mu sync.RWMutex
 	// windows are the live overlay windows (one per monitor); handles kept so
@@ -76,6 +82,13 @@ func (s *OverlayService) SetHubOpener(fn func()) { s.openHub = fn }
 //
 //wails:ignore
 func (s *OverlayService) SetEditorOpener(fn func(imagePath string)) { s.editorOpener = fn }
+
+// SetRecordingControlsOpener injects the recording-pill opener callback. Go-only.
+//
+//wails:ignore
+func (s *OverlayService) SetRecordingControlsOpener(fn func(handleID string)) {
+	s.recordingControlsOpener = fn
+}
 
 // ListScreens is THE single source of truth for monitor enumeration that both
 // halves trust. ID == kbinani idx == ddagrab output_idx.
@@ -362,11 +375,23 @@ func (s *OverlayService) Cancel() error {
 }
 
 // StartRecording dismisses the overlay FIRST (so ffmpeg records the live region,
-// not the dim overlays), THEN begins recording. req.Rect is the virtual-desktop
-// physical Rect the front end emits.
+// not the dim overlays), THEN begins recording, THEN opens the recording pill
+// (timer + Stop). req.Rect is the virtual-desktop physical Rect the front end
+// emits.
+//
+// The pill is opened HERE, not by the calling frontend: DismissSession destroys
+// the overlay window that invoked this binding, so any JS after the await is
+// dead code — a recording with no Go-opened pill would be unstoppable.
 func (s *OverlayService) StartRecording(req capture.CaptureRequest) (string, error) {
 	s.DismissSession()
-	return s.cap.StartRecording(req)
+	handle, err := s.cap.StartRecording(req)
+	if err != nil {
+		return "", err
+	}
+	if s.recordingControlsOpener != nil {
+		s.recordingControlsOpener(handle)
+	}
+	return handle, nil
 }
 
 // StopRecording finalizes a recording and broadcasts capture:done.

@@ -97,6 +97,7 @@ func main() {
 	// screenshot opens the editor. Passed as Go-only funcs (not JS-bound).
 	overlaySvc.SetHubOpener(windowsSvc.OpenHub)
 	overlaySvc.SetEditorOpener(windowsSvc.OpenEditor)
+	overlaySvc.SetRecordingControlsOpener(windowsSvc.OpenRecordingControls)
 
 	// Tray + global hotkeys. The registrar is a stub until the Phase 0 spike
 	// wires real RegisterHotKey/WM_HOTKEY; wiring it here documents intent.
