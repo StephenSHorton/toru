@@ -27,7 +27,12 @@ func findScreen(screens []ScreenInfo, id int) (ScreenInfo, error) {
 //
 // ddagrab offsets are MONITOR-RELATIVE and the monitor is chosen by output_idx,
 // so the virtual-desktop Rect MUST be rebased: offset = Rect - screen origin.
-func BuildVideoArgsDDA(req CaptureRequest, screens []ScreenInfo, enc VideoEncoder, outPath string) ([]string, error) {
+//
+// ddaIdx is the DXGI output index — NOT req.MonitorID. The two enumeration
+// orders (kbinani/GDI behind MonitorID vs DXGI behind output_idx) are not
+// guaranteed to agree (observed fully inverted in the wild); callers resolve
+// the real index with DDAOutputIndex.
+func BuildVideoArgsDDA(req CaptureRequest, screens []ScreenInfo, ddaIdx int, enc VideoEncoder, outPath string) ([]string, error) {
 	screen, err := findScreen(screens, req.MonitorID)
 	if err != nil {
 		return nil, err
@@ -36,7 +41,7 @@ func BuildVideoArgsDDA(req CaptureRequest, screens []ScreenInfo, enc VideoEncode
 	relY := req.Rect.Y - screen.Y
 	dda := fmt.Sprintf(
 		"ddagrab=output_idx=%d:framerate=60:video_size=%dx%d:offset_x=%d:offset_y=%d:draw_mouse=%s",
-		req.MonitorID, req.Rect.W, req.Rect.H, relX, relY, boolToInt(req.IncludeCursor),
+		ddaIdx, req.Rect.W, req.Rect.H, relX, relY, boolToInt(req.IncludeCursor),
 	)
 	args := []string{
 		"-y",

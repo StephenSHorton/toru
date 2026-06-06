@@ -94,15 +94,34 @@ func enumScreens() []ScreenInfo {
 }
 
 // defaultArgCandidates returns the backend attempts in order: GPU ddagrab
-// first (only if the request's monitor is enumerable for the rebase), then
-// the software gdigrab fallback.
+// first (only if the request's monitor is enumerable for the rebase AND its
+// DXGI output index resolves), then the software gdigrab fallback.
+//
+// ddagrab is SKIPPED entirely when the DXGI index cannot be resolved: falling
+// back to req.MonitorID there would silently record the WRONG monitor on
+// machines where the two enumeration orders disagree — a corrupt-but-working
+// capture is worse than the slower gdigrab path, which uses virtual-desktop
+// coordinates and cannot miss.
 func defaultArgCandidates(req CaptureRequest, screens []ScreenInfo, enc VideoEncoder, outPath string) [][]string {
 	var out [][]string
-	if dda, err := BuildVideoArgsDDA(req, screens, enc, outPath); err == nil {
-		out = append(out, dda)
+	if screen, err := findScreen(screens, req.MonitorID); err == nil {
+		if ddaIdx, ok := DDAOutputIndex(screen); ok {
+			if dda, err := BuildVideoArgsDDA(req, screens, ddaIdx, enc, outPath); err == nil {
+				out = append(out, dda)
+			}
+		}
 	}
 	out = append(out, BuildVideoArgsGDI(req, enc, outPath))
 	return out
+}
+
+// DDAOutputIndex resolves the ddagrab output_idx for screen by matching its
+// virtual-desktop bounds against the DXGI output enumeration. ok=false means
+// no trustworthy mapping exists (use gdigrab instead — never guess).
+func DDAOutputIndex(screen ScreenInfo) (int, bool) {
+	return dxgiOutputIndexFor(DisplayBounds{
+		Index: screen.ID, X: screen.X, Y: screen.Y, W: screen.W, H: screen.H,
+	})
 }
 
 // Capture exists to satisfy the Capturer seam. The Recorder owns ONLY the
