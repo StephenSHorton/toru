@@ -93,6 +93,8 @@ export interface OverlayQuery {
   scale: number;
   bx: number; // monitor virtual-desktop physical origin X (may be negative)
   by: number; // monitor virtual-desktop physical origin Y (may be negative)
+  mw: number; // monitor PHYSICAL width (clamps the rounded crop right edge)
+  mh: number; // monitor PHYSICAL height (clamps the rounded crop bottom edge)
   stillUrl: string; // decoded "/__shot/<id>"
   crop: Rect; // monitor-local PHYSICAL px ({0,0,0,0} == none)
 }
@@ -107,6 +109,8 @@ export function parseOverlayQuery(search: string): OverlayQuery {
     scale: parseFloat(q.get("scale") ?? "1") || 1,
     bx: parseInt(q.get("bx") ?? "0", 10) || 0,
     by: parseInt(q.get("by") ?? "0", 10) || 0,
+    mw: parseInt(q.get("mw") ?? "0", 10) || 0,
+    mh: parseInt(q.get("mh") ?? "0", 10) || 0,
     stillUrl: q.get("still") ?? "",
     crop: { x: cx, y: cy, w: cw, h: ch },
   };

@@ -60,14 +60,20 @@ func NewService(cap capture.Capturer) *OverlayService {
 }
 
 // SetApp injects the running app (called from main after application.New).
+//
+//wails:ignore
 func (s *OverlayService) SetApp(app *application.App) { s.app = app }
 
 // SetHubOpener injects the Hub-opener callback. Called once from main with
 // windowsSvc.OpenHub so Cancel/Esc can return to the dev Hub. This takes a func
 // param and is therefore NOT a bindable method — it is invoked from Go only.
+//
+//wails:ignore
 func (s *OverlayService) SetHubOpener(fn func()) { s.openHub = fn }
 
 // SetEditorOpener injects the screenshot-editor opener callback. Go-only.
+//
+//wails:ignore
 func (s *OverlayService) SetEditorOpener(fn func(imagePath string)) { s.editorOpener = fn }
 
 // ListScreens is THE single source of truth for monitor enumeration that both
@@ -90,22 +96,67 @@ func (s *OverlayService) ListScreens() ([]capture.ScreenInfo, error) {
 			ScaleFactor: 1.0,
 			IsPrimary:   d.X == 0 && d.Y == 0,
 		}
-		// Enrich scale + primary from the Wails screen layout, matched by
-		// physical origin (NEVER array index — kbinani order != Wails order).
-		if s.app != nil {
-			for _, scr := range s.app.Screen.GetAll() {
-				if scr.PhysicalBounds.X == d.X && scr.PhysicalBounds.Y == d.Y {
-					if scr.ScaleFactor > 0 {
-						info.ScaleFactor = float64(scr.ScaleFactor)
-					}
-					info.IsPrimary = scr.IsPrimary
-					break
-				}
+		// Enrich scale + primary from the Wails screen layout. Match by
+		// rectangle OVERLAP, not exact-origin equality: kbinani (EnumDisplay
+		// bounds) and Wails (MONITORINFOEX.RcMonitor) can disagree on a
+		// secondary monitor's origin by a pixel in a mixed-DPI layout, and an
+		// exact-equality miss silently leaves ScaleFactor=1.0 and the wrong
+		// IsPrimary — corrupting every crop on that monitor.
+		if scr := s.matchWailsScreen(d.X, d.Y, d.W, d.H); scr != nil {
+			if scr.ScaleFactor > 0 {
+				info.ScaleFactor = float64(scr.ScaleFactor)
 			}
+			info.IsPrimary = scr.IsPrimary
+		} else if s.app != nil && len(s.app.Screen.GetAll()) > 0 {
+			// We had screens to match against but found no overlap. Do NOT
+			// silently default scale to 1.0 / origin-based primary — log loudly.
+			s.warnf("overlay: no Wails screen overlaps display %d (%d,%d %dx%d); scale defaulting to 1.0", d.Index, d.X, d.Y, d.W, d.H)
 		}
 		out = append(out, info)
 	}
 	return out, nil
+}
+
+// matchWailsScreen returns the Wails Screen whose PhysicalBounds best matches the
+// kbinani display rect (x,y,w,h) by maximum rectangle overlap, falling back to
+// the screen whose physical center contains the kbinani center. It returns nil
+// when no Wails screen overlaps/contains the rect (or the cache is empty, e.g.
+// before app.Run() populates it). This is robust to the 1px origin disagreements
+// between EnumDisplay bounds and MONITORINFOEX.RcMonitor in mixed-DPI layouts.
+func (s *OverlayService) matchWailsScreen(x, y, w, h int) *application.Screen {
+	if s.app == nil {
+		return nil
+	}
+	want := application.Rect{X: x, Y: y, Width: w, Height: h}
+	var best *application.Screen
+	bestOverlap := 0
+	for _, scr := range s.app.Screen.GetAll() {
+		ov := want.Intersect(scr.PhysicalBounds)
+		area := ov.Width * ov.Height
+		if area > bestOverlap {
+			bestOverlap = area
+			best = scr
+		}
+	}
+	if best != nil {
+		return best
+	}
+	// No overlap (rare): fall back to center-containment.
+	cx, cy := x+w/2, y+h/2
+	for _, scr := range s.app.Screen.GetAll() {
+		b := scr.PhysicalBounds
+		if cx >= b.X && cx < b.X+b.Width && cy >= b.Y && cy < b.Y+b.Height {
+			return scr
+		}
+	}
+	return nil
+}
+
+// warnf logs a warning via the Wails app logger when available (best-effort).
+func (s *OverlayService) warnf(format string, args ...any) {
+	if s.app != nil && s.app.Logger != nil {
+		s.app.Logger.Warn(fmt.Sprintf(format, args...))
+	}
 }
 
 // BeginSession is the launch entrypoint. It enumerates screens, freezes EVERY
@@ -116,6 +167,15 @@ func (s *OverlayService) ListScreens() ([]capture.ScreenInfo, error) {
 func (s *OverlayService) BeginSession() ([]MonitorSession, error) {
 	// If a session is already live, tear it down first (idempotent launch).
 	s.DismissSession()
+
+	// Guard the launch-path DPI hazard: Wails only populates the Screen cache
+	// inside app.Run() (newPlatformApp). If BeginSession runs before that, every
+	// monitor's ScaleFactor/IsPrimary and DIP bounds fall back to scale=1.0 and
+	// the overlay is mis-sized on HiDPI. main wires this on ApplicationStarted to
+	// avoid it; log loudly if that invariant ever regresses.
+	if s.app != nil && len(s.app.Screen.GetAll()) == 0 {
+		s.warnf("overlay: BeginSession ran with an EMPTY Wails screen cache — DPI scale/primary will be wrong (open the overlay on ApplicationStarted, not before app.Run())")
+	}
 
 	screens, err := s.ListScreens()
 	if err != nil {
@@ -145,6 +205,9 @@ func (s *OverlayService) BeginSession() ([]MonitorSession, error) {
 // ShotMiddleware serves the frozen stills at /__shot/<screenID>. It streams the
 // PNG file (NOT a base64 data URL) with Cache-Control: no-store so a re-opened
 // session never serves a stale image. Registered in main via AssetOptions.Middleware.
+// Returns an http middleware — nonsensical over the wire, so keep it Go-only.
+//
+//wails:ignore
 func (s *OverlayService) ShotMiddleware() application.Middleware {
 	const prefix = "/__shot/"
 	return func(next http.Handler) http.Handler {
@@ -294,6 +357,8 @@ func (s *OverlayService) StopRecording(handleID string) (capture.CaptureResult, 
 // the front end on crop drag-end (debounced) and again inside CommitScreenshot
 // before dismiss.
 func (s *OverlayService) SaveCrop(monitorID int, sub capture.Rect) error {
+	cropFileMu.Lock()
+	defer cropFileMu.Unlock()
 	st := loadCrops()
 	st.Crops[strconv.Itoa(monitorID)] = sub
 	return saveCrops(st)

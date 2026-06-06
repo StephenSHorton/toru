@@ -69,11 +69,11 @@ export default function Overlay() {
     (c: CssRect) => {
       if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
-        const { sub } = cropToPhysical(c, q.scale, q.bx, q.by);
+        const { sub } = cropToPhysical(c, q.scale, q.bx, q.by, q.mw, q.mh);
         void OverlayService.SaveCrop(q.mon, sub);
       }, SAVE_DEBOUNCE_MS);
     },
-    [q.scale, q.bx, q.by, q.mon],
+    [q.scale, q.bx, q.by, q.mw, q.mh, q.mon],
   );
 
   // Cancel/Esc: tear down ALL overlay windows (Go) and re-open the Hub.
@@ -85,7 +85,7 @@ export default function Overlay() {
   const captureScreenshot = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    const { emit, sub } = cropToPhysical(crop, q.scale, q.bx, q.by);
+    const { emit, sub } = cropToPhysical(crop, q.scale, q.bx, q.by, q.mw, q.mh);
     try {
       // Persist immediately (Go also persists, but flush our debounce intent).
       void OverlayService.SaveCrop(q.mon, sub);
@@ -93,13 +93,13 @@ export default function Overlay() {
     } finally {
       setBusy(false);
     }
-  }, [busy, crop, q.scale, q.bx, q.by, q.mon]);
+  }, [busy, crop, q.scale, q.bx, q.by, q.mw, q.mh, q.mon]);
 
   // Record: Go dismisses the overlay FIRST, then records the live region.
   const startRecording = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    const { emit } = cropToPhysical(crop, q.scale, q.bx, q.by);
+    const { emit } = cropToPhysical(crop, q.scale, q.bx, q.by, q.mw, q.mh);
     const req: CaptureRequest = {
       mode: "video",
       sub: "region",
@@ -115,7 +115,7 @@ export default function Overlay() {
     } finally {
       setBusy(false);
     }
-  }, [busy, crop, q.scale, q.bx, q.by, q.mon]);
+  }, [busy, crop, q.scale, q.bx, q.by, q.mw, q.mh, q.mon]);
 
   // Esc cancels (wired on every overlay window for safety).
   useEffect(() => {
@@ -169,7 +169,7 @@ export default function Overlay() {
   );
 
   // Badge values are the SAME rounded physical numbers as the saved crop.
-  const { sub } = cropToPhysical(crop, q.scale, q.bx, q.by);
+  const { sub } = cropToPhysical(crop, q.scale, q.bx, q.by, q.mw, q.mh);
 
   return (
     <div className="relative h-screen w-screen select-none overflow-hidden bg-black">
@@ -184,42 +184,47 @@ export default function Overlay() {
         />
       ) : null}
 
-      {/* Dim mask with a transparent hole over the crop. Four panels around the
-          crop keep the crop interior fully bright (the still shows through). */}
-      <DimMask crop={crop} monW={monW} monH={monH} />
+      {/* Non-primary windows are DIM-ONLY: no crop hole, no ring. Cross-monitor
+          crop is deferred for v1, so the capture target only ever lives on the
+          primary — painting a bright centered "crop" here would mislead the user
+          about what Capture grabs and leave this monitor partially undimmed.
+          Primary windows get the four-panel mask (transparent crop hole). */}
+      {q.primary ? (
+        <DimMask crop={crop} monW={monW} monH={monH} />
+      ) : (
+        <div className="pointer-events-none absolute inset-0 bg-black/45" />
+      )}
 
-      {/* Crop rectangle. Interactive only on the primary; a thin ring elsewhere. */}
-      <div
-        className="absolute ring-1 ring-primary/90"
-        style={{
-          left: crop.left,
-          top: crop.top,
-          width: crop.width,
-          height: crop.height,
-          cursor: q.primary ? "move" : "default",
-        }}
-        onPointerDown={q.primary ? (e) => beginDrag(e, "body") : undefined}
-      >
-        {/* dimension badge — PHYSICAL px (matches the saved PNG exactly) */}
-        {q.primary ? (
+      {/* Interactive crop rectangle — PRIMARY ONLY. */}
+      {q.primary ? (
+        <div
+          className="absolute ring-1 ring-primary/90"
+          style={{
+            left: crop.left,
+            top: crop.top,
+            width: crop.width,
+            height: crop.height,
+            cursor: "move",
+          }}
+          onPointerDown={(e) => beginDrag(e, "body")}
+        >
+          {/* dimension badge — PHYSICAL px (matches the saved PNG exactly) */}
           <div className="frost absolute -top-7 left-0 px-2 py-0.5 text-[11px] tabular-nums">
             {sub.w} × {sub.h}
           </div>
-        ) : null}
 
-        {/* 8 resize handles (primary only) */}
-        {q.primary
-          ? HANDLES.map((h) => (
-              <span
-                key={h}
-                data-handle={h}
-                onPointerDown={(e) => beginDrag(e, h)}
-                className="absolute border border-background bg-primary"
-                style={handleStyle(h)}
-              />
-            ))
-          : null}
-      </div>
+          {/* 8 resize handles */}
+          {HANDLES.map((h) => (
+            <span
+              key={h}
+              data-handle={h}
+              onPointerDown={(e) => beginDrag(e, h)}
+              className="absolute border border-background bg-primary"
+              style={handleStyle(h)}
+            />
+          ))}
+        </div>
+      ) : null}
 
       {/* frosted control pill — primary monitor only */}
       {q.primary ? (
@@ -384,9 +389,17 @@ function clamp(v: number, lo: number, hi: number): number {
 }
 
 // cropToPhysical is the LOCKED DPI math (mirrors capture.CropToPhysical in Go).
-// Round ONCE, reuse for emit (virtual-desktop physical Rect), sub (monitor-local
-// physical crop of the frozen PNG), and the badge.
-//   rl = round(cl*s); rt = round(ct*s); rw = round(cw*s); rh = round(ch*s)
+// Round the crop EDGES once, clamp the far edges to the monitor's physical size,
+// and reuse for emit (virtual-desktop physical Rect), sub (monitor-local physical
+// crop of the frozen PNG), and the badge.
+//
+// EDGE-based (not width-based) on purpose: the CSS extent (innerWidth) is the
+// Wails DIP Bounds = ceil(physical/scale). round(width*scale) on a ceil'd DIP can
+// land 1px PAST the native monitor (e.g. 2560@150%: DIP 1707 -> round(1707*1.5)
+// = 2561 > 2560), making the badge/emit/recorded Rect overshoot the frozen still.
+// Rounding left and right independently and clamping the right edge to mw (and
+// bottom to mh) guarantees the result fits the monitor and the saved PNG.
+//   rl=round(cl*s); rr=min(round((cl+cw)*s), mw); rw=rr-rl  (and likewise y/h)
 //   sub  = { rl, rt, rw, rh }            (crops the frozen still, monitor-local)
 //   emit = { bx+rl, by+rt, rw, rh }      (CaptureRequest.Rect, virtual-desktop)
 //   badge = rw × rh = sub.w × sub.h
@@ -395,12 +408,18 @@ function cropToPhysical(
   scale: number,
   bx: number,
   by: number,
+  mw: number,
+  mh: number,
 ): { emit: Rect; sub: Rect } {
   const s = scale > 0 ? scale : 1;
   const rl = Math.round(c.left * s);
   const rt = Math.round(c.top * s);
-  const rw = Math.round(c.width * s);
-  const rh = Math.round(c.height * s);
+  let rr = Math.round((c.left + c.width) * s);
+  let rb = Math.round((c.top + c.height) * s);
+  if (mw > 0 && rr > mw) rr = mw;
+  if (mh > 0 && rb > mh) rb = mh;
+  const rw = rr - rl;
+  const rh = rb - rt;
   return {
     sub: { x: rl, y: rt, w: rw, h: rh },
     emit: { x: bx + rl, y: by + rt, w: rw, h: rh },

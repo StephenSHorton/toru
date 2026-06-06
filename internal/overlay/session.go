@@ -124,10 +124,13 @@ func (s *OverlayService) openOverlayWindows(sessions []MonitorSession) {
 			},
 		})
 
-		// The primary monitor's DIP origin is (0,0); InitialPosition X/Y of 0,0
-		// can be treated as CW_USEDEFAULT by the OS, landing the window at an
-		// offset and leaving the primary un-dimmed. SetBounds explicitly defeats
-		// that. application.Rect uses Width/Height (not W/H).
+		// Belt-and-suspenders for the primary (DIP origin (0,0)): Wails' creation
+		// path already calls setPosition(0,0) when Screen==nil + InitialPosition
+		// is WindowXY, so the primary is placed correctly without this. We also
+		// open the overlay on ApplicationStarted, so the window impl is live and
+		// SetBounds is NOT a no-op — it just re-asserts the (0,0)+size bounds in
+		// case the OS treated the initial 0,0 as CW_USEDEFAULT. application.Rect
+		// uses Width/Height (not W/H).
 		if dip.X == 0 && dip.Y == 0 {
 			win.SetBounds(application.Rect{X: 0, Y: 0, Width: dip.Width, Height: dip.Height})
 		}
@@ -145,12 +148,11 @@ func (s *OverlayService) openOverlayWindows(sessions []MonitorSession) {
 // scale-derived approximation if no Wails screen matches (e.g. pre-Run, or the
 // enrichment used kbinani-only data).
 func (s *OverlayService) dipBoundsFor(mon MonitorSession) application.Rect {
-	if s.app != nil {
-		for _, scr := range s.app.Screen.GetAll() {
-			if scr.PhysicalBounds.X == mon.X && scr.PhysicalBounds.Y == mon.Y {
-				return scr.Bounds
-			}
-		}
+	// Match by rectangle overlap (not exact-origin equality) so a 1px origin
+	// disagreement between kbinani and Wails on a secondary mixed-DPI monitor
+	// does not drop us into the scale-1.0 fallback (which mis-sizes the window).
+	if scr := s.matchWailsScreen(mon.X, mon.Y, mon.W, mon.H); scr != nil {
+		return scr.Bounds
 	}
 	// Fallback: derive DIP from physical via the monitor's own scale.
 	scale := mon.Scale
@@ -167,15 +169,20 @@ func (s *OverlayService) dipBoundsFor(mon MonitorSession) application.Rect {
 
 // overlayURL builds the per-window URL carrying the session numbers so the front
 // end can render on first paint without a binding round-trip. Params:
-// mon, primary, scale, bx, by, still (urlenc), crop (urlenc "x,y,w,h").
+// mon, primary, scale, bx, by, mw, mh (monitor physical W/H), still (urlenc),
+// crop (urlenc "x,y,w,h"). mw/mh let the front end clamp the rounded crop EDGES
+// to the true native monitor size so a ceil'd DIP width can never push the
+// emitted Rect / badge 1px past the monitor (see cropToPhysical).
 func overlayURL(mon MonitorSession) string {
 	return fmt.Sprintf(
-		"/?view=overlay&mon=%d&primary=%d&scale=%s&bx=%d&by=%d&still=%s&crop=%s",
+		"/?view=overlay&mon=%d&primary=%d&scale=%s&bx=%d&by=%d&mw=%d&mh=%d&still=%s&crop=%s",
 		mon.MonitorID,
 		b2i(mon.IsPrimary),
 		formatFloat(mon.Scale),
 		mon.X,
 		mon.Y,
+		mon.W,
+		mon.H,
 		url.QueryEscape(mon.StillURL),
 		url.QueryEscape(cropCSV(mon.Crop)),
 	)

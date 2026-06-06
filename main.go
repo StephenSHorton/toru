@@ -23,6 +23,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/StephenSHorton/toru/internal/vid"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed all:frontend/dist
@@ -74,6 +75,15 @@ func main() {
 			Handler:    application.AssetFileServerFS(assets),
 			Middleware: overlaySvc.ShotMiddleware(),
 		},
+		// Closing every overlay window (Cancel/Esc/commit) drops the live window
+		// count to zero. On Windows that posts WM_QUIT the instant windowMap
+		// empties (application_windows.go), which would race-quit the app before
+		// the Hub/Editor window is created — and would reliably kill an
+		// in-progress video recording (StartRecording dismisses the overlay and
+		// opens no window). Keep the app alive across a fully-windowless moment.
+		Windows: application.WindowsOptions{
+			DisableQuitOnLastWindowClosed: true,
+		},
 	})
 
 	// Inject the running app into services that emit events / open windows / quit.
@@ -101,7 +111,18 @@ func main() {
 	// any window is shown), with a crop pre-placed on the primary. Esc/Cancel
 	// tears it all down and opens the dev Hub (which keeps both editors reachable
 	// during Phase 0).
-	windowsSvc.OpenOverlay()
+	//
+	// This MUST run on ApplicationStarted, NOT synchronously before app.Run():
+	// Wails only builds the platform app (and populates the Screen cache) inside
+	// Run() via newPlatformApp. Calling BeginSession before then would read an
+	// EMPTY Screen.GetAll(), so every monitor's ScaleFactor/IsPrimary and DIP
+	// window bounds would silently fall back to scale=1.0 — breaking sizing and
+	// crop math on every HiDPI monitor (the launch path is the whole feature).
+	// The listener runs on a goroutine; Window.NewWithOptions marshals window
+	// creation to the main thread internally, so this is safe.
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		windowsSvc.OpenOverlay()
+	})
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

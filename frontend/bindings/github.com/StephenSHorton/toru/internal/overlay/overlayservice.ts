@@ -13,9 +13,6 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as capture$0 from "../capture/models.js";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
-import * as application$0 from "../../../../wailsapp/wails/v3/pkg/application/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -99,38 +96,6 @@ export function ListScreens(): $CancellablePromise<capture$0.ScreenInfo[]> {
  */
 export function SaveCrop(monitorID: number, sub: capture$0.Rect): $CancellablePromise<void> {
     return $Call.ByID(803232484, monitorID, sub);
-}
-
-/**
- * SetApp injects the running app (called from main after application.New).
- */
-export function SetApp(app: application$0.App | null): $CancellablePromise<void> {
-    return $Call.ByID(89779116, app);
-}
-
-/**
- * SetEditorOpener injects the screenshot-editor opener callback. Go-only.
- */
-export function SetEditorOpener(fn: any): $CancellablePromise<void> {
-    return $Call.ByID(2673083127, fn);
-}
-
-/**
- * SetHubOpener injects the Hub-opener callback. Called once from main with
- * windowsSvc.OpenHub so Cancel/Esc can return to the dev Hub. This takes a func
- * param and is therefore NOT a bindable method — it is invoked from Go only.
- */
-export function SetHubOpener(fn: any): $CancellablePromise<void> {
-    return $Call.ByID(418452731, fn);
-}
-
-/**
- * ShotMiddleware serves the frozen stills at /__shot/<screenID>. It streams the
- * PNG file (NOT a base64 data URL) with Cache-Control: no-store so a re-opened
- * session never serves a stale image. Registered in main via AssetOptions.Middleware.
- */
-export function ShotMiddleware(): $CancellablePromise<application$0.Middleware> {
-    return $Call.ByID(3340897351);
 }
 
 /**

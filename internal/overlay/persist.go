@@ -4,9 +4,17 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/StephenSHorton/toru/internal/capture"
 )
+
+// cropFileMu serializes the load-modify-save of overlay.json so concurrent
+// SaveCrop calls (debounced drag-end + the immediate commit save + the Go-side
+// commit save) can't interleave and drop a monitor's crop update. The atomic
+// tmp+rename in saveCrops already prevents a corrupt file; this prevents a lost
+// update on the read-modify-write.
+var cropFileMu sync.Mutex
 
 // cropStore is the on-disk shape of %AppData%\toru\overlay.json. Crops are keyed
 // by monitor ID (stringified, since JSON object keys are strings) and stored as
