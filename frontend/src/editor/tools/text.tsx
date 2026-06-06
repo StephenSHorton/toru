@@ -31,7 +31,7 @@ import type { Tool, ToolContext } from './types';
 import type { EditorNode, TextNode, NodeId } from '../types';
 import { useEditorStore } from '../store';
 import { newId } from '../geometry';
-import { computeView } from '../EditorCanvas';
+import { useView, getView } from '../viewStore';
 
 const FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 const DEFAULT_TEXT_WIDTH = 220; // image-space px; matches the textarea start width
@@ -262,14 +262,12 @@ export interface TextEditingOverlayProps {
  */
 export function TextEditingOverlay({ stageRef }: TextEditingOverlayProps) {
   const session = useTextEditSession();
-  // Subscribe to the base image so the fit-scale view stays correct reactively.
-  const baseNode = useEditorStore((s) => s.nodes[0]);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [, force] = useState(0);
 
-  const baseW = baseNode && baseNode.type === 'image' ? baseNode.width : 0;
-  const baseH = baseNode && baseNode.type === 'image' ? baseNode.height : 0;
-  const view = computeView(baseW, baseH);
+  // Live view (fit + Ctrl+wheel zoom), shared with the canvas so the inline
+  // textarea sits exactly over the text node — at the right size — while zoomed.
+  const view = useView();
 
   // Double-click on the Stage: if it lands on a text node, open it for editing.
   useEffect(() => {
@@ -277,10 +275,7 @@ export function TextEditingOverlay({ stageRef }: TextEditingOverlayProps) {
     if (!stage) return;
     const onDbl = () => {
       const editorState = useEditorStore.getState();
-      const b = editorState.nodes[0];
-      const bw = b && b.type === 'image' ? b.width : 0;
-      const bh = b && b.type === 'image' ? b.height : 0;
-      const v = computeView(bw, bh);
+      const v = getView();
       const pt = stage.getPointerPosition();
       if (!pt) return;
       const px = (pt.x - v.dx) / v.scale;

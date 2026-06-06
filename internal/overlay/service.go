@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -202,18 +203,30 @@ func (s *OverlayService) BeginSession() ([]MonitorSession, error) {
 	return sessions, nil
 }
 
-// ShotMiddleware serves the frozen stills at /__shot/<screenID>. It streams the
-// PNG file (NOT a base64 data URL) with Cache-Control: no-store so a re-opened
-// session never serves a stale image. Registered in main via AssetOptions.Middleware.
-// Returns an http middleware — nonsensical over the wire, so keep it Go-only.
+// ShotMiddleware serves two families of local files the webview cannot otherwise
+// fetch (a webview <img>/<video> can't load a raw C:\ path):
+//
+//   - /__shot/<screenID> : the session FROZEN stills, looked up in s.stills.
+//   - /__file/<basename> : a committed temp artifact (the cropped screenshot PNG
+//     from CropStill, or a recording) living in the toru temp dir. Served by
+//     basename only — filepath.Base strips any path traversal and the lookup is
+//     confined to %TEMP%/toru — so this cannot read arbitrary disk files.
+//
+// Both stream the file (NOT a base64 data URL) with Cache-Control: no-store so a
+// re-opened session never serves a stale image. Registered in main via
+// AssetOptions.Middleware. Returns an http middleware — nonsensical over the
+// wire, so keep it Go-only.
 //
 //wails:ignore
 func (s *OverlayService) ShotMiddleware() application.Middleware {
-	const prefix = "/__shot/"
+	const shotPrefix = "/__shot/"
+	const filePrefix = "/__file/"
+	toruTmp := filepath.Join(os.TempDir(), "toru")
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasPrefix(r.URL.Path, prefix) {
-				id := strings.TrimPrefix(r.URL.Path, prefix)
+			switch {
+			case strings.HasPrefix(r.URL.Path, shotPrefix):
+				id := strings.TrimPrefix(r.URL.Path, shotPrefix)
 				s.mu.RLock()
 				path, ok := s.stills[id]
 				s.mu.RUnlock()
@@ -225,8 +238,21 @@ func (s *OverlayService) ShotMiddleware() application.Middleware {
 				}
 				http.NotFound(w, r)
 				return
+			case strings.HasPrefix(r.URL.Path, filePrefix):
+				// filepath.Base collapses any ../ so only a leaf name survives;
+				// joining it onto the fixed toru temp dir confines the read there.
+				base := filepath.Base(strings.TrimPrefix(r.URL.Path, filePrefix))
+				full := filepath.Join(toruTmp, base)
+				if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
+					w.Header().Set("Cache-Control", "no-store")
+					http.ServeFile(w, r, full) // content-type inferred from extension
+					return
+				}
+				http.NotFound(w, r)
+				return
+			default:
+				next.ServeHTTP(w, r)
 			}
-			next.ServeHTTP(w, r)
 		})
 	}
 }

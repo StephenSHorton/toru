@@ -30,7 +30,8 @@ import { cn } from '@/lib/utils';
 import type { Tool, ToolContext } from './types';
 import type { EditorNode } from '../types';
 import { useEditorStore, BASE_IMAGE_ID } from '../store';
-import { computeView, STAGE_W, STAGE_H } from '../EditorCanvas';
+import { STAGE_W, STAGE_H } from '../EditorCanvas';
+import { useView } from '../viewStore';
 
 // --- minimum crop size (image px) below which a drag is discarded ----------
 const MIN_CROP = 8;
@@ -224,11 +225,12 @@ export function CropOverlay() {
   const activeTool = useEditorStore((s) => s.activeTool);
   const base = useEditorStore((s) => s.nodes[0]);
   const d = useCropDraft();
+  // Live view so the crop rect/mask track the canvas while Ctrl+wheel-zoomed.
+  const view = useView();
 
   // Only meaningful while cropping and the base image is present.
   if (activeTool !== 'crop' || !base || base.type !== 'image') return null;
 
-  const view = computeView(base.width, base.height);
   const rect = d.rect;
 
   // Convert an image-space rect to on-screen Stage px.

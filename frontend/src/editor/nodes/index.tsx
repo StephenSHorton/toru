@@ -31,6 +31,13 @@ function useHTMLImage(src: string): HTMLImageElement | null {
 
 type AttachRef = (id: NodeId, node: Konva.Node | null) => void;
 
+// A line/arrow with a 3rd (middle) control point renders as a smooth curve that
+// passes through it; a plain 2-point segment uses no tension. Kept in sync with
+// PointPairHandles (which adds/moves the middle point) and isCurvedPoints below.
+export const CURVE_TENSION = 0.5;
+/** True when a point-pair node carries a middle control point (curved). */
+export const isCurvedPoints = (points: number[]): boolean => points.length > 4;
+
 interface NodeProps<T extends EditorNode> {
   node: T;
   attachRef: AttachRef;
@@ -224,6 +231,7 @@ function LineView({ node, attachRef, selectable }: NodeProps<LineNode>) {
       stroke={node.stroke}
       strokeWidth={node.strokeWidth}
       lineCap="round"
+      tension={isCurvedPoints(node.points) ? CURVE_TENSION : 0}
       rotation={node.rotation}
       opacity={node.opacity}
       draggable={node.draggable && selectable}
@@ -251,6 +259,7 @@ function ArrowView({ node, attachRef, selectable }: NodeProps<ArrowNode>) {
       fill={node.fill}
       pointerLength={node.pointerLength}
       pointerWidth={node.pointerWidth}
+      tension={isCurvedPoints(node.points) ? CURVE_TENSION : 0}
       rotation={node.rotation}
       opacity={node.opacity}
       draggable={node.draggable && selectable}

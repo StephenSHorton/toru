@@ -11,9 +11,13 @@
 //   V P R O A L T C          select / pen / rect / ellipse / arrow / line / text / crop
 //   E                        emoji
 //   Ctrl+]  / Ctrl+[         bring forward / send backward
+//   Ctrl+0                   reset zoom to fit
+//   Ctrl+= / Ctrl+-          zoom in / out (mouse wheel zooms toward the cursor;
+//                            in Select mode, drag empty canvas to pan when zoomed)
 
 import { useEffect } from 'react';
 import { useEditorStore } from './store';
+import { resetFit, zoomAtPointer, STAGE_W, STAGE_H } from './viewStore';
 import type { ToolId } from './types';
 
 function isEditableTarget(): boolean {
@@ -75,6 +79,27 @@ export function useEditorKeyboard() {
       }
       if (ctrl && ev.key === '[') {
         if (s.selectedId) { ev.preventDefault(); s.sendBackward(s.selectedId); }
+        return;
+      }
+
+      // zoom — Ctrl+0 resets to fit; Ctrl+= / Ctrl+- zoom about the canvas center
+      // (the mouse wheel, handled in EditorCanvas, zooms toward the cursor).
+      if (ctrl && ev.key === '0') {
+        ev.preventDefault();
+        const base = s.nodes[0];
+        const bw = base && base.type === 'image' ? base.width : 0;
+        const bh = base && base.type === 'image' ? base.height : 0;
+        resetFit(bw, bh);
+        return;
+      }
+      if (ctrl && (ev.key === '=' || ev.key === '+')) {
+        ev.preventDefault();
+        zoomAtPointer(STAGE_W / 2, STAGE_H / 2, -1);
+        return;
+      }
+      if (ctrl && ev.key === '-') {
+        ev.preventDefault();
+        zoomAtPointer(STAGE_W / 2, STAGE_H / 2, 1);
         return;
       }
 

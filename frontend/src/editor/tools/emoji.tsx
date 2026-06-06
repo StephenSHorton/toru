@@ -13,7 +13,7 @@
 // shadcn Button, lucide icons (per BUILD SPEC). Tool interface implemented
 // verbatim from ./types; EmojiNode produced verbatim from ../types.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Smile } from 'lucide-react';
 import type { Tool } from './types';
@@ -79,24 +79,45 @@ export const emojiTool: Tool = {
 };
 
 /**
- * EmojiPicker — frosted popover of the curated emoji set. Picking an emoji sets
- * the active emoji and activates the emoji tool, so the next Stage click stamps
- * it. Mirrors StrokeWidthControl's .frost popover + active-outline convention.
+ * EmojiPicker — frosted popover that uses the OPERATING SYSTEM emoji panel as the
+ * primary picker. Opening the popover focuses a hidden input, so pressing the
+ * Windows emoji shortcut (⊞ Win + .) drops the chosen glyph straight in; we read
+ * it, set it active, and arm the emoji tool so the next canvas click stamps it.
  *
- * Wired into the Toolbar by Integrate (see wiringInstructions). Self-contained:
- * reads/writes only the public store API via selectors.
+ * Windows has no API to programmatically OPEN the panel (Win+. is a user gesture
+ * that inserts into the focused field), so the user presses it themselves — and
+ * the curated grid below stays as a fallback if the OS panel isn't available.
+ *
+ * Self-contained: reads/writes only the public store API via selectors.
  */
 export function EmojiPicker() {
   const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const activeEmoji = useEditorStore((s) => s.activeEmoji);
   const setEmoji = useEditorStore((s) => s.setEmoji);
   const setTool = useEditorStore((s) => s.setTool);
   const activeTool = useEditorStore((s) => s.activeTool);
 
-  function pick(e: string) {
+  function arm(e: string) {
     setEmoji(e);
     setTool('emoji'); // arm the tool so the next canvas click drops this emoji
     setOpen(false);
+  }
+
+  function toggle() {
+    setOpen((v) => {
+      const next = !v;
+      // Focus the hidden input so the OS emoji panel inserts into it.
+      if (next) setTimeout(() => inputRef.current?.focus(), 0);
+      return next;
+    });
+  }
+
+  // The OS emoji panel inserts the glyph(s) into the focused input -> capture it.
+  function onHiddenInput(e: React.FormEvent<HTMLInputElement>) {
+    const val = e.currentTarget.value.trim();
+    e.currentTarget.value = '';
+    if (val) arm(val);
   }
 
   return (
@@ -104,25 +125,39 @@ export function EmojiPicker() {
       <Button
         size="icon"
         variant={activeTool === 'emoji' ? 'default' : 'ghost'}
-        title="Emoji sticker (E)"
-        onClick={() => setOpen((v) => !v)}
+        title="Emoji sticker (E) — opens the system emoji panel"
+        onClick={toggle}
       >
         <Smile />
       </Button>
       {open && (
-        <div className="frost absolute left-0 top-full z-20 mt-1 grid w-max grid-cols-8 gap-0.5 p-1.5">
-          {EMOJI_SET.map((e) => (
-            <button
-              key={e}
-              type="button"
-              title={e}
-              onClick={() => pick(e)}
-              className="flex size-8 items-center justify-center text-xl leading-none hover:bg-accent"
-              style={{ outline: activeEmoji === e ? '2px solid var(--color-ring)' : 'none' }}
-            >
-              {e}
-            </button>
-          ))}
+        <div className="frost absolute left-0 top-full z-20 mt-1 w-max p-1.5">
+          <div className="mb-1.5 max-w-[16rem] px-0.5 text-[11px] leading-snug text-muted-foreground">
+            Press <span className="font-mono text-foreground">⊞&nbsp;Win&nbsp;+&nbsp;.</span> for the
+            system emoji panel, or pick one:
+          </div>
+          {/* Hidden, focusable target for the OS emoji panel's insertion. */}
+          <input
+            ref={inputRef}
+            onInput={onHiddenInput}
+            aria-hidden
+            tabIndex={-1}
+            style={{ position: 'absolute', width: 1, height: 1, opacity: 0, padding: 0, border: 0 }}
+          />
+          <div className="grid grid-cols-8 gap-0.5">
+            {EMOJI_SET.map((e) => (
+              <button
+                key={e}
+                type="button"
+                title={e}
+                onClick={() => arm(e)}
+                className="flex size-8 items-center justify-center text-xl leading-none hover:bg-accent"
+                style={{ outline: activeEmoji === e ? '2px solid var(--color-ring)' : 'none' }}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>

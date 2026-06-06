@@ -7,7 +7,7 @@ import type Konva from 'konva';
 import { Button } from '@/components/ui/button';
 import {
   MousePointer2, Pen, Square, Circle, ArrowUpRight, Minus, Type, Crop,
-  Undo2, Redo2, BringToFront, SendToBack, Trash2, Clipboard, Copy, Save,
+  Undo2, Redo2, BringToFront, SendToBack, Trash2, Copy, Save,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEditorStore, BASE_IMAGE_ID } from './store';
@@ -35,11 +35,9 @@ const Divider = () => <div className="mx-1 h-6 w-px bg-border" />;
 
 export interface ToolbarProps {
   stageRef: React.RefObject<Konva.Stage | null>;
-  /** Toolbar Paste button -> insert clipboard image as a pasted-image layer. */
-  onPaste: () => void;
 }
 
-export function Toolbar({ stageRef, onPaste }: ToolbarProps) {
+export function Toolbar({ stageRef }: ToolbarProps) {
   const activeTool = useEditorStore((s) => s.activeTool);
   const setTool = useEditorStore((s) => s.setTool);
   const selectedId = useEditorStore((s) => s.selectedId);
@@ -118,9 +116,6 @@ export function Toolbar({ stageRef, onPaste }: ToolbarProps) {
       <StrokeWidthControl />
 
       <div className="ml-auto flex items-center gap-1">
-        <Button size="sm" variant="ghost" title="Paste image" onClick={onPaste}>
-          <Clipboard /> Paste
-        </Button>
         <Button size="sm" variant="ghost" title="Copy to clipboard" onClick={() => void handleCopy()}>
           <Copy /> Copy
         </Button>

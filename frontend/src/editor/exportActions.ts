@@ -23,15 +23,39 @@ import { useEditorStore, BASE_IMAGE_ID } from './store';
 import { computeView } from './EditorCanvas';
 import type { ImageNodeBase } from './types';
 
-/** Hide every Transformer on the Stage, run fn, then restore them. */
+/**
+ * Hide every selection overlay (the Transformer AND the line/arrow
+ * PointPairHandles, named 'pp-handle') on the Stage, run fn, then restore them —
+ * so they never bake into the exported PNG.
+ */
 function withoutTransformers<T>(stage: Konva.Stage, fn: () => T): T {
-  const trs = stage.find('Transformer') as Konva.Node[];
-  const shown = trs.filter((t) => t.isVisible());
+  const overlays = (stage.find('Transformer') as Konva.Node[]).concat(
+    stage.find('.pp-handle') as Konva.Node[],
+  );
+  const shown = overlays.filter((t) => t.isVisible());
   shown.forEach((t) => t.hide());
   try {
     return fn();
   } finally {
     shown.forEach((t) => t.show());
+  }
+}
+
+/**
+ * Temporarily force the `.view-group` nodes (base + annotations) to the FIT
+ * transform, run fn, then restore the live transform. The user's Ctrl+wheel zoom
+ * lives on those Groups; export must ignore it so the clip rect [dx,dy,dw,dh] and
+ * pixelRatio (computed from the fit) line up with what's actually on the canvas.
+ * toDataURL draws synchronously, so the swap is invisible.
+ */
+function withFitView<T>(stage: Konva.Stage, fit: { dx: number; dy: number; scale: number }, fn: () => T): T {
+  const groups = stage.find('.view-group') as Konva.Node[];
+  const saved = groups.map((g) => ({ g, x: g.x(), y: g.y(), sx: g.scaleX(), sy: g.scaleY() }));
+  groups.forEach((g) => g.setAttrs({ x: fit.dx, y: fit.dy, scaleX: fit.scale, scaleY: fit.scale }));
+  try {
+    return fn();
+  } finally {
+    saved.forEach((s) => s.g.setAttrs({ x: s.x, y: s.y, scaleX: s.sx, scaleY: s.sy }));
   }
 }
 
@@ -51,15 +75,19 @@ export function flattenStage(stage: Konva.Stage): string {
   const view = computeView(baseW, baseH);
   // pixelRatio scales the fit-down view rect back up to source pixels.
   const pixelRatio = view.dw > 0 && baseW > 0 ? baseW / view.dw : 1;
+  // Render at the FIT (ignoring any live Ctrl+wheel zoom) so the clip rect and
+  // pixelRatio match the on-canvas geometry and the PNG is native-resolution.
   return withoutTransformers(stage, () =>
-    stage.toDataURL({
-      pixelRatio,
-      mimeType: 'image/png',
-      x: view.dx,
-      y: view.dy,
-      width: view.dw,
-      height: view.dh,
-    }),
+    withFitView(stage, view, () =>
+      stage.toDataURL({
+        pixelRatio,
+        mimeType: 'image/png',
+        x: view.dx,
+        y: view.dy,
+        width: view.dw,
+        height: view.dh,
+      }),
+    ),
   );
 }
 

@@ -1,14 +1,27 @@
-// Paste-image support. PRIMARY path = the browser 'paste' ClipboardEvent.
-// FALLBACK path = ExportService.ReadClipboardImage() (returned by the Toolbar
-// Paste button). Both converge on the same insert helper, which loads the image
-// to read its natural size, creates a centered PastedImageNode in IMAGE space,
-// adds it, and selects it.
+// Paste-anything support. Pressing Ctrl+V anywhere in the editor drops whatever
+// is on the clipboard onto the canvas — no button required:
+//   • image bytes  -> a centered, movable PastedImageNode
+//   • plain text   -> a centered TextNode
+//   • nothing usable in the JS clipboard (e.g. an image copied from a native app
+//     that Chromium didn't surface) -> ExportService.ReadClipboardImage() fallback
+// While a text field is focused (inline text editing), paste is left to the
+// browser so it lands in the field instead of spawning a node.
 
-import { useCallback, useEffect } from 'react';
+import { useEffect } from 'react';
 import { ExportService } from '@/lib/api';
 import { useEditorStore, BASE_IMAGE_ID } from './store';
-import type { PastedImageNode } from './types';
+import type { PastedImageNode, TextNode } from './types';
 import { newId } from './geometry';
+
+const PASTE_FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+/** True while an input/textarea/contentEditable is focused (skip canvas paste). */
+function isEditableTarget(): boolean {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable === true;
+}
 
 /** Load a data/blob URL into an HTMLImageElement to read natural dimensions. */
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -57,19 +70,55 @@ export async function insertPastedImage(dataUrl: string): Promise<void> {
   s.setTool('select');
 }
 
-/** Toolbar Paste button -> backend clipboard read fallback. */
+/** Insert clipboard plain text as a centered, movable TextNode (image space). */
+export function insertPastedText(text: string): void {
+  const s = useEditorStore.getState();
+  const base = s.nodes.find((n) => n.id === BASE_IMAGE_ID);
+  const baseW = base && base.type === 'image' ? base.width : 800;
+  const baseH = base && base.type === 'image' ? base.height : 600;
+  const fontSize = s.activeFontSize;
+  // Wrap long text within ~60% of the image so a paragraph paste stays readable.
+  const width = Math.max(120, Math.round(Math.min(baseW * 0.6, 600)));
+  const node: TextNode = {
+    id: newId('text'),
+    type: 'text',
+    x: Math.round(baseW / 2 - width / 2),
+    y: Math.round(baseH / 2 - fontSize),
+    rotation: 0,
+    opacity: 1,
+    draggable: true,
+    text: text.replace(/\r\n/g, '\n'),
+    fontSize,
+    fontFamily: PASTE_FONT_FAMILY,
+    fill: s.activeColor,
+    width,
+    align: 'left',
+  };
+  s.addNode(node);
+  s.select(node.id);
+  s.setTool('select');
+}
+
+/** Backend clipboard read fallback (native-app images Chromium didn't surface). */
 export async function pasteFromBackend(): Promise<void> {
   const url = await ExportService.ReadClipboardImage();
   if (url) await insertPastedImage(url);
 }
 
-/** Mount the window 'paste' listener (primary path). Returns the backend fallback. */
-export function useClipboardPaste(): () => void {
+/** Mount the window 'paste' listener — the single paste-anything entry point. */
+export function useClipboardPaste(): void {
   useEffect(() => {
     function onPaste(ev: ClipboardEvent) {
-      const items = ev.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
+      // Editing text -> let the browser paste into the field.
+      if (isEditableTarget()) return;
+      const dt = ev.clipboardData;
+      if (!dt) {
+        void pasteFromBackend();
+        return;
+      }
+
+      // 1) Image bytes -> pasted-image layer.
+      for (const item of dt.items) {
         if (item.type.startsWith('image/')) {
           const file = item.getAsFile();
           if (!file) continue;
@@ -82,12 +131,19 @@ export function useClipboardPaste(): () => void {
           return;
         }
       }
+
+      // 2) Plain text -> text node.
+      const text = dt.getData('text/plain');
+      if (text && text.trim().length > 0) {
+        ev.preventDefault();
+        insertPastedText(text);
+        return;
+      }
+
+      // 3) Nothing in the JS clipboard -> ask the Go backend (native-app image).
+      void pasteFromBackend();
     }
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, []);
-
-  return useCallback(() => {
-    void pasteFromBackend();
   }, []);
 }

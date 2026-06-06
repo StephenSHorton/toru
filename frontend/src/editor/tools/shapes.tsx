@@ -11,8 +11,8 @@
 // History model (per store conventions in store.ts):
 //   pointer-down  -> addNode(draft)            : ONE history step ("shape created")
 //   pointer-move  -> mutateDrawingNode(...)    : live resize, NO history
-//   pointer-up    -> select(id)                : finalize, OR
-//                    abortDraft(id)            : discard a zero-size draft cleanly
+//   pointer-up    -> select(id) + setTool('select') : finalize into select mode, OR
+//                    abortDraft(id)                  : discard a zero-size draft cleanly
 // Net result: exactly one undo entry per committed shape, none for a discarded
 // (tap, no drag) draft. abortDraft pops the addNode snapshot WITHOUT polluting
 // the redo stack or clearing selection (which undo() would do).
@@ -49,8 +49,13 @@ function finish(ctx: ToolContext): void {
     ctx.store.abortDraft(id);
     return;
   }
-  // Committed shape: select it so the user can immediately move/resize/recolor.
+  // Committed shape: select it AND switch into the select tool so the user can
+  // immediately move/resize/rotate/recolor it (mirrors the arrow/line tools).
+  // The Transformer only attaches to a selection when activeTool === 'select'
+  // (see EditorCanvas), so without this the handles would never appear and the
+  // next click would start another shape instead of grabbing this one.
   ctx.store.select(id);
+  ctx.store.setTool('select');
 }
 
 function shiftHeld(e: Konva.KonvaEventObject<PointerEvent>): boolean {

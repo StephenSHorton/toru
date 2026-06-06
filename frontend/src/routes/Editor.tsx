@@ -26,7 +26,7 @@ export default function Editor() {
   const [src] = useState(imgPath || '/sample.png');
 
   useEditorKeyboard();
-  const pasteFromBackend = useClipboardPaste();
+  useClipboardPaste();
 
   // Load the base image once: read natural size, then seed the scene graph.
   useEffect(() => {
@@ -38,7 +38,7 @@ export default function Editor() {
 
   return (
     <div className="flex h-full flex-col">
-      <Toolbar stageRef={stageRef} onPaste={pasteFromBackend} />
+      <Toolbar stageRef={stageRef} />
 
       <div className="flex flex-1 items-center justify-center p-4">
         <div className="relative border" style={{ width: STAGE_W, height: STAGE_H }}>
