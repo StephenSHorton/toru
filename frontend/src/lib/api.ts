@@ -18,6 +18,8 @@
 //   WindowsService.OpenSettings(): Promise<void>  (Settings/home window)
 //   WindowsService.OpenTrim(videoPath): Promise<void>  (Dev 2 trim editor)
 //   VideoService.Trim(req: TrimRequest): Promise<string>  (returns outPath)
+//   SettingsService.GetLaunchAtLogin(): Promise<boolean>
+//   SettingsService.SetLaunchAtLogin(enabled: boolean): Promise<void>  (registry Run key; --startup => silent-to-tray)
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
@@ -32,6 +34,7 @@ import {
   AudioConfig,
   AudioSession,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
+import * as SettingsService from "../../bindings/github.com/StephenSHorton/toru/settingsservice.js";
 
 export {
   ExportService,
@@ -46,4 +49,5 @@ export {
   TrimRequest,
   AudioConfig,
   AudioSession,
+  SettingsService,
 };
