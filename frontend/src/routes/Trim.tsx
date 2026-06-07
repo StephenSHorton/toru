@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Play, Pause, Scissors, Copy, Save, Timer } from "lucide-react";
+import { Play, Pause, Scissors, Copy, Save, Send, Timer } from "lucide-react";
 import { ExportService, VideoService, TrimRequest } from "@/lib/api";
 
 // DEVELOPER 2 — video trim editor. A player, a timeline with TWO draggable
@@ -124,6 +124,25 @@ export default function Trim() {
     }
   }, [absPath, busy]);
 
+  // Discord free tier caps uploads at 10MB. Export re-encodes to ~9MB (two-
+  // pass, duration-based bitrate) and puts the RESULT on the clipboard as a
+  // file, ready to paste into Discord. Sources already under the cap skip the
+  // re-encode (Go returns the original path).
+  const doDiscord = useCallback(async () => {
+    if (!absPath || busy) return;
+    setBusy(true);
+    setNote("Exporting for Discord… (re-encode can take a bit)");
+    try {
+      const out = await VideoService.ExportForDiscord(absPath);
+      await ExportService.CopyToClipboard(out, "video");
+      setNote(out === absPath ? "Already under 10MB — copied ✓" : "Discord-sized copy on clipboard ✓");
+    } catch (err) {
+      setNote(`Discord export failed: ${err}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [absPath, busy]);
+
   const doTrim = useCallback(async () => {
     if (!absPath || busy || duration <= 0) return;
     setBusy(true);
@@ -235,6 +254,15 @@ export default function Trim() {
             </Button>
             <Button size="sm" variant="ghost" disabled={noFile || busy} onClick={() => void doSaveAs()}>
               <Save /> Save As…
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={noFile || busy}
+              onClick={() => void doDiscord()}
+              title="Re-encode to fit Discord's 10MB upload cap and copy the result"
+            >
+              <Send /> For Discord
             </Button>
             <Button size="sm" disabled={noFile || busy || duration <= 0} onClick={() => void doTrim()}>
               <Scissors /> {busy ? "Working…" : "Trim"}
