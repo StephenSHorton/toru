@@ -64,8 +64,10 @@ type Recorder struct {
 	recs map[string]*recording
 
 	// captureAudio enables system-audio (loopback) capture alongside the
-	// video. On by default; failures degrade to video-only, never block the
-	// recording. Tests flip it off for deterministic lavfi runs.
+	// video. OFF by default — recording audio is a privacy-sensitive action
+	// the user must OPT INTO (the overlay's "System audio" toggle calls
+	// SetCaptureAudio). Failures degrade to video-only, never block the
+	// recording.
 	captureAudio bool
 
 	// Seams below are defaulted in NewRecorder and overridden ONLY by tests
@@ -93,12 +95,20 @@ type recording struct {
 func NewRecorder() *Recorder {
 	return &Recorder{
 		recs:          map[string]*recording{},
-		captureAudio:  true,
+		captureAudio:  false, // opt-in via SetCaptureAudio — never record audio unasked
 		screens:       enumScreens,
 		argCandidates: defaultArgCandidates,
 		grace:         startGrace,
 		stopWait:      stopTimeout,
 	}
+}
+
+// SetCaptureAudio flips system-audio capture for FUTURE recordings (the
+// user-facing opt-in; in-flight recordings are unaffected).
+func (r *Recorder) SetCaptureAudio(enabled bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.captureAudio = enabled
 }
 
 // enumScreens adapts EnumDisplays to the contract's ScreenInfo. Only ID/X/Y
@@ -174,11 +184,15 @@ func (r *Recorder) StartRecording(req CaptureRequest) (string, error) {
 		return "", err
 	}
 
-	// System audio: best-effort. The loopback pipe must exist BEFORE ffmpeg
-	// spawns (it opens the path like a file); init failure (headless, RDP, no
-	// endpoint) degrades to video-only rather than blocking the recording.
+	// System audio: opt-in (see SetCaptureAudio) and best-effort. The loopback
+	// pipe must exist BEFORE ffmpeg spawns (it opens the path like a file);
+	// init failure (headless, RDP, no endpoint) degrades to video-only rather
+	// than blocking the recording.
+	r.mu.Lock()
+	wantAudio := r.captureAudio
+	r.mu.Unlock()
 	var audio audioSource
-	if r.captureAudio {
+	if wantAudio {
 		if a, audErr := startLoopbackAudio(fmt.Sprintf("toru-audio-%d", time.Now().UnixNano())); audErr == nil {
 			audio = a
 		}

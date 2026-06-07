@@ -186,6 +186,15 @@ export function SetActiveMonitor(monitorID: number): $CancellablePromise<void> {
 }
 
 /**
+ * SetRecordSystemAudio is the USER OPT-IN for capturing system audio in
+ * recordings. Audio capture is OFF until the user enables it (the overlay's
+ * "System audio" toggle); the preference applies to future recordings.
+ */
+export function SetRecordSystemAudio(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(4268799257, enabled);
+}
+
+/**
  * StartRecording hides the overlay FIRST (so ffmpeg records the live region, not
  * the dim overlays) while KEEPING the windows alive, THEN begins recording, THEN
  * opens the recording pill (timer + Stop). req.Rect is the virtual-desktop

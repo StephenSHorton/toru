@@ -39,6 +39,10 @@ type OverlayService struct {
 	// follow-up call after StartRecording is dead code. monitorID lets the
 	// opener place the pill OFF the recorded monitor.
 	recordingControlsOpener func(handleID string, monitorID int)
+	// audioSetter flips the recorder's system-audio opt-in (injected by main
+	// via SetAudioSetter; the bound SetRecordSystemAudio calls through). Held
+	// as a func so the frozen Capturer seam stays untouched.
+	audioSetter func(enabled bool)
 
 	mu sync.RWMutex
 	// windows are the REUSED overlay windows, keyed by monitorID. Created once
@@ -93,6 +97,20 @@ func (s *OverlayService) SetApp(app *application.App) { s.app = app }
 //wails:ignore
 func (s *OverlayService) SetRecordingControlsOpener(fn func(handleID string, monitorID int)) {
 	s.recordingControlsOpener = fn
+}
+
+// SetAudioSetter injects the recorder's system-audio opt-in setter. Go-only.
+//
+//wails:ignore
+func (s *OverlayService) SetAudioSetter(fn func(enabled bool)) { s.audioSetter = fn }
+
+// SetRecordSystemAudio is the USER OPT-IN for capturing system audio in
+// recordings. Audio capture is OFF until the user enables it (the overlay's
+// "System audio" toggle); the preference applies to future recordings.
+func (s *OverlayService) SetRecordSystemAudio(enabled bool) {
+	if s.audioSetter != nil {
+		s.audioSetter(enabled)
+	}
 }
 
 // ListScreens is THE single source of truth for monitor enumeration that both

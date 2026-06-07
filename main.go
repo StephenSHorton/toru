@@ -66,7 +66,8 @@ func main() {
 	// capture via kbinani/screenshot and delegates the video path to the real
 	// FFmpeg Recorder (ddagrab GPU path with gdigrab software fallback; VP9/
 	// WebM by default per the codec policy in internal/capture/encoders.go).
-	capturer := capture.NewRealCapturer(capture.NewRecorder())
+	recorder := capture.NewRecorder()
+	capturer := capture.NewRealCapturer(recorder)
 
 	// Services bound to the frontend.
 	overlaySvc := overlay.NewService(capturer)
@@ -124,6 +125,10 @@ func main() {
 	// windows (record the live region, not the dim), which destroys the calling
 	// JS context — so the recording pill (timer + Stop) MUST be opened from Go.
 	overlaySvc.SetRecordingControlsOpener(windowsSvc.OpenRecordingControls)
+	// System-audio capture is a privacy-sensitive OPT-IN: the recorder starts
+	// with it off; the overlay's "System audio" toggle flips it through the
+	// bound SetRecordSystemAudio (the frozen Capturer seam carries no flag).
+	overlaySvc.SetAudioSetter(recorder.SetCaptureAudio)
 
 	// Install the global hotkey hook AFTER injection (windowsSvc.overlay is set
 	// above), so a hotkey press that lands before app.Run can still open the

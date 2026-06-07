@@ -32,7 +32,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type Konva from "konva";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
-import { Camera, Maximize, Video, X } from "lucide-react";
+import { Camera, Maximize, Video, Volume2, VolumeX, X } from "lucide-react";
 import { OverlayService } from "@/lib/api";
 import {
   parseOverlayQuery,
@@ -116,6 +116,18 @@ export default function Overlay() {
   // prevRegionCrop remembers the region crop across the Full-screen toggle so
   // toggling OFF full screen restores what the user had, not a default.
   const prevRegionCrop = useRef<CssRect | null>(null);
+
+  // System-audio capture is a privacy-sensitive OPT-IN: default OFF, only
+  // ever enabled by the user clicking the toggle. The choice persists across
+  // sessions (localStorage) and is pushed to Go on mount and on change so the
+  // recorder's state always matches what the pill shows.
+  const [recordAudio, setRecordAudio] = useState(
+    () => window.localStorage.getItem("toru.recordSystemAudio") === "1",
+  );
+  useEffect(() => {
+    window.localStorage.setItem("toru.recordSystemAudio", recordAudio ? "1" : "0");
+    void OverlayService.SetRecordSystemAudio(recordAudio);
+  }, [recordAudio]);
 
   const saveTimer = useRef<number | null>(null);
 
@@ -496,6 +508,20 @@ export default function Overlay() {
           >
             <Video /> Record
           </Button>
+          {tool === "video" ? (
+            <Button
+              size="sm"
+              variant={recordAudio ? "default" : "ghost"}
+              onClick={() => setRecordAudio((a) => !a)}
+              title={
+                recordAudio
+                  ? "System audio WILL be recorded — click to turn off"
+                  : "System audio is NOT recorded (default) — click to opt in"
+              }
+            >
+              {recordAudio ? <Volume2 /> : <VolumeX />} Audio
+            </Button>
+          ) : null}
           <div className="mx-1 h-5 w-px bg-border" />
           <Button
             size="sm"
