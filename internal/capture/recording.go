@@ -49,11 +49,31 @@ type AudioInput struct {
 	Channels   int
 }
 
-// audioSource is one live system-audio capture session (WASAPI loopback on
-// Windows; see audio_windows.go).
+// audioSource is one live audio capture session (WASAPI loopback / process
+// loopback on Windows; see audio_windows.go, audio_process_windows.go).
 type audioSource interface {
 	Input() AudioInput
 	Stop()
+}
+
+// AudioSession is one application currently producing audio — a row in the
+// per-app capture picker.
+type AudioSession struct {
+	PID  uint32 `json:"pid"`
+	Name string `json:"name"`
+}
+
+// AudioConfig is the user's audio-source selection. EVERY field is an
+// explicit opt-in; the zero value records NO audio whatsoever.
+type AudioConfig struct {
+	System    bool     `json:"system"`    // whole system mix ("what you hear")
+	AppPIDs   []uint32 `json:"appPids"`   // capture ONLY these process trees
+	MicDevice string   `json:"micDevice"` // dshow device name; "" = no mic
+}
+
+// enabled reports whether any source is selected.
+func (c AudioConfig) enabled() bool {
+	return c.System || len(c.AppPIDs) > 0 || c.MicDevice != ""
 }
 
 // Recorder is the production video Capturer. Zero-value is not usable; build
@@ -63,12 +83,11 @@ type Recorder struct {
 	seq  int
 	recs map[string]*recording
 
-	// captureAudio enables system-audio (loopback) capture alongside the
-	// video. OFF by default — recording audio is a privacy-sensitive action
-	// the user must OPT INTO (the overlay's "System audio" toggle calls
-	// SetCaptureAudio). Failures degrade to video-only, never block the
-	// recording.
-	captureAudio bool
+	// audioConfig selects which audio sources to capture. The ZERO VALUE
+	// records no audio — every source is a privacy-sensitive action the user
+	// must OPT INTO via the overlay's Audio picker (SetAudioConfig). Source
+	// failures degrade gracefully, never block the recording.
+	audioConfig AudioConfig
 
 	// Seams below are defaulted in NewRecorder and overridden ONLY by tests
 	// (they let the lifecycle run against lavfi inputs instead of a desktop).
@@ -85,7 +104,7 @@ type recording struct {
 	outPath string
 	req     CaptureRequest
 	stderr  *tailBuffer
-	audio   audioSource   // nil when recording video-only
+	audio   []audioSource // empty when recording video-only
 	done    chan struct{} // closed when cmd.Wait returns
 	waitErr error         // valid only after done is closed
 }
@@ -94,8 +113,8 @@ type recording struct {
 // ddagrab→gdigrab argument candidates.
 func NewRecorder() *Recorder {
 	return &Recorder{
-		recs:          map[string]*recording{},
-		captureAudio:  false, // opt-in via SetCaptureAudio — never record audio unasked
+		recs: map[string]*recording{},
+		// audioConfig zero value: NO audio is recorded until the user opts in.
 		screens:       enumScreens,
 		argCandidates: defaultArgCandidates,
 		grace:         startGrace,
@@ -103,12 +122,12 @@ func NewRecorder() *Recorder {
 	}
 }
 
-// SetCaptureAudio flips system-audio capture for FUTURE recordings (the
-// user-facing opt-in; in-flight recordings are unaffected).
-func (r *Recorder) SetCaptureAudio(enabled bool) {
+// SetAudioConfig replaces the audio-source selection for FUTURE recordings
+// (the user-facing opt-in; in-flight recordings are unaffected).
+func (r *Recorder) SetAudioConfig(c AudioConfig) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.captureAudio = enabled
+	r.audioConfig = c
 }
 
 // enumScreens adapts EnumDisplays to the contract's ScreenInfo. Only ID/X/Y
@@ -184,24 +203,40 @@ func (r *Recorder) StartRecording(req CaptureRequest) (string, error) {
 		return "", err
 	}
 
-	// System audio: opt-in (see SetCaptureAudio) and best-effort. The loopback
-	// pipe must exist BEFORE ffmpeg spawns (it opens the path like a file);
-	// init failure (headless, RDP, no endpoint) degrades to video-only rather
-	// than blocking the recording.
+	// Audio sources: ALL opt-in (see SetAudioConfig) and best-effort. Loopback
+	// pipes must exist BEFORE ffmpeg spawns (it opens them like files); any
+	// source failing to init is skipped (video and the other sources proceed)
+	// — never block the recording.
 	r.mu.Lock()
-	wantAudio := r.captureAudio
+	audioCfg := r.audioConfig
 	r.mu.Unlock()
-	var audio audioSource
-	if wantAudio {
-		if a, audErr := startLoopbackAudio(fmt.Sprintf("toru-audio-%d", time.Now().UnixNano())); audErr == nil {
-			audio = a
+	var sources []audioSource
+	if audioCfg.enabled() {
+		if audioCfg.System {
+			if a, audErr := startLoopbackAudio(fmt.Sprintf("toru-audio-sys-%d", time.Now().UnixNano())); audErr == nil {
+				sources = append(sources, a)
+			}
+		}
+		for _, pid := range audioCfg.AppPIDs {
+			if a, audErr := startProcessLoopbackAudio(pid, fmt.Sprintf("toru-audio-app%d-%d", pid, time.Now().UnixNano())); audErr == nil {
+				sources = append(sources, a)
+			}
+		}
+	}
+	stopSources := func() {
+		for _, s := range sources {
+			s.Stop()
 		}
 	}
 
 	candidates := r.argCandidates(req, r.screens(), enc, outPath)
-	if audio != nil {
+	if len(sources) > 0 || audioCfg.MicDevice != "" {
+		inputs := make([]AudioInput, len(sources))
+		for i, s := range sources {
+			inputs[i] = s.Input()
+		}
 		for i := range candidates {
-			candidates[i] = injectAudioArgs(candidates[i], audio.Input())
+			candidates[i] = injectAudioMix(candidates[i], inputs, audioCfg.MicDevice)
 		}
 	}
 
@@ -215,14 +250,12 @@ func (r *Recorder) StartRecording(req CaptureRequest) (string, error) {
 		attemptErrs = append(attemptErrs, err)
 	}
 	if rec == nil {
-		// Every backend failed; don't leave a partial file or live pump behind.
-		if audio != nil {
-			audio.Stop()
-		}
+		// Every backend failed; don't leave a partial file or live pumps behind.
+		stopSources()
 		_ = os.Remove(outPath)
 		return "", fmt.Errorf("start recording: all capture backends failed: %w", errors.Join(attemptErrs...))
 	}
-	rec.audio = audio
+	rec.audio = sources
 
 	r.mu.Lock()
 	r.seq++
@@ -287,8 +320,8 @@ func (r *Recorder) StopRecording(handleID string) (CaptureResult, error) {
 	select {
 	case <-rec.done:
 		// ffmpeg died on its own mid-recording (disk full, device lost…).
-		if rec.audio != nil {
-			rec.audio.Stop()
+		for _, s := range rec.audio {
+			s.Stop()
 		}
 		return CaptureResult{}, fmt.Errorf("recording %s ended prematurely: %v\n%s", handleID, rec.waitErr, rec.stderr)
 	default:
@@ -308,8 +341,8 @@ func (r *Recorder) StopRecording(handleID string) (CaptureResult, error) {
 		_ = rec.cmd.Process.Kill()
 		<-rec.done
 	}
-	if rec.audio != nil {
-		rec.audio.Stop()
+	for _, s := range rec.audio {
+		s.Stop()
 	}
 
 	// Trust the artifact, not the exit code: 'q' exits 0 on the builds we

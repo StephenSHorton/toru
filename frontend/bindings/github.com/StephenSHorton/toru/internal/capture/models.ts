@@ -6,6 +6,83 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * AudioConfig is the user's audio-source selection. EVERY field is an
+ * explicit opt-in; the zero value records NO audio whatsoever.
+ */
+export class AudioConfig {
+    /**
+     * whole system mix ("what you hear")
+     */
+    "system": boolean;
+
+    /**
+     * capture ONLY these process trees
+     */
+    "appPids": number[];
+
+    /**
+     * dshow device name; "" = no mic
+     */
+    "micDevice": string;
+
+    /** Creates a new AudioConfig instance. */
+    constructor($$source: Partial<AudioConfig> = {}) {
+        if (!("system" in $$source)) {
+            this["system"] = false;
+        }
+        if (!("appPids" in $$source)) {
+            this["appPids"] = [];
+        }
+        if (!("micDevice" in $$source)) {
+            this["micDevice"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AudioConfig instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AudioConfig {
+        const $$createField1_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("appPids" in $$parsedSource) {
+            $$parsedSource["appPids"] = $$createField1_0($$parsedSource["appPids"]);
+        }
+        return new AudioConfig($$parsedSource as Partial<AudioConfig>);
+    }
+}
+
+/**
+ * AudioSession is one application currently producing audio — a row in the
+ * per-app capture picker.
+ */
+export class AudioSession {
+    "pid": number;
+    "name": string;
+
+    /** Creates a new AudioSession instance. */
+    constructor($$source: Partial<AudioSession> = {}) {
+        if (!("pid" in $$source)) {
+            this["pid"] = 0;
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AudioSession instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AudioSession {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AudioSession($$parsedSource as Partial<AudioSession>);
+    }
+}
+
+/**
  * CaptureRequest is what the overlay emits on commit. It is the entire input
  * to the shared Capture() seam.
  */
@@ -89,7 +166,7 @@ export class CaptureRequest {
      * Creates a new CaptureRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): CaptureRequest {
-        const $$createField3_0 = $$createType0;
+        const $$createField3_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("rect" in $$parsedSource) {
             $$parsedSource["rect"] = $$createField3_0($$parsedSource["rect"]);
@@ -146,7 +223,7 @@ export class CaptureResult {
      * Creates a new CaptureResult instance from a string or object.
      */
     static createFrom($$source: any = {}): CaptureResult {
-        const $$createField4_0 = $$createType0;
+        const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("rect" in $$parsedSource) {
             $$parsedSource["rect"] = $$createField4_0($$parsedSource["rect"]);
@@ -306,4 +383,5 @@ export class TrimRequest {
 }
 
 // Private type creation functions
-const $$createType0 = Rect.createFrom;
+const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = Rect.createFrom;

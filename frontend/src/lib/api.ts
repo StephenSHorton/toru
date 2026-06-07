@@ -27,7 +27,11 @@ import * as HotkeyService from "../../bindings/github.com/StephenSHorton/toru/in
 import { Shortcut } from "../../bindings/github.com/StephenSHorton/toru/internal/hotkey/models.js";
 import * as WindowsService from "../../bindings/github.com/StephenSHorton/toru/windowsservice.js";
 import * as VideoService from "../../bindings/github.com/StephenSHorton/toru/internal/vid/videoservice.js";
-import { TrimRequest } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
+import {
+  TrimRequest,
+  AudioConfig,
+  AudioSession,
+} from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
 
 export {
   ExportService,
@@ -40,4 +44,6 @@ export {
   WindowsService,
   VideoService,
   TrimRequest,
+  AudioConfig,
+  AudioSession,
 };

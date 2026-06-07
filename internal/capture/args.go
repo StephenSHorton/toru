@@ -81,45 +81,98 @@ func BuildVideoArgsGDI(req CaptureRequest, enc VideoEncoder, outPath string) []s
 	return args
 }
 
-// injectAudioArgs splices a raw-PCM audio input + Opus encode into a video
-// arg list built by BuildVideoArgsDDA/GDI.
+// injectAudioMix splices N audio sources — raw-PCM loopback pipes and/or a
+// dshow microphone — into a video arg list built by BuildVideoArgsDDA/GDI,
+// mixed to ONE Opus track when there is more than one source.
 //
-// PLACEMENT IS LOAD-BEARING: ffmpeg options are positional. The audio "-f/-ar/
-// -ac/-i" group must sit immediately AFTER the video input (after the gdigrab
+// PLACEMENT IS LOAD-BEARING: ffmpeg options are positional. The audio input
+// groups must sit immediately AFTER the video input (after the gdigrab
 // "-i desktop" pair, or after the "-filter_complex <graph>" pair on the
-// ddagrab path) — if it lands after "-c:v"/"-b:v", those become INPUT options
-// and ffmpeg dies with EINVAL. The "-c:a/-b:a" pair joins the other OUTPUT
-// options just before the output path (the list's last element).
+// ddagrab path) — if they land after "-c:v"/"-b:v", those become INPUT
+// options and ffmpeg dies with EINVAL.
 //
-// Opus at 128k is the WebM-native choice (Vorbis is legacy); ffmpeg
-// auto-resamples mix formats whose rate Opus doesn't take (e.g. 44.1kHz).
-func injectAudioArgs(videoArgs []string, in AudioInput) []string {
-	if len(videoArgs) == 0 {
+// MAPPING: explicit "-map" disables ffmpeg's automatic stream selection, so
+// the video must be mapped too — the ddagrab filter graph gains a "[v]"
+// label, gdigrab maps "0:v". One source maps directly; several feed
+// "amix:normalize=0" (normalized mixing would duck the game audio every time
+// the mic input exists). Opus at 128k is the WebM-native choice; ffmpeg
+// auto-resamples sources whose rate Opus doesn't take.
+func injectAudioMix(videoArgs []string, pipes []AudioInput, micDevice string) []string {
+	total := len(pipes)
+	if micDevice != "" {
+		total++
+	}
+	if len(videoArgs) == 0 || total == 0 {
 		return videoArgs
 	}
-	// Find the end of the video input: the value after the last "-i", or the
-	// graph after "-filter_complex" (the ddagrab source is a filter, not -i).
 	insertAt := -1
+	videoInputs := 0
 	for i := 0; i < len(videoArgs)-1; i++ {
-		if videoArgs[i] == "-i" || videoArgs[i] == "-filter_complex" {
+		if videoArgs[i] == "-i" {
+			videoInputs++
+			insertAt = i + 2
+		}
+		if videoArgs[i] == "-filter_complex" {
 			insertAt = i + 2
 		}
 	}
 	if insertAt < 0 {
 		return videoArgs // unrecognized shape — leave untouched (video-only)
 	}
-	audioIn := []string{
-		"-f", in.SampleFmt,
-		"-ar", strconv.Itoa(in.SampleRate),
-		"-ac", strconv.Itoa(in.Channels),
-		"-i", in.PipePath,
+
+	var audioIn []string
+	for _, p := range pipes {
+		audioIn = append(audioIn,
+			"-f", p.SampleFmt,
+			"-ar", strconv.Itoa(p.SampleRate),
+			"-ac", strconv.Itoa(p.Channels),
+			"-i", p.PipePath,
+		)
 	}
-	args := make([]string, 0, len(videoArgs)+len(audioIn)+4)
-	args = append(args, videoArgs[:insertAt]...)
-	args = append(args, audioIn...)
-	args = append(args, videoArgs[insertAt:len(videoArgs)-1]...)
-	args = append(args, "-c:a", "libopus", "-b:a", "128k")
-	return append(args, videoArgs[len(videoArgs)-1])
+	if micDevice != "" {
+		audioIn = append(audioIn, "-f", "dshow", "-i", "audio="+micDevice)
+	}
+
+	head := append([]string{}, videoArgs[:insertAt]...)
+	rest := append([]string{}, videoArgs[insertAt:len(videoArgs)-1]...)
+	out := videoArgs[len(videoArgs)-1]
+
+	// Explicit video map: label the ddagrab graph, or map gdigrab's input 0.
+	videoLabeled := false
+	for i := 0; i < len(head)-1; i++ {
+		if head[i] == "-filter_complex" {
+			head[i+1] += "[v]"
+			videoLabeled = true
+		}
+	}
+	post := []string{}
+	if videoLabeled {
+		post = append(post, "-map", "[v]")
+	} else {
+		post = append(post, "-map", "0:v")
+	}
+
+	firstAudio := videoInputs
+	if total == 1 {
+		post = append(post, "-map", fmt.Sprintf("%d:a", firstAudio))
+	} else {
+		var labels strings.Builder
+		for i := 0; i < total; i++ {
+			fmt.Fprintf(&labels, "[%d:a]", firstAudio+i)
+		}
+		post = append(post,
+			"-filter_complex", fmt.Sprintf("%samix=inputs=%d:duration=longest:normalize=0[aout]", labels.String(), total),
+			"-map", "[aout]",
+		)
+	}
+	post = append(post, "-c:a", "libopus", "-b:a", "128k")
+
+	res := make([]string, 0, len(videoArgs)+len(audioIn)+len(post))
+	res = append(res, head...)
+	res = append(res, audioIn...)
+	res = append(res, rest...)
+	res = append(res, post...)
+	return append(res, out)
 }
 
 // containerFlags returns muxer-specific flags for outPath's container.

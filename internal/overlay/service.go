@@ -39,10 +39,11 @@ type OverlayService struct {
 	// follow-up call after StartRecording is dead code. monitorID lets the
 	// opener place the pill OFF the recorded monitor.
 	recordingControlsOpener func(handleID string, monitorID int)
-	// audioSetter flips the recorder's system-audio opt-in (injected by main
-	// via SetAudioSetter; the bound SetRecordSystemAudio calls through). Held
-	// as a func so the frozen Capturer seam stays untouched.
-	audioSetter func(enabled bool)
+	// audioConfigSetter replaces the recorder's audio-source selection
+	// (injected by main via SetAudioConfigSetter; the bound SetAudioSources
+	// calls through). Held as a func so the frozen Capturer seam stays
+	// untouched.
+	audioConfigSetter func(cfg capture.AudioConfig)
 
 	mu sync.RWMutex
 	// windows are the REUSED overlay windows, keyed by monitorID. Created once
@@ -99,18 +100,33 @@ func (s *OverlayService) SetRecordingControlsOpener(fn func(handleID string, mon
 	s.recordingControlsOpener = fn
 }
 
-// SetAudioSetter injects the recorder's system-audio opt-in setter. Go-only.
+// SetAudioConfigSetter injects the recorder's audio-source setter. Go-only.
 //
 //wails:ignore
-func (s *OverlayService) SetAudioSetter(fn func(enabled bool)) { s.audioSetter = fn }
+func (s *OverlayService) SetAudioConfigSetter(fn func(cfg capture.AudioConfig)) {
+	s.audioConfigSetter = fn
+}
 
-// SetRecordSystemAudio is the USER OPT-IN for capturing system audio in
-// recordings. Audio capture is OFF until the user enables it (the overlay's
-// "System audio" toggle); the preference applies to future recordings.
-func (s *OverlayService) SetRecordSystemAudio(enabled bool) {
-	if s.audioSetter != nil {
-		s.audioSetter(enabled)
+// SetAudioSources is the USER OPT-IN for audio capture. EVERY source —
+// system mix, individual applications, microphone — must be explicitly
+// enabled here by the user (the overlay's Audio picker); the zero config
+// records no audio. Applies to future recordings.
+func (s *OverlayService) SetAudioSources(cfg capture.AudioConfig) {
+	if s.audioConfigSetter != nil {
+		s.audioConfigSetter(cfg)
 	}
+}
+
+// ListAudioSessions returns the applications currently producing audio — the
+// rows of the Audio picker's per-app section.
+func (s *OverlayService) ListAudioSessions() []capture.AudioSession {
+	return capture.EnumAudioSessions()
+}
+
+// ListMicrophones returns the system's microphone device names for the Audio
+// picker's mic section.
+func (s *OverlayService) ListMicrophones() []string {
+	return capture.ListMicrophones()
 }
 
 // ListScreens is THE single source of truth for monitor enumeration that both

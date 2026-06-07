@@ -42,6 +42,7 @@ import {
   type MonitorSession,
   type OverlayEditPayload,
 } from "@/lib/contract";
+import { AudioConfig, type AudioSession } from "@/lib/api";
 import { EditorCanvas } from "@/editor/EditorCanvas";
 import { Toolbar } from "@/editor/Toolbar";
 import { useEditorStore } from "@/editor/store";
@@ -117,17 +118,36 @@ export default function Overlay() {
   // toggling OFF full screen restores what the user had, not a default.
   const prevRegionCrop = useRef<CssRect | null>(null);
 
-  // System-audio capture is a privacy-sensitive OPT-IN: default OFF, only
-  // ever enabled by the user clicking the toggle. The choice persists across
-  // sessions (localStorage) and is pushed to Go on mount and on change so the
-  // recorder's state always matches what the pill shows.
-  const [recordAudio, setRecordAudio] = useState(
-    () => window.localStorage.getItem("toru.recordSystemAudio") === "1",
+  // Audio capture is a privacy-sensitive OPT-IN, per SOURCE: nothing is
+  // recorded unless the user enables it in the picker. System/mic choices
+  // persist across sessions (localStorage); per-app selections are
+  // session-only (PIDs don't survive an app restart). The full selection is
+  // pushed to Go on mount and on every change, so the recorder's state always
+  // matches what the picker shows.
+  const [audioSystem, setAudioSystem] = useState(
+    () => window.localStorage.getItem("toru.audio.system") === "1",
   );
+  const [audioMic, setAudioMic] = useState(
+    () => window.localStorage.getItem("toru.audio.mic") ?? "",
+  );
+  const [audioApps, setAudioApps] = useState<number[]>([]);
+  const [audioOpen, setAudioOpen] = useState(false);
+  const [sessions, setSessions] = useState<AudioSession[]>([]);
+  const [mics, setMics] = useState<string[]>([]);
   useEffect(() => {
-    window.localStorage.setItem("toru.recordSystemAudio", recordAudio ? "1" : "0");
-    void OverlayService.SetRecordSystemAudio(recordAudio);
-  }, [recordAudio]);
+    window.localStorage.setItem("toru.audio.system", audioSystem ? "1" : "0");
+    window.localStorage.setItem("toru.audio.mic", audioMic);
+    void OverlayService.SetAudioSources(
+      new AudioConfig({ system: audioSystem, appPids: audioApps, micDevice: audioMic }),
+    );
+  }, [audioSystem, audioMic, audioApps]);
+  // Refresh the pickable lists each time the picker opens (sessions are live).
+  useEffect(() => {
+    if (!audioOpen) return;
+    void OverlayService.ListAudioSessions().then((s) => setSessions(s ?? []));
+    void OverlayService.ListMicrophones().then((m) => setMics(m ?? []));
+  }, [audioOpen]);
+  const audioCount = (audioSystem ? 1 : 0) + (audioMic ? 1 : 0) + audioApps.length;
 
   const saveTimer = useRef<number | null>(null);
 
@@ -511,15 +531,12 @@ export default function Overlay() {
           {tool === "video" ? (
             <Button
               size="sm"
-              variant={recordAudio ? "default" : "ghost"}
-              onClick={() => setRecordAudio((a) => !a)}
-              title={
-                recordAudio
-                  ? "System audio WILL be recorded — click to turn off"
-                  : "System audio is NOT recorded (default) — click to opt in"
-              }
+              variant={audioCount > 0 ? "default" : "ghost"}
+              onClick={() => setAudioOpen((o) => !o)}
+              title="Choose which audio sources to record — nothing is captured unless enabled here"
             >
-              {recordAudio ? <Volume2 /> : <VolumeX />} Audio
+              {audioCount > 0 ? <Volume2 /> : <VolumeX />}
+              {audioCount > 0 ? `Audio: ${audioCount}` : "Audio: off"}
             </Button>
           ) : null}
           <div className="mx-1 h-5 w-px bg-border" />
@@ -544,7 +561,82 @@ export default function Overlay() {
           </Button>
         </div>
       ) : null}
+
+      {/* Audio sources picker — every row is an independent OPT-IN. */}
+      {active && audioOpen && tool === "video" ? (
+        <div className="frost absolute bottom-20 left-1/2 w-80 -translate-x-1/2 p-3 text-sm">
+          <div className="mb-2 text-xs font-medium text-muted-foreground">
+            Audio sources — nothing is recorded unless enabled here
+          </div>
+
+          <PickRow
+            checked={audioSystem}
+            label="System audio (everything you hear)"
+            onClick={() => setAudioSystem((v) => !v)}
+          />
+
+          {mics.length > 0 ? (
+            <>
+              <div className="mb-1 mt-3 text-xs text-muted-foreground">Microphone</div>
+              {mics.map((m) => (
+                <PickRow
+                  key={m}
+                  checked={audioMic === m}
+                  label={m}
+                  onClick={() => setAudioMic((cur) => (cur === m ? "" : m))}
+                />
+              ))}
+            </>
+          ) : null}
+
+          <div className="mb-1 mt-3 text-xs text-muted-foreground">
+            Applications playing audio {sessions.length === 0 ? "— none right now" : ""}
+          </div>
+          {sessions.map((s) => (
+            <PickRow
+              key={s.pid}
+              checked={audioApps.includes(s.pid)}
+              label={`${s.name} (pid ${s.pid})`}
+              onClick={() =>
+                setAudioApps((cur) =>
+                  cur.includes(s.pid) ? cur.filter((p) => p !== s.pid) : [...cur, s.pid],
+                )
+              }
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+// PickRow is one opt-in line in the audio sources picker.
+function PickRow({
+  checked,
+  label,
+  onClick,
+}: {
+  checked: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-accent ${
+        checked ? "text-foreground" : "text-muted-foreground"
+      }`}
+    >
+      <span
+        className={`inline-flex size-3.5 items-center justify-center border ${
+          checked ? "border-primary bg-primary text-primary-foreground" : "border-border"
+        }`}
+      >
+        {checked ? "✓" : ""}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
   );
 }
 

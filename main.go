@@ -125,10 +125,11 @@ func main() {
 	// windows (record the live region, not the dim), which destroys the calling
 	// JS context — so the recording pill (timer + Stop) MUST be opened from Go.
 	overlaySvc.SetRecordingControlsOpener(windowsSvc.OpenRecordingControls)
-	// System-audio capture is a privacy-sensitive OPT-IN: the recorder starts
-	// with it off; the overlay's "System audio" toggle flips it through the
-	// bound SetRecordSystemAudio (the frozen Capturer seam carries no flag).
-	overlaySvc.SetAudioSetter(recorder.SetCaptureAudio)
+	// Audio capture is a privacy-sensitive OPT-IN, per SOURCE: the recorder
+	// starts with no audio selected; the overlay's Audio picker pushes the
+	// user's selection (system mix / individual apps / microphone) through
+	// the bound SetAudioSources (the frozen Capturer seam carries no flag).
+	overlaySvc.SetAudioConfigSetter(recorder.SetAudioConfig)
 
 	// Install the global hotkey hook AFTER injection (windowsSvc.overlay is set
 	// above), so a hotkey press that lands before app.Run can still open the

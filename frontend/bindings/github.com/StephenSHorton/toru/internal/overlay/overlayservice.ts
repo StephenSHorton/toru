@@ -125,6 +125,26 @@ export function HideOverlay(): $CancellablePromise<void> {
 }
 
 /**
+ * ListAudioSessions returns the applications currently producing audio — the
+ * rows of the Audio picker's per-app section.
+ */
+export function ListAudioSessions(): $CancellablePromise<capture$0.AudioSession[]> {
+    return $Call.ByID(3473272810).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
+ * ListMicrophones returns the system's microphone device names for the Audio
+ * picker's mic section.
+ */
+export function ListMicrophones(): $CancellablePromise<string[]> {
+    return $Call.ByID(3275509004).then(($result: any) => {
+        return $$createType5($result);
+    });
+}
+
+/**
  * ListScreens is THE single source of truth for monitor enumeration that both
  * halves trust. ID == kbinani idx == ddagrab output_idx.
  * 
@@ -135,7 +155,7 @@ export function HideOverlay(): $CancellablePromise<void> {
  */
 export function ListScreens(): $CancellablePromise<capture$0.ScreenInfo[]> {
     return $Call.ByID(3187571944).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType7($result);
     });
 }
 
@@ -163,7 +183,7 @@ export function OverlayReady(monitorID: number): $CancellablePromise<void> {
  */
 export function RequestEngage(monitorID: number): $CancellablePromise<$models.MonitorSession | null> {
     return $Call.ByID(1626364143, monitorID).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType8($result);
     });
 }
 
@@ -186,12 +206,13 @@ export function SetActiveMonitor(monitorID: number): $CancellablePromise<void> {
 }
 
 /**
- * SetRecordSystemAudio is the USER OPT-IN for capturing system audio in
- * recordings. Audio capture is OFF until the user enables it (the overlay's
- * "System audio" toggle); the preference applies to future recordings.
+ * SetAudioSources is the USER OPT-IN for audio capture. EVERY source —
+ * system mix, individual applications, microphone — must be explicitly
+ * enabled here by the user (the overlay's Audio picker); the zero config
+ * records no audio. Applies to future recordings.
  */
-export function SetRecordSystemAudio(enabled: boolean): $CancellablePromise<void> {
-    return $Call.ByID(4268799257, enabled);
+export function SetAudioSources(cfg: capture$0.AudioConfig): $CancellablePromise<void> {
+    return $Call.ByID(3444183061, cfg);
 }
 
 /**
@@ -222,6 +243,9 @@ export function StopRecording(handleID: string): $CancellablePromise<capture$0.C
 const $$createType0 = $models.MonitorSession.createFrom;
 const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = capture$0.CaptureResult.createFrom;
-const $$createType3 = capture$0.ScreenInfo.createFrom;
+const $$createType3 = capture$0.AudioSession.createFrom;
 const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = $Create.Nullable($$createType0);
+const $$createType5 = $Create.Array($Create.Any);
+const $$createType6 = capture$0.ScreenInfo.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = $Create.Nullable($$createType0);
