@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Play, Pause, Scissors, Copy, Save, Send, Timer } from "lucide-react";
+import { Play, Pause, Scissors, Copy, Save, Send, Timer, Volume2, VolumeX } from "lucide-react";
 import { ExportService, VideoService, TrimRequest } from "@/lib/api";
 
 // DEVELOPER 2 — video trim editor. A player, a timeline with TWO draggable
@@ -28,6 +28,21 @@ export default function Trim() {
   const [precise, setPrecise] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+
+  // Playback volume/mute — preview-only controls (the FILE's audio is
+  // untouched; trims and exports keep the recorded track). Volume persists.
+  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(() => {
+    const v = Number(window.localStorage.getItem("toru.trim.volume"));
+    return Number.isFinite(v) && v > 0 && v <= 1 ? v : 1;
+  });
+  useEffect(() => {
+    const v = vidRef.current;
+    if (!v) return;
+    v.muted = muted;
+    v.volume = volume;
+    window.localStorage.setItem("toru.trim.volume", String(volume));
+  }, [muted, volume]);
 
   // Auto-clear the action feedback note.
   useEffect(() => {
@@ -233,6 +248,28 @@ export default function Trim() {
           >
             {playing ? <Pause /> : <Play />}
           </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => setMuted((m) => !m)}
+            title={muted ? "Unmute preview" : "Mute preview (the file's audio is untouched)"}
+          >
+            {muted || volume === 0 ? <VolumeX /> : <Volume2 />}
+          </Button>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={muted ? 0 : volume}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setVolume(v);
+              if (v > 0 && muted) setMuted(false);
+            }}
+            className="w-20 accent-primary"
+            title="Preview volume"
+          />
           <span className="text-xs tabular-nums text-muted-foreground">
             {fmtSec(inSec)} – {fmtSec(outSec)}
             <span className="mx-1.5 opacity-50">·</span>
