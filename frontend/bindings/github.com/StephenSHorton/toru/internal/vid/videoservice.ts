@@ -15,9 +15,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as capture$0 from "../capture/models.js";
 
 /**
- * ExportForDiscord re-encodes to a ~9MB size target (Discord free cap is 10MB).
- * 
- * TODO(dev2): two-pass bitrate targeting based on duration.
+ * ExportForDiscord re-encodes videoPath to fit Discord's 10MB free-tier cap
+ * using two-pass VP9 targeting ~9MB, with the bitrate computed from the
+ * clip's real duration. Sources already under the target are returned as-is
+ * (sharing the original beats a pointless re-encode).
  */
 export function ExportForDiscord(videoPath: string): $CancellablePromise<string> {
     return $Call.ByID(4223502624, videoPath);

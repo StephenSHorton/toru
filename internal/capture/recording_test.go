@@ -15,7 +15,7 @@ func lavfiRecorder(t *testing.T, candidates ...[]string) *Recorder {
 	if _, err := LocateFFmpeg(); err != nil {
 		t.Skipf("ffmpeg not available: %v", err)
 	}
-	r := NewRecorder()
+	r := NewRecorder() // zero AudioConfig: no audio — deterministic lavfi runs
 	r.grace = 300 * time.Millisecond
 	r.stopWait = 15 * time.Second
 	r.argCandidates = func(_ CaptureRequest, _ []ScreenInfo, _ VideoEncoder, outPath string) [][]string {

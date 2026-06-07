@@ -52,6 +52,54 @@ func TestContainerFlagsGated(t *testing.T) {
 	}
 }
 
+// Audio injection placement is LOAD-BEARING (ffmpeg options are positional):
+// audio input groups must directly follow the VIDEO INPUT — never after the
+// video codec options, where ffmpeg would parse "-c:v" as an input option and
+// die with EINVAL. Explicit -map disables auto stream selection, so the video
+// must be mapped too; multiple sources mix via amix:normalize=0.
+func TestInjectAudioMix(t *testing.T) {
+	enc := VideoEncoder{Name: "libvpx-vp9", Ext: ".webm"}
+	sys := AudioInput{PipePath: `\\.\pipe\toru-sys`, SampleFmt: "f32le", SampleRate: 48000, Channels: 2}
+	app := AudioInput{PipePath: `\\.\pipe\toru-app`, SampleFmt: "s16le", SampleRate: 48000, Channels: 2}
+
+	// Single source on gdigrab: input after "-i desktop", direct map (video
+	// input is 0, so the one audio input is 1).
+	gdi := strings.Join(injectAudioMix(BuildVideoArgsGDI(videoReq(), enc, "out.webm"), []AudioInput{sys}, ""), " ")
+	if !strings.Contains(gdi, `-i desktop -f f32le -ar 48000 -ac 2 -i \\.\pipe\toru-sys -c:v`) {
+		t.Errorf("gdigrab: audio input must follow the video input, before -c:v:\n%s", gdi)
+	}
+	if !strings.Contains(gdi, "-map 0:v -map 1:a") {
+		t.Errorf("gdigrab: explicit video + audio maps required:\n%s", gdi)
+	}
+	if !strings.HasSuffix(gdi, "-c:a libopus -b:a 128k out.webm") {
+		t.Errorf("gdigrab: audio codec + output must close the command:\n%s", gdi)
+	}
+
+	// Three sources on ddagrab (system + app + mic): the filter graph gains a
+	// [v] label, audio inputs start at 0 (the graph is not an -i input), and
+	// all three mix via amix without normalization.
+	dda, err := BuildVideoArgsDDA(videoReq(), twoMonitors(), 0, enc, "out.webm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ddaStr := strings.Join(injectAudioMix(dda, []AudioInput{sys, app}, "Microphone (Realtek)"), " ")
+	if !strings.Contains(ddaStr, "format=bgra[v]") {
+		t.Errorf("ddagrab: video graph must gain the [v] label:\n%s", ddaStr)
+	}
+	if !strings.Contains(ddaStr, "-map [v]") {
+		t.Errorf("ddagrab: labeled video map required:\n%s", ddaStr)
+	}
+	if !strings.Contains(ddaStr, "-f dshow -i audio=Microphone (Realtek)") {
+		t.Errorf("mic dshow input missing:\n%s", ddaStr)
+	}
+	if !strings.Contains(ddaStr, "[0:a][1:a][2:a]amix=inputs=3:duration=longest:normalize=0[aout]") {
+		t.Errorf("3-source amix missing/mislabeled:\n%s", ddaStr)
+	}
+	if !strings.Contains(ddaStr, "-map [aout]") {
+		t.Errorf("mixed audio map missing:\n%s", ddaStr)
+	}
+}
+
 // Precise trim must re-encode with a codec that is LEGAL for the output
 // container: H.264/AAC inside WebM is invalid and ffmpeg rejects it.
 func TestTrimCodecFollowsContainer(t *testing.T) {

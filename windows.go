@@ -114,13 +114,17 @@ func (w *WindowsService) OpenEditor(imagePath string) {
 
 // OpenTrim opens Developer 2's trim editor for videoPath. Same routing + served-
 // file rules as OpenEditor (/?view=trim, /__file/<basename> for the media src).
+// The raw absolute path rides along as ?path= — the webview needs the served
+// URL to PLAY the file, but Copy/Save-As/Trim are Go-side operations on the
+// real path, which cannot be reconstructed from the served URL.
 func (w *WindowsService) OpenTrim(videoPath string) {
 	if w.app == nil {
 		return
 	}
 	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Toru — Trim Recording",
-		URL:              "/?view=trim&vid=" + url.QueryEscape(servedFileURL(videoPath)),
+		Title: "Toru — Trim Recording",
+		URL: "/?view=trim&vid=" + url.QueryEscape(servedFileURL(videoPath)) +
+			"&path=" + url.QueryEscape(videoPath),
 		Width:            900,
 		Height:           620,
 		BackgroundColour: dark,

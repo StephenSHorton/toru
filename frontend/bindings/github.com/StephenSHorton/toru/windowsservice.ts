@@ -70,6 +70,9 @@ export function OpenSettings(): $CancellablePromise<void> {
 /**
  * OpenTrim opens Developer 2's trim editor for videoPath. Same routing + served-
  * file rules as OpenEditor (/?view=trim, /__file/<basename> for the media src).
+ * The raw absolute path rides along as ?path= — the webview needs the served
+ * URL to PLAY the file, but Copy/Save-As/Trim are Go-side operations on the
+ * real path, which cannot be reconstructed from the served URL.
  */
 export function OpenTrim(videoPath: string): $CancellablePromise<void> {
     return $Call.ByID(1119648552, videoPath);
