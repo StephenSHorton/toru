@@ -52,6 +52,35 @@ func TestContainerFlagsGated(t *testing.T) {
 	}
 }
 
+// Audio injection placement is LOAD-BEARING (ffmpeg options are positional):
+// the raw-PCM input group must directly follow the VIDEO INPUT — never after
+// the video codec options, where ffmpeg would parse "-c:v" as an input option
+// and die with EINVAL — and "-c:a" must join the output options.
+func TestInjectAudioArgs(t *testing.T) {
+	enc := VideoEncoder{Name: "libvpx-vp9", Ext: ".webm"}
+	in := AudioInput{PipePath: `\\.\pipe\toru-audio-1`, SampleFmt: "f32le", SampleRate: 48000, Channels: 2}
+	audioIn := `-f f32le -ar 48000 -ac 2 -i \\.\pipe\toru-audio-1`
+
+	// gdigrab path: audio input lands right after "-i desktop".
+	gdi := strings.Join(injectAudioArgs(BuildVideoArgsGDI(videoReq(), enc, "out.webm"), in), " ")
+	if !strings.Contains(gdi, "-i desktop "+audioIn+" -c:v") {
+		t.Errorf("gdigrab: audio input must follow the video input, before -c:v:\n%s", gdi)
+	}
+	if !strings.HasSuffix(gdi, "-c:a libopus -b:a 128k out.webm") {
+		t.Errorf("gdigrab: audio codec + output must close the command:\n%s", gdi)
+	}
+
+	// ddagrab path: the video source is a filter graph, not an -i input.
+	dda, err := BuildVideoArgsDDA(videoReq(), twoMonitors(), 0, enc, "out.webm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ddaStr := strings.Join(injectAudioArgs(dda, in), " ")
+	if !strings.Contains(ddaStr, "format=bgra "+audioIn+" -c:v") {
+		t.Errorf("ddagrab: audio input must follow the filter graph, before -c:v:\n%s", ddaStr)
+	}
+}
+
 // Precise trim must re-encode with a codec that is LEGAL for the output
 // container: H.264/AAC inside WebM is invalid and ffmpeg rejects it.
 func TestTrimCodecFollowsContainer(t *testing.T) {

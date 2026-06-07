@@ -40,12 +40,33 @@ const (
 	stderrTailSize = 4096
 )
 
+// AudioInput describes a raw PCM stream ffmpeg should mux alongside the
+// video, exactly as the arg builder needs it.
+type AudioInput struct {
+	PipePath   string // \\.\pipe\… ffmpeg opens this as a file
+	SampleFmt  string // ffmpeg -f value: "f32le" | "s16le"
+	SampleRate int
+	Channels   int
+}
+
+// audioSource is one live system-audio capture session (WASAPI loopback on
+// Windows; see audio_windows.go).
+type audioSource interface {
+	Input() AudioInput
+	Stop()
+}
+
 // Recorder is the production video Capturer. Zero-value is not usable; build
 // with NewRecorder.
 type Recorder struct {
 	mu   sync.Mutex
 	seq  int
 	recs map[string]*recording
+
+	// captureAudio enables system-audio (loopback) capture alongside the
+	// video. On by default; failures degrade to video-only, never block the
+	// recording. Tests flip it off for deterministic lavfi runs.
+	captureAudio bool
 
 	// Seams below are defaulted in NewRecorder and overridden ONLY by tests
 	// (they let the lifecycle run against lavfi inputs instead of a desktop).
@@ -62,6 +83,7 @@ type recording struct {
 	outPath string
 	req     CaptureRequest
 	stderr  *tailBuffer
+	audio   audioSource   // nil when recording video-only
 	done    chan struct{} // closed when cmd.Wait returns
 	waitErr error         // valid only after done is closed
 }
@@ -71,6 +93,7 @@ type recording struct {
 func NewRecorder() *Recorder {
 	return &Recorder{
 		recs:          map[string]*recording{},
+		captureAudio:  true,
 		screens:       enumScreens,
 		argCandidates: defaultArgCandidates,
 		grace:         startGrace,
@@ -151,7 +174,23 @@ func (r *Recorder) StartRecording(req CaptureRequest) (string, error) {
 		return "", err
 	}
 
+	// System audio: best-effort. The loopback pipe must exist BEFORE ffmpeg
+	// spawns (it opens the path like a file); init failure (headless, RDP, no
+	// endpoint) degrades to video-only rather than blocking the recording.
+	var audio audioSource
+	if r.captureAudio {
+		if a, audErr := startLoopbackAudio(fmt.Sprintf("toru-audio-%d", time.Now().UnixNano())); audErr == nil {
+			audio = a
+		}
+	}
+
 	candidates := r.argCandidates(req, r.screens(), enc, outPath)
+	if audio != nil {
+		for i := range candidates {
+			candidates[i] = injectAudioArgs(candidates[i], audio.Input())
+		}
+	}
+
 	var rec *recording
 	var attemptErrs []error
 	for _, args := range candidates {
@@ -162,10 +201,14 @@ func (r *Recorder) StartRecording(req CaptureRequest) (string, error) {
 		attemptErrs = append(attemptErrs, err)
 	}
 	if rec == nil {
-		// Every backend failed; don't leave a partial file behind.
+		// Every backend failed; don't leave a partial file or live pump behind.
+		if audio != nil {
+			audio.Stop()
+		}
 		_ = os.Remove(outPath)
 		return "", fmt.Errorf("start recording: all capture backends failed: %w", errors.Join(attemptErrs...))
 	}
+	rec.audio = audio
 
 	r.mu.Lock()
 	r.seq++
@@ -230,6 +273,9 @@ func (r *Recorder) StopRecording(handleID string) (CaptureResult, error) {
 	select {
 	case <-rec.done:
 		// ffmpeg died on its own mid-recording (disk full, device lost…).
+		if rec.audio != nil {
+			rec.audio.Stop()
+		}
 		return CaptureResult{}, fmt.Errorf("recording %s ended prematurely: %v\n%s", handleID, rec.waitErr, rec.stderr)
 	default:
 	}
@@ -247,6 +293,9 @@ func (r *Recorder) StopRecording(handleID string) (CaptureResult, error) {
 		killed = true
 		_ = rec.cmd.Process.Kill()
 		<-rec.done
+	}
+	if rec.audio != nil {
+		rec.audio.Stop()
 	}
 
 	// Trust the artifact, not the exit code: 'q' exits 0 on the builds we

@@ -81,6 +81,47 @@ func BuildVideoArgsGDI(req CaptureRequest, enc VideoEncoder, outPath string) []s
 	return args
 }
 
+// injectAudioArgs splices a raw-PCM audio input + Opus encode into a video
+// arg list built by BuildVideoArgsDDA/GDI.
+//
+// PLACEMENT IS LOAD-BEARING: ffmpeg options are positional. The audio "-f/-ar/
+// -ac/-i" group must sit immediately AFTER the video input (after the gdigrab
+// "-i desktop" pair, or after the "-filter_complex <graph>" pair on the
+// ddagrab path) — if it lands after "-c:v"/"-b:v", those become INPUT options
+// and ffmpeg dies with EINVAL. The "-c:a/-b:a" pair joins the other OUTPUT
+// options just before the output path (the list's last element).
+//
+// Opus at 128k is the WebM-native choice (Vorbis is legacy); ffmpeg
+// auto-resamples mix formats whose rate Opus doesn't take (e.g. 44.1kHz).
+func injectAudioArgs(videoArgs []string, in AudioInput) []string {
+	if len(videoArgs) == 0 {
+		return videoArgs
+	}
+	// Find the end of the video input: the value after the last "-i", or the
+	// graph after "-filter_complex" (the ddagrab source is a filter, not -i).
+	insertAt := -1
+	for i := 0; i < len(videoArgs)-1; i++ {
+		if videoArgs[i] == "-i" || videoArgs[i] == "-filter_complex" {
+			insertAt = i + 2
+		}
+	}
+	if insertAt < 0 {
+		return videoArgs // unrecognized shape — leave untouched (video-only)
+	}
+	audioIn := []string{
+		"-f", in.SampleFmt,
+		"-ar", strconv.Itoa(in.SampleRate),
+		"-ac", strconv.Itoa(in.Channels),
+		"-i", in.PipePath,
+	}
+	args := make([]string, 0, len(videoArgs)+len(audioIn)+4)
+	args = append(args, videoArgs[:insertAt]...)
+	args = append(args, audioIn...)
+	args = append(args, videoArgs[insertAt:len(videoArgs)-1]...)
+	args = append(args, "-c:a", "libopus", "-b:a", "128k")
+	return append(args, videoArgs[len(videoArgs)-1])
+}
+
 // containerFlags returns muxer-specific flags for outPath's container.
 // `-movflags +faststart` is a mov/mp4 PRIVATE option: passing it to the WebM
 // muxer is an error, so it must be gated on the extension, not always-on.

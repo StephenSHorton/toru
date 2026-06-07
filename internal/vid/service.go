@@ -109,7 +109,8 @@ func (s *VideoService) ExportForDiscord(videoPath string) (string, error) {
 	// screen content at these bitrates — a fullscreen ultrawide export should
 	// take ~3-4x the clip length, not ~10x.
 	pass1 := append(append([]string{}, common...), "-pass", "1", "-cpu-used", "5", "-an", "-f", "null", nullDevice())
-	pass2 := append(append([]string{}, common...), "-pass", "2", "-cpu-used", "4", outPath)
+	pass2 := append(append([]string{}, common...), "-pass", "2", "-cpu-used", "4",
+		"-c:a", "libopus", "-b:a", "128k", outPath)
 	if err := capture.RunFFmpeg(ctx, pass1); err != nil {
 		return "", fmt.Errorf("discord export (pass 1): %w", err)
 	}
@@ -128,13 +129,23 @@ func (s *VideoService) ExportForDiscord(videoPath string) (string, error) {
 	return outPath, nil
 }
 
-// discordBitrateBps spreads the ~9MB byte budget across the clip's duration.
-// No audio track exists yet (mic capture lands v1.1), so video gets it all.
+// discordAudioBps is the bit-budget reserved for the recording's Opus track
+// (encoded at 128k; reserve slightly over for container overhead).
+const discordAudioBps = 132_000
+
+// discordBitrateBps spreads the ~9MB byte budget across the clip's duration,
+// minus the audio track's share (recordings carry 128k Opus system audio).
+// The audio reservation applies even for silent/video-only sources — the
+// overshoot margin it adds is harmless.
 func discordBitrateBps(durMs int) int64 {
 	if durMs <= 0 {
 		return minDiscordBps
 	}
-	return int64(discordTargetBytes) * 8 * 1000 / int64(durMs)
+	bps := int64(discordTargetBytes)*8*1000/int64(durMs) - discordAudioBps
+	if bps < 100_000 {
+		bps = 100_000 // keep SOME video even for very long clips (720p floor applies)
+	}
+	return bps
 }
 
 // nullDevice is the discard sink for ffmpeg pass-1 output.
