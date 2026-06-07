@@ -19,8 +19,26 @@ var cropFileMu sync.Mutex
 // cropStore is the on-disk shape of %AppData%\toru\overlay.json. Crops are keyed
 // by monitor ID (stringified, since JSON object keys are strings) and stored as
 // MONITOR-LOCAL PHYSICAL px so they are DPI-stable across scale changes.
+//
+// Freeze is the "freeze the screen during capture" preference. A POINTER so an
+// absent field (older overlay.json, or never toggled) reads as the default —
+// freeze ON — instead of Go's zero value (false). nil => default true.
 type cropStore struct {
-	Crops map[string]capture.Rect `json:"crops"`
+	Crops  map[string]capture.Rect `json:"crops"`
+	Freeze *bool                   `json:"freeze,omitempty"`
+}
+
+// defaultFreeze is the freeze-on-capture default: ON (the classic frozen-still
+// overlay). Toggling it OFF shows a live, see-through overlay during selection.
+const defaultFreeze = true
+
+// freezeEnabled resolves the persisted freeze preference, defaulting to ON when
+// the field is absent.
+func (st cropStore) freezeEnabled() bool {
+	if st.Freeze == nil {
+		return defaultFreeze
+	}
+	return *st.Freeze
 }
 
 // overlayStorePath returns %AppData%\toru\overlay.json (os.UserConfigDir on

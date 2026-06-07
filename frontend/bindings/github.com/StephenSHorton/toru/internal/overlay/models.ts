@@ -50,6 +50,13 @@ export class MonitorSession {
      */
     "crop": capture$0.Rect;
 
+    /**
+     * Freeze tells React how this engage was rendered: true => paint the frozen
+     * StillURL backdrop (classic); false => no backdrop, the transparent window
+     * shows the LIVE desktop and a screenshot grabs live pixels at Capture.
+     */
+    "freeze": boolean;
+
     /** Creates a new MonitorSession instance. */
     constructor($$source: Partial<MonitorSession> = {}) {
         if (!("monitorId" in $$source)) {
@@ -78,6 +85,9 @@ export class MonitorSession {
         }
         if (!("crop" in $$source)) {
             this["crop"] = (new capture$0.Rect());
+        }
+        if (!("freeze" in $$source)) {
+            this["freeze"] = false;
         }
 
         Object.assign(this, $$source);

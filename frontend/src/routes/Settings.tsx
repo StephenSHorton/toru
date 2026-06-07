@@ -4,7 +4,7 @@ import { Switch } from "@/components/ui/switch";
 import { SquareDashed } from "lucide-react";
 import { Updater } from "@/updater/Updater";
 import { Shortcuts } from "@/shortcuts/Shortcuts";
-import { SettingsService, WindowsService } from "@/lib/api";
+import { OverlayService, SettingsService, WindowsService } from "@/lib/api";
 
 // Settings / home window — the tray-driven hub. Toru lives in the system tray;
 // this window (opened once on launch and from the tray menu / editor gear) shows
@@ -18,13 +18,38 @@ export default function Settings() {
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [launchBusy, setLaunchBusy] = useState(false);
 
+  // freezeOnCapture mirrors the persisted overlay preference: ON => the screen
+  // freezes to a still while you select a region (classic); OFF => the overlay is
+  // see-through and shows live motion, and a screenshot grabs live pixels when you
+  // press Capture. Defaults ON; read the live value on mount.
+  const [freezeOnCapture, setFreezeOnCapture] = useState(true);
+  const [freezeBusy, setFreezeBusy] = useState(false);
+
   useEffect(() => {
     void SettingsService.GetLaunchAtLogin()
       .then(setLaunchAtLogin)
       .catch(() => {
         /* leave default false if the registry can't be read */
       });
+    void OverlayService.GetFreezeOnCapture()
+      .then(setFreezeOnCapture)
+      .catch(() => {
+        /* leave default true if the preference can't be read */
+      });
   }, []);
+
+  const toggleFreezeOnCapture = async (next: boolean) => {
+    const prev = freezeOnCapture;
+    setFreezeBusy(true);
+    setFreezeOnCapture(next); // optimistic
+    try {
+      await OverlayService.SetFreezeOnCapture(next);
+    } catch {
+      setFreezeOnCapture(prev); // revert on failure
+    } finally {
+      setFreezeBusy(false);
+    }
+  };
 
   const toggleLaunchAtLogin = async (next: boolean) => {
     const prev = launchAtLogin;
@@ -70,6 +95,21 @@ export default function Settings() {
             disabled={launchBusy}
             onCheckedChange={(v) => void toggleLaunchAtLogin(v)}
             aria-label="Start Toru with Windows"
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col">
+            <span className="text-sm font-medium">Freeze screen while capturing</span>
+            <span className="text-xs text-muted-foreground">
+              Off: the overlay stays live so you see motion while selecting
+            </span>
+          </div>
+          <Switch
+            checked={freezeOnCapture}
+            disabled={freezeBusy}
+            onCheckedChange={(v) => void toggleFreezeOnCapture(v)}
+            aria-label="Freeze the screen while capturing"
           />
         </div>
       </div>

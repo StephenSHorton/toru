@@ -32,7 +32,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type Konva from "konva";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
-import { Camera, Maximize, Video, Volume2, VolumeX, X } from "lucide-react";
+import { Camera, Maximize, Snowflake, Video, Volume2, VolumeX, X, Zap } from "lucide-react";
 import { OverlayService } from "@/lib/api";
 import {
   parseOverlayQuery,
@@ -177,12 +177,25 @@ export default function Overlay() {
       setMode("capture"); // a window last in edit returns to capture
       setActive(q.primary); // selection resets to the primary each engage
       prevRegionCrop.current = null;
-      // Preload + decode the cache-busted backdrop, THEN ACK so Go can Show.
-      const img = new window.Image();
+      // ACK so Go can Show this window. FREEZE-ON: preload + decode the cache-busted
+      // backdrop first, so the window is revealed already painted (no stale flash).
+      // FREEZE-OFF: stillUrl is empty (the window is see-through, no backdrop to
+      // decode) — ack IMMEDIATELY. We must NOT route an empty src through an <img>:
+      // `img.src = ""` fires neither onload nor onerror in Chromium, which would
+      // strand the live overlay hidden forever.
       const ack = () => void OverlayService.OverlayReady(q.mon);
-      img.onload = ack;
-      img.onerror = ack; // never strand the window hidden on a decode hiccup
-      img.src = d.stillUrl;
+      if (!d.stillUrl) {
+        // Defer past a paint so Go reveals the window only AFTER React has
+        // committed + painted the fresh capture-mode DOM — otherwise Show could
+        // race ahead and flash the prior session's DOM (the same stale-flash the
+        // frozen path dodges via img.onload). Two rAFs == one full painted frame.
+        requestAnimationFrame(() => requestAnimationFrame(ack));
+      } else {
+        const img = new window.Image();
+        img.onload = ack;
+        img.onerror = ack; // never strand the window hidden on a decode hiccup
+        img.src = d.stillUrl;
+      }
     },
     [q.mon, monW, monH],
   );
@@ -217,7 +230,16 @@ export default function Overlay() {
         loadBaseImage(d.cropUrl, img.naturalWidth, img.naturalHeight);
         setEditPayload(d);
         setMode("edit");
+        // ACK the morph: on the FREEZE-OFF path Go hid this window to grab a clean
+        // live frame and re-shows it here, now that the editor is painted (no flash
+        // of the bare live overlay). On the frozen path the window was never hidden,
+        // so this is a harmless no-op.
+        void OverlayService.EditReady(q.mon);
       };
+      // Never strand the window hidden on a decode hiccup: ack anyway so the live
+      // path re-shows it (the editor will simply lack its base image — recoverable
+      // via New — rather than leaving the user on a black, hidden overlay).
+      img.onerror = () => void OverlayService.EditReady(q.mon);
       img.src = d.cropUrl;
     });
 
@@ -234,6 +256,33 @@ export default function Overlay() {
       offEdit();
     };
   }, [q.mon, loadBaseImage, applyEngage]);
+
+  // The overlay window is TRANSPARENT (see ensureWindows): the freeze-ON path paints
+  // an opaque frozen-still <img> over it; the freeze-OFF path paints nothing so the
+  // live desktop shows through. The opaque app <body> background that would block
+  // that is nulled to transparent in main.tsx (pre-paint, once for the window's
+  // lifetime); edit mode re-opaques via its own bg-black root.
+
+  // freeze reflects how THIS engage was rendered (frozen still vs live see-through).
+  // Until the first engage we assume the default (on). `live` gates the transparent
+  // capture-mode chrome + the live screenshot capture path.
+  const freeze = session?.freeze ?? true;
+  const live = session != null && !session.freeze;
+
+  // Toggle freeze from the pill: persist the new preference, then RE-ENGAGE so the
+  // overlay immediately re-renders in the new mode (BeginSession re-freezes, or
+  // skips the freeze and shows live). Guarded by busy so a double-tap can't stack
+  // two engages.
+  const toggleFreeze = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await OverlayService.SetFreezeOnCapture(!freeze);
+      await OverlayService.BeginSession();
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, freeze]);
 
   // ----- persistence + actions (capture mode) -----
 
@@ -298,8 +347,12 @@ export default function Overlay() {
       session.w,
       session.h,
     );
+    // FREEZE-OFF: no still was captured at engage, so grab the live pixels NOW
+    // (EnterEditLive hides the overlay, captures, then re-shows in edit mode).
+    // FREEZE-ON: crop the already-frozen pixels in place (EnterEdit).
+    const enter = live ? OverlayService.EnterEditLive : OverlayService.EnterEdit;
     try {
-      await OverlayService.EnterEdit(
+      await enter(
         q.mon,
         sub,
         Math.round(crop.left),
@@ -310,7 +363,7 @@ export default function Overlay() {
     } finally {
       setBusy(false);
     }
-  }, [busy, crop, session, q.mon]);
+  }, [busy, crop, session, q.mon, live]);
 
   // Record: Go hides the overlay FIRST, then records the live region.
   const startRecording = useCallback(async () => {
@@ -336,6 +389,11 @@ export default function Overlay() {
     };
     try {
       await OverlayService.StartRecording(req);
+    } catch {
+      // StartRecording hides the overlay BEFORE it knows ffmpeg can't capture, so
+      // there is no live surface here to show the error on — Go opens a dismissible
+      // error pill (OpenRecordingError) instead. Swallow the rejection so it isn't
+      // an unhandled promise; the user already sees the pill.
     } finally {
       setBusy(false);
     }
@@ -444,8 +502,14 @@ export default function Overlay() {
     : { sub: { x: 0, y: 0, w: 0, h: 0 } as Rect };
 
   return (
-    <div className="relative h-screen w-screen select-none overflow-hidden bg-black">
-      {/* Frozen still backdrop (fast JPEG), painted fullscreen (1:1 in DIP). */}
+    <div
+      className={`relative h-screen w-screen select-none overflow-hidden ${
+        live ? "bg-transparent" : "bg-black"
+      }`}
+    >
+      {/* Frozen still backdrop (fast JPEG), painted fullscreen (1:1 in DIP). Only in
+          freeze mode — live mode renders no backdrop so the transparent window shows
+          the live desktop through it (stillUrl is empty when live, so this is null). */}
       {backdrop ? (
         <img
           src={backdrop}
@@ -547,6 +611,21 @@ export default function Overlay() {
             title={isFullScreen ? "Back to region selection" : "Capture the entire monitor"}
           >
             <Maximize /> Full screen
+          </Button>
+          {/* Freeze toggle: frozen still (default) vs live see-through overlay.
+              Re-engages on click so the new mode is visible immediately. */}
+          <Button
+            size="sm"
+            variant={live ? "default" : "ghost"}
+            disabled={busy}
+            onClick={() => void toggleFreeze()}
+            title={
+              freeze
+                ? "Screen is frozen while you select — click to keep it live instead"
+                : "Screen stays live while you select — click to freeze it"
+            }
+          >
+            {freeze ? <Snowflake /> : <Zap />} {freeze ? "Frozen" : "Live"}
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="ghost" onClick={cancel}>

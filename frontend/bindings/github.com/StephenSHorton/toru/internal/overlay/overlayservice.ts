@@ -89,6 +89,18 @@ export function CommitScreenshot(monitorID: number, rect: capture$0.Rect, sub: c
 }
 
 /**
+ * EditReady is the JS ACK for the FREEZE-OFF screenshot morph. EnterEditLive hid
+ * the overlay window to grab a clean live frame; React calls this from the
+ * overlay:edit handler AFTER the served crop PNG has DECODED, so the window is
+ * re-shown already painted as the editor (never flashing the bare live overlay or
+ * an empty stage). The frozen path leaves no pendingEditShow entry, so React's
+ * call there is a harmless no-op (that window was never hidden).
+ */
+export function EditReady(monitorID: number): $CancellablePromise<void> {
+    return $Call.ByID(2062514202, monitorID);
+}
+
+/**
  * EnterEdit is THE single-surface screenshot morph. It crops the in-memory FROZEN
  * pixels for monitorID to a small LOSSLESS PNG (served at /__file/<base>) and
  * emits overlay:edit to the SAME overlay window — NO separate editor window is
@@ -106,12 +118,38 @@ export function EnterEdit(monitorID: number, sub: capture$0.Rect, cssLeft: numbe
 }
 
 /**
+ * EnterEditLive is the FREEZE-OFF screenshot Capture: there is no pre-frozen
+ * still, so the live pixels must be grabbed NOW. It (1) HIDES every overlay window
+ * so the grab can't photograph the dim panels / crop ring, (2) settles one DWM
+ * frame, (3) captures the live monitor into frozenImg (so the editor's Save/Copy
+ * keep cropping real pixels), (4) crops to the served PNG and emits overlay:edit,
+ * and (5) marks the window pendingEditShow so EditReady re-shows it once React has
+ * painted the editor — re-showing immediately would flash the bare live overlay.
+ * 
+ * Args mirror EnterEdit: sub is the monitor-local PHYSICAL crop; cssLeft/Top/W/H
+ * position the embedded stage where the bright region was.
+ */
+export function EnterEditLive(monitorID: number, sub: capture$0.Rect, cssLeft: number, cssTop: number, cssW: number, cssH: number): $CancellablePromise<void> {
+    return $Call.ByID(748283773, monitorID, sub, cssLeft, cssTop, cssW, cssH);
+}
+
+/**
  * Finish is the explicit edit-mode "Done" (hide to tray) with NO cancel
  * semantics: it hides the overlay (keeping windows alive) WITHOUT firing
  * capture:cancelled (which other code may treat as a real cancel).
  */
 export function Finish(): $CancellablePromise<void> {
     return $Call.ByID(4141131832);
+}
+
+/**
+ * GetFreezeOnCapture reports whether the screen is frozen during capture (the
+ * default) or shown live through a see-through overlay. Read by the Settings
+ * toggle and the in-overlay pill toggle. Reads the persisted preference once,
+ * then serves the cache.
+ */
+export function GetFreezeOnCapture(): $CancellablePromise<boolean> {
+    return $Call.ByID(3128482551);
 }
 
 /**
@@ -216,6 +254,15 @@ export function SetAudioSources(cfg: capture$0.AudioConfig): $CancellablePromise
 }
 
 /**
+ * SetFreezeOnCapture persists the freeze preference and updates the in-memory
+ * cache so the NEXT BeginSession honours it. The overlay pill re-engages after
+ * calling this so the change is visible immediately; Settings just persists it.
+ */
+export function SetFreezeOnCapture(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(3607977635, enabled);
+}
+
+/**
  * StartRecording hides the overlay FIRST (so ffmpeg records the live region, not
  * the dim overlays) while KEEPING the windows alive, THEN begins recording, THEN
  * opens the recording pill (timer + Stop). req.Rect is the virtual-desktop
@@ -225,13 +272,21 @@ export function SetAudioSources(cfg: capture$0.AudioConfig): $CancellablePromise
  * hidden the moment recording starts, so no live JS context owns the recording —
  * a frontend follow-up call after this await would be dead code, leaving the
  * recording unstoppable.
+ * 
+ * On SUCCESS it also opens the click-through "glowing border" window that outlines
+ * the recorded region (recordingFrameOpener), torn down by StopRecording. On
+ * FAILURE it opens a dismissible error pill (recordingErrorOpener) — the overlay
+ * is already hidden, so without it a failed start leaves a blank screen with no
+ * explanation.
  */
 export function StartRecording(req: capture$0.CaptureRequest): $CancellablePromise<string> {
     return $Call.ByID(3056857500, req);
 }
 
 /**
- * StopRecording finalizes a recording and broadcasts capture:done.
+ * StopRecording finalizes a recording and broadcasts capture:done. It first tears
+ * down the recorded-region border window (regardless of how the finalize goes, so
+ * the outline never outlives the recording).
  */
 export function StopRecording(handleID: string): $CancellablePromise<capture$0.CaptureResult> {
     return $Call.ByID(1557301730, handleID).then(($result: any) => {

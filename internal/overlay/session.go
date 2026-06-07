@@ -30,6 +30,10 @@ type MonitorSession struct {
 	// Crop is MONITOR-LOCAL PHYSICAL px; zero-value {0,0,0,0} when not primary
 	// or when there is no restored/default crop.
 	Crop capture.Rect `json:"crop"`
+	// Freeze tells React how this engage was rendered: true => paint the frozen
+	// StillURL backdrop (classic); false => no backdrop, the transparent window
+	// shows the LIVE desktop and a screenshot grabs live pixels at Capture.
+	Freeze bool `json:"freeze"`
 }
 
 // OverlayEditPayload is the overlay:edit event payload (Go->JS). It is emitted by
@@ -95,10 +99,12 @@ func (s *OverlayService) freezeAll(screens []capture.ScreenInfo) (map[int]*image
 }
 
 // buildSessionPayloads builds one MonitorSession per screen WITHOUT freezing
-// (freezeAll already did that). The primary's crop is restored from persisted
-// state (or a centered default). StillURL carries the engage generation as ?g= so
-// a REUSED webview's backdrop <img> is cache-busted to the fresh JPEG.
-func (s *OverlayService) buildSessionPayloads(screens []capture.ScreenInfo, gen int) []MonitorSession {
+// (freezeAll already did that, when freeze is on). The primary's crop is restored
+// from persisted state (or a centered default). When freeze is on, StillURL
+// carries the engage generation as ?g= so a REUSED webview's backdrop <img> is
+// cache-busted to the fresh JPEG; when freeze is OFF there is no still, so
+// StillURL is empty and React renders the see-through live overlay.
+func (s *OverlayService) buildSessionPayloads(screens []capture.ScreenInfo, gen int, freeze bool) []MonitorSession {
 	st := loadCrops()
 	sessions := make([]MonitorSession, 0, len(screens))
 	for _, sc := range screens {
@@ -110,9 +116,13 @@ func (s *OverlayService) buildSessionPayloads(screens []capture.ScreenInfo, gen 
 				crop = centeredDefault(sc.W, sc.H)
 			}
 		}
+		stillURL := ""
+		if freeze {
+			stillURL = "/__shot/" + strconv.Itoa(sc.ID) + "?g=" + strconv.Itoa(gen)
+		}
 		sessions = append(sessions, MonitorSession{
 			MonitorID: sc.ID,
-			StillURL:  "/__shot/" + strconv.Itoa(sc.ID) + "?g=" + strconv.Itoa(gen),
+			StillURL:  stillURL,
 			X:         sc.X,
 			Y:         sc.Y,
 			W:         sc.W,
@@ -120,6 +130,7 @@ func (s *OverlayService) buildSessionPayloads(screens []capture.ScreenInfo, gen 
 			Scale:     sc.ScaleFactor,
 			IsPrimary: sc.IsPrimary,
 			Crop:      crop,
+			Freeze:    freeze,
 		})
 	}
 	return sessions
@@ -168,13 +179,22 @@ func (s *OverlayService) ensureWindows(screens []capture.ScreenInfo) bool {
 			Width:            dip.Width,
 			Height:           dip.Height,
 			Screen:           nil,
-			InitialPosition:  application.WindowXY,
-			Hidden:           true,
-			Frameless:        true,
-			AlwaysOnTop:      true,
-			DisableResize:    true,
-			BackgroundType:   application.BackgroundTypeSolid,
-			BackgroundColour: application.NewRGB(0, 0, 0),
+			InitialPosition: application.WindowXY,
+			Hidden:          true,
+			Frameless:       true,
+			AlwaysOnTop:     true,
+			DisableResize:   true,
+			// TRANSPARENT (not solid): the freeze-ON path paints an OPAQUE full-screen
+			// frozen-still <img> over it (so it looks exactly like the old solid
+			// window once the backdrop decodes — and Show is gated on that decode via
+			// OverlayReady, so the transparent window never flashes through). The
+			// freeze-OFF path paints NO backdrop, so the same window shows the LIVE
+			// desktop through it with only the dim panels + crop chrome on top. Hit
+			// testing stays in the DOM (no IgnoreMouseEvents), so the crop is fully
+			// interactive even over the see-through region (Wails composites via
+			// DirectComposition; clicks land on the DOM, not the desktop behind).
+			BackgroundType:   application.BackgroundTypeTransparent,
+			BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 			Windows: application.WindowsWindow{
 				DisableFramelessWindowDecorations: true,
 				HiddenOnTaskbar:                   true,

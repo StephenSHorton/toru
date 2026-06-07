@@ -39,6 +39,18 @@ type OverlayService struct {
 	// follow-up call after StartRecording is dead code. monitorID lets the
 	// opener place the pill OFF the recorded monitor.
 	recordingControlsOpener func(handleID string, monitorID int)
+	// recordingErrorOpener opens a small dismissible pill that surfaces a FAILED
+	// StartRecording (injected by main). Without it a failed start would leave the
+	// user staring at a dismissed overlay with no clue why nothing recorded — the
+	// overlay is already hidden by the time ffmpeg reports it can't capture.
+	recordingErrorOpener func(message string, monitorID int)
+	// recordingFrameOpener opens the click-through "glowing border" window that
+	// outlines the recorded region for the duration of a recording (injected by
+	// main). It is given the region's DIP bounds; main expands them by the border
+	// margin so the visible outline sits OUTSIDE the captured rect (never baked
+	// into the video). recordingFrameCloser tears it down on stop.
+	recordingFrameOpener func(dipX, dipY, dipW, dipH, monitorID int)
+	recordingFrameCloser func()
 	// audioConfigSetter replaces the recorder's audio-source selection
 	// (injected by main via SetAudioConfigSetter; the bound SetAudioSources
 	// calls through). Held as a func so the frozen Capturer seam stays
@@ -75,16 +87,30 @@ type OverlayService struct {
 	// are dead (Save-As writes its OWN file via ExportService). Removed + reset on
 	// HideOverlay/Teardown so captures don't leak a small PNG each.
 	cropTemps []string
+
+	// pendingEditShow marks the overlay windows that EnterEditLive hid to grab a
+	// clean live frame and must RE-SHOW once React acks the edit morph (EditReady).
+	// The frozen path never hides its window, so its entries are never set and
+	// EditReady is a harmless no-op there.
+	pendingEditShow map[int]bool
+
+	// freeze is the cached "freeze during capture" preference (mirrors the
+	// persisted overlay.json field). freezeLoaded gates a one-time disk read so the
+	// hot capture path never re-reads the file; SetFreezeOnCapture keeps both the
+	// cache and disk in lockstep. Guarded by mu.
+	freeze       bool
+	freezeLoaded bool
 }
 
 // NewService wires the overlay to the shared capture seam.
 func NewService(cap capture.Capturer) *OverlayService {
 	return &OverlayService{
-		cap:       cap,
-		windows:   map[int]*application.WebviewWindow{},
-		frozenImg: map[int]*image.RGBA{},
-		jpegCache: map[int][]byte{},
-		pending:   map[int]MonitorSession{},
+		cap:             cap,
+		windows:         map[int]*application.WebviewWindow{},
+		frozenImg:       map[int]*image.RGBA{},
+		jpegCache:       map[int][]byte{},
+		pending:         map[int]MonitorSession{},
+		pendingEditShow: map[int]bool{},
 	}
 }
 
@@ -100,11 +126,77 @@ func (s *OverlayService) SetRecordingControlsOpener(fn func(handleID string, mon
 	s.recordingControlsOpener = fn
 }
 
+// SetRecordingErrorOpener injects the failed-start pill opener. Go-only.
+//
+//wails:ignore
+func (s *OverlayService) SetRecordingErrorOpener(fn func(message string, monitorID int)) {
+	s.recordingErrorOpener = fn
+}
+
+// SetRecordingFrameOpener / SetRecordingFrameCloser inject the recorded-region
+// border window's open/close callbacks. Go-only.
+//
+//wails:ignore
+func (s *OverlayService) SetRecordingFrameOpener(fn func(dipX, dipY, dipW, dipH, monitorID int)) {
+	s.recordingFrameOpener = fn
+}
+
+//wails:ignore
+func (s *OverlayService) SetRecordingFrameCloser(fn func()) {
+	s.recordingFrameCloser = fn
+}
+
 // SetAudioConfigSetter injects the recorder's audio-source setter. Go-only.
 //
 //wails:ignore
 func (s *OverlayService) SetAudioConfigSetter(fn func(cfg capture.AudioConfig)) {
 	s.audioConfigSetter = fn
+}
+
+// GetFreezeOnCapture reports whether the screen is frozen during capture (the
+// default) or shown live through a see-through overlay. Read by the Settings
+// toggle and the in-overlay pill toggle. Reads the persisted preference once,
+// then serves the cache.
+func (s *OverlayService) GetFreezeOnCapture() bool {
+	return s.currentFreeze()
+}
+
+// SetFreezeOnCapture persists the freeze preference and updates the in-memory
+// cache so the NEXT BeginSession honours it. The overlay pill re-engages after
+// calling this so the change is visible immediately; Settings just persists it.
+func (s *OverlayService) SetFreezeOnCapture(enabled bool) {
+	cropFileMu.Lock()
+	st := loadCrops()
+	st.Freeze = &enabled
+	_ = saveCrops(st)
+	cropFileMu.Unlock()
+
+	s.mu.Lock()
+	s.freeze = enabled
+	s.freezeLoaded = true
+	s.mu.Unlock()
+}
+
+// currentFreeze returns the cached freeze preference, lazily loading it from disk
+// on first use (under cropFileMu, like every other overlay.json access).
+func (s *OverlayService) currentFreeze() bool {
+	s.mu.RLock()
+	if s.freezeLoaded {
+		v := s.freeze
+		s.mu.RUnlock()
+		return v
+	}
+	s.mu.RUnlock()
+
+	cropFileMu.Lock()
+	v := loadCrops().freezeEnabled()
+	cropFileMu.Unlock()
+
+	s.mu.Lock()
+	s.freeze = v
+	s.freezeLoaded = true
+	s.mu.Unlock()
+	return v
 }
 
 // SetAudioSources is the USER OPT-IN for audio capture. EVERY source —
@@ -255,6 +347,8 @@ func (s *OverlayService) BeginSession() ([]MonitorSession, error) {
 		return nil, fmt.Errorf("overlay: no active displays")
 	}
 
+	freeze := s.currentFreeze()
+
 	s.mu.Lock()
 	s.screens = screens
 	s.gen++
@@ -278,9 +372,19 @@ func (s *OverlayService) BeginSession() ([]MonitorSession, error) {
 
 	// (2) Freeze every monitor in memory + pre-encode its backdrop JPEG, concurrently
 	// and while every overlay window is hidden, so no still photographs an overlay.
-	frozen, jpegs, err := s.freezeAll(screens)
-	if err != nil {
-		return nil, err
+	// FREEZE-OFF: skip entirely — the (transparent) overlay shows the LIVE desktop
+	// during selection, and a screenshot grabs live pixels at Capture time
+	// (EnterEditLive) instead of cropping a pre-frozen still.
+	var frozen map[int]*image.RGBA
+	var jpegs map[int][]byte
+	if freeze {
+		frozen, jpegs, err = s.freezeAll(screens)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		frozen = map[int]*image.RGBA{}
+		jpegs = map[int][]byte{}
 	}
 
 	// (3) Swap in the fresh maps; drop the previous frozen refs so at most one set
@@ -291,8 +395,10 @@ func (s *OverlayService) BeginSession() ([]MonitorSession, error) {
 	s.jpegCache = jpegs
 	s.mu.Unlock()
 
-	// (4) Build payloads (StillURL carries ?g=<gen> to cache-bust the reused webview).
-	sessions := s.buildSessionPayloads(screens, gen)
+	// (4) Build payloads. Freeze-on: StillURL carries ?g=<gen> to cache-bust the
+	// reused webview's backdrop. Freeze-off: StillURL is empty (no backdrop) and
+	// Freeze=false tells React to render the see-through live overlay.
+	sessions := s.buildSessionPayloads(screens, gen, freeze)
 
 	// (5) Publish the sessions (so a late-mounting window can RequestEngage-pull the
 	// one it missed), SetBounds each STILL-HIDDEN window, then broadcast
@@ -339,6 +445,28 @@ func (s *OverlayService) OverlayReady(monitorID int) {
 		if mon.IsPrimary {
 			win.Focus()
 		}
+	}
+}
+
+// EditReady is the JS ACK for the FREEZE-OFF screenshot morph. EnterEditLive hid
+// the overlay window to grab a clean live frame; React calls this from the
+// overlay:edit handler AFTER the served crop PNG has DECODED, so the window is
+// re-shown already painted as the editor (never flashing the bare live overlay or
+// an empty stage). The frozen path leaves no pendingEditShow entry, so React's
+// call there is a harmless no-op (that window was never hidden).
+func (s *OverlayService) EditReady(monitorID int) {
+	s.mu.Lock()
+	show := s.pendingEditShow[monitorID]
+	if show {
+		delete(s.pendingEditShow, monitorID)
+	}
+	s.mu.Unlock()
+	if !show {
+		return
+	}
+	if win := s.window(monitorID); win != nil {
+		win.Show()
+		win.Focus()
 	}
 }
 
@@ -476,6 +604,7 @@ func (s *OverlayService) HideOverlay() {
 	s.dropImagesLocked()
 	s.jpegCache = map[int][]byte{}
 	s.pending = map[int]MonitorSession{}
+	s.pendingEditShow = map[int]bool{}
 	temps := s.takeCropTempsLocked()
 	s.mu.Unlock()
 
@@ -518,6 +647,7 @@ func (s *OverlayService) Teardown() {
 	s.dropImagesLocked()
 	s.jpegCache = map[int][]byte{}
 	s.pending = map[int]MonitorSession{}
+	s.pendingEditShow = map[int]bool{}
 	temps := s.takeCropTempsLocked()
 	s.screens = nil
 	s.mu.Unlock()
@@ -568,6 +698,106 @@ func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, css
 	}
 	s.trackCropTemp(cropPath)
 
+	s.emit(EventOverlayEdit, OverlayEditPayload{
+		MonitorID: monitorID,
+		CropURL:   servedFileURL(cropPath),
+		CSSLeft:   cssLeft,
+		CSSTop:    cssTop,
+		CSSW:      cssW,
+		CSSH:      cssH,
+		Sub:       sub,
+	})
+	return nil
+}
+
+// EnterEditLive is the FREEZE-OFF screenshot Capture: there is no pre-frozen
+// still, so the live pixels must be grabbed NOW. It (1) HIDES the TARGET monitor's
+// overlay window so the grab can't photograph that monitor's dim panels / crop ring
+// (other monitors' windows sit over disjoint rects and cannot appear in this grab,
+// so they stay shown — matching the frozen path), (2) settles one DWM frame, (3)
+// captures the live monitor into frozenImg, (4) crops to the served PNG and emits
+// overlay:edit, and (5) marks the window pendingEditShow so EditReady re-shows it
+// once React has painted the editor — re-showing immediately would flash the bare
+// live overlay.
+//
+// INVARIANT: if it hid the target window, it MUST re-show it on EVERY return path
+// (the grab/crop can fail transiently — DXGI/GDI, display-mode change, GPU TDR),
+// or the overlay would be stranded hidden with the capture silently lost. The
+// success path re-shows via EditReady; the error paths re-show inline.
+//
+// Args mirror EnterEdit: sub is the monitor-local PHYSICAL crop; cssLeft/Top/W/H
+// position the embedded stage where the bright region was.
+func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft, cssTop, cssW, cssH int) error {
+	s.mu.RLock()
+	var sc capture.ScreenInfo
+	found := false
+	for _, x := range s.screens {
+		if x.ID == monitorID {
+			sc = x
+			found = true
+			break
+		}
+	}
+	gen := s.gen // supersede-guard: a fresh engage bumps gen
+	win := s.windows[monitorID]
+	s.mu.RUnlock()
+	if !found {
+		return fmt.Errorf("overlay: no screen %d in session (live capture)", monitorID)
+	}
+
+	// (1) Hide ONLY the target monitor's window. (2) Settle one DWM frame so the
+	// just-hidden transparent window is gone from the composited image before grab.
+	targetWasVisible := win != nil && win.IsVisible()
+	if targetWasVisible {
+		win.Hide()
+	}
+	settleCompositor()
+
+	// reShow restores the target window if we hid it — used on every error path so a
+	// failed live grab never strands the overlay hidden with the capture lost.
+	reShow := func() {
+		if targetWasVisible {
+			if w := s.window(monitorID); w != nil {
+				w.Show()
+				w.Focus()
+			}
+		}
+	}
+
+	// (3) Grab the live monitor.
+	img, err := capture.FreezeMonitorImage(image.Rect(sc.X, sc.Y, sc.X+sc.W, sc.Y+sc.H))
+	if err != nil {
+		reShow()
+		return err
+	}
+
+	cropPath, err := capture.CropImage(img, sub)
+	if err != nil {
+		reShow()
+		return err
+	}
+
+	// (4/5) Install the frozen image + arm the re-show under ONE lock, but ONLY if
+	// this capture still owns the session: a concurrent BeginSession (hotkey/tray,
+	// not gated by the React busy flag) may have swapped in a fresh frozenImg while
+	// we were grabbing. Writing our now-stale pixels there would corrupt the new
+	// session's screenshot. If superseded, drop our work and let the new engage own
+	// the window (its OverlayReady re-shows it).
+	s.mu.Lock()
+	if s.gen != gen {
+		s.mu.Unlock()
+		_ = os.Remove(cropPath)
+		return nil
+	}
+	s.frozenImg[monitorID] = img
+	s.pendingEditShow[monitorID] = true
+	s.mu.Unlock()
+
+	_ = s.SaveCrop(monitorID, sub)
+	s.trackCropTemp(cropPath)
+
+	// Emit AFTER arming pendingEditShow. React applies the edit and ACKs via
+	// EditReady once the crop decodes; EditReady then re-shows the window.
 	s.emit(EventOverlayEdit, OverlayEditPayload{
 		MonitorID: monitorID,
 		CropURL:   servedFileURL(cropPath),
@@ -672,16 +902,84 @@ func (s *OverlayService) Cancel() error {
 // hidden the moment recording starts, so no live JS context owns the recording —
 // a frontend follow-up call after this await would be dead code, leaving the
 // recording unstoppable.
+//
+// On SUCCESS it also opens the click-through "glowing border" window that outlines
+// the recorded region (recordingFrameOpener), torn down by StopRecording. On
+// FAILURE it opens a dismissible error pill (recordingErrorOpener) — the overlay
+// is already hidden, so without it a failed start leaves a blank screen with no
+// explanation.
 func (s *OverlayService) StartRecording(req capture.CaptureRequest) (string, error) {
 	s.HideOverlay()
 	handle, err := s.cap.StartRecording(req)
 	if err != nil {
+		if s.recordingErrorOpener != nil {
+			s.recordingErrorOpener(recordingErrorMessage(err), req.MonitorID)
+		}
 		return "", err
+	}
+	// Border outline around the recorded region (passed as the EXACT region DIP
+	// bounds; the opener expands by the border margin so the visible outline sits
+	// OUTSIDE the captured rect and never bakes into the video). SKIPPED for a
+	// fullscreen recording: a border there would either fall off the screen edge
+	// (its margin band is off-monitor) or, if drawn inward, land inside the captured
+	// pixels — there is no out-of-frame band on a whole-monitor grab. The pill is
+	// the indicator for fullscreen.
+	if s.recordingFrameOpener != nil && req.Sub != capture.SubFullscreen {
+		if x, y, w, h, ok := s.regionDIP(req.Rect, req.MonitorID); ok {
+			s.recordingFrameOpener(x, y, w, h, req.MonitorID)
+		}
 	}
 	if s.recordingControlsOpener != nil {
 		s.recordingControlsOpener(handle, req.MonitorID)
 	}
 	return handle, nil
+}
+
+// recordingErrorMessage condenses a StartRecording failure (often a multi-line
+// ffmpeg stderr tail) into a single short line that fits the error pill's window
+// URL. The full error still propagates as the method's return value.
+func recordingErrorMessage(err error) string {
+	msg := strings.Join(strings.Fields(err.Error()), " ")
+	const max = 280
+	if len(msg) > max {
+		msg = msg[:max] + "…"
+	}
+	return msg
+}
+
+// regionDIP converts a recorded region (virtual-desktop PHYSICAL px) to DIP bounds
+// for the indicator window: it finds the owning screen in the session snapshot,
+// maps the monitor-local physical offset through the monitor's scale, and anchors
+// it to the Wails screen's DIP origin. ok=false when the monitor isn't in the
+// current session.
+func (s *OverlayService) regionDIP(rect capture.Rect, monitorID int) (x, y, w, h int, ok bool) {
+	s.mu.RLock()
+	var sc capture.ScreenInfo
+	found := false
+	for _, scr := range s.screens {
+		if scr.ID == monitorID {
+			sc = scr
+			found = true
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if !found {
+		return 0, 0, 0, 0, false
+	}
+	scale := sc.ScaleFactor
+	if scale <= 0 {
+		scale = 1
+	}
+	dipOriginX, dipOriginY := rndDiv(sc.X, scale), rndDiv(sc.Y, scale)
+	if scr := s.matchWailsScreen(sc.X, sc.Y, sc.W, sc.H); scr != nil {
+		dipOriginX, dipOriginY = scr.Bounds.X, scr.Bounds.Y
+	}
+	x = dipOriginX + rndDiv(rect.X-sc.X, scale)
+	y = dipOriginY + rndDiv(rect.Y-sc.Y, scale)
+	w = rndDiv(rect.W, scale)
+	h = rndDiv(rect.H, scale)
+	return x, y, w, h, true
 }
 
 // servedFileURL turns an absolute temp-file path (under %TEMP%/toru) into the
@@ -692,8 +990,13 @@ func servedFileURL(absPath string) string {
 	return "/__file/" + url.PathEscape(filepath.Base(absPath))
 }
 
-// StopRecording finalizes a recording and broadcasts capture:done.
+// StopRecording finalizes a recording and broadcasts capture:done. It first tears
+// down the recorded-region border window (regardless of how the finalize goes, so
+// the outline never outlives the recording).
 func (s *OverlayService) StopRecording(handleID string) (capture.CaptureResult, error) {
+	if s.recordingFrameCloser != nil {
+		s.recordingFrameCloser()
+	}
 	res, err := s.cap.StopRecording(handleID)
 	if err != nil {
 		return capture.CaptureResult{}, err

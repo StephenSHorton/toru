@@ -10,11 +10,16 @@ import { OverlayService, WindowsService } from "@/lib/api";
 // Stop → OverlayService.StopRecording (graceful ffmpeg finalize, emits
 // capture:done) → opens the trim editor on the artifact → closes itself.
 export default function Recording() {
-  const handle = new URLSearchParams(window.location.search).get("handle") ?? "";
+  const params = new URLSearchParams(window.location.search);
+  const handle = params.get("handle") ?? "";
+  // startError is set when this window was opened to report a FAILED start (Go's
+  // OpenRecordingError) rather than an in-flight recording — there is no handle to
+  // stop, just a message to show and dismiss.
+  const startError = params.get("startError") ?? "";
   const [startedAt] = useState(() => Date.now());
   const [elapsed, setElapsed] = useState(0);
   const [stopping, setStopping] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(startError);
 
   useEffect(() => {
     const t = setInterval(() => setElapsed(Date.now() - startedAt), 250);

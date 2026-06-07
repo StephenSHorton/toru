@@ -153,6 +153,13 @@ func main() {
 	// windows (record the live region, not the dim), which destroys the calling
 	// JS context — so the recording pill (timer + Stop) MUST be opened from Go.
 	overlaySvc.SetRecordingControlsOpener(windowsSvc.OpenRecordingControls)
+	// A FAILED start (e.g. ffmpeg missing) also needs a Go-opened surface, since the
+	// overlay is dismissed before the error is known — otherwise the user just sees a
+	// blank screen. And a SUCCESSFUL start opens the click-through glowing border that
+	// outlines the recorded region until StopRecording closes it.
+	overlaySvc.SetRecordingErrorOpener(windowsSvc.OpenRecordingError)
+	overlaySvc.SetRecordingFrameOpener(windowsSvc.OpenRecordingFrame)
+	overlaySvc.SetRecordingFrameCloser(windowsSvc.CloseRecordingFrame)
 	// Audio capture is a privacy-sensitive OPT-IN, per SOURCE: the recorder
 	// starts with no audio selected; the overlay's Audio picker pushes the
 	// user's selection (system mix / individual apps / microphone) through

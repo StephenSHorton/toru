@@ -14,6 +14,13 @@
 import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
 /**
+ * CloseRecordingFrame tears down the recorded-region border window if one is up.
+ */
+export function CloseRecordingFrame(): $CancellablePromise<void> {
+    return $Call.ByID(396899040);
+}
+
+/**
  * OpenEditor opens Developer 1's screenshot annotation editor for imagePath.
  * 
  * The SPA routes on the ?view= query param (App.tsx) and the embedded asset
@@ -48,6 +55,33 @@ export function OpenOverlay(): $CancellablePromise<void> {
  */
 export function OpenRecordingControls(handleID: string, monitorID: number): $CancellablePromise<void> {
     return $Call.ByID(4141771617, handleID, monitorID);
+}
+
+/**
+ * OpenRecordingError surfaces a FAILED StartRecording as a small dismissible pill.
+ * The overlay is already hidden by the time ffmpeg reports it can't capture, so
+ * without this the user is left with a blank screen and no idea why nothing
+ * recorded. Same frameless placement as the live pill; the recording route renders
+ * the error state off the ?startError= param.
+ */
+export function OpenRecordingError(message: string, monitorID: number): $CancellablePromise<void> {
+    return $Call.ByID(846290679, message, monitorID);
+}
+
+/**
+ * OpenRecordingFrame opens the "glowing border" window that outlines the recorded
+ * region while recording. The overlay passes the EXACT region DIP bounds; we
+ * expand by recFrameMargin on every side and hand the margin to React, which draws
+ * the animated outline within that band — OUTSIDE the recorded rect, so ffmpeg
+ * never captures it.
+ * 
+ * The window is TRANSPARENT + click-through (IgnoreMouseEvents): every pixel,
+ * including the outline band, passes mouse input through to whatever is being
+ * recorded, so the indicator never steals a click. Singleton: a stale frame from a
+ * previous recording is closed first.
+ */
+export function OpenRecordingFrame(dipX: number, dipY: number, dipW: number, dipH: number, monitorID: number): $CancellablePromise<void> {
+    return $Call.ByID(3001338060, dipX, dipY, dipW, dipH, monitorID);
 }
 
 /**

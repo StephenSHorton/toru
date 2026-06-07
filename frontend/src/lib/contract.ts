@@ -73,6 +73,10 @@ export interface MonitorSession {
   scale: number; // physical = css * scale
   isPrimary: boolean; // only the primary window is interactive (crop + pill)
   crop: Rect; // monitor-local PHYSICAL px; {0,0,0,0} == none
+  // freeze tells the window how it was engaged: true => paint the frozen stillUrl
+  // backdrop (classic); false => no backdrop, the transparent window shows the LIVE
+  // desktop and a screenshot grabs live pixels at Capture (EnterEditLive).
+  freeze: boolean;
 }
 
 /**

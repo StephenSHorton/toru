@@ -3,6 +3,7 @@ package main
 import (
 	"net/url"
 	"path/filepath"
+	"strconv"
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/overlay"
@@ -36,7 +37,25 @@ type WindowsService struct {
 	// the main thread (ApplicationStarted listener, tray callbacks marshal to it,
 	// the editor gear's JS call lands on the main thread), so no extra locking.
 	settingsWin *application.WebviewWindow
+
+	// recFrameWin is the single live recorded-region border window (click-through,
+	// transparent). Held so StopRecording can close it via CloseRecordingFrame.
+	//
+	// Open (StartRecording's bound-call goroutine) and Close (StopRecording's
+	// bound-call goroutine) run on DIFFERENT goroutines, but never concurrently: the
+	// StartRecording call fully returns and JS renders the pill before any Stop can
+	// be issued, so the Start→…→Stop lifecycle serializes the field access (a
+	// happens-before through the call round-trip). The window ops themselves
+	// (NewWithOptions/Close) marshal to the main thread internally and Close no-ops
+	// on an already-destroyed window, so no extra locking is needed here.
+	recFrameWin *application.WebviewWindow
 }
+
+// recFrameMargin is the DIP gap between the recorded region's edge and the
+// indicator window's edge. The glowing outline is drawn within this band, OUTSIDE
+// the recorded rect, so ffmpeg never captures it (even after DIP->physical
+// rounding, margin*scale leaves several px of clearance).
+const recFrameMargin = 10
 
 // dark is Toru's window background (matches the dark theme; sharp, no chrome rounding).
 var dark = application.NewRGB(10, 10, 12)
@@ -163,6 +182,90 @@ func (w *WindowsService) OpenRecordingControls(handleID string, monitorID int) {
 	}
 	w.app.Window.NewWithOptions(opts)
 }
+
+// OpenRecordingError surfaces a FAILED StartRecording as a small dismissible pill.
+// The overlay is already hidden by the time ffmpeg reports it can't capture, so
+// without this the user is left with a blank screen and no idea why nothing
+// recorded. Same frameless placement as the live pill; the recording route renders
+// the error state off the ?startError= param.
+func (w *WindowsService) OpenRecordingError(message string, monitorID int) {
+	if w.app == nil {
+		return
+	}
+	const pillW, pillH = 360, 64
+	opts := application.WebviewWindowOptions{
+		Name:             "toru-recording-error",
+		Title:            "Toru — Recording failed",
+		URL:              "/?view=recording&startError=" + url.QueryEscape(message),
+		Width:            pillW,
+		Height:           pillH,
+		Frameless:        true,
+		AlwaysOnTop:      true,
+		DisableResize:    true,
+		BackgroundColour: dark,
+		Windows: application.WindowsWindow{
+			DisableFramelessWindowDecorations: true,
+			HiddenOnTaskbar:                   true,
+		},
+	}
+	if scr := pillScreen(w.app, monitorID); scr != nil {
+		opts.X = scr.WorkArea.X + (scr.WorkArea.Width-pillW)/2
+		opts.Y = scr.WorkArea.Y + 16
+		opts.InitialPosition = application.WindowXY
+	}
+	w.app.Window.NewWithOptions(opts)
+}
+
+// OpenRecordingFrame opens the "glowing border" window that outlines the recorded
+// region while recording. The overlay passes the EXACT region DIP bounds; we
+// expand by recFrameMargin on every side and hand the margin to React, which draws
+// the animated outline within that band — OUTSIDE the recorded rect, so ffmpeg
+// never captures it.
+//
+// The window is TRANSPARENT + click-through (IgnoreMouseEvents): every pixel,
+// including the outline band, passes mouse input through to whatever is being
+// recorded, so the indicator never steals a click. Singleton: a stale frame from a
+// previous recording is closed first.
+func (w *WindowsService) OpenRecordingFrame(dipX, dipY, dipW, dipH, monitorID int) {
+	if w.app == nil {
+		return
+	}
+	w.CloseRecordingFrame() // never stack two outlines
+	opts := application.WebviewWindowOptions{
+		Name:            "toru-recording-frame",
+		Title:           "Toru — Recording region",
+		URL:             "/?view=recframe&m=" + url.QueryEscape(itoa(recFrameMargin)),
+		X:               dipX - recFrameMargin,
+		Y:               dipY - recFrameMargin,
+		Width:           dipW + 2*recFrameMargin,
+		Height:          dipH + 2*recFrameMargin,
+		InitialPosition: application.WindowXY,
+		Frameless:       true,
+		AlwaysOnTop:     true,
+		DisableResize:   true,
+		// Transparent so only the outline paints; IgnoreMouseEvents so the whole
+		// window is click-through (you can keep using what you're recording).
+		BackgroundType:    application.BackgroundTypeTransparent,
+		BackgroundColour:  application.NewRGBA(0, 0, 0, 0),
+		IgnoreMouseEvents: true,
+		Windows: application.WindowsWindow{
+			DisableFramelessWindowDecorations: true,
+			HiddenOnTaskbar:                   true,
+		},
+	}
+	w.recFrameWin = w.app.Window.NewWithOptions(opts)
+}
+
+// CloseRecordingFrame tears down the recorded-region border window if one is up.
+func (w *WindowsService) CloseRecordingFrame() {
+	if w.recFrameWin != nil {
+		w.recFrameWin.Close()
+		w.recFrameWin = nil
+	}
+}
+
+// itoa is a tiny strconv.Itoa shim kept local so windows.go's imports stay lean.
+func itoa(n int) string { return strconv.Itoa(n) }
 
 // pillScreen picks the Wails screen for the recording pill: prefer one whose
 // PHYSICAL bounds do not overlap the recorded monitor (contract MonitorID ==
