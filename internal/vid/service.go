@@ -104,10 +104,12 @@ func (s *VideoService) ExportForDiscord(videoPath string) (string, error) {
 	if bps <= minDiscordBps {
 		common = append(common, "-vf", "scale=-2:720")
 	}
-	// Pass 1: fast analysis, no output file. Pass 2: the real encode (slower
-	// cpu-used buys quality at the locked bitrate).
-	pass1 := append(append([]string{}, common...), "-pass", "1", "-cpu-used", "4", "-an", "-f", "null", nullDevice())
-	pass2 := append(append([]string{}, common...), "-pass", "2", "-cpu-used", "2", outPath)
+	// Pass 1: fast analysis, no output file. Pass 2: the real encode. cpu-used
+	// 4 on pass 2 is ~2-3x faster than 2 and visually indistinguishable for
+	// screen content at these bitrates — a fullscreen ultrawide export should
+	// take ~3-4x the clip length, not ~10x.
+	pass1 := append(append([]string{}, common...), "-pass", "1", "-cpu-used", "5", "-an", "-f", "null", nullDevice())
+	pass2 := append(append([]string{}, common...), "-pass", "2", "-cpu-used", "4", outPath)
 	if err := capture.RunFFmpeg(ctx, pass1); err != nil {
 		return "", fmt.Errorf("discord export (pass 1): %w", err)
 	}
