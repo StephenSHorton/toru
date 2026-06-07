@@ -12,6 +12,8 @@ package main
 import (
 	"embed"
 	"log"
+	"os"
+	"slices"
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/dpi"
@@ -58,6 +60,13 @@ func init() {
 }
 
 func main() {
+	// startedAtLogin is true when Toru was launched by the Windows "Run at login"
+	// registry entry, which SettingsService.SetLaunchAtLogin writes WITH the
+	// --startup flag. In that case we boot SILENT in the tray (install the systray
+	// + prewarm overlays, but do NOT open the Settings/home window) so signing in
+	// doesn't flash a window. Every other launch opens Settings as before.
+	startedAtLogin := slices.Contains(os.Args[1:], startupArg)
+
 	// Per-Monitor-V2 DPI awareness MUST be set before any window is created so
 	// screen coordinates and gdigrab capture come back in true physical pixels.
 	dpi.EnsurePerMonitorV2()
@@ -75,6 +84,10 @@ func main() {
 	vidSvc := vid.New()
 	windowsSvc := &WindowsService{cap: capturer}
 	updateSvc := update.New(updateRepo, version)
+
+	// App-level preferences (currently just "launch at Windows login"). Backed by
+	// Wails' AutostartManager; app is injected after application.New below.
+	settingsSvc := &SettingsService{}
 
 	// Global hotkeys. The Manager owns a low-level keyboard hook (WH_KEYBOARD_LL)
 	// so it can capture AND swallow Win-key combos — the default is Win+Shift+S,
@@ -94,6 +107,7 @@ func main() {
 			application.NewService(windowsSvc),
 			application.NewService(updateSvc),
 			application.NewService(hotkeySvc),
+			application.NewService(settingsSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
@@ -108,6 +122,19 @@ func main() {
 		Windows: application.WindowsOptions{
 			DisableQuitOnLastWindowClosed: true,
 		},
+		// Toru is a single-instance tray app. Without this, launching it again
+		// (e.g. the user double-clicks the desktop icon while the login-started
+		// instance is already resident in the tray) would spawn a SECOND tray icon
+		// and a SECOND global keyboard hook — and the hotkey trampoline explicitly
+		// assumes one instance (internal/hotkey/hook_windows.go). Instead, the
+		// second launch hands off to the running instance, which surfaces the
+		// Settings/home window, then the second process exits.
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.stephenshorton.toru",
+			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+				windowsSvc.OpenSettings()
+			},
+		},
 	})
 
 	// Inject the running app into services that emit events / open windows / quit.
@@ -115,6 +142,7 @@ func main() {
 	windowsSvc.app = app
 	windowsSvc.overlay = overlaySvc
 	updateSvc.SetApp(app)
+	settingsSvc.app = app // for app.Autostart (launch-at-login)
 
 	// overlay-v2: screenshots are annotated IN PLACE on the same overlay surface
 	// (single-surface morph via OverlayService.EnterEdit) — NO separate editor
@@ -165,9 +193,13 @@ func main() {
 		systray.OnDoubleClick(func() { windowsSvc.OpenOverlay() }) // double-click = quick capture
 		// Right-click opens the menu automatically (Wails smart default).
 
-		// Show the Settings/home window ONCE so the user sees Toru is running.
+		// Show the Settings/home window ONCE so the user sees Toru is running —
+		// UNLESS this was a launch-at-login boot (--startup), where we stay silent
+		// in the tray and let the user reach the home window from the tray icon.
 		// Do NOT auto-pop the capture overlay on launch anymore.
-		windowsSvc.OpenSettings()
+		if !startedAtLogin {
+			windowsSvc.OpenSettings()
+		}
 
 		// Pre-warm the reused overlay windows so their handles are ready. This only
 		// creates the WebviewWindow objects (no navigation, no paint, no flicker);
