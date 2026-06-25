@@ -57,6 +57,10 @@ func init() {
 	// new, so safe.
 	application.RegisterEvent[overlay.MonitorSession](overlay.EventOverlayEngage)
 	application.RegisterEvent[overlay.OverlayEditPayload](overlay.EventOverlayEdit)
+	// overlay:cropRect relays the ONE shared cross-monitor crop (virtual-desktop
+	// physical px) between the per-monitor windows so a straddle selection moves as
+	// a single rect across the seam.
+	application.RegisterEvent[capture.Rect](overlay.EventOverlayCropRect)
 }
 
 func main() {
@@ -145,9 +149,12 @@ func main() {
 	updateSvc.SetApp(app)
 	settingsSvc.app = app // for app.Autostart (launch-at-login)
 
-	// overlay-v2: screenshots are annotated IN PLACE on the same overlay surface
-	// (single-surface morph via OverlayService.EnterEdit) — NO separate editor
-	// window is opened. windowsSvc.OpenEditor stays only for SimulateCapture/dev.
+	// overlay-v2: a SINGLE-monitor screenshot is annotated IN PLACE on the same
+	// overlay surface (single-surface morph via OverlayService.EnterEdit) — no
+	// separate editor window. A STRADDLE screenshot (crop spanning >1 monitor) can't
+	// morph in place, so EnterEditMulti stitches the region and opens it in the
+	// standalone editor window via this opener.
+	overlaySvc.SetEditorOpener(windowsSvc.OpenEditor)
 	//
 	// Video keeps its Go-side window opener: StartRecording dismisses the overlay
 	// windows (record the live region, not the dim), which destroys the calling

@@ -46,9 +46,19 @@ export class MonitorSession {
 
     /**
      * Crop is MONITOR-LOCAL PHYSICAL px; zero-value {0,0,0,0} when not primary
-     * or when there is no restored/default crop.
+     * or when there is no restored/default crop. LEGACY: the shared-crop overlay
+     * seeds from Region instead; Crop is retained for older callers/tests.
      */
     "crop": capture$0.Rect;
+
+    /**
+     * Region is the SHARED crop in VIRTUAL-DESKTOP PHYSICAL px (origin = primary
+     * top-left; may be negative; MAY straddle monitors). EVERY window receives the
+     * SAME Region and renders its own slice of it — this is the single source of
+     * truth for the cross-monitor selection. Seeded from persisted state / a
+     * centered default by buildSessionPayloads.
+     */
+    "region": capture$0.Rect;
 
     /**
      * Freeze tells React how this engage was rendered: true => paint the frozen
@@ -86,6 +96,9 @@ export class MonitorSession {
         if (!("crop" in $$source)) {
             this["crop"] = (new capture$0.Rect());
         }
+        if (!("region" in $$source)) {
+            this["region"] = (new capture$0.Rect());
+        }
         if (!("freeze" in $$source)) {
             this["freeze"] = false;
         }
@@ -98,9 +111,13 @@ export class MonitorSession {
      */
     static createFrom($$source: any = {}): MonitorSession {
         const $$createField8_0 = $$createType0;
+        const $$createField9_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("crop" in $$parsedSource) {
             $$parsedSource["crop"] = $$createField8_0($$parsedSource["crop"]);
+        }
+        if ("region" in $$parsedSource) {
+            $$parsedSource["region"] = $$createField9_0($$parsedSource["region"]);
         }
         return new MonitorSession($$parsedSource as Partial<MonitorSession>);
     }

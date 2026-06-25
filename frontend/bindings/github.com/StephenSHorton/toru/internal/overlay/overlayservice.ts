@@ -141,6 +141,21 @@ export function EnterEditLive(monitorID: number, sub: capture$0.Rect, cssLeft: n
 }
 
 /**
+ * EnterEditMulti is the STRADDLE screenshot Capture: the crop spans two or more
+ * monitors, so it can't morph in place (no overlay window spans the seam). It
+ * stitches the region out of the per-monitor pixels into ONE PNG, opens the
+ * standalone annotation editor window for it, and dismisses the overlay.
+ * 
+ * It honours the freeze preference: freeze-ON crops the already-frozen images;
+ * freeze-OFF grabs each touched monitor LIVE right now (hiding those windows first
+ * so none photographs its own dim/crop chrome, exactly like EnterEditLive does for
+ * one monitor). region is VIRTUAL-DESKTOP PHYSICAL px.
+ */
+export function EnterEditMulti(region: capture$0.Rect): $CancellablePromise<void> {
+    return $Call.ByID(1878624912, region);
+}
+
+/**
  * Finish is the explicit edit-mode "Done" (hide to tray) with NO cancel
  * semantics: it hides the overlay (keeping windows alive) WITHOUT firing
  * capture:cancelled (which other code may treat as a real cancel).
@@ -242,12 +257,12 @@ export function SaveCrop(monitorID: number, sub: capture$0.Rect): $CancellablePr
 }
 
 /**
- * SetActiveMonitor broadcasts which monitor owns the capture selection. Called
- * by an overlay window when the user clicks into it; all windows (including
- * the caller) receive the event and show/hide their selection chrome.
+ * SaveSharedCrop persists the shared crop (VIRTUAL-DESKTOP PHYSICAL px) so the
+ * next session reopens where the user left it. Called debounced on drag/resize end
+ * (and by EnterEditMulti before it dismisses). Mirrors SaveCrop's file discipline.
  */
-export function SetActiveMonitor(monitorID: number): $CancellablePromise<void> {
-    return $Call.ByID(1008328671, monitorID);
+export function SaveSharedCrop(region: capture$0.Rect): $CancellablePromise<void> {
+    return $Call.ByID(424141013, region);
 }
 
 /**
@@ -267,6 +282,18 @@ export function SetAudioSources(cfg: capture$0.AudioConfig): $CancellablePromise
  */
 export function SetFreezeOnCapture(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(3607977635, enabled);
+}
+
+/**
+ * SetSharedCrop relays the cross-monitor selection (VIRTUAL-DESKTOP PHYSICAL px)
+ * to EVERY overlay window so each re-renders its slice of the one shared crop.
+ * The per-monitor windows can't message each other directly, so the window that
+ * owns an in-progress drag calls this (rAF-throttled) and Go broadcasts
+ * overlay:cropRect; the other windows apply it. It also stashes the value for
+ * diagnostics. High-frequency + fire-and-forget: no disk, no return.
+ */
+export function SetSharedCrop(region: capture$0.Rect): $CancellablePromise<void> {
+    return $Call.ByID(4010892458, region);
 }
 
 /**

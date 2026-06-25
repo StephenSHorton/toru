@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 
@@ -118,17 +119,29 @@ func (w *WindowsService) OpenSettings() {
 // server has no /editor path, so the window URL MUST be /?view=editor (a bare
 // /editor 404s). The webview also can't load a raw C:\ path as <img src>, so the
 // committed PNG is handed over as the /__file/<basename> served URL.
+//
+// It owns the temp PNG's lifecycle: the straddle-screenshot path (EnterEditMulti)
+// hands over a stitched %TEMP%/toru PNG that is NOT tracked by the overlay's session
+// cleanup (it must outlive the dismissed overlay so the editor can load it). So this
+// window removes it on close — otherwise every straddle capture leaks one PNG for the
+// process lifetime. Removing on close is race-free: the webview has long since fetched
+// /__file/<base> by the time the user closes the editor.
 func (w *WindowsService) OpenEditor(imagePath string) {
 	if w.app == nil {
 		return
 	}
-	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "Toru — Edit Screenshot",
 		URL:              "/?view=editor&img=" + url.QueryEscape(servedFileURL(imagePath)),
 		Width:            1000,
 		Height:           720,
 		BackgroundColour: dark,
 	})
+	if imagePath != "" {
+		win.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
+			_ = os.Remove(imagePath)
+		})
+	}
 }
 
 // OpenTrim opens Developer 2's trim editor for videoPath. Same routing + served-

@@ -63,6 +63,12 @@ type OverlayService struct {
 	// never received WebView2 keyboard focus (the in-page DOM Esc handler's blind
 	// spot). Disarmed on hide / enter-edit / record / teardown.
 	escArmer func(on bool)
+	// editorOpener opens the standalone annotation editor window for a finished
+	// screenshot PNG (injected by main via SetEditorOpener; = windowsSvc.OpenEditor).
+	// A STRADDLE screenshot (crop spanning >1 monitor) cannot morph in place — no
+	// single overlay window spans two monitors — so EnterEditMulti stitches the
+	// region and hands the PNG to this opener instead of emitting overlay:edit.
+	editorOpener func(imagePath string)
 
 	mu sync.RWMutex
 	// windows are the REUSED overlay windows, keyed by monitorID. Created once
@@ -107,6 +113,12 @@ type OverlayService struct {
 	// cache and disk in lockstep. Guarded by mu.
 	freeze       bool
 	freezeLoaded bool
+
+	// sharedCrop is the latest cross-monitor selection (VIRTUAL-DESKTOP PHYSICAL px)
+	// relayed by SetSharedCrop. The crop lives in the front end; Go only relays it
+	// between the per-monitor windows (which can't message each other) and persists
+	// it. Kept here as the last-known value for diagnostics. Guarded by mu.
+	sharedCrop capture.Rect
 }
 
 // NewService wires the overlay to the shared capture seam.
@@ -174,6 +186,14 @@ func (s *OverlayService) armEscape(on bool) {
 	if s.escArmer != nil {
 		s.escArmer(on)
 	}
+}
+
+// SetEditorOpener injects the standalone screenshot-editor window opener (used by
+// the STRADDLE capture path, which can't morph in place). Go-only.
+//
+//wails:ignore
+func (s *OverlayService) SetEditorOpener(fn func(imagePath string)) {
+	s.editorOpener = fn
 }
 
 // GetFreezeOnCapture reports whether the screen is frozen during capture (the
@@ -850,6 +870,180 @@ func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft,
 	return nil
 }
 
+// SetSharedCrop relays the cross-monitor selection (VIRTUAL-DESKTOP PHYSICAL px)
+// to EVERY overlay window so each re-renders its slice of the one shared crop.
+// The per-monitor windows can't message each other directly, so the window that
+// owns an in-progress drag calls this (rAF-throttled) and Go broadcasts
+// overlay:cropRect; the other windows apply it. It also stashes the value for
+// diagnostics. High-frequency + fire-and-forget: no disk, no return.
+func (s *OverlayService) SetSharedCrop(region capture.Rect) {
+	s.mu.Lock()
+	s.sharedCrop = region
+	s.mu.Unlock()
+	s.emit(EventOverlayCropRect, region)
+}
+
+// SaveSharedCrop persists the shared crop (VIRTUAL-DESKTOP PHYSICAL px) so the
+// next session reopens where the user left it. Called debounced on drag/resize end
+// (and by EnterEditMulti before it dismisses). Mirrors SaveCrop's file discipline.
+func (s *OverlayService) SaveSharedCrop(region capture.Rect) error {
+	cropFileMu.Lock()
+	defer cropFileMu.Unlock()
+	st := loadCrops()
+	r := region
+	st.Region = &r
+	return saveCrops(st)
+}
+
+// EnterEditMulti is the STRADDLE screenshot Capture: the crop spans two or more
+// monitors, so it can't morph in place (no overlay window spans the seam). It
+// stitches the region out of the per-monitor pixels into ONE PNG, opens the
+// standalone annotation editor window for it, and dismisses the overlay.
+//
+// It honours the freeze preference: freeze-ON crops the already-frozen images;
+// freeze-OFF grabs each touched monitor LIVE right now (hiding those windows first
+// so none photographs its own dim/crop chrome, exactly like EnterEditLive does for
+// one monitor). region is VIRTUAL-DESKTOP PHYSICAL px.
+func (s *OverlayService) EnterEditMulti(region capture.Rect) error {
+	if region.W <= 0 || region.H <= 0 {
+		return fmt.Errorf("overlay: empty straddle rect %+v", region)
+	}
+
+	// Leaving capture for the standalone editor: disarm the global Escape hook so a
+	// stray Esc can't fire Cancel mid-stitch (HideOverlay also disarms on the success
+	// path, but the early-return/grab-error paths return before reaching it).
+	s.armEscape(false)
+
+	s.mu.RLock()
+	screens := append([]capture.ScreenInfo(nil), s.screens...)
+	gen := s.gen
+	s.mu.RUnlock()
+
+	hit := intersectingScreens(screens, region)
+	if len(hit) == 0 {
+		return fmt.Errorf("overlay: straddle rect %+v intersects no monitor", region)
+	}
+
+	freeze := s.currentFreeze()
+
+	// hidden holds the windows the freeze-OFF grab hides (empty for freeze-ON). It is
+	// function-scoped so EVERY error return below can reshowWindows it — never strand
+	// the overlay hidden with the capture lost (the EnterEditLive invariant). On a
+	// SUPERSEDE we deliberately DON'T reshow: a fresh BeginSession bumped gen and will
+	// re-show its own windows (ack-gated), so reshowing here would only flash stale DOM.
+	hidden := map[int]*application.WebviewWindow{}
+
+	var frozens map[int]*image.RGBA
+	if freeze {
+		// Crop the already-frozen pixels. Copy the map under the lock; the images
+		// themselves are immutable after the freeze, so stitching lock-free is safe.
+		s.mu.RLock()
+		frozens = make(map[int]*image.RGBA, len(s.frozenImg))
+		for k, v := range s.frozenImg {
+			frozens[k] = v
+		}
+		s.mu.RUnlock()
+		if len(frozens) == 0 {
+			return fmt.Errorf("overlay: no frozen images for straddle capture (session not active?)")
+		}
+	} else {
+		// FREEZE-OFF: grab each touched monitor live. Hide every hit window first so
+		// none bakes its own see-through chrome into the grab, then settle one DWM
+		// frame (mirrors EnterEditLive's single-monitor dance).
+		s.mu.RLock()
+		hitWins := make(map[int]*application.WebviewWindow, len(hit))
+		for _, sc := range hit {
+			hitWins[sc.ID] = s.windows[sc.ID]
+		}
+		s.mu.RUnlock()
+
+		for id, w := range hitWins {
+			if w != nil && w.IsVisible() {
+				w.Hide()
+				hidden[id] = w
+			}
+		}
+		settleCompositor()
+
+		// Supersede guard: a concurrent BeginSession (hotkey/tray, not gated by the
+		// React busy flag) bumped gen and now owns the windows. Abandon ours; the new
+		// session re-shows its windows itself (no reshow here — see `hidden` doc).
+		if s.superseded(gen) {
+			return nil
+		}
+
+		frozens = make(map[int]*image.RGBA, len(hit))
+		for _, sc := range hit {
+			img, err := capture.FreezeMonitorImage(image.Rect(sc.X, sc.Y, sc.X+sc.W, sc.Y+sc.H))
+			if err != nil {
+				reshowWindows(hidden) // genuine error: restore the overlay so the user can retry
+				return err
+			}
+			frozens[sc.ID] = img
+		}
+	}
+
+	path, err := capture.CropImageMulti(frozens, hit, region)
+	if err != nil {
+		reshowWindows(hidden) // genuine error: restore the overlay (no-op for freeze-ON)
+		return err
+	}
+
+	// Final supersede re-check before the DESTRUCTIVE tail: stitching + opening the
+	// editor takes long enough for a fresh BeginSession to land. If it did, drop our
+	// stitched PNG and bail WITHOUT HideOverlay — otherwise we'd tear down the brand-new
+	// session's windows + frozen pixels. (freeze-ON had NO guard before this fix.)
+	if s.superseded(gen) {
+		_ = os.Remove(path)
+		return nil
+	}
+
+	_ = s.SaveSharedCrop(region)
+	// Dismiss the overlay BEFORE opening the editor so the always-on-top overlay
+	// windows can't briefly obscure the (not-always-on-top) editor window. HideOverlay
+	// frees the frozen pixels and hides every still-visible overlay window; `path` is
+	// untracked, so it is NOT deleted here (the editor window owns its lifecycle).
+	s.HideOverlay()
+	if s.editorOpener != nil {
+		s.editorOpener(path)
+	} else {
+		_ = os.Remove(path) // no editor to hand it to: don't leak the temp
+	}
+	return nil
+}
+
+// superseded reports whether a fresh BeginSession has bumped the engage generation
+// past gen (i.e. this in-flight capture no longer owns the session).
+func (s *OverlayService) superseded(gen int) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.gen != gen
+}
+
+// reshowWindows re-Shows + Focuses each window — the error/supersede recovery for
+// the freeze-OFF straddle grab, which hides windows before grabbing.
+func reshowWindows(wins map[int]*application.WebviewWindow) {
+	for _, w := range wins {
+		if w != nil {
+			w.Show()
+			w.Focus()
+		}
+	}
+}
+
+// intersectingScreens returns the monitors whose virtual rect overlaps region
+// (positive area), in the screens slice's order. These are the monitors a straddle
+// capture must stitch / grab.
+func intersectingScreens(screens []capture.ScreenInfo, region capture.Rect) []capture.ScreenInfo {
+	out := make([]capture.ScreenInfo, 0, len(screens))
+	for _, sc := range screens {
+		if intersectArea(region, sc) > 0 {
+			out = append(out, sc)
+		}
+	}
+	return out
+}
+
 // Finish is the explicit edit-mode "Done" (hide to tray) with NO cancel
 // semantics: it hides the overlay (keeping windows alive) WITHOUT firing
 // capture:cancelled (which other code may treat as a real cancel).
@@ -1081,16 +1275,11 @@ const (
 	EventOverlayEngage    = "overlay:engage"
 	EventOverlayEdit      = "overlay:edit"
 
-	// EventOverlayActive is overlay-INTERNAL (window-to-window selection sync,
-	// not a Dev1<->Dev2 contract event): exactly ONE monitor owns the capture
-	// selection at a time; every other overlay window drops its crop/pill
-	// chrome and shows a "click to select" hint.
-	EventOverlayActive = "overlay:activeMonitor"
+	// EventOverlayCropRect (capture.Rect, VIRTUAL-DESKTOP PHYSICAL px) is the
+	// overlay-INTERNAL relay of the ONE shared cross-monitor crop. The window that
+	// owns an in-progress drag calls SetSharedCrop; every window (including the
+	// caller) receives this and re-renders its slice, so a straddle crop moves as a
+	// single rectangle across the seam. Replaces the old single-active-monitor
+	// selection model.
+	EventOverlayCropRect = "overlay:cropRect"
 )
-
-// SetActiveMonitor broadcasts which monitor owns the capture selection. Called
-// by an overlay window when the user clicks into it; all windows (including
-// the caller) receive the event and show/hide their selection chrome.
-func (s *OverlayService) SetActiveMonitor(monitorID int) {
-	s.emit(EventOverlayActive, monitorID)
-}

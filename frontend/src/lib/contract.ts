@@ -71,8 +71,12 @@ export interface MonitorSession {
   w: number;
   h: number;
   scale: number; // physical = css * scale
-  isPrimary: boolean; // only the primary window is interactive (crop + pill)
-  crop: Rect; // monitor-local PHYSICAL px; {0,0,0,0} == none
+  isPrimary: boolean; // legacy: which window starts as primary (informational now)
+  crop: Rect; // LEGACY monitor-local PHYSICAL px; the shared-crop overlay uses region
+  // region is the ONE shared crop in VIRTUAL-DESKTOP PHYSICAL px (origin = primary
+  // top-left; may be negative; MAY straddle monitors). Every window receives the SAME
+  // region and renders its own slice — the single source of truth for the selection.
+  region: Rect;
   // freeze tells the window how it was engaged: true => paint the frozen stillUrl
   // backdrop (classic); false => no backdrop, the transparent window shows the LIVE
   // desktop and a screenshot grabs live pixels at Capture (EnterEditLive).
@@ -132,6 +136,10 @@ export const Events = {
   // overlay window; React filters by its URL ?mon=.
   OverlayEngage: "overlay:engage",
   OverlayEdit: "overlay:edit",
+  // overlay:cropRect (Rect, VIRTUAL-DESKTOP PHYSICAL px) relays the ONE shared
+  // cross-monitor crop between windows so a straddle selection moves as a single
+  // rectangle across the seam. Every window applies it and re-renders its slice.
+  OverlayCropRect: "overlay:cropRect",
 } as const;
 
 /**
