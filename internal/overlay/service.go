@@ -56,6 +56,12 @@ type OverlayService struct {
 	// calls through). Held as a func so the frozen Capturer seam stays
 	// untouched.
 	audioConfigSetter func(cfg capture.AudioConfig)
+	// escArmer toggles the global Escape-to-cancel hook (injected by main via
+	// SetEscapeArmer -> hotkey.Manager.ArmEscape). Armed only while the capture
+	// overlay is up, so a global Escape cancels even when the transparent overlay
+	// never received WebView2 keyboard focus (the in-page DOM Esc handler's blind
+	// spot). Disarmed on hide / enter-edit / record / teardown.
+	escArmer func(on bool)
 
 	mu sync.RWMutex
 	// windows are the REUSED overlay windows, keyed by monitorID. Created once
@@ -151,6 +157,22 @@ func (s *OverlayService) SetRecordingFrameCloser(fn func()) {
 //wails:ignore
 func (s *OverlayService) SetAudioConfigSetter(fn func(cfg capture.AudioConfig)) {
 	s.audioConfigSetter = fn
+}
+
+// SetEscapeArmer injects the global Escape-to-cancel toggle (hotkey.Manager.
+// ArmEscape). Go-only.
+//
+//wails:ignore
+func (s *OverlayService) SetEscapeArmer(fn func(on bool)) {
+	s.escArmer = fn
+}
+
+// armEscape toggles the global Escape-to-cancel hook if an armer was injected.
+// Nil-safe so tests / non-Windows wiring that skip the hotkey engine still work.
+func (s *OverlayService) armEscape(on bool) {
+	if s.escArmer != nil {
+		s.escArmer(on)
+	}
 }
 
 // GetFreezeOnCapture reports whether the screen is frozen during capture (the
@@ -420,6 +442,11 @@ func (s *OverlayService) BeginSession() ([]MonitorSession, error) {
 		s.emit(EventOverlayEngage, mon) // broadcast; React filters by ?mon=
 	}
 
+	// Capture mode is now live: arm the global Escape-to-cancel hook so a press
+	// cancels even if the transparent overlay never took WebView2 keyboard focus.
+	// Disarmed again on hide / enter-edit / record / teardown.
+	s.armEscape(true)
+
 	return sessions, nil
 }
 
@@ -587,6 +614,8 @@ func (s *OverlayService) ShotMiddleware() application.Middleware {
 // and frees the in-memory frozen pixels + backdrop JPEGs (~100MB). It does NOT
 // Close() the windows; Teardown does that, only at app shutdown.
 func (s *OverlayService) HideOverlay() {
+	s.armEscape(false) // overlay is going away — stop intercepting global Escape
+
 	s.mu.RLock()
 	wins := make([]*application.WebviewWindow, 0, len(s.windows))
 	for _, w := range s.windows {
@@ -641,6 +670,8 @@ func (s *OverlayService) takeCropTempsLocked() []string {
 //
 //wails:ignore
 func (s *OverlayService) Teardown() {
+	s.armEscape(false) // app shutting down — never leave the Escape hook armed
+
 	s.mu.Lock()
 	wins := s.windows
 	s.windows = map[int]*application.WebviewWindow{}
@@ -680,6 +711,10 @@ func removeFiles(paths []string) {
 // React positions/sizes the embedded stage). The window stays SHOWN — this is the
 // same surface, not a re-engage.
 func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, cssTop, cssW, cssH int) error {
+	// Leaving capture for in-place edit (windows stay shown): disarm the global
+	// Escape hook so Esc now drives the annotation editor (deselect / Done), not Cancel.
+	s.armEscape(false)
+
 	s.mu.RLock()
 	img := s.frozenImg[monitorID]
 	s.mu.RUnlock()
@@ -728,6 +763,10 @@ func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, css
 // Args mirror EnterEdit: sub is the monitor-local PHYSICAL crop; cssLeft/Top/W/H
 // position the embedded stage where the bright region was.
 func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft, cssTop, cssW, cssH int) error {
+	// Leaving capture for in-place edit: disarm the global Escape hook (Esc now
+	// drives the annotation editor, not Cancel). Matches EnterEdit (frozen path).
+	s.armEscape(false)
+
 	s.mu.RLock()
 	var sc capture.ScreenInfo
 	found := false

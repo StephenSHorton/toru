@@ -53,6 +53,7 @@ const (
 	vkShift   = 0x10 // VK_SHIFT  (merged L+R)
 	vkControl = 0x11 // VK_CONTROL (merged L+R)
 	vkMenu    = 0x12 // VK_MENU / Alt (merged L+R)
+	vkEscape  = 0x1B // VK_ESCAPE (global overlay cancel)
 
 	asyncDownBit = 0x8000 // GetAsyncKeyState high bit => key currently down
 )
@@ -97,6 +98,13 @@ var (
 	// real press.
 	chordHeld bool
 	heldVK    uint32
+
+	// escHeld is the fire-on-first-down latch for the global Escape-to-cancel: a
+	// HELD Escape auto-repeats (~30/sec) and we want exactly ONE Cancel per press,
+	// not a flood. Set on the first armed Escape down, cleared on Escape up. Guarded
+	// by actMu (same as chordHeld), independent of the chord latch so a held
+	// Win+Shift+S and a tapped Escape never suppress each other.
+	escHeld bool
 )
 
 // keyDown reports whether vk is currently down via GetAsyncKeyState's high bit.
@@ -223,6 +231,9 @@ func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 				chordHeld = false
 				heldVK = 0
 			}
+			if vk == vkEscape {
+				escHeld = false // re-arm the next Escape press
+			}
 			actMu.Unlock()
 			r, _, _ := procCallNextHookEx.Call(0, uintptr(uint32(nCode)), wParam, lParam)
 			return r
@@ -232,6 +243,35 @@ func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 		actMu.Lock()
 		m := active
 		actMu.Unlock()
+
+		// Global Escape-to-cancel while the capture overlay is armed. This exists
+		// BECAUSE the in-page DOM Esc handler can miss: the overlay is a transparent,
+		// frameless, always-on-top window that may not hold WebView2 keyboard focus
+		// (clicks hit-test via the DOM without granting keyboard focus, and
+		// SetForegroundWindow can fail over a fullscreen app) — the same reason Toru
+		// uses an LL hook for Win+Shift+S instead of RegisterHotKey. We dispatch
+		// Cancel off the hook thread and ALWAYS chain on (never return 1): Escape has
+		// no harmful default while the fullscreen overlay is up, and not swallowing
+		// means a stuck-armed flag can only cause a harmless extra Cancel, never break
+		// Escape system-wide. escHeld coalesces auto-repeat into one Cancel per press.
+		if vk == vkEscape {
+			if m != nil && m.escapeArmed() {
+				actMu.Lock()
+				first := !escHeld
+				if first {
+					escHeld = true
+				}
+				actMu.Unlock()
+				if first {
+					select {
+					case m.sig <- escapeAction:
+					default:
+					}
+				}
+			}
+			r, _, _ := procCallNextHookEx.Call(0, uintptr(uint32(nCode)), wParam, lParam)
+			return r
+		}
 
 		if m != nil {
 			// Snapshot ONLY the candidate bindings (those whose trigger VK == vk)
