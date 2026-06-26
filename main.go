@@ -238,6 +238,15 @@ func main() {
 		// subsequent RE-engage is instant (freeze + Show only). The Screen cache is
 		// populated here (we are inside app.Run()), so DPI bounds are correct.
 		overlaySvc.PrewarmWindows()
+
+		// Forced auto-update: keeping Toru current is part of using it, so we check
+		// + silently install on every startup — INCLUDING a silent launch-at-login
+		// boot (no window), which is the case the frontend updater can't cover. The
+		// app is idle at startup, so this never interrupts a capture/recording. If
+		// an update exists the app downloads it, quits, and the installer relaunches
+		// the new version (project.nsi). Fire-and-forget; errors are logged, not
+		// fatal. dev builds short-circuit (CheckForUpdate returns nil).
+		go updateSvc.AutoUpdate()
 	})
 
 	// Best-effort: close the reused overlay windows on app shutdown. Process exit
