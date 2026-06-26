@@ -28,8 +28,15 @@ type MonitorSession struct {
 	// IsPrimary marks the single interactive (crop + pill) window.
 	IsPrimary bool `json:"isPrimary"`
 	// Crop is MONITOR-LOCAL PHYSICAL px; zero-value {0,0,0,0} when not primary
-	// or when there is no restored/default crop.
+	// or when there is no restored/default crop. LEGACY: the shared-crop overlay
+	// seeds from Region instead; Crop is retained for older callers/tests.
 	Crop capture.Rect `json:"crop"`
+	// Region is the SHARED crop in VIRTUAL-DESKTOP PHYSICAL px (origin = primary
+	// top-left; may be negative; MAY straddle monitors). EVERY window receives the
+	// SAME Region and renders its own slice of it — this is the single source of
+	// truth for the cross-monitor selection. Seeded from persisted state / a
+	// centered default by buildSessionPayloads.
+	Region capture.Rect `json:"region"`
 	// Freeze tells React how this engage was rendered: true => paint the frozen
 	// StillURL backdrop (classic); false => no backdrop, the transparent window
 	// shows the LIVE desktop and a screenshot grabs live pixels at Capture.
@@ -106,6 +113,9 @@ func (s *OverlayService) freezeAll(screens []capture.ScreenInfo) (map[int]*image
 // StillURL is empty and React renders the see-through live overlay.
 func (s *OverlayService) buildSessionPayloads(screens []capture.ScreenInfo, gen int, freeze bool) []MonitorSession {
 	st := loadCrops()
+	// One SHARED region (virtual-desktop physical px) seeds every window — the
+	// cross-monitor selection is a single rect all windows render a slice of.
+	region := seedRegion(screens, st)
 	sessions := make([]MonitorSession, 0, len(screens))
 	for _, sc := range screens {
 		var crop capture.Rect
@@ -130,6 +140,7 @@ func (s *OverlayService) buildSessionPayloads(screens []capture.ScreenInfo, gen 
 			Scale:     sc.ScaleFactor,
 			IsPrimary: sc.IsPrimary,
 			Crop:      crop,
+			Region:    region,
 			Freeze:    freeze,
 		})
 	}

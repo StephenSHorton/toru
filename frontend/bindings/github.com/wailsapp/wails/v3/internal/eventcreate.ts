@@ -16,14 +16,16 @@ import * as overlay$0 from "../../../../StephenSHorton/toru/internal/overlay/mod
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
         "capture:done": $$createType0,
-        "overlay:edit": $$createType1,
-        "overlay:engage": $$createType2,
+        "overlay:cropRect": $$createType1,
+        "overlay:edit": $$createType2,
+        "overlay:engage": $$createType3,
     }));
 }
 
 // Private type creation functions
 const $$createType0 = capture$0.CaptureResult.createFrom;
-const $$createType1 = overlay$0.OverlayEditPayload.createFrom;
-const $$createType2 = overlay$0.MonitorSession.createFrom;
+const $$createType1 = capture$0.Rect.createFrom;
+const $$createType2 = overlay$0.OverlayEditPayload.createFrom;
+const $$createType3 = overlay$0.MonitorSession.createFrom;
 
 configure();

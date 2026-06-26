@@ -16,6 +16,7 @@ declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "capture:done": capture$0.CaptureResult;
+            "overlay:cropRect": capture$0.Rect;
             "overlay:edit": overlay$0.OverlayEditPayload;
             "overlay:engage": overlay$0.MonitorSession;
         }
