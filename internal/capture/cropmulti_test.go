@@ -27,7 +27,7 @@ func decodePNG(t *testing.T, path string) image.Image {
 	if err != nil {
 		t.Fatalf("open stitched png: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	img, err := png.Decode(f)
 	if err != nil {
 		t.Fatalf("decode stitched png: %v", err)
@@ -59,7 +59,7 @@ func TestCropImageMulti_HorizontalSeam(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CropImageMulti: %v", err)
 	}
-	defer os.Remove(path)
+	defer func() { _ = os.Remove(path) }()
 
 	img := decodePNG(t, path)
 	if got := img.Bounds().Dx(); got != 60 {
@@ -85,7 +85,7 @@ func TestCropImageMulti_SingleMonitor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CropImageMulti: %v", err)
 	}
-	defer os.Remove(path)
+	defer func() { _ = os.Remove(path) }()
 	img := decodePNG(t, path)
 	if img.Bounds().Dx() != 40 || img.Bounds().Dy() != 30 {
 		t.Fatalf("size = %dx%d, want 40x30", img.Bounds().Dx(), img.Bounds().Dy())
@@ -117,7 +117,7 @@ func TestCropImageMulti_NegativeOriginAndDeadZone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CropImageMulti: %v", err)
 	}
-	defer os.Remove(path)
+	defer func() { _ = os.Remove(path) }()
 	img := decodePNG(t, path)
 
 	// Output (0,0) == virtual (-40,40): inside the short left monitor -> cyan.
