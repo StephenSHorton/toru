@@ -1,7 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Window } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
-import { Play, Pause, Scissors, Copy, Save, Send, Timer, Volume2, VolumeX } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
+import { Dialog } from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
+import {
+  Play,
+  Pause,
+  Scissors,
+  Copy,
+  Save,
+  Send,
+  Timer,
+  Volume2,
+  VolumeX,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
 import { ExportService, VideoService, TrimRequest } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 // DEVELOPER 2 — video trim editor. A player, a timeline with TWO draggable
 // in/out handles + a playhead, and Copy / Save As… / Trim actions. The region
@@ -28,6 +46,12 @@ export default function Trim() {
   const [precise, setPrecise] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  // Discord export runs in a modal (the two-pass re-encode can take a minute): a
+  // "working" state with an indeterminate bar, then a success/error message.
+  // null = modal closed.
+  const [discord, setDiscord] = useState<
+    { state: "working" | "done" | "error"; msg: string } | null
+  >(null);
 
   // Playback volume/mute — preview-only controls (the FILE's audio is
   // untouched; trims and exports keep the recorded track). Volume persists.
@@ -57,6 +81,9 @@ export default function Trim() {
   const onLoadedMetadata = () => {
     const v = vidRef.current;
     if (!v) return;
+    // Size the window to the clip's aspect ratio so the player isn't letterboxed
+    // and (with the layout's min-h-0) never needs a vertical scrollbar.
+    fitWindowToVideo(v.videoWidth, v.videoHeight);
     if (v.duration === Infinity) {
       // A WebM finalized without a duration header (e.g. a hard-killed mux)
       // reports Infinity; the standard fix is seeking far past the end, which
@@ -146,13 +173,19 @@ export default function Trim() {
   const doDiscord = useCallback(async () => {
     if (!absPath || busy) return;
     setBusy(true);
-    setNote("Exporting for Discord… (re-encode can take a bit)");
+    setDiscord({ state: "working", msg: "" });
     try {
       const out = await VideoService.ExportForDiscord(absPath);
       await ExportService.CopyToClipboard(out, "video");
-      setNote(out === absPath ? "Already under 10MB — copied ✓" : "Discord-sized copy on clipboard ✓");
+      setDiscord({
+        state: "done",
+        msg:
+          out === absPath
+            ? "Already under 10 MB — copied to your clipboard. Paste it into Discord (Ctrl + V)."
+            : "Discord-sized copy is on your clipboard. Paste it into Discord (Ctrl + V).",
+      });
     } catch (err) {
-      setNote(`Discord export failed: ${err}`);
+      setDiscord({ state: "error", msg: String(err) });
     } finally {
       setBusy(false);
     }
@@ -189,15 +222,17 @@ export default function Trim() {
   const noFile = !absPath;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex flex-1 items-center justify-center p-4">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 items-center justify-center p-4">
         <video
           ref={vidRef}
           src={src}
-          className="max-h-full max-w-full border"
+          className="max-h-full max-w-full cursor-pointer border"
           onLoadedMetadata={onLoadedMetadata}
           onTimeUpdate={onTimeUpdate}
           onEnded={() => setPlaying(false)}
+          onClick={toggle}
+          title={playing ? "Click to pause" : "Click to play"}
         />
       </div>
 
@@ -277,14 +312,15 @@ export default function Trim() {
           </span>
           {note ? <span className="text-xs text-primary">{note}</span> : null}
           <div className="ml-auto flex items-center gap-1">
-            <Button
-              size="sm"
-              variant={precise ? "default" : "ghost"}
-              onClick={() => setPrecise((p) => !p)}
-              title="Frame-accurate trim re-encodes (slower); off = instant cut snapping to the nearest keyframe"
-            >
-              <Timer /> Frame-accurate
-            </Button>
+            <Tooltip content="Re-encodes so the cut lands on the EXACT in/out frame you picked (slower). Off = instant cut that snaps to the nearest keyframe, which can leave a few extra frames at the start.">
+              <Button
+                size="sm"
+                variant={precise ? "default" : "ghost"}
+                onClick={() => setPrecise((p) => !p)}
+              >
+                <Timer /> Frame-accurate
+              </Button>
+            </Tooltip>
             <div className="mx-1 h-5 w-px bg-border" />
             <Button size="sm" variant="ghost" disabled={noFile || busy} onClick={() => void doCopy()}>
               <Copy /> Copy
@@ -310,8 +346,102 @@ export default function Trim() {
           source: <span className="font-mono">{absPath || "(dev sample.mp4 — actions disabled)"}</span>
         </div>
       </div>
+
+      {/* Discord export — modal with an indeterminate bar while the two-pass
+          re-encode runs, then a success/error message. Non-dismissable while
+          working so it can't be closed out from under the encode. */}
+      <Dialog
+        open={discord !== null}
+        dismissable={discord?.state !== "working"}
+        onClose={() => setDiscord(null)}
+      >
+        {discord ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              {discord.state === "working" ? (
+                <Loader2 className="size-4 animate-spin text-primary" />
+              ) : discord.state === "done" ? (
+                <CheckCircle2 className="size-4 text-primary" />
+              ) : (
+                <AlertCircle className="size-4 text-destructive" />
+              )}
+              <h2 className="text-sm font-medium">
+                {discord.state === "working"
+                  ? "Preparing for Discord…"
+                  : discord.state === "done"
+                    ? "Ready to share"
+                    : "Export failed"}
+              </h2>
+            </div>
+
+            {discord.state === "working" ? (
+              <>
+                <Progress indeterminate />
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Re-encoding to fit Discord&rsquo;s 10&nbsp;MB upload limit. This can take a minute
+                  for longer clips — you can leave this open.
+                </p>
+              </>
+            ) : (
+              <p
+                className={cn(
+                  "text-xs leading-relaxed",
+                  discord.state === "error" ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {discord.msg}
+              </p>
+            )}
+
+            {discord.state !== "working" ? (
+              <div className="flex justify-end">
+                <Button size="sm" onClick={() => setDiscord(null)}>
+                  Done
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </Dialog>
     </div>
   );
+}
+
+// fitWindowToVideo resizes the trim window so the player matches the clip's
+// aspect ratio — no wasted letterbox bars, and (with the layout's min-h-0 +
+// overflow-hidden) never tall enough to need a vertical scrollbar. Bounds keep
+// the window on-screen; the timeline panel's fixed chrome is added below the
+// video. A runtime-unavailable reject (dev /sample.mp4) is harmless — the
+// layout already prevents scroll on its own.
+function fitWindowToVideo(vw: number, vh: number) {
+  if (!vw || !vh) return;
+  const CHROME_H = 196; // timeline panel + paddings below the video (CSS px ≈ DIP)
+  const SIDE_PAD = 32; // video container horizontal padding (p-4 → 16 * 2)
+  const aspect = vw / vh;
+  const screenW = window.screen?.availWidth || 1600;
+  const screenH = window.screen?.availHeight || 1000;
+  const maxW = Math.min(1280, Math.round(screenW * 0.95));
+  const maxH = Math.min(960, Math.round(screenH * 0.92));
+  const minW = 520;
+
+  let dispW = Math.min(vw, maxW - SIDE_PAD);
+  let dispH = dispW / aspect;
+  const maxVideoH = maxH - CHROME_H;
+  if (dispH > maxVideoH) {
+    dispH = maxVideoH;
+    dispW = dispH * aspect;
+  }
+  const winW = Math.round(Math.max(minW, Math.min(maxW, dispW + SIDE_PAD)));
+  const winH = Math.round(Math.min(maxH, dispH + CHROME_H));
+
+  void (async () => {
+    try {
+      await Window.SetSize(winW, winH);
+      await Window.Center();
+    } catch {
+      /* runtime unavailable (dev sample) — layout still prevents scroll */
+    }
+  })();
 }
 
 // fmtSec renders seconds with 2 decimals: "0.00s", "12.34s"; minutes past 60s.

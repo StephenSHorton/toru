@@ -98,6 +98,16 @@
   }
 }
 
+/* Indeterminate progress sweep (Progress component, e.g. Discord re-encode). */
+@keyframes toruIndeterminate {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(410%);
+  }
+}
+
 /* thin, dark, square scrollbars to match */
 ::-webkit-scrollbar {
   width: 10px;
