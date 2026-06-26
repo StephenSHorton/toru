@@ -155,10 +155,16 @@ func (w *WindowsService) OpenTrim(videoPath string) {
 // this from Go right after StartRecording — without it a recording has NO
 // stop affordance (the tray Stop square is still a Phase-0 stub).
 //
-// Placement: top-center of a monitor that is NOT being recorded when one
-// exists (so the pill never appears inside a fullscreen recording); otherwise
-// top-center of the recorded monitor's work area — same trade-off Loom makes.
-func (w *WindowsService) OpenRecordingControls(handleID string, monitorID int) {
+// Placement: for a REGION recording the pill anchors just BELOW the recorded
+// region (centred on it, flipped ABOVE when there's no room below), on the
+// recorded monitor and clamped to its work area — so it appears right where the
+// user drew the crop. The old behaviour put it top-centre of a monitor that was
+// NOT being recorded, which on multi-monitor setups stranded the only Stop control
+// on a different screen ("I don't see the time box anywhere"). For a FULLSCREEN
+// recording there is no off-region space on the recorded monitor, so it falls back
+// to top-centre of an idle monitor (pillScreen) when one exists. regionX/Y/W/H are
+// the recorded region's DIP bounds (ignored when fullscreen).
+func (w *WindowsService) OpenRecordingControls(handleID string, monitorID, regionX, regionY, regionW, regionH int, fullscreen bool) {
 	const pillW, pillH = 240, 64
 	opts := application.WebviewWindowOptions{
 		Name:             "toru-recording-pill",
@@ -175,12 +181,84 @@ func (w *WindowsService) OpenRecordingControls(handleID string, monitorID int) {
 			HiddenOnTaskbar:                   true,
 		},
 	}
-	if scr := pillScreen(w.app, monitorID); scr != nil {
-		opts.X = scr.WorkArea.X + (scr.WorkArea.Width-pillW)/2
-		opts.Y = scr.WorkArea.Y + 16
+	if x, y, ok := pillPlacement(w.app, monitorID, regionX, regionY, regionW, regionH, fullscreen, pillW, pillH); ok {
+		opts.X = x
+		opts.Y = y
 		opts.InitialPosition = application.WindowXY
 	}
 	w.app.Window.NewWithOptions(opts)
+}
+
+// pillPlacement computes the recording pill's top-left DIP position. For a region
+// recording it sits just OUTSIDE the recorded region on the recorded monitor —
+// below it, or above when there's no room below — centred and clamped to the work
+// area so it is always fully on-screen and never overlaps the captured pixels. For
+// a fullscreen recording (or when the region/monitor can't be resolved) it uses
+// pillScreen's top-centre-of-an-idle-monitor fallback. ok is false only when no
+// screen at all could be found (the caller then lets Wails default-place it).
+func pillPlacement(app *application.App, monitorID, rx, ry, rw, rh int, fullscreen bool, pillW, pillH int) (int, int, bool) {
+	if !fullscreen && rw > 0 && rh > 0 {
+		if scr := screenForMonitor(app, monitorID); scr != nil {
+			wa := scr.WorkArea
+			const gap = recFrameMargin + 8 // clear the glowing border band
+			// Centred on the region horizontally; the Y we pick below is always a band
+			// that is fully off the region (>= gap+pillH tall), so this X can never put
+			// the pill over the captured pixels.
+			x := clampInt(rx+(rw-pillW)/2, wa.X, wa.X+wa.Width-pillW)
+			roomBelow := (wa.Y + wa.Height) - (ry + rh)
+			roomAbove := ry - wa.Y
+			switch {
+			case roomBelow >= gap+pillH:
+				return x, ry + rh + gap, true // just below the region
+			case roomAbove >= gap+pillH:
+				return x, ry - gap - pillH, true // no room below -> just above
+			}
+			// The region fills the monitor vertically: no off-region band fits. Fall
+			// through to the idle-monitor top-centre rather than CLAMPING the pill back
+			// onto the captured pixels — a clamped pill would bake into the video, the
+			// very bug this indicator exists to avoid.
+		}
+	}
+	if scr := pillScreen(app, monitorID); scr != nil {
+		return scr.WorkArea.X + (scr.WorkArea.Width-pillW)/2, scr.WorkArea.Y + 16, true
+	}
+	return 0, 0, false
+}
+
+// screenForMonitor returns the Wails screen that OVERLAPS the recorded monitor
+// (contract MonitorID == kbinani EnumDisplays index) — i.e. the monitor being
+// recorded, the inverse of pillScreen. Falls back to the primary.
+func screenForMonitor(app *application.App, monitorID int) *application.Screen {
+	if app == nil {
+		return nil
+	}
+	for _, d := range capture.EnumDisplays() {
+		if d.Index != monitorID {
+			continue
+		}
+		for _, scr := range app.Screen.GetAll() {
+			b := scr.PhysicalBounds
+			overlapsX := b.X < d.X+d.W && d.X < b.X+b.Width
+			overlapsY := b.Y < d.Y+d.H && d.Y < b.Y+b.Height
+			if overlapsX && overlapsY {
+				return scr
+			}
+		}
+		break
+	}
+	return app.Screen.GetPrimary()
+}
+
+// clampInt clamps v into [lo, hi]; if the range is empty (hi < lo, e.g. a window
+// wider than the work area) it returns lo so the window stays anchored to X/Y.
+func clampInt(v, lo, hi int) int {
+	if hi < lo || v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // OpenRecordingError surfaces a FAILED StartRecording as a small dismissible pill.
@@ -222,10 +300,13 @@ func (w *WindowsService) OpenRecordingError(message string, monitorID int) {
 // the animated outline within that band — OUTSIDE the recorded rect, so ffmpeg
 // never captures it.
 //
-// The window is TRANSPARENT + click-through (IgnoreMouseEvents): every pixel,
+// The window is TRANSPARENT (DirectComposition) + click-through: every pixel,
 // including the outline band, passes mouse input through to whatever is being
-// recorded, so the indicator never steals a click. Singleton: a stale frame from a
-// previous recording is closed first.
+// recorded, so the indicator never steals a click. The click-through is applied
+// via makeWindowClickThrough (WS_EX_TRANSPARENT only) rather than Wails'
+// IgnoreMouseEvents, which on a transparent window ALSO adds WS_EX_LAYERED and
+// composites it opaquely — whiting out the see-through region with a solid
+// rectangle. Singleton: a stale frame from a previous recording is closed first.
 func (w *WindowsService) OpenRecordingFrame(dipX, dipY, dipW, dipH, monitorID int) {
 	if w.app == nil {
 		return
@@ -243,17 +324,21 @@ func (w *WindowsService) OpenRecordingFrame(dipX, dipY, dipW, dipH, monitorID in
 		Frameless:       true,
 		AlwaysOnTop:     true,
 		DisableResize:   true,
-		// Transparent so only the outline paints; IgnoreMouseEvents so the whole
-		// window is click-through (you can keep using what you're recording).
-		BackgroundType:    application.BackgroundTypeTransparent,
-		BackgroundColour:  application.NewRGBA(0, 0, 0, 0),
-		IgnoreMouseEvents: true,
+		// Transparent (DirectComposition) so only the outline paints and the recorded
+		// region shows through. We deliberately do NOT set Wails' IgnoreMouseEvents:
+		// on a transparent window it also adds WS_EX_LAYERED, which composites the
+		// window OPAQUELY and whites out the see-through region (a solid white
+		// rectangle over what you're recording). makeWindowClickThrough adds
+		// WS_EX_TRANSPARENT alone for the click-through, leaving transparency intact.
+		BackgroundType:   application.BackgroundTypeTransparent,
+		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 		Windows: application.WindowsWindow{
 			DisableFramelessWindowDecorations: true,
 			HiddenOnTaskbar:                   true,
 		},
 	}
 	w.recFrameWin = w.app.Window.NewWithOptions(opts)
+	makeWindowClickThrough(w.recFrameWin)
 }
 
 // CloseRecordingFrame tears down the recorded-region border window if one is up.

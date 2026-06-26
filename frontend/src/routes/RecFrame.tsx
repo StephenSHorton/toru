@@ -1,13 +1,21 @@
 // RecFrame — the "glowing border" that outlines the recorded region while a
 // recording is in flight. Opened by WindowsService.OpenRecordingFrame as a
-// frameless, transparent, ALWAYS click-through (IgnoreMouseEvents) window that
-// covers the recorded region expanded by `m` px on every side.
+// frameless, transparent, click-through window that covers the recorded region
+// expanded by `m` px on every side.
 //
 // The recorded region is the window's inner rect (inset by `m`). The animated red
 // outline is drawn just OUTSIDE that inner rect — inside the `m`-px margin band —
 // so ffmpeg (which captures exactly the inner rect) never bakes the border into
 // the video. The center is fully transparent, so the live content shows through
-// untouched and the window passes every click straight to it.
+// untouched.
+//
+// CLICK-THROUGH is two-part and BOTH halves are load-bearing: (1) Go adds
+// WS_EX_TRANSPARENT to the host window (makeWindowClickThrough) — NOT Wails'
+// IgnoreMouseEvents, which would also force WS_EX_LAYERED and composite the window
+// opaque (a solid white rectangle over the recording); (2) the root element below
+// stays pointer-events:none so WebView2 itself swallows no clicks. Keep the root
+// pointer-events:none — an interactive element here would silently break
+// click-through over its bounds.
 export default function RecFrame() {
   const margin = parseInt(
     new URLSearchParams(window.location.search).get("m") ?? "10",
