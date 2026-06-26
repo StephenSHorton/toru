@@ -49,12 +49,18 @@ export function OpenOverlay(): $CancellablePromise<void> {
  * this from Go right after StartRecording — without it a recording has NO
  * stop affordance (the tray Stop square is still a Phase-0 stub).
  * 
- * Placement: top-center of a monitor that is NOT being recorded when one
- * exists (so the pill never appears inside a fullscreen recording); otherwise
- * top-center of the recorded monitor's work area — same trade-off Loom makes.
+ * Placement: for a REGION recording the pill anchors just BELOW the recorded
+ * region (centred on it, flipped ABOVE when there's no room below), on the
+ * recorded monitor and clamped to its work area — so it appears right where the
+ * user drew the crop. The old behaviour put it top-centre of a monitor that was
+ * NOT being recorded, which on multi-monitor setups stranded the only Stop control
+ * on a different screen ("I don't see the time box anywhere"). For a FULLSCREEN
+ * recording there is no off-region space on the recorded monitor, so it falls back
+ * to top-centre of an idle monitor (pillScreen) when one exists. regionX/Y/W/H are
+ * the recorded region's DIP bounds (ignored when fullscreen).
  */
-export function OpenRecordingControls(handleID: string, monitorID: number): $CancellablePromise<void> {
-    return $Call.ByID(4141771617, handleID, monitorID);
+export function OpenRecordingControls(handleID: string, monitorID: number, regionX: number, regionY: number, regionW: number, regionH: number, fullscreen: boolean): $CancellablePromise<void> {
+    return $Call.ByID(4141771617, handleID, monitorID, regionX, regionY, regionW, regionH, fullscreen);
 }
 
 /**
@@ -75,10 +81,13 @@ export function OpenRecordingError(message: string, monitorID: number): $Cancell
  * the animated outline within that band — OUTSIDE the recorded rect, so ffmpeg
  * never captures it.
  * 
- * The window is TRANSPARENT + click-through (IgnoreMouseEvents): every pixel,
+ * The window is TRANSPARENT (DirectComposition) + click-through: every pixel,
  * including the outline band, passes mouse input through to whatever is being
- * recorded, so the indicator never steals a click. Singleton: a stale frame from a
- * previous recording is closed first.
+ * recorded, so the indicator never steals a click. The click-through is applied
+ * via makeWindowClickThrough (WS_EX_TRANSPARENT only) rather than Wails'
+ * IgnoreMouseEvents, which on a transparent window ALSO adds WS_EX_LAYERED and
+ * composites it opaquely — whiting out the see-through region with a solid
+ * rectangle. Singleton: a stale frame from a previous recording is closed first.
  */
 export function OpenRecordingFrame(dipX: number, dipY: number, dipW: number, dipH: number, monitorID: number): $CancellablePromise<void> {
     return $Call.ByID(3001338060, dipX, dipY, dipW, dipH, monitorID);

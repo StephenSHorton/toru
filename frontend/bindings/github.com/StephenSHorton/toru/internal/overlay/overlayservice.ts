@@ -119,12 +119,19 @@ export function EnterEdit(monitorID: number, sub: capture$0.Rect, cssLeft: numbe
 
 /**
  * EnterEditLive is the FREEZE-OFF screenshot Capture: there is no pre-frozen
- * still, so the live pixels must be grabbed NOW. It (1) HIDES every overlay window
- * so the grab can't photograph the dim panels / crop ring, (2) settles one DWM
- * frame, (3) captures the live monitor into frozenImg (so the editor's Save/Copy
- * keep cropping real pixels), (4) crops to the served PNG and emits overlay:edit,
- * and (5) marks the window pendingEditShow so EditReady re-shows it once React has
- * painted the editor — re-showing immediately would flash the bare live overlay.
+ * still, so the live pixels must be grabbed NOW. It (1) HIDES the TARGET monitor's
+ * overlay window so the grab can't photograph that monitor's dim panels / crop ring
+ * (other monitors' windows sit over disjoint rects and cannot appear in this grab,
+ * so they stay shown — matching the frozen path), (2) settles one DWM frame, (3)
+ * captures the live monitor into frozenImg, (4) crops to the served PNG and emits
+ * overlay:edit, and (5) marks the window pendingEditShow so EditReady re-shows it
+ * once React has painted the editor — re-showing immediately would flash the bare
+ * live overlay.
+ * 
+ * INVARIANT: if it hid the target window, it MUST re-show it on EVERY return path
+ * (the grab/crop can fail transiently — DXGI/GDI, display-mode change, GPU TDR),
+ * or the overlay would be stranded hidden with the capture silently lost. The
+ * success path re-shows via EditReady; the error paths re-show inline.
  * 
  * Args mirror EnterEdit: sub is the monitor-local PHYSICAL crop; cssLeft/Top/W/H
  * position the embedded stage where the bright region was.

@@ -36,9 +36,10 @@ type OverlayService struct {
 	// for a started recording (injected by main via SetRecordingControlsOpener).
 	// It MUST be opened from Go: StartRecording hides the overlay windows
 	// first, which leaves no live JS context owning the recording — a frontend
-	// follow-up call after StartRecording is dead code. monitorID lets the
-	// opener place the pill OFF the recorded monitor.
-	recordingControlsOpener func(handleID string, monitorID int)
+	// follow-up call after StartRecording is dead code. The recorded region's DIP
+	// bounds + the fullscreen flag let the opener anchor the pill right at the crop
+	// (region) instead of stranding it top-centre of another monitor.
+	recordingControlsOpener func(handleID string, monitorID, regionX, regionY, regionW, regionH int, fullscreen bool)
 	// recordingErrorOpener opens a small dismissible pill that surfaces a FAILED
 	// StartRecording (injected by main). Without it a failed start would leave the
 	// user staring at a dismissed overlay with no clue why nothing recorded — the
@@ -122,7 +123,7 @@ func (s *OverlayService) SetApp(app *application.App) { s.app = app }
 // SetRecordingControlsOpener injects the recording-pill opener callback. Go-only.
 //
 //wails:ignore
-func (s *OverlayService) SetRecordingControlsOpener(fn func(handleID string, monitorID int)) {
+func (s *OverlayService) SetRecordingControlsOpener(fn func(handleID string, monitorID, regionX, regionY, regionW, regionH int, fullscreen bool)) {
 	s.recordingControlsOpener = fn
 }
 
@@ -917,6 +918,8 @@ func (s *OverlayService) StartRecording(req capture.CaptureRequest) (string, err
 		}
 		return "", err
 	}
+	fullscreen := req.Sub == capture.SubFullscreen
+	rx, ry, rw, rh, regionOK := s.regionDIP(req.Rect, req.MonitorID)
 	// Border outline around the recorded region (passed as the EXACT region DIP
 	// bounds; the opener expands by the border margin so the visible outline sits
 	// OUTSIDE the captured rect and never bakes into the video). SKIPPED for a
@@ -924,13 +927,14 @@ func (s *OverlayService) StartRecording(req capture.CaptureRequest) (string, err
 	// (its margin band is off-monitor) or, if drawn inward, land inside the captured
 	// pixels — there is no out-of-frame band on a whole-monitor grab. The pill is
 	// the indicator for fullscreen.
-	if s.recordingFrameOpener != nil && req.Sub != capture.SubFullscreen {
-		if x, y, w, h, ok := s.regionDIP(req.Rect, req.MonitorID); ok {
-			s.recordingFrameOpener(x, y, w, h, req.MonitorID)
-		}
+	if s.recordingFrameOpener != nil && !fullscreen && regionOK {
+		s.recordingFrameOpener(rx, ry, rw, rh, req.MonitorID)
 	}
 	if s.recordingControlsOpener != nil {
-		s.recordingControlsOpener(handle, req.MonitorID)
+		// Anchor the pill at the crop for region recordings; a region we couldn't
+		// resolve to DIP bounds is treated like fullscreen so the opener uses its
+		// safe top-centre fallback instead of bogus coordinates.
+		s.recordingControlsOpener(handle, req.MonitorID, rx, ry, rw, rh, fullscreen || !regionOK)
 	}
 	return handle, nil
 }
