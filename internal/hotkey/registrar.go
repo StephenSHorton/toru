@@ -23,7 +23,16 @@
 //     add an exact-match check (require unset modifiers to be UP) in the proc.
 package hotkey
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
+
+// escapeAction is the reserved internal action id fired when Escape is pressed
+// while the capture overlay is armed (see ArmEscape). It is NOT a user-facing
+// shortcut: it carries no Binding (so the LL-hook key-match loop never matches a
+// real keystroke to it) and is never added to `order` (so GetShortcuts hides it).
+const escapeAction = "__overlay_escape"
 
 // Binding is a parsed hotkey combo, e.g. {Win:true, Shift:true, Key:'S'}. Key is
 // the ASCII-uppercase rune of the trigger key; v1 supports A-Z and 0-9 only.
@@ -87,6 +96,12 @@ type Manager struct {
 	closed  bool          // guards double Close
 	closing bool          // set by stopHook; the install goroutine self-unhooks if
 	//                       a stop landed before SetWindowsHookExW published the hook
+
+	// escArmed is 1 while the capture overlay is up: the LL hook fires escapeAction
+	// on an Escape key-down and (crucially) NEVER swallows Escape. Atomic so the
+	// latency-sensitive hook proc reads it without taking m.mu. Toggled by ArmEscape
+	// from the overlay lifecycle (armed on engage, disarmed on hide/edit/record).
+	escArmed int32
 }
 
 // New returns an idle Manager. The engine starts lazily on the first Register.
@@ -179,6 +194,37 @@ func (m *Manager) Trigger(id string) {
 	if cb != nil {
 		cb()
 	}
+}
+
+// SetEscapeAction registers the callback fired when Escape is pressed while the
+// overlay is armed (ArmEscape(true)). It is stored under the reserved escapeAction
+// id so the existing dispatch goroutine runs it off the hook thread, exactly like
+// a normal hotkey action. Wired once at startup (main.go -> OverlayService.Cancel).
+func (m *Manager) SetEscapeAction(cb func()) {
+	m.mu.Lock()
+	m.callbacks[escapeAction] = cb
+	m.mu.Unlock()
+}
+
+// ArmEscape toggles whether a global Escape key-down fires the escape action. It
+// is armed ONLY while the capture overlay is shown (disarmed on hide / enter-edit
+// / record / teardown), so Escape never cancels during annotation or when no
+// overlay is up. The LL hook NEVER swallows Escape regardless of this flag, so a
+// stuck-true flag can at worst cause a harmless extra Cancel — Escape keeps
+// working everywhere else. Safe to call before the engine starts (just sets a
+// flag the not-yet-installed hook will read once running).
+func (m *Manager) ArmEscape(on bool) {
+	var v int32
+	if on {
+		v = 1
+	}
+	atomic.StoreInt32(&m.escArmed, v)
+}
+
+// escapeArmed reports whether a global Escape should fire the escape action. Read
+// lock-free by the LL-hook proc on every Escape key-down.
+func (m *Manager) escapeArmed() bool {
+	return atomic.LoadInt32(&m.escArmed) == 1
 }
 
 // start launches the dispatch goroutine (which runs callbacks off the hook

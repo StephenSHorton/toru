@@ -166,6 +166,17 @@ func main() {
 	// the bound SetAudioSources (the frozen Capturer seam carries no flag).
 	overlaySvc.SetAudioConfigSetter(recorder.SetAudioConfig)
 
+	// Global Escape-to-cancel. The capture overlay is a transparent, frameless,
+	// always-on-top window that may not hold WebView2 keyboard focus, so the in-page
+	// DOM Esc handler can be missed (e.g. triggering capture over a fullscreen app).
+	// We route Escape through the SAME low-level keyboard hook that powers
+	// Win+Shift+S: the overlay arms it on engage (SetEscapeArmer -> ArmEscape) and an
+	// armed Escape press fires Cancel. The hook never SWALLOWS Escape, so this can't
+	// affect Escape anywhere else. Wire BOTH before Register so the action exists the
+	// instant the hook installs.
+	overlaySvc.SetEscapeArmer(keys.ArmEscape)
+	keys.SetEscapeAction(func() { _ = overlaySvc.Cancel() })
+
 	// Install the global hotkey hook AFTER injection (windowsSvc.overlay is set
 	// above), so a hotkey press that lands before app.Run can still open the
 	// overlay (OpenOverlay also nil-guards w.overlay). Register the persisted
