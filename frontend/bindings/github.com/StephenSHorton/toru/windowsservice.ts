@@ -27,6 +27,13 @@ export function CloseRecordingFrame(): $CancellablePromise<void> {
  * server has no /editor path, so the window URL MUST be /?view=editor (a bare
  * /editor 404s). The webview also can't load a raw C:\ path as <img src>, so the
  * committed PNG is handed over as the /__file/<basename> served URL.
+ * 
+ * It owns the temp PNG's lifecycle: the straddle-screenshot path (EnterEditMulti)
+ * hands over a stitched %TEMP%/toru PNG that is NOT tracked by the overlay's session
+ * cleanup (it must outlive the dismissed overlay so the editor can load it). So this
+ * window removes it on close — otherwise every straddle capture leaks one PNG for the
+ * process lifetime. Removing on close is race-free: the webview has long since fetched
+ * /__file/<base> by the time the user closes the editor.
  */
 export function OpenEditor(imagePath: string): $CancellablePromise<void> {
     return $Call.ByID(642594709, imagePath);

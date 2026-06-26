@@ -19,6 +19,23 @@ import * as application$0 from "../../../../wailsapp/wails/v3/pkg/application/mo
 import * as $models from "./models.js";
 
 /**
+ * AutoUpdate is Toru's "always up to date" policy: it checks for a newer release
+ * and, if one exists, downloads, verifies, and silently installs it — no prompt,
+ * no opt-out. Keeping Toru current is part of using it. The silent installer
+ * overwrites toru.exe and relaunches it (see build/windows/nsis/project.nsi), so
+ * from the user's view the app briefly closes and reopens on the new version.
+ * 
+ * It runs as a fire-and-forget goroutine on startup (the app is idle then, so no
+ * capture/recording is interrupted). All errors are logged and swallowed — a
+ * failed or offline update check must never block startup. Concurrent callers
+ * (e.g. a manual "Check for Updates" click racing this) are deduped by the
+ * install guard in DownloadAndInstall.
+ */
+export function AutoUpdate(): $CancellablePromise<void> {
+    return $Call.ByID(23314439);
+}
+
+/**
  * CheckForUpdate returns the available update, or nil if the app is up to date
  * (or running a "dev" build, which never reports updates).
  */
@@ -31,6 +48,11 @@ export function CheckForUpdate(): $CancellablePromise<$models.UpdateInfo | null>
 /**
  * DownloadAndInstall downloads the installer, verifies its SHA256 (if known),
  * launches it silently, and quits the app so toru.exe is unlocked for overwrite.
+ * The silent installer then relaunches the freshly-updated Toru (project.nsi).
+ * 
+ * A guard dedupes concurrent installs (startup AutoUpdate racing a manual check):
+ * the first caller commits, later callers no-op. The guard is released on any
+ * pre-launch failure so a subsequent retry can proceed.
  */
 export function DownloadAndInstall(info: $models.UpdateInfo): $CancellablePromise<void> {
     return $Call.ByID(2125856281, info);

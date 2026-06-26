@@ -22,16 +22,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+// EventUpdateInstalling is emitted (with the target version string) right before
+// the silent installer launches and the app quits to update, so any open window
+// can show an "Updating…" state instead of just vanishing.
+const EventUpdateInstalling = "update:installing"
 
 // UpdateInfo describes an available update (returned to the frontend).
 type UpdateInfo struct {
@@ -45,10 +52,11 @@ type UpdateInfo struct {
 
 // UpdateService is the Wails-bound updater API.
 type UpdateService struct {
-	repo    string // "owner/repo", e.g. "StephenSHorton/toru"
-	current string // running version (ldflags-injected; "dev" in non-release builds)
-	client  *http.Client
-	app     *application.App
+	repo       string // "owner/repo", e.g. "StephenSHorton/toru"
+	current    string // running version (ldflags-injected; "dev" in non-release builds)
+	client     *http.Client
+	app        *application.App
+	installing atomic.Bool // set once an install is in flight; blocks a second install
 }
 
 // New returns an UpdateService for the given GitHub repo and running version.
@@ -65,6 +73,32 @@ func (s *UpdateService) SetApp(app *application.App) { s.app = app }
 
 // GetVersion returns the running version string.
 func (s *UpdateService) GetVersion() string { return s.current }
+
+// AutoUpdate is Toru's "always up to date" policy: it checks for a newer release
+// and, if one exists, downloads, verifies, and silently installs it — no prompt,
+// no opt-out. Keeping Toru current is part of using it. The silent installer
+// overwrites toru.exe and relaunches it (see build/windows/nsis/project.nsi), so
+// from the user's view the app briefly closes and reopens on the new version.
+//
+// It runs as a fire-and-forget goroutine on startup (the app is idle then, so no
+// capture/recording is interrupted). All errors are logged and swallowed — a
+// failed or offline update check must never block startup. Concurrent callers
+// (e.g. a manual "Check for Updates" click racing this) are deduped by the
+// install guard in DownloadAndInstall.
+func (s *UpdateService) AutoUpdate() {
+	info, err := s.CheckForUpdate()
+	if err != nil {
+		log.Printf("toru: auto-update check failed: %v", err)
+		return
+	}
+	if info == nil {
+		return // already up to date (or a dev build)
+	}
+	log.Printf("toru: auto-updating to v%s", info.Version)
+	if err := s.DownloadAndInstall(*info); err != nil {
+		log.Printf("toru: auto-update install failed: %v", err)
+	}
+}
 
 type ghAsset struct {
 	Name string `json:"name"`
@@ -173,7 +207,22 @@ func (s *UpdateService) fetchChecksum(ctx context.Context, url, name string) (st
 
 // DownloadAndInstall downloads the installer, verifies its SHA256 (if known),
 // launches it silently, and quits the app so toru.exe is unlocked for overwrite.
+// The silent installer then relaunches the freshly-updated Toru (project.nsi).
+//
+// A guard dedupes concurrent installs (startup AutoUpdate racing a manual check):
+// the first caller commits, later callers no-op. The guard is released on any
+// pre-launch failure so a subsequent retry can proceed.
 func (s *UpdateService) DownloadAndInstall(info UpdateInfo) error {
+	if !s.installing.CompareAndSwap(false, true) {
+		return nil // an install is already in flight
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			s.installing.Store(false)
+		}
+	}()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
@@ -202,8 +251,13 @@ func (s *UpdateService) DownloadAndInstall(info UpdateInfo) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("launch installer: %w", err)
 	}
-	// Release the executable lock so NSIS can overwrite toru.exe.
+	committed = true // installer is running; we are now committed to quitting
+
 	if s.app != nil {
+		// Best-effort: let an open window show "Updating…" instead of just
+		// vanishing. Then release the executable lock so NSIS can overwrite
+		// toru.exe; the installer relaunches the updated app afterward.
+		s.app.Event.Emit(EventUpdateInstalling, info.Version)
 		s.app.Quit()
 	}
 	return nil
