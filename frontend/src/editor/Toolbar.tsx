@@ -2,11 +2,12 @@
 // OVER the canvas. Frosted (.frost), shadcn Buttons, lucide icons, sharp corners
 // only (no rounded-*). Tool buttons are driven by a registry-aligned list
 // (TOOL_BUTTONS), mirroring the TOOLS registry in tools/index.ts. Color + stroke
-// controls bind to the store. Copy/Save call the export actions; a Settings gear
-// opens the tray-driven Settings/home window.
+// controls bind to the store. Copy flattens the stage to the clipboard; Done
+// (when provided) archives the annotated PNG to the Toru library then dismisses.
+// A Settings gear opens the tray-driven Settings/home window.
 //
-// The bar is HTML OUTSIDE the Konva Stage, so Copy/Save (which flatten the Stage)
-// never bake it into the exported PNG. It sits above CropOverlay/TextEditingOverlay
+// The bar is HTML OUTSIDE the Konva Stage, so Copy (which flattens the Stage)
+// never bakes it into the exported PNG. It sits above CropOverlay/TextEditingOverlay
 // (z-20) and is pointer-events-auto so its buttons stay clickable; it positions
 // itself absolutely (bottom-4 left-1/2 -translate-x-1/2) with no full-window
 // wrapper, so clicks elsewhere still reach the canvas underneath.
@@ -16,7 +17,7 @@ import type Konva from 'konva';
 import { Button } from '@/components/ui/button';
 import {
   MousePointer2, Pen, Square, Circle, ArrowUpRight, Minus, Type, Crop,
-  Undo2, Redo2, BringToFront, SendToBack, Trash2, Copy, Save, Check,
+  Undo2, Redo2, BringToFront, SendToBack, Trash2, Copy, Check,
   Settings as SettingsIcon, Camera,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -25,7 +26,7 @@ import type { ToolId } from './types';
 import { ColorPalette } from './ColorPalette';
 import { StrokeWidthControl } from './StrokeWidthControl';
 import { EmojiPicker } from './tools/emoji';
-import { copyToClipboard, saveAs } from './exportActions';
+import { copyToClipboard } from './exportActions';
 import { WindowsService } from '@/lib/api';
 
 // Aligns with the TOOLS registry (tools/index.ts). Order mirrors macOS Markup.
@@ -51,8 +52,11 @@ export interface ToolbarProps {
   stageRef: React.RefObject<Konva.Stage | null>;
   /** When provided (overlay edit mode), renders a "New" button to start a fresh capture. */
   onNewCapture?: () => void;
-  /** When provided (overlay edit mode), renders a "Done" button to hide the overlay. */
-  onDone?: () => void;
+  /**
+   * When provided (overlay edit mode), renders a "Done" button. The parent is
+   * responsible for saving the annotated PNG to the library then dismissing.
+   */
+  onDone?: () => void | Promise<void>;
 }
 
 export function Toolbar({ stageRef, onNewCapture, onDone }: ToolbarProps) {
@@ -67,6 +71,7 @@ export function Toolbar({ stageRef, onNewCapture, onDone }: ToolbarProps) {
 
   const hasSelection = !!selectedId && selectedId !== BASE_IMAGE_ID;
   const [copied, setCopied] = useState(false);
+  const [doneBusy, setDoneBusy] = useState(false);
 
   async function handleCopy() {
     const stage = stageRef.current;
@@ -79,9 +84,14 @@ export function Toolbar({ stageRef, onNewCapture, onDone }: ToolbarProps) {
       // Leave the button as "Copy" on failure — no toast surface here.
     }
   }
-  async function handleSave() {
-    const stage = stageRef.current;
-    if (stage) await saveAs(stage);
+  async function handleDone() {
+    if (!onDone || doneBusy) return;
+    setDoneBusy(true);
+    try {
+      await onDone();
+    } finally {
+      setDoneBusy(false);
+    }
   }
 
   return (
@@ -160,9 +170,6 @@ export function Toolbar({ stageRef, onNewCapture, onDone }: ToolbarProps) {
         {copied ? <Check /> : <Copy />}
         {copied ? 'Copied' : 'Copy'}
       </Button>
-      <Button size="sm" title="Save as…" onClick={() => void handleSave()}>
-        <Save /> Save
-      </Button>
 
       {(onNewCapture || onDone) && <Divider />}
       {onNewCapture && (
@@ -171,8 +178,13 @@ export function Toolbar({ stageRef, onNewCapture, onDone }: ToolbarProps) {
         </Button>
       )}
       {onDone && (
-        <Button size="sm" title="Done (hide)" onClick={onDone}>
-          <Check /> Done
+        <Button
+          size="sm"
+          title="Done — save to library and close"
+          disabled={doneBusy}
+          onClick={() => void handleDone()}
+        >
+          <Check /> {doneBusy ? 'Saving…' : 'Done'}
         </Button>
       )}
     </div>

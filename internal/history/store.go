@@ -1,7 +1,9 @@
 // Package history keeps a short list of recent screenshots and recordings so
-// the tray menu can re-open them. Files live under %AppData%/toru/captures/ with
-// an index.json; temps under %TEMP%/toru are NOT referenced (they get deleted
-// when an overlay session ends).
+// the tray menu and dashboard Library can re-open them. Files live under a
+// configurable library directory (default %AppData%/toru/captures/) with an
+// index.json; temps under %TEMP%/toru are NOT referenced (they get deleted when
+// an overlay session ends). Screenshots are added when the user hits Done after
+// annotating; recordings are added when a recording finishes.
 package history
 
 import (
@@ -41,12 +43,13 @@ type Store struct {
 	onChange func()
 }
 
-// New loads (or creates) the captures directory and index. onChange is called
+// New loads (or creates) the library directory and index. onChange is called
 // after every successful Add (and after load if desired by the caller for an
 // initial tray build — the caller usually rebuilds once on start anyway).
+// The directory is the user-configured path when set, otherwise DefaultDir.
 func New(onChange func()) *Store {
 	s := &Store{onChange: onChange}
-	dir, err := capturesDir()
+	dir, err := loadPreferredDir()
 	if err != nil {
 		return s
 	}
@@ -66,11 +69,80 @@ func (s *Store) List() []Item {
 	return out
 }
 
-// Dir returns the captures directory (may be empty if UserConfigDir failed).
+// Dir returns the library directory (may be empty if config setup failed).
 func (s *Store) Dir() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.dir
+}
+
+// IsDefaultDir reports whether the active library path is the built-in default.
+func (s *Store) IsDefaultDir() bool {
+	s.mu.Lock()
+	dir := s.dir
+	s.mu.Unlock()
+	def, err := DefaultDir()
+	if err != nil {
+		return false
+	}
+	return samePath(dir, def)
+}
+
+// SetDir switches the library folder to dir (must be absolute or cleanable),
+// creates it if needed, reloads index.json from the new location, and persists
+// the preference. Existing files in the previous folder are left in place (not
+// migrated) so a mistaken path change is non-destructive.
+func (s *Store) SetDir(dir string) error {
+	dir = filepath.Clean(dir)
+	if dir == "" || dir == "." {
+		return fmt.Errorf("history: empty library path")
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("history: resolve path: %w", err)
+	}
+	if err := os.MkdirAll(abs, 0o755); err != nil {
+		return fmt.Errorf("history: create library dir: %w", err)
+	}
+	// Reject paths that aren't writable directories.
+	fi, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("history: stat library dir: %w", err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("history: library path is not a directory")
+	}
+
+	if err := savePreferredDir(abs); err != nil {
+		return fmt.Errorf("history: persist library path: %w", err)
+	}
+
+	s.mu.Lock()
+	s.dir = abs
+	s.index = filepath.Join(abs, "index.json")
+	s.items = loadIndex(s.index)
+	s.pruneMissingLocked()
+	_ = saveIndex(s.index, s.items)
+	cb := s.onChange
+	s.mu.Unlock()
+
+	if cb != nil {
+		cb()
+	}
+	emitHistoryChanged()
+	return nil
+}
+
+// ResetDir restores the built-in default library folder.
+func (s *Store) ResetDir() error {
+	def, err := DefaultDir()
+	if err != nil {
+		return err
+	}
+	if err := savePreferredDir(""); err != nil {
+		return err
+	}
+	return s.SetDir(def)
 }
 
 // Get returns the item with the given id, if present.

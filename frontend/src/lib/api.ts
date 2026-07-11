@@ -20,6 +20,8 @@
 //   VideoService.Trim(req: TrimRequest): Promise<string>  (returns outPath)
 //   SettingsService.GetLaunchAtLogin(): Promise<boolean>
 //   SettingsService.SetLaunchAtLogin(enabled: boolean): Promise<void>  (registry Run key; --startup => silent-to-tray)
+//   HistoryService.Add(srcPath, kind): Promise<Item>  (archive file into library)
+//   HistoryService.GetDir / SetDir / PickDir / ResetDir / IsDefaultDir
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
