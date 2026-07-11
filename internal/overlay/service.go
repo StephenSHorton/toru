@@ -82,6 +82,13 @@ type OverlayService struct {
 	// WindowLostFocus does not Cancel the session mid-dialog. Alt-Tab to another
 	// app still cancels once the dialog restores this to false and focus is gone.
 	suspendDismiss atomic.Bool
+	// inEdit is true only after a successful screenshot Capture morphs into the
+	// annotation editor (EnterEdit / EnterEditLive / EnterEditMulti). Focus-loss
+	// cancel is gated on this: Win+Shift+S engage steals/loses focus constantly
+	// (Win key / freeze dance), so cancelling on ANY visible overlay made the
+	// hotkey appear to "open then instantly close". Edit-only matches the intended
+	// "Alt-Tab away from the editor" behaviour.
+	inEdit atomic.Bool
 
 	mu sync.RWMutex
 	// windows are the REUSED overlay windows, keyed by monitorID. Created once
@@ -714,6 +721,7 @@ func (s *OverlayService) ShotMiddleware() application.Middleware {
 // Close() the windows; Teardown does that, only at app shutdown.
 func (s *OverlayService) HideOverlay() {
 	s.armEscape(false) // overlay is going away — stop intercepting global Escape
+	s.inEdit.Store(false) // focus-loss cancel only applies in annotation edit mode
 
 	s.mu.RLock()
 	wins := make([]*application.WebviewWindow, 0, len(s.windows))
@@ -832,6 +840,8 @@ func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, css
 	}
 	s.trackCropTemp(cropPath)
 	s.rememberScreenshot(cropPath)
+	// Annotation edit mode is live — Alt-Tab focus-loss cancel may apply now.
+	s.inEdit.Store(true)
 
 	s.emit(EventOverlayEdit, OverlayEditPayload{
 		MonitorID: monitorID,
@@ -939,6 +949,10 @@ func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft,
 	_ = s.SaveCrop(monitorID, sub)
 	s.trackCropTemp(cropPath)
 	s.rememberScreenshot(cropPath)
+	// Annotation edit mode is live — Alt-Tab focus-loss cancel may apply now.
+	// (Set before EditReady re-Shows so we don't race a focus blip into cancel
+	// before inEdit is armed — suspendDismiss is still true until this returns.)
+	s.inEdit.Store(true)
 
 	// Emit AFTER arming pendingEditShow. React applies the edit and ACKs via
 	// EditReady once the crop decodes; EditReady then re-shows the window.
