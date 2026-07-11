@@ -28,6 +28,7 @@ import { StrokeWidthControl } from './StrokeWidthControl';
 import { EmojiPicker } from './tools/emoji';
 import { copyToClipboard } from './exportActions';
 import { WindowsService } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 // Aligns with the TOOLS registry (tools/index.ts). Order mirrors macOS Markup.
 const TOOL_BUTTONS: { id: ToolId; icon: LucideIcon; label: string }[] = [
@@ -50,16 +51,23 @@ const COPIED_FLASH_MS = 1500;
 
 export interface ToolbarProps {
   stageRef: React.RefObject<Konva.Stage | null>;
-  /** When provided (overlay edit mode), renders a "New" button to start a fresh capture. */
+  /** When provided, renders a "New" button to start a fresh capture. */
   onNewCapture?: () => void;
   /**
-   * When provided (overlay edit mode), renders a "Done" button. The parent is
-   * responsible for saving the annotated PNG to the library then dismissing.
+   * When provided, renders a "Done" button. The parent is responsible for
+   * saving the annotated PNG to the library then dismissing.
    */
   onDone?: () => void | Promise<void>;
+  /**
+   * Dock in document flow (standalone editor window) instead of floating
+   * absolute bottom-center. Used so the parent can size the window around the bar.
+   */
+  docked?: boolean;
+  /** Ref to the bar root — parent measures width/height for window chrome math. */
+  barRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-export function Toolbar({ stageRef, onNewCapture, onDone }: ToolbarProps) {
+export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef }: ToolbarProps) {
   const activeTool = useEditorStore((s) => s.activeTool);
   const setTool = useEditorStore((s) => s.setTool);
   const selectedId = useEditorStore((s) => s.selectedId);
@@ -95,7 +103,15 @@ export function Toolbar({ stageRef, onNewCapture, onDone }: ToolbarProps) {
   }
 
   return (
-    <div className="frost pointer-events-auto absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 px-2 py-1.5 shadow-lg">
+    <div
+      ref={barRef}
+      className={cn(
+        "frost pointer-events-auto z-20 flex items-center gap-1 px-2 py-1.5 shadow-lg",
+        docked
+          ? "relative mx-auto shrink-0"
+          : "absolute bottom-4 left-1/2 -translate-x-1/2",
+      )}
+    >
       {TOOL_BUTTONS.map((t) => (
         <Button
           key={t.id}
