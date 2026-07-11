@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"image"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1273,14 +1272,6 @@ func (s *OverlayService) regionDIP(rect capture.Rect, monitorID int) (x, y, w, h
 	w = rndDiv(rect.W, scale)
 	h = rndDiv(rect.H, scale)
 	return x, y, w, h, true
-}
-
-// servedFileURL turns an absolute temp-file path (under %TEMP%/toru) into the
-// /__file/<basename> URL ShotMiddleware serves. Duplicated from package main
-// (windows.go) because the overlay package cannot import package main; keep the
-// two trivial copies in sync.
-func servedFileURL(absPath string) string {
-	return "/__file/" + url.PathEscape(filepath.Base(absPath))
 }
 
 // StopRecording finalizes a recording and broadcasts capture:done. It first tears
