@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Toru (撮る) — Screen capture for Windows</title>
+    <meta
+      name="description"
+      content="Toru is a macOS-style screenshot and screen recording tool for Windows. Win+Shift+S, annotate, auto-save to your library."
+    />
+    <meta property="og:title" content="Toru (撮る) — Screen capture for Windows" />
+    <meta
+      property="og:description"
+      content="Hotkey capture, region / window / full screen, annotation editor, library, and auto-update."
+    />
+    <meta property="og:image" content="toru-banner.png" />
+    <meta name="theme-color" content="#0c0c0e" />
+    <link rel="icon" href="appicon.png" type="image/png" />
+    <style>
+      :root {
+        --bg: #0c0c0e;
+        --bg-elevated: #141418;
+        --fg: #f4f4f5;
+        --muted: #a1a1aa;
+        --border: #27272a;
+        --primary: #a78bfa;
+        --primary-fg: #0c0c0e;
+        --frost: color-mix(in oklab, #1c1c22 78%, transparent);
+        --ring: color-mix(in oklab, var(--primary) 45%, transparent);
+        --radius: 0; /* sharp edges — Toru house style */
+        --font: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+        --mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--font);
+        background: var(--bg);
+        color: var(--fg);
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      a {
+        color: var(--primary);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .wrap {
+        width: min(1080px, calc(100% - 2.5rem));
+        margin-inline: auto;
+      }
+
+      /* --- nav --- */
+      header.nav {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        border-bottom: 1px solid var(--border);
+        background: color-mix(in oklab, var(--bg) 82%, transparent);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+      }
+
+      .nav-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.85rem 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        color: var(--fg);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        text-decoration: none;
+      }
+      .brand:hover {
+        text-decoration: none;
+      }
+      .brand img {
+        width: 28px;
+        height: 28px;
+      }
+      .brand span.jp {
+        color: var(--muted);
+        font-weight: 500;
+        font-size: 0.9rem;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .nav-links a.quiet {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .nav-links a.quiet:hover {
+        color: var(--fg);
+      }
+
+      /* --- buttons --- */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.45rem;
+        border: 1px solid transparent;
+        padding: 0.65rem 1.05rem;
+        font: inherit;
+        font-weight: 600;
+        font-size: 0.92rem;
+        cursor: pointer;
+        transition: transform 0.1s ease, background 0.15s ease, border-color 0.15s ease;
+        user-select: none;
+        text-decoration: none !important;
+      }
+      .btn:active {
+        transform: scale(0.98);
+      }
+      .btn-primary {
+        background: var(--primary);
+        color: var(--primary-fg);
+      }
+      .btn-primary:hover {
+        filter: brightness(1.06);
+      }
+      .btn-ghost {
+        background: transparent;
+        color: var(--fg);
+        border-color: var(--border);
+      }
+      .btn-ghost:hover {
+        background: var(--bg-elevated);
+        border-color: #3f3f46;
+      }
+      .btn-lg {
+        padding: 0.85rem 1.25rem;
+        font-size: 1rem;
+      }
+
+      /* --- hero --- */
+      .hero {
+        padding: 3.5rem 0 2.5rem;
+        text-align: center;
+      }
+
+      .hero-banner {
+        width: min(720px, 100%);
+        height: auto;
+        margin: 0 auto 1.75rem;
+        display: block;
+        filter: drop-shadow(0 20px 40px oklab(0% 0 0 / 0.45));
+      }
+
+      .hero h1 {
+        margin: 0 0 0.75rem;
+        font-size: clamp(1.85rem, 4vw, 2.65rem);
+        letter-spacing: -0.03em;
+        font-weight: 700;
+        line-height: 1.15;
+      }
+
+      .hero .lede {
+        margin: 0 auto 1.5rem;
+        max-width: 36rem;
+        color: var(--muted);
+        font-size: 1.08rem;
+      }
+
+      .hero-cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        justify-content: center;
+        margin-bottom: 1.25rem;
+      }
+
+      .version-line {
+        color: var(--muted);
+        font-size: 0.85rem;
+        min-height: 1.25em;
+      }
+      .version-line code {
+        font-family: var(--mono);
+        font-size: 0.82rem;
+        color: var(--fg);
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        padding: 0.1rem 0.4rem;
+      }
+
+      .hotkey {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-top: 1.5rem;
+        padding: 0.55rem 0.85rem;
+        background: var(--frost);
+        border: 1px solid var(--border);
+        backdrop-filter: blur(10px);
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      kbd {
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        color: var(--fg);
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        padding: 0.15rem 0.4rem;
+      }
+
+      /* --- sections --- */
+      section {
+        padding: 2.75rem 0;
+      }
+      section.band {
+        border-block: 1px solid var(--border);
+        background: linear-gradient(
+          180deg,
+          color-mix(in oklab, var(--bg-elevated) 55%, transparent),
+          transparent
+        );
+      }
+
+      h2 {
+        margin: 0 0 0.5rem;
+        font-size: 1.45rem;
+        letter-spacing: -0.02em;
+      }
+      .section-lead {
+        margin: 0 0 1.75rem;
+        color: var(--muted);
+        max-width: 36rem;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1rem;
+      }
+
+      .card {
+        background: var(--frost);
+        border: 1px solid var(--border);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        padding: 1.2rem 1.25rem;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+      .card:hover {
+        border-color: var(--ring);
+        box-shadow: 0 0 0 1px var(--ring);
+      }
+      .card h3 {
+        margin: 0 0 0.4rem;
+        font-size: 1.02rem;
+        letter-spacing: -0.01em;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .card .icon {
+        display: inline-flex;
+        width: 2rem;
+        height: 2rem;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 0.75rem;
+        border: 1px solid var(--border);
+        background: var(--bg-elevated);
+        color: var(--primary);
+        font-size: 1rem;
+      }
+
+      .steps {
+        display: grid;
+        gap: 0.75rem;
+        counter-reset: step;
+      }
+      .step {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.9rem;
+        align-items: start;
+        padding: 1rem 1.1rem;
+        border: 1px solid var(--border);
+        background: var(--bg-elevated);
+      }
+      .step::before {
+        counter-increment: step;
+        content: counter(step);
+        width: 1.75rem;
+        height: 1.75rem;
+        display: grid;
+        place-items: center;
+        background: var(--primary);
+        color: var(--primary-fg);
+        font-weight: 700;
+        font-size: 0.85rem;
+      }
+      .step strong {
+        display: block;
+        margin-bottom: 0.15rem;
+      }
+      .step span {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .download-panel {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: 1.2fr 1fr;
+        align-items: center;
+        padding: 1.5rem;
+        border: 1px solid var(--border);
+        background: var(--frost);
+        backdrop-filter: blur(12px);
+      }
+      @media (max-width: 720px) {
+        .download-panel {
+          grid-template-columns: 1fr;
+        }
+      }
+      .download-panel h2 {
+        margin-bottom: 0.35rem;
+      }
+      .download-panel p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .download-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+      }
+      .download-actions .btn {
+        width: 100%;
+      }
+      .fine {
+        font-size: 0.8rem;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      footer {
+        padding: 2.5rem 0 3rem;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+      footer .foot-inner {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1.25rem;
+        justify-content: space-between;
+        align-items: center;
+      }
+      footer nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.85rem;
+      }
+      footer a {
+        color: var(--muted);
+      }
+      footer a:hover {
+        color: var(--fg);
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="nav">
+      <div class="wrap nav-inner">
+        <a class="brand" href="./">
+          <img src="appicon.png" alt="" width="28" height="28" />
+          Toru <span class="jp">撮る</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="quiet" href="#features">Features</a>
+          <a class="quiet" href="#how">How it works</a>
+          <a class="quiet" href="https://github.com/StephenSHorton/toru">GitHub</a>
+          <a class="btn btn-primary" id="nav-download" href="https://github.com/StephenSHorton/toru/releases/latest"
+            >Download</a
+          >
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="wrap">
+          <img
+            class="hero-banner"
+            src="toru-banner.png"
+            width="720"
+            height="240"
+            alt="Toru (撮る) — Screen Capture"
+          />
+          <h1>macOS-style capture for Windows</h1>
+          <p class="lede">
+            Press a hotkey, crop a region or window, annotate, and you’re done. Screenshots
+            land in your library automatically. Recordings get a trim editor.
+          </p>
+          <div class="hero-cta">
+            <a
+              class="btn btn-primary btn-lg"
+              id="hero-download"
+              href="https://github.com/StephenSHorton/toru/releases/latest"
+            >
+              Download for Windows
+            </a>
+            <a class="btn btn-ghost btn-lg" href="https://github.com/StephenSHorton/toru">
+              View source
+            </a>
+          </div>
+          <p class="version-line" id="version-line">Fetching latest release…</p>
+          <div class="hotkey" title="Default global shortcut">
+            Capture with
+            <kbd>⊞</kbd>
+            <kbd>Shift</kbd>
+            <kbd>S</kbd>
+          </div>
+        </div>
+      </section>
+
+      <section class="band" id="features">
+        <div class="wrap">
+          <h2>Built for the way you actually capture</h2>
+          <p class="section-lead">
+            Fast overlay, clear window picking, a real annotation editor, and a library that
+            just works.
+          </p>
+          <div class="grid">
+            <article class="card">
+              <div class="icon" aria-hidden="true">⬚</div>
+              <h3>Region · Window · Full screen</h3>
+              <p>
+                Freeform crop, hover-to-highlight window pick (click captures), or the entire
+                monitor — for stills and video.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon" aria-hidden="true">✎</div>
+              <h3>Annotation editor</h3>
+              <p>
+                Pen, shapes, arrows, text, emoji, crop, and paste-as-layer. Opens in a centered
+                window sized to your shot.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon" aria-hidden="true">◫</div>
+              <h3>Library + auto-save</h3>
+              <p>
+                Hit Done and it’s in your library. Choose the folder in Settings. Tray recents
+                for quick reopen.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon" aria-hidden="true">◎</div>
+              <h3>Record &amp; trim</h3>
+              <p>
+                Optional system / app / mic audio. Stop → trim editor with copy, save, and
+                Discord-friendly export.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon" aria-hidden="true">❄</div>
+              <h3>Freeze or live</h3>
+              <p>
+                Freeze the screen while you select, or keep it live so motion stays visible —
+                toggle anytime.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon" aria-hidden="true">↻</div>
+              <h3>Auto-update</h3>
+              <p>
+                Installs quietly from GitHub Releases so you stay on the latest build without a
+                manual hunt.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="how">
+        <div class="wrap">
+          <h2>How it works</h2>
+          <p class="section-lead">From hotkey to library in a few seconds.</p>
+          <div class="steps">
+            <div class="step">
+              <div>
+                <strong>Invoke</strong>
+                <span><kbd>⊞</kbd> <kbd>Shift</kbd> <kbd>S</kbd> or tray / library Capture.</span>
+              </div>
+            </div>
+            <div class="step">
+              <div>
+                <strong>Select</strong>
+                <span>Region drag, window hover+click, or full screen. Switch to Record when you need video.</span>
+              </div>
+            </div>
+            <div class="step">
+              <div>
+                <strong>Annotate</strong>
+                <span>Editor opens centered. Markup, copy, then Done — auto-saves to your library folder.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="band" id="download">
+        <div class="wrap">
+          <div class="download-panel">
+            <div>
+              <h2>Get Toru</h2>
+              <p>
+                Windows 11 · per-user installer (no UAC) · portable zip also available.
+                MIT licensed.
+              </p>
+            </div>
+            <div class="download-actions">
+              <a
+                class="btn btn-primary btn-lg"
+                id="panel-download"
+                href="https://github.com/StephenSHorton/toru/releases/latest"
+              >
+                Download installer
+              </a>
+              <a
+                class="btn btn-ghost"
+                id="panel-zip"
+                href="https://github.com/StephenSHorton/toru/releases/latest"
+              >
+                Portable zip
+              </a>
+              <p class="fine" id="panel-meta">Resolving assets from GitHub Releases…</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap foot-inner">
+        <div>© Stephen Horton · <a href="https://github.com/StephenSHorton/toru/blob/main/LICENSE">MIT</a></div>
+        <nav aria-label="Footer">
+          <a href="https://github.com/StephenSHorton/toru">Repository</a>
+          <a href="https://github.com/StephenSHorton/toru/releases">Releases</a>
+          <a href="https://github.com/StephenSHorton/toru/blob/main/docs/PLAN.md">Design notes</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script>
+      (async function () {
+        const api =
+          "https://api.github.com/repos/StephenSHorton/toru/releases/latest";
+        const versionEl = document.getElementById("version-line");
+        const panelMeta = document.getElementById("panel-meta");
+        const heroDl = document.getElementById("hero-download");
+        const navDl = document.getElementById("nav-download");
+        const panelDl = document.getElementById("panel-download");
+        const panelZip = document.getElementById("panel-zip");
+
+        try {
+          const res = await fetch(api, {
+            headers: { Accept: "application/vnd.github+json" },
+          });
+          if (!res.ok) throw new Error("release fetch failed");
+          const rel = await res.json();
+          const tag = rel.tag_name || "latest";
+          const assets = Array.isArray(rel.assets) ? rel.assets : [];
+          const installer = assets.find((a) => /installer\.exe$/i.test(a.name));
+          const zip = assets.find((a) => /\.zip$/i.test(a.name));
+
+          versionEl.innerHTML =
+            "Latest: <code>" +
+            tag.replace(/^v/, "v") +
+            "</code>" +
+            (rel.published_at
+              ? " · " +
+                new Date(rel.published_at).toLocaleDateString(undefined, {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                })
+              : "");
+
+          if (installer) {
+            heroDl.href = installer.browser_download_url;
+            navDl.href = installer.browser_download_url;
+            panelDl.href = installer.browser_download_url;
+            panelDl.textContent = "Download " + tag;
+          } else {
+            heroDl.href = rel.html_url;
+            navDl.href = rel.html_url;
+            panelDl.href = rel.html_url;
+          }
+          if (zip) {
+            panelZip.href = zip.browser_download_url;
+          } else {
+            panelZip.href = rel.html_url;
+          }
+          panelMeta.textContent = installer
+            ? installer.name + (zip ? " · " + zip.name : "")
+            : "Open the release page for assets";
+        } catch (e) {
+          versionEl.textContent = "See GitHub Releases for the latest build.";
+          panelMeta.textContent = "Open Releases if the direct link is unavailable.";
+        }
+      })();
+    </script>
+  </body>
+</html>
