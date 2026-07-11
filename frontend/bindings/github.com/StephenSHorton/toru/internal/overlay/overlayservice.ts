@@ -220,6 +220,17 @@ export function ListScreens(): $CancellablePromise<capture$0.ScreenInfo[]> {
 }
 
 /**
+ * ListWindows returns visible top-level app windows for the "capture a window"
+ * mode. Rects are virtual-desktop physical px so the front end can snap the crop
+ * and reuse the existing region capture path for stills + video.
+ */
+export function ListWindows(): $CancellablePromise<capture$0.WindowInfo[]> {
+    return $Call.ByID(863914604).then(($result: any) => {
+        return $$createType9($result);
+    });
+}
+
+/**
  * OverlayReady is the JS ACK that gates Show. React calls it from the
  * overlay:engage / RequestEngage handler AFTER it has applied the fresh session
  * (capture mode) AND the new backdrop <img> has DECODED, so revealing the window
@@ -338,3 +349,5 @@ const $$createType5 = $Create.Array($Create.Any);
 const $$createType6 = capture$0.ScreenInfo.createFrom;
 const $$createType7 = $Create.Array($$createType6);
 const $$createType8 = $Create.Nullable($$createType0);
+const $$createTypeW = capture$0.WindowInfo.createFrom;
+const $$createType9 = $Create.Array($$createTypeW);
