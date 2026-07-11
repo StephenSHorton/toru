@@ -224,25 +224,32 @@ func (s *OverlayService) ensureWindows(screens []capture.ScreenInfo) bool {
 	return wasVisible
 }
 
-// wireFocusLossCancel cancels the active capture/edit session when the user
-// Alt-Tabs away from Toru. Deferred slightly so focus can land on another Toru
-// window (Settings) or a suspended native dialog without false-cancelling.
+// wireFocusLossCancel cancels the ANNOTATION EDITOR when the user Alt-Tabs away
+// from Toru. It deliberately does NOT run in capture mode: Win+Shift+S engage
+// constantly loses focus (Win key, freeze/hide dance, multi-monitor Show), and
+// a capture-mode cancel made the hotkey look like "opens then instantly closes".
+// Deferred so focus can land on Settings / another Toru window first.
 func (s *OverlayService) wireFocusLossCancel(w *application.WebviewWindow) {
 	if w == nil {
 		return
 	}
 	w.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) {
 		// Defer so a focus transfer to Settings / another Toru window settles.
-		time.AfterFunc(120*time.Millisecond, func() {
+		time.AfterFunc(150*time.Millisecond, func() {
 			if s.suspendDismiss.Load() {
 				return
 			}
-			// Any visible overlay means a session is live (capture or edit).
+			// Capture-mode engage must stay up; only the post-Capture editor
+			// auto-cancels on app deactivation (the original Alt-Tab request).
+			if !s.inEdit.Load() {
+				return
+			}
 			if !s.hasVisibleOverlay() {
 				return
 			}
-			// If any Toru window still holds focus (Settings, editor, etc.), keep
-			// the session — only cancel when the whole app lost activation.
+			// If any Toru window still holds focus (Settings, other overlay,
+			// editor, etc.), keep the session — only cancel when the whole app
+			// lost activation (true Alt-Tab away).
 			if s.app != nil {
 				for _, win := range s.app.Window.GetAll() {
 					if win != nil && win.IsFocused() {
