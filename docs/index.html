@@ -218,6 +218,36 @@
         padding: 0.85rem 1.25rem;
         font-size: 1rem;
       }
+      .btn .icon,
+      .icon-link .icon {
+        width: 1.1em;
+        height: 1.1em;
+        flex-shrink: 0;
+        display: block;
+      }
+      .btn-lg .icon {
+        width: 1.2em;
+        height: 1.2em;
+      }
+      .icon-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--muted);
+        padding: 0.35rem;
+        line-height: 0;
+      }
+      .icon-link:hover {
+        color: var(--fg);
+        text-decoration: none;
+      }
+      .icon-link .icon {
+        width: 1.35rem;
+        height: 1.35rem;
+      }
+      .btn-ghost .icon {
+        opacity: 0.95;
+      }
 
       /* --- hero --- */
       .hero {
@@ -489,10 +519,30 @@
         <nav class="nav-links" aria-label="Primary">
           <a class="quiet" href="#features">Features</a>
           <a class="quiet" href="#how">How it works</a>
-          <a class="quiet" href="https://github.com/StephenSHorton/toru">GitHub</a>
-          <a class="btn btn-primary" id="nav-download" href="https://github.com/StephenSHorton/toru/releases/latest"
-            >Download</a
+          <a
+            class="icon-link"
+            href="https://github.com/StephenSHorton/toru"
+            aria-label="GitHub repository"
+            title="GitHub"
           >
+            <!-- GitHub mark -->
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                fill="currentColor"
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+              />
+            </svg>
+          </a>
+          <a class="btn btn-primary" id="nav-download" href="https://github.com/StephenSHorton/toru/releases/latest">
+            <!-- Windows logo -->
+            <svg class="icon" viewBox="0 0 88 88" aria-hidden="true" focusable="false">
+              <path
+                fill="currentColor"
+                d="M0 12.402l35.687-4.86.016 34.423-35.67.203zm35.67 33.529l.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349l-.011 41.34-47.318-6.678-.066-34.739z"
+              />
+            </svg>
+            <span class="btn-label">Download</span>
+          </a>
         </nav>
       </div>
     </header>
@@ -518,10 +568,22 @@
               id="hero-download"
               href="https://github.com/StephenSHorton/toru/releases/latest"
             >
-              Download for Windows
+              <svg class="icon" viewBox="0 0 88 88" aria-hidden="true" focusable="false">
+                <path
+                  fill="currentColor"
+                  d="M0 12.402l35.687-4.86.016 34.423-35.67.203zm35.67 33.529l.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349l-.011 41.34-47.318-6.678-.066-34.739z"
+                />
+              </svg>
+              <span class="btn-label">Download for Windows</span>
             </a>
             <a class="btn btn-ghost btn-lg" href="https://github.com/StephenSHorton/toru">
-              View source
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path
+                  fill="currentColor"
+                  d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+                />
+              </svg>
+              <span class="btn-label">View source</span>
             </a>
           </div>
           <p class="version-line" id="version-line">Fetching latest release…</p>
@@ -637,14 +699,26 @@
                 id="panel-download"
                 href="https://github.com/StephenSHorton/toru/releases/latest"
               >
-                Download installer
+                <svg class="icon" viewBox="0 0 88 88" aria-hidden="true" focusable="false">
+                  <path
+                    fill="currentColor"
+                    d="M0 12.402l35.687-4.86.016 34.423-35.67.203zm35.67 33.529l.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349l-.011 41.34-47.318-6.678-.066-34.739z"
+                  />
+                </svg>
+                <span class="btn-label">Download installer</span>
               </a>
               <a
                 class="btn btn-ghost"
                 id="panel-zip"
                 href="https://github.com/StephenSHorton/toru/releases/latest"
               >
-                Portable zip
+                <svg class="icon" viewBox="0 0 88 88" aria-hidden="true" focusable="false">
+                  <path
+                    fill="currentColor"
+                    d="M0 12.402l35.687-4.86.016 34.423-35.67.203zm35.67 33.529l.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349l-.011 41.34-47.318-6.678-.066-34.739z"
+                  />
+                </svg>
+                <span class="btn-label">Portable zip</span>
               </a>
               <p class="fine" id="panel-meta">Resolving assets from GitHub Releases…</p>
             </div>
@@ -703,7 +777,8 @@
             heroDl.href = installer.browser_download_url;
             navDl.href = installer.browser_download_url;
             panelDl.href = installer.browser_download_url;
-            panelDl.textContent = "Download " + tag;
+            const label = panelDl.querySelector(".btn-label");
+            if (label) label.textContent = "Download " + tag;
           } else {
             heroDl.href = rel.html_url;
             navDl.href = rel.html_url;
