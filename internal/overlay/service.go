@@ -802,20 +802,14 @@ func removeFiles(paths []string) {
 	}
 }
 
-// EnterEdit is THE single-surface screenshot morph. It crops the in-memory FROZEN
-// pixels for monitorID to a small LOSSLESS PNG (served at /__file/<base>) and
-// emits overlay:edit to the SAME overlay window — NO separate editor window is
-// opened. React loads the crop as the editor base image, sizes the Konva stage to
-// the crop's CSS rect, positions it where the bright region was, and morphs the
-// dock into the annotation toolbar.
-//
-// sub is the monitor-local PHYSICAL crop (front end via CropToPhysical); cssLeft/
-// cssTop/cssW/cssH are that region in CSS px within this window (echoed back so
-// React positions/sizes the embedded stage). The window stays SHOWN — this is the
-// same surface, not a re-engage.
+// EnterEdit crops the in-memory FROZEN pixels for monitorID to a LOSSLESS PNG,
+// dismisses the capture overlay, and opens the standalone annotation editor
+// window (same destination as EnterEditMulti). cssLeft/Top/W/H are kept for
+// binding compatibility with the React capture path but are unused — the editor
+// is a separate centered window, not an in-overlay morph.
 func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, cssTop, cssW, cssH int) error {
-	// Leaving capture for in-place edit (windows stay shown): disarm the global
-	// Escape hook so Esc now drives the annotation editor (deselect / Done), not Cancel.
+	_, _, _, _ = cssLeft, cssTop, cssW, cssH
+	// Leaving capture: disarm global Escape (overlay Cancel) before dismiss/open.
 	s.armEscape(false)
 
 	s.mu.RLock()
@@ -825,7 +819,6 @@ func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, css
 		return fmt.Errorf("overlay: no frozen image for monitor %d (session not active?)", monitorID)
 	}
 
-	// Persist the crop (monitor-local physical px) before morphing to edit.
 	_ = s.SaveCrop(monitorID, sub)
 
 	// The frozen RGBA is immutable after the freeze, so cropping it lock-free after
@@ -834,46 +827,35 @@ func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, css
 	if err != nil {
 		return err
 	}
-	s.trackCropTemp(cropPath)
+	// Do NOT trackCropTemp: HideOverlay would delete the file the editor needs.
+	// The editor window owns temp lifecycle (isToruTempPath on close).
 	s.rememberScreenshot(cropPath)
-	// Annotation edit mode is live — Alt-Tab focus-loss cancel may apply now.
-	s.inEdit.Store(true)
-
-	s.emit(EventOverlayEdit, OverlayEditPayload{
-		MonitorID: monitorID,
-		CropURL:   servedFileURL(cropPath),
-		CSSLeft:   cssLeft,
-		CSSTop:    cssTop,
-		CSSW:      cssW,
-		CSSH:      cssH,
-		Sub:       sub,
-	})
+	// Dismiss overlay BEFORE opening the editor so AOT capture windows can't
+	// obscure the (not-AOT) editor — same as EnterEditMulti.
+	s.HideOverlay()
+	if s.editorOpener != nil {
+		s.editorOpener(cropPath)
+	} else {
+		_ = os.Remove(cropPath)
+	}
 	return nil
 }
 
 // EnterEditLive is the FREEZE-OFF screenshot Capture: there is no pre-frozen
 // still, so the live pixels must be grabbed NOW. It (1) HIDES the TARGET monitor's
-// overlay window so the grab can't photograph that monitor's dim panels / crop ring
-// (other monitors' windows sit over disjoint rects and cannot appear in this grab,
-// so they stay shown — matching the frozen path), (2) settles one DWM frame, (3)
-// captures the live monitor into frozenImg, (4) crops to the served PNG and emits
-// overlay:edit, and (5) marks the window pendingEditShow so EditReady re-shows it
-// once React has painted the editor — re-showing immediately would flash the bare
-// live overlay.
+// overlay window so the grab can't photograph dim panels / crop chrome, (2)
+// settles one DWM frame, (3) captures the live monitor, (4) crops to a PNG,
+// (5) HideOverlay + opens the standalone annotation editor.
 //
-// INVARIANT: if it hid the target window, it MUST re-show it on EVERY return path
-// (the grab/crop can fail transiently — DXGI/GDI, display-mode change, GPU TDR),
-// or the overlay would be stranded hidden with the capture silently lost. The
-// success path re-shows via EditReady; the error paths re-show inline.
+// INVARIANT: if it hid the target window, error paths MUST re-show it (or the
+// overlay is stranded hidden). Success uses HideOverlay (all monitors) then opens
+// the editor — no in-overlay morph / EditReady path.
 //
-// Args mirror EnterEdit: sub is the monitor-local PHYSICAL crop; cssLeft/Top/W/H
-// position the embedded stage where the bright region was.
+// cssLeft/Top/W/H are unused (binding-compat); the editor is a separate window.
 func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft, cssTop, cssW, cssH int) error {
-	// Leaving capture for in-place edit: disarm the global Escape hook (Esc now
-	// drives the annotation editor, not Cancel). Matches EnterEdit (frozen path).
+	_, _, _, _ = cssLeft, cssTop, cssW, cssH
 	s.armEscape(false)
-	// Suspend focus-loss cancel while we Hide the target window for a clean live
-	// grab — Hide fires WindowLostFocus and would otherwise Cancel mid-capture.
+	// Suspend focus-loss cancel while we Hide for a clean live grab.
 	s.SetSuspendDismiss(true)
 	defer s.SetSuspendDismiss(false)
 
@@ -894,16 +876,12 @@ func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft,
 		return fmt.Errorf("overlay: no screen %d in session (live capture)", monitorID)
 	}
 
-	// (1) Hide ONLY the target monitor's window. (2) Settle one DWM frame so the
-	// just-hidden transparent window is gone from the composited image before grab.
 	targetWasVisible := win != nil && win.IsVisible()
 	if targetWasVisible {
 		win.Hide()
 	}
 	settleCompositor()
 
-	// reShow restores the target window if we hid it — used on every error path so a
-	// failed live grab never strands the overlay hidden with the capture lost.
 	reShow := func() {
 		if targetWasVisible {
 			if w := s.window(monitorID); w != nil {
@@ -913,7 +891,6 @@ func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft,
 		}
 	}
 
-	// (3) Grab the live monitor.
 	img, err := capture.FreezeMonitorImage(image.Rect(sc.X, sc.Y, sc.X+sc.W, sc.Y+sc.H))
 	if err != nil {
 		reShow()
@@ -926,41 +903,21 @@ func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft,
 		return err
 	}
 
-	// (4/5) Install the frozen image + arm the re-show under ONE lock, but ONLY if
-	// this capture still owns the session: a concurrent BeginSession (hotkey/tray,
-	// not gated by the React busy flag) may have swapped in a fresh frozenImg while
-	// we were grabbing. Writing our now-stale pixels there would corrupt the new
-	// session's screenshot. If superseded, drop our work and let the new engage own
-	// the window (its OverlayReady re-shows it).
-	s.mu.Lock()
-	if s.gen != gen {
-		s.mu.Unlock()
+	// Supersede: a concurrent BeginSession owns the session now — drop our crop.
+	if s.superseded(gen) {
 		_ = os.Remove(cropPath)
 		return nil
 	}
-	s.frozenImg[monitorID] = img
-	s.pendingEditShow[monitorID] = true
-	s.mu.Unlock()
 
 	_ = s.SaveCrop(monitorID, sub)
-	s.trackCropTemp(cropPath)
+	// Untracked temp — editor window owns delete-on-close.
 	s.rememberScreenshot(cropPath)
-	// Annotation edit mode is live — Alt-Tab focus-loss cancel may apply now.
-	// (Set before EditReady re-Shows so we don't race a focus blip into cancel
-	// before inEdit is armed — suspendDismiss is still true until this returns.)
-	s.inEdit.Store(true)
-
-	// Emit AFTER arming pendingEditShow. React applies the edit and ACKs via
-	// EditReady once the crop decodes; EditReady then re-shows the window.
-	s.emit(EventOverlayEdit, OverlayEditPayload{
-		MonitorID: monitorID,
-		CropURL:   servedFileURL(cropPath),
-		CSSLeft:   cssLeft,
-		CSSTop:    cssTop,
-		CSSW:      cssW,
-		CSSH:      cssH,
-		Sub:       sub,
-	})
+	s.HideOverlay()
+	if s.editorOpener != nil {
+		s.editorOpener(cropPath)
+	} else {
+		_ = os.Remove(cropPath)
+	}
 	return nil
 }
 

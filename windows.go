@@ -138,6 +138,8 @@ func (w *WindowsService) OpenEditor(imagePath string) {
 		Height:           720,
 		BackgroundColour: dark,
 	})
+	// Always open centered so captures from a corner/window aren't stuck off-side.
+	win.Center()
 	if imagePath != "" && isToruTempPath(imagePath) {
 		path := imagePath
 		win.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
