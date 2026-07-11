@@ -18,6 +18,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/dpi"
 	"github.com/StephenSHorton/toru/internal/export"
+	"github.com/StephenSHorton/toru/internal/history"
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/StephenSHorton/toru/internal/shot"
@@ -89,6 +90,16 @@ func main() {
 	vidSvc := vid.New()
 	windowsSvc := &WindowsService{cap: capturer}
 	updateSvc := update.New(updateRepo, version)
+
+	// Recent-captures store for the tray menu. onChange is wired after the tray
+	// controller exists (below) so the first Add doesn't fire a nil rebuild.
+	var tray *trayController
+	hist := history.New(func() {
+		if tray != nil {
+			tray.rebuildMenu()
+		}
+	})
+	overlaySvc.SetHistory(hist)
 
 	// App-level preferences (currently just "launch at Windows login"). Backed by
 	// Wails' AutostartManager; app is injected after application.New below.
@@ -214,12 +225,14 @@ func main() {
 		systray := app.SystemTray.New()
 		systray.SetIcon(trayIconPNG) // PNG bytes; Win32 decodes via CreateSmallHIconFromImage + auto-scales
 		systray.SetTooltip("Toru — screen capture (⊞ Shift S)")
-		menu := application.NewMenu()
-		menu.Add("Capture (⊞ Shift S)").OnClick(func(*application.Context) { windowsSvc.OpenOverlay() })
-		menu.Add("Settings…").OnClick(func(*application.Context) { windowsSvc.OpenSettings() })
-		menu.AddSeparator()
-		menu.Add("Quit Toru").OnClick(func(*application.Context) { app.Quit() })
-		systray.SetMenu(menu)
+		tray = &trayController{
+			tray:        systray,
+			app:         app,
+			history:     hist,
+			windows:     windowsSvc,
+			openOverlay: windowsSvc.OpenOverlay,
+		}
+		tray.rebuildMenu() // initial menu (includes any persisted recents)
 		systray.OnClick(func() { windowsSvc.OpenSettings() })      // left-click = open home (menu-bar feel)
 		systray.OnDoubleClick(func() { windowsSvc.OpenOverlay() }) // double-click = quick capture
 		// Right-click opens the menu automatically (Wails smart default).

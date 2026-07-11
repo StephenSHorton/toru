@@ -25,6 +25,16 @@ type ExportService struct{}
 // NewService returns the shared export service.
 func NewService() *ExportService { return &ExportService{} }
 
+// CopyImageFile publishes a PNG at path to the system clipboard. Package-level
+// so the overlay can auto-copy on capture without going through the Wails
+// binding (and without the overlay package depending on the Service type).
+func CopyImageFile(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("copy: source not found: %w", err)
+	}
+	return copyImageToClipboard(path)
+}
+
 // CopyToClipboard copies the file at path to the system clipboard.
 //
 //   - mediaType "image": publishes the PNG as a multi-format image bitmap so it

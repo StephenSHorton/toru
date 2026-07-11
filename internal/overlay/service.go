@@ -24,6 +24,8 @@ import (
 	"sync"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/export"
+	"github.com/StephenSHorton/toru/internal/history"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -69,6 +71,11 @@ type OverlayService struct {
 	// single overlay window spans two monitors — so EnterEditMulti stitches the
 	// region and hands the PNG to this opener instead of emitting overlay:edit.
 	editorOpener func(imagePath string)
+	// history is the recent-captures store (injected by main). On every successful
+	// screenshot crop / recording stop we Add a durable copy under
+	// %AppData%/toru/captures so the tray menu can re-open it. Optional: a nil
+	// history is a no-op (tests / stubs).
+	history *history.Store
 
 	mu sync.RWMutex
 	// windows are the REUSED overlay windows, keyed by monitorID. Created once
@@ -194,6 +201,38 @@ func (s *OverlayService) armEscape(on bool) {
 //wails:ignore
 func (s *OverlayService) SetEditorOpener(fn func(imagePath string)) {
 	s.editorOpener = fn
+}
+
+// SetHistory injects the recent-captures store used by auto-copy + the tray
+// "Recent" menu. Optional (tests leave it nil).
+//
+//wails:ignore
+func (s *OverlayService) SetHistory(h *history.Store) {
+	s.history = h
+}
+
+// rememberScreenshot auto-copies the fresh crop PNG to the clipboard and
+// archives a durable copy under %AppData%/toru/captures for the tray Recent
+// menu. Best-effort: a clipboard/history failure never fails the capture.
+func (s *OverlayService) rememberScreenshot(cropPath string) {
+	if cropPath == "" {
+		return
+	}
+	// Auto-copy: macOS-style — capture lands on the clipboard immediately so the
+	// user can paste without pressing Copy. The toolbar Copy button still works
+	// for re-exporting after annotation.
+	_ = export.CopyImageFile(cropPath)
+	if s.history != nil {
+		_, _ = s.history.Add(cropPath, history.KindImage)
+	}
+}
+
+// rememberRecording archives a finished recording for the tray Recent menu.
+func (s *OverlayService) rememberRecording(videoPath string) {
+	if videoPath == "" || s.history == nil {
+		return
+	}
+	_, _ = s.history.Add(videoPath, history.KindVideo)
 }
 
 // GetFreezeOnCapture reports whether the screen is frozen during capture (the
@@ -571,10 +610,11 @@ func (s *OverlayService) window(monitorID int) *application.WebviewWindow {
 //   - /__shot/<monitorID>?g=<gen> : the session dim BACKDROP, the pre-encoded fast
 //     JPEG held IN MEMORY in s.jpegCache (overlay-v2 — no disk round-trip). The
 //     ?g= cache-buster forces a reused webview to refetch the fresh backdrop.
-//   - /__file/<basename> : a committed temp artifact (the cropped screenshot PNG
-//     from CropImage, or a recording) living in the toru temp dir. Served by
-//     basename only — filepath.Base strips any path traversal and the lookup is
-//     confined to %TEMP%/toru — so this cannot read arbitrary disk files.
+//   - /__file/<basename> : a committed artifact living under EITHER %TEMP%/toru
+//     (session crop / live recording) OR %AppData%/toru/captures (tray Recent
+//     history). Served by basename only — filepath.Base strips any path traversal
+//     and the lookup is confined to those two dirs — so this cannot read arbitrary
+//     disk files.
 //
 // Both respond with Cache-Control: no-store so a re-opened session never serves a
 // stale image. Registered in main via AssetOptions.Middleware. Returns an http
@@ -585,6 +625,12 @@ func (s *OverlayService) ShotMiddleware() application.Middleware {
 	const shotPrefix = "/__shot/"
 	const filePrefix = "/__file/"
 	toruTmp := filepath.Join(os.TempDir(), "toru")
+	// capturesDir is the durable history folder. Empty if UserConfigDir fails;
+	// /__file then only serves temp (same as pre-history behaviour).
+	var capturesDir string
+	if cfg, err := os.UserConfigDir(); err == nil {
+		capturesDir = filepath.Join(cfg, "toru", "captures")
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
@@ -613,13 +659,20 @@ func (s *OverlayService) ShotMiddleware() application.Middleware {
 				return
 			case strings.HasPrefix(r.URL.Path, filePrefix):
 				// filepath.Base collapses any ../ so only a leaf name survives;
-				// joining it onto the fixed toru temp dir confines the read there.
+				// joining it onto the allow-listed dirs confines the read there.
 				base := filepath.Base(strings.TrimPrefix(r.URL.Path, filePrefix))
-				full := filepath.Join(toruTmp, base)
-				if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
-					w.Header().Set("Cache-Control", "no-store")
-					http.ServeFile(w, r, full) // content-type inferred from extension
-					return
+				// Prefer the session temp (hot path for live edit), then durable
+				// history captures (tray Recent re-open).
+				for _, dir := range []string{toruTmp, capturesDir} {
+					if dir == "" || base == "" || base == "." {
+						continue
+					}
+					full := filepath.Join(dir, base)
+					if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
+						w.Header().Set("Cache-Control", "no-store")
+						http.ServeFile(w, r, full) // content-type inferred from extension
+						return
+					}
 				}
 				http.NotFound(w, r)
 				return
@@ -753,6 +806,7 @@ func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, css
 		return err
 	}
 	s.trackCropTemp(cropPath)
+	s.rememberScreenshot(cropPath)
 
 	s.emit(EventOverlayEdit, OverlayEditPayload{
 		MonitorID: monitorID,
@@ -855,6 +909,7 @@ func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft,
 
 	_ = s.SaveCrop(monitorID, sub)
 	s.trackCropTemp(cropPath)
+	s.rememberScreenshot(cropPath)
 
 	// Emit AFTER arming pendingEditShow. React applies the edit and ACKs via
 	// EditReady once the crop decodes; EditReady then re-shows the window.
@@ -999,6 +1054,7 @@ func (s *OverlayService) EnterEditMulti(region capture.Rect) error {
 	}
 
 	_ = s.SaveSharedCrop(region)
+	s.rememberScreenshot(path)
 	// Dismiss the overlay BEFORE opening the editor so the always-on-top overlay
 	// windows can't briefly obscure the (not-always-on-top) editor window. HideOverlay
 	// frees the frozen pixels and hides every still-visible overlay window; `path` is
@@ -1238,6 +1294,7 @@ func (s *OverlayService) StopRecording(handleID string) (capture.CaptureResult, 
 	if err != nil {
 		return capture.CaptureResult{}, err
 	}
+	s.rememberRecording(res.VideoPath)
 	s.emit(EventCaptureDone, res)
 	return res, nil
 }

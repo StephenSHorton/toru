@@ -11,12 +11,13 @@
 // itself absolutely (bottom-4 left-1/2 -translate-x-1/2) with no full-window
 // wrapper, so clicks elsewhere still reach the canvas underneath.
 
+import { useState } from 'react';
 import type Konva from 'konva';
 import { Button } from '@/components/ui/button';
 import {
   MousePointer2, Pen, Square, Circle, ArrowUpRight, Minus, Type, Crop,
-  Undo2, Redo2, BringToFront, SendToBack, Trash2, Copy, Save,
-  Settings as SettingsIcon, Camera, Check,
+  Undo2, Redo2, BringToFront, SendToBack, Trash2, Copy, Save, Check,
+  Settings as SettingsIcon, Camera,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEditorStore, BASE_IMAGE_ID } from './store';
@@ -43,6 +44,9 @@ const TOOL_BUTTONS: { id: ToolId; icon: LucideIcon; label: string }[] = [
 
 const Divider = () => <div className="mx-1 h-6 w-px bg-border" />;
 
+/** How long the Copy button stays on "Copied" after a successful copy. */
+const COPIED_FLASH_MS = 1500;
+
 export interface ToolbarProps {
   stageRef: React.RefObject<Konva.Stage | null>;
   /** When provided (overlay edit mode), renders a "New" button to start a fresh capture. */
@@ -62,10 +66,18 @@ export function Toolbar({ stageRef, onNewCapture, onDone }: ToolbarProps) {
   const deleteSelected = useEditorStore((s) => s.deleteSelected);
 
   const hasSelection = !!selectedId && selectedId !== BASE_IMAGE_ID;
+  const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
     const stage = stageRef.current;
-    if (stage) await copyToClipboard(stage);
+    if (!stage) return;
+    try {
+      await copyToClipboard(stage);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), COPIED_FLASH_MS);
+    } catch {
+      // Leave the button as "Copy" on failure — no toast surface here.
+    }
   }
   async function handleSave() {
     const stage = stageRef.current;
@@ -139,8 +151,14 @@ export function Toolbar({ stageRef, onNewCapture, onDone }: ToolbarProps) {
       >
         <SettingsIcon />
       </Button>
-      <Button size="sm" variant="ghost" title="Copy to clipboard" onClick={() => void handleCopy()}>
-        <Copy /> Copy
+      <Button
+        size="sm"
+        variant="ghost"
+        title={copied ? 'Copied' : 'Copy to clipboard'}
+        onClick={() => void handleCopy()}
+      >
+        {copied ? <Check /> : <Copy />}
+        {copied ? 'Copied' : 'Copy'}
       </Button>
       <Button size="sm" title="Save as…" onClick={() => void handleSave()}>
         <Save /> Save

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/overlay"
@@ -120,12 +121,12 @@ func (w *WindowsService) OpenSettings() {
 // /editor 404s). The webview also can't load a raw C:\ path as <img src>, so the
 // committed PNG is handed over as the /__file/<basename> served URL.
 //
-// It owns the temp PNG's lifecycle: the straddle-screenshot path (EnterEditMulti)
-// hands over a stitched %TEMP%/toru PNG that is NOT tracked by the overlay's session
-// cleanup (it must outlive the dismissed overlay so the editor can load it). So this
-// window removes it on close — otherwise every straddle capture leaks one PNG for the
-// process lifetime. Removing on close is race-free: the webview has long since fetched
-// /__file/<base> by the time the user closes the editor.
+// TEMP vs HISTORY lifecycle: the straddle-screenshot path (EnterEditMulti) hands
+// over a stitched %TEMP%/toru PNG that is NOT tracked by the overlay's session
+// cleanup, so THIS window removes it on close (otherwise every straddle capture
+// leaks one PNG for the process lifetime). History re-opens under
+// %AppData%/toru/captures MUST NOT be deleted — those files power the tray
+// Recent menu. isToruTempPath gates the removal.
 func (w *WindowsService) OpenEditor(imagePath string) {
 	if w.app == nil {
 		return
@@ -137,11 +138,38 @@ func (w *WindowsService) OpenEditor(imagePath string) {
 		Height:           720,
 		BackgroundColour: dark,
 	})
-	if imagePath != "" {
+	if imagePath != "" && isToruTempPath(imagePath) {
+		path := imagePath
 		win.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
-			_ = os.Remove(imagePath)
+			_ = os.Remove(path)
 		})
 	}
+}
+
+// isToruTempPath reports whether p lives under %TEMP%/toru (session-only
+// artifacts). History captures live under %AppData%/toru/captures and must be
+// retained across editor close.
+func isToruTempPath(p string) bool {
+	if p == "" {
+		return false
+	}
+	tmp, err := filepath.Abs(filepath.Join(os.TempDir(), "toru"))
+	if err != nil {
+		return false
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return false
+	}
+	// Case-insensitive prefix match (Windows paths); require a path separator
+	// after the temp root so we don't match e.g. %TEMP%/toru-other/file.
+	absLower := strings.ToLower(abs)
+	tmpLower := strings.ToLower(tmp)
+	if absLower == tmpLower {
+		return true
+	}
+	prefix := tmpLower + string(os.PathSeparator)
+	return strings.HasPrefix(absLower, prefix)
 }
 
 // OpenTrim opens Developer 2's trim editor for videoPath. Same routing + served-

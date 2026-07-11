@@ -4,8 +4,9 @@ import { cn } from "@/lib/utils";
 
 // shadcn-style Button. NOTE: NO rounded corners — Toru is sharp-edged by design
 // (the theme zeroes --radius, and we don't add any rounded-* class here).
+// active:scale-[0.97] gives a tiny press "click" on every button.
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 select-none",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-colors transition-transform duration-100 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 select-none",
   {
     variants: {
       variant: {
