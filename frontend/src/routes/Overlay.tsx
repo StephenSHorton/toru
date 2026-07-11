@@ -668,16 +668,22 @@ export default function Overlay() {
     persistVcrop(next);
   };
 
-  // ===== EDIT MODE (single-monitor in-place morph; unchanged) =====
+  // ===== EDIT MODE (single-monitor morph) =====
+  // Center the annotation stage on this monitor — do NOT leave it at the crop's
+  // original capture position (window/region often lands off-center or on a corner).
   if (mode === "edit" && editPayload) {
+    const stageW = Math.min(editPayload.cssW, monW);
+    const stageH = Math.min(editPayload.cssH, monH);
+    const editLeft = Math.max(0, Math.round((monW - stageW) / 2));
+    const editTop = Math.max(0, Math.round((monH - stageH) / 2));
     return (
       <div className="relative h-screen w-screen overflow-hidden bg-black">
         <DimMask
           crop={{
-            left: editPayload.cssLeft,
-            top: editPayload.cssTop,
-            width: editPayload.cssW,
-            height: editPayload.cssH,
+            left: editLeft,
+            top: editTop,
+            width: stageW,
+            height: stageH,
           }}
           monW={monW}
           monH={monH}
@@ -685,10 +691,10 @@ export default function Overlay() {
         <div
           className="absolute"
           style={{
-            left: editPayload.cssLeft,
-            top: editPayload.cssTop,
-            width: editPayload.cssW,
-            height: editPayload.cssH,
+            left: editLeft,
+            top: editTop,
+            width: stageW,
+            height: stageH,
           }}
         >
           <EditorCanvas stageRef={stageRef} />
@@ -773,25 +779,24 @@ export default function Overlay() {
           {windowHighlight ? (
             <>
               <DimMask crop={local} monW={monW} monH={monH} />
+              {/* Explicit outline (not just a soft ring): dual-stroke border so the
+                  window frame is obvious on both light and dark content. */}
               <div
-                className={`pointer-events-none absolute ring-2 ${
-                  selectedHwnd != null && selectedHwnd === hoveredHwnd
-                    ? "ring-primary"
-                    : "ring-primary/90"
-                }`}
+                className="pointer-events-none absolute"
                 style={{
                   left: local.left,
                   top: local.top,
                   width: local.width,
                   height: local.height,
-                  boxShadow: "inset 0 0 0 9999px transparent",
+                  border: "2px solid hsl(var(--primary))",
+                  boxShadow:
+                    "0 0 0 1px rgba(255,255,255,0.95), inset 0 0 0 1px rgba(255,255,255,0.85), 0 0 0 3px hsl(var(--primary) / 0.45)",
                 }}
               >
                 <div className="frost absolute -top-8 left-0 max-w-[min(100%,20rem)] truncate px-2 py-0.5 text-[11px]">
                   {windowLabel
                     ? `${windowLabel}  ·  ${vcrop.w} × ${vcrop.h}`
                     : `${vcrop.w} × ${vcrop.h}`}
-                  {selectedHwnd != null && selectedHwnd === hoveredHwnd ? "  ·  selected" : ""}
                 </div>
               </div>
             </>
