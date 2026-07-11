@@ -37,8 +37,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type Konva from "konva";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
-import { Camera, Maximize, Snowflake, Video, Volume2, VolumeX, X, Zap } from "lucide-react";
+import {
+  AppWindow,
+  Camera,
+  Maximize,
+  Snowflake,
+  Video,
+  Volume2,
+  VolumeX,
+  X,
+  Zap,
+} from "lucide-react";
 import { OverlayService } from "@/lib/api";
+import type { WindowInfo } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models";
 import {
   parseOverlayQuery,
   Events,
@@ -97,6 +108,13 @@ export default function Overlay() {
   const toolRef = useRef(tool);
   toolRef.current = tool;
   const [busy, setBusy] = useState(false);
+  // Capture target: freeform region (default), full monitor, or a picked app window.
+  // Window mode snaps the shared crop to the chosen window's virtual-desktop rect
+  // so Capture/Record reuse the existing region pipeline.
+  const [target, setTarget] = useState<"region" | "window" | "fullscreen">("region");
+  const [windowOpen, setWindowOpen] = useState(false);
+  const [windows, setWindows] = useState<WindowInfo[]>([]);
+  const [selectedHwnd, setSelectedHwnd] = useState<number | null>(null);
 
   // Per-session data, seeded empty and replaced by overlay:engage / overlay:edit.
   const [session, setSession] = useState<MonitorSession | null>(null);
@@ -363,19 +381,58 @@ export default function Overlay() {
   const dom = dominantScreen(vcrop, layout) ?? self;
   const isFullScreen = layout.some((s) => rectsEqual(vcrop, screenRect(s)));
   const toggleFullScreen = useCallback(() => {
-    if (isFullScreen) {
+    setWindowOpen(false);
+    setSelectedHwnd(null);
+    if (isFullScreen && target === "fullscreen") {
       const restored = prevRegion.current ?? centeredV(self);
+      setTarget("region");
       setVcrop(restored);
       broadcastNow(restored);
       persistVcrop(restored);
     } else {
       prevRegion.current = vcrop;
       const full = screenRect(dom);
+      setTarget("fullscreen");
       setVcrop(full);
       broadcastNow(full);
       persistVcrop(full);
     }
-  }, [isFullScreen, vcrop, self, dom, broadcastNow, persistVcrop]);
+  }, [isFullScreen, target, vcrop, self, dom, broadcastNow, persistVcrop]);
+
+  // Open the window picker and refresh the live window list.
+  const openWindowPicker = useCallback(() => {
+    setWindowOpen((o) => !o);
+    void OverlayService.ListWindows()
+      .then((list) => setWindows(Array.isArray(list) ? list : []))
+      .catch(() => setWindows([]));
+  }, []);
+
+  // Snap the shared crop to a chosen app window (virtual-desktop physical rect).
+  // Reuses the region capture path for both screenshot and video.
+  const selectWindow = useCallback(
+    (w: WindowInfo) => {
+      const r = w.rect;
+      if (!r || r.w < 8 || r.h < 8) return;
+      prevRegion.current = vcropRef.current;
+      setTarget("window");
+      setSelectedHwnd(w.hwnd);
+      setWindowOpen(false);
+      // For video, clamp to dominant monitor (ddagrab can't span).
+      let next: Rect = { x: r.x, y: r.y, w: r.w, h: r.h };
+      if (toolRef.current === "video") {
+        const list = screensRef.current.length ? screensRef.current : [selfRef.current];
+        const mon =
+          list.find((s) => s.id === w.monitorId) ??
+          dominantScreen(next, list) ??
+          selfRef.current;
+        next = fitToScreen(next, mon);
+      }
+      setVcrop(next);
+      broadcastNow(next);
+      persistVcrop(next);
+    },
+    [broadcastNow, persistVcrop],
+  );
 
   // Screenshot Capture: single-monitor -> EnterEdit/EnterEditLive (in-place morph
   // in THIS window); straddle -> EnterEditMulti (Go stitches + opens editor window).
@@ -430,9 +487,11 @@ export default function Overlay() {
       const mon = dominantScreen(vcropRef.current, list) ?? selfRef.current;
       const vr = fitToScreen(vcropRef.current, mon); // confine to the chosen monitor
       const full = rectsEqual(vr, screenRect(mon));
+      const sub =
+        target === "window" ? "window" : full ? "fullscreen" : "region";
       const req: CaptureRequest = {
         mode: "video",
-        sub: full ? "fullscreen" : "region",
+        sub,
         monitorId: mon.id,
         rect: vr,
         dpiScale: mon.scaleFactor > 0 ? mon.scaleFactor : 1,
@@ -446,7 +505,7 @@ export default function Overlay() {
     } finally {
       setBusy(false);
     }
-  }, [busy, session]);
+  }, [busy, session, target]);
 
   // Window-level Esc: ONLY cancels in capture mode (edit mode owns its own Esc).
   useEffect(() => {
@@ -465,6 +524,10 @@ export default function Overlay() {
     e.preventDefault();
     e.stopPropagation();
     (e.target as Element).setPointerCapture?.(e.pointerId);
+    // Manual crop edit exits window/fullscreen target mode.
+    setTarget("region");
+    setSelectedHwnd(null);
+    setWindowOpen(false);
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -647,7 +710,33 @@ export default function Overlay() {
           <div className="mx-1 h-5 w-px bg-border" />
           <Button
             size="sm"
-            variant={isFullScreen ? "default" : "ghost"}
+            variant={target === "region" ? "default" : "ghost"}
+            onClick={() => {
+              setTarget("region");
+              setSelectedHwnd(null);
+              setWindowOpen(false);
+              if (isFullScreen) {
+                const restored = prevRegion.current ?? centeredV(self);
+                setVcrop(restored);
+                broadcastNow(restored);
+                persistVcrop(restored);
+              }
+            }}
+            title="Drag a freeform region"
+          >
+            Region
+          </Button>
+          <Button
+            size="sm"
+            variant={target === "window" || windowOpen ? "default" : "ghost"}
+            onClick={openWindowPicker}
+            title="Capture a specific app window"
+          >
+            <AppWindow /> Window
+          </Button>
+          <Button
+            size="sm"
+            variant={target === "fullscreen" || isFullScreen ? "default" : "ghost"}
             onClick={toggleFullScreen}
             title={isFullScreen ? "Back to region selection" : "Capture the entire monitor"}
           >
@@ -677,6 +766,38 @@ export default function Overlay() {
           >
             {tool === "video" ? "Start Recording" : "Capture"}
           </Button>
+        </div>
+      ) : null}
+
+      {/* Window picker — snap crop to a top-level app window (screenshot + video). */}
+      {iAmPill && windowOpen ? (
+        <div
+          className="frost absolute bottom-20 left-1/2 max-h-72 w-96 -translate-x-1/2 overflow-auto p-2 text-sm"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="mb-2 px-1 text-xs font-medium text-muted-foreground">
+            Select a window — crop snaps to its bounds
+          </div>
+          {windows.length === 0 ? (
+            <p className="px-1 py-2 text-xs text-muted-foreground">No capturable windows found.</p>
+          ) : (
+            windows.map((w) => (
+              <button
+                key={String(w.hwnd)}
+                type="button"
+                onClick={() => selectWindow(w)}
+                className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent ${
+                  selectedHwnd === w.hwnd ? "bg-primary/15 text-foreground" : "text-muted-foreground"
+                }`}
+              >
+                <AppWindow className="size-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{w.title}</span>
+                <span className="shrink-0 tabular-nums text-[10px] opacity-60">
+                  {w.rect?.w ?? 0}×{w.rect?.h ?? 0}
+                </span>
+              </button>
+            ))
+          )}
         </div>
       ) : null}
 

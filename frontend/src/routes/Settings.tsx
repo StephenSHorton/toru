@@ -34,7 +34,7 @@ export default function Settings() {
 
   return (
     <div className="flex h-full w-full overflow-hidden">
-      {/* Side nav */}
+      {/* Side nav — Library top, Settings pinned to bottom (Capture lives in Library header). */}
       <nav className="frost flex w-52 shrink-0 flex-col gap-1 border-r border-border p-3">
         <div className="mb-3 px-2 pt-1">
           <div className="text-lg font-semibold tracking-tight">
@@ -49,20 +49,14 @@ export default function Settings() {
           label="Library"
           onClick={() => setPage("library")}
         />
-        <NavBtn
-          active={page === "settings"}
-          icon={Settings2}
-          label="Settings"
-          onClick={() => setPage("settings")}
-        />
 
-        <div className="mt-auto flex flex-col gap-2 pt-4">
-          <Button
-            className="w-full justify-start"
-            onClick={() => void WindowsService.OpenOverlay()}
-          >
-            <SquareDashed /> Capture
-          </Button>
+        <div className="mt-auto pt-4">
+          <NavBtn
+            active={page === "settings"}
+            icon={Settings2}
+            label="Settings"
+            onClick={() => setPage("settings")}
+          />
         </div>
       </nav>
 
@@ -89,7 +83,7 @@ function NavBtn({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex items-center gap-2 px-2 py-2 text-sm transition-colors",
+        "flex w-full items-center gap-2 px-2 py-2 text-sm transition-colors",
         active
           ? "bg-primary text-primary-foreground"
           : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
@@ -108,6 +102,8 @@ function NavBtn({
 function LibraryPage() {
   const [items, setItems] = useState<CaptureItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingDelete, setPendingDelete] = useState<CaptureItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const refresh = useCallback(() => {
     void HistoryService.List()
@@ -118,15 +114,26 @@ function LibraryPage() {
 
   useEffect(() => {
     refresh();
-    // Live-refresh when a new capture lands while the dashboard is open.
     const off = WailsEvents.On("history:changed", () => refresh());
     return () => {
       off();
     };
   }, [refresh]);
 
+  const confirmDelete = async () => {
+    if (!pendingDelete || deleting) return;
+    setDeleting(true);
+    try {
+      await HistoryService.Delete(pendingDelete.id);
+      setPendingDelete(null);
+      refresh();
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="relative flex h-full flex-col gap-4">
       <div className="flex items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Library</h1>
@@ -159,13 +166,20 @@ function LibraryPage() {
               key={it.id}
               item={it}
               onOpen={() => void HistoryService.Open(it.id)}
-              onDelete={() => {
-                void HistoryService.Delete(it.id).then(refresh);
-              }}
+              onDelete={() => setPendingDelete(it)}
             />
           ))}
         </div>
       )}
+
+      {pendingDelete ? (
+        <DeleteConfirmDialog
+          item={pendingDelete}
+          busy={deleting}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => void confirmDelete()}
+        />
+      ) : null}
     </div>
   );
 }
@@ -202,7 +216,14 @@ function CaptureCard({
   const when = formatWhen(item.takenAt);
 
   return (
-    <div className="frost group flex flex-col overflow-hidden">
+    <div
+      className={cn(
+        "frost group flex flex-col overflow-hidden border border-transparent",
+        "transition-[border-color,box-shadow,transform] duration-150",
+        "hover:border-primary/70 hover:shadow-[0_0_0_1px_var(--color-ring),0_12px_28px_oklch(0_0_0/0.45)]",
+        "hover:-translate-y-0.5",
+      )}
+    >
       <button
         type="button"
         onClick={onOpen}
@@ -212,7 +233,7 @@ function CaptureCard({
         {isVideo ? (
           <video
             src={src}
-            className="h-full w-full object-contain"
+            className="h-full w-full object-contain transition-transform duration-150 group-hover:scale-[1.03]"
             muted
             preload="metadata"
           />
@@ -220,13 +241,18 @@ function CaptureCard({
           <img
             src={src}
             alt=""
-            className="h-full w-full object-contain"
+            className="h-full w-full object-contain transition-transform duration-150 group-hover:scale-[1.03]"
             loading="lazy"
           />
         )}
+        {/* Hover affordance veil */}
+        <span className="pointer-events-none absolute inset-0 bg-primary/0 transition-colors duration-150 group-hover:bg-primary/10" />
         <span className="absolute left-1.5 top-1.5 flex items-center gap-1 bg-black/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-white">
           {isVideo ? <Video className="size-3" /> : <ImageIcon className="size-3" />}
           {isVideo ? "Video" : "Shot"}
+        </span>
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 translate-y-full bg-black/55 px-2 py-1 text-center text-[11px] text-white transition-transform duration-150 group-hover:translate-y-0">
+          Click to open
         </span>
       </button>
       <div className="flex items-center gap-1 px-2 py-1.5">
@@ -246,6 +272,55 @@ function CaptureCard({
         >
           <Trash2 className="size-3.5" />
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function DeleteConfirmDialog({
+  item,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  item: CaptureItem;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const kind = item.kind === "video" ? "recording" : "screenshot";
+  return (
+    <div
+      className="absolute inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-title"
+      onClick={onCancel}
+    >
+      <div
+        className="frost w-full max-w-sm p-4 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="delete-title" className="text-base font-semibold">
+          Delete this {kind}?
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{item.label}</span> will be
+          removed from your library and deleted from disk. This can’t be undone.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            <Trash2 /> {busy ? "Deleting…" : "Delete"}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -272,7 +347,7 @@ function formatWhen(iso: string | Date): string {
 }
 
 // ---------------------------------------------------------------------------
-// Settings panel (former home contents)
+// Settings panel
 // ---------------------------------------------------------------------------
 
 function SettingsPage() {

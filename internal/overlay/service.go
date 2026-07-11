@@ -317,6 +317,17 @@ func (s *OverlayService) ListMicrophones() []string {
 	return capture.ListMicrophones()
 }
 
+// ListWindows returns visible top-level app windows for the "capture a window"
+// mode. Rects are virtual-desktop physical px so the front end can snap the crop
+// and reuse the existing region capture path for stills + video.
+func (s *OverlayService) ListWindows() []capture.WindowInfo {
+	list := capture.ListTopLevelWindows()
+	if list == nil {
+		return []capture.WindowInfo{}
+	}
+	return list
+}
+
 // ListScreens is THE single source of truth for monitor enumeration that both
 // halves trust. ID == kbinani idx == ddagrab output_idx.
 //
