@@ -18,7 +18,6 @@ var (
 	procGetWindowTextLengthW = user32Enum.NewProc("GetWindowTextLengthW")
 	procGetWindowRect        = user32Enum.NewProc("GetWindowRect")
 	procGetWindowLongW       = user32Enum.NewProc("GetWindowLongW")
-	procGetAncestor          = user32Enum.NewProc("GetAncestor")
 	procGetWindow            = user32Enum.NewProc("GetWindow")
 	procGetClassNameW        = user32Enum.NewProc("GetClassNameW")
 )
