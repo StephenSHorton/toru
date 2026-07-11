@@ -74,7 +74,12 @@ tasks:
       - exclude: node_modules/**/*
     generates:
       - dist/**/*
-    deps:
+    # IMPORTANT: run tidy → bun install → bindings SEQUENTIALLY.
+    # Parallel deps raced on Windows CI: go mod tidy walks the module while
+    # bun install is writing frontend/node_modules, and go fails with
+    # "The process cannot access the file because it is being used by another process."
+    cmds:
+      - task: go:mod:tidy
       - task: install:frontend:deps
       - task: generate:bindings
         vars:
@@ -82,7 +87,6 @@ tasks:
             ref: .BUILD_FLAGS
           OBFUSCATED:
             ref: .OBFUSCATED
-    cmds:
       - task: frontend:run
         vars:
           SCRIPT: '{{if eq .DEV "true"}}build:dev{{else}}build{{end}}'
@@ -166,8 +170,8 @@ tasks:
   generate:bindings:
     label: generate:bindings (BUILD_FLAGS={{.BUILD_FLAGS}})
     summary: Generates bindings for the frontend
-    deps:
-      - task: go:mod:tidy
+    # tidy is run by build:frontend before this task (sequential). Do not re-add
+    # go:mod:tidy as a parallel dep here — it races bun install on Windows CI.
     sources:
       - "**/*.[jt]s"
       - exclude: frontend/**/*
