@@ -86,6 +86,33 @@ export function isTextEditing(): boolean {
   return useTextEditSession.getState().nodeId !== null;
 }
 
+/** React subscription: id of the text node currently being edited, or null. */
+export function useEditingTextId(): NodeId | null {
+  return useTextEditSession((s) => s.nodeId);
+}
+
+/**
+ * Measure the natural image-space width of multiline text so the committed
+ * node's bounding box hugs the glyphs (no leftover empty strip on the right).
+ */
+function measureTextWidth(text: string, fontSize: number, fontFamily: string): number {
+  const canvas = measureTextWidth.canvas ?? (measureTextWidth.canvas = document.createElement('canvas'));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    // Fallback approx if canvas is unavailable (shouldn't happen in WebView2).
+    const longest = text.split('\n').reduce((m, l) => Math.max(m, l.length), 1);
+    return Math.max(20, Math.ceil(longest * fontSize * 0.6));
+  }
+  ctx.font = `${fontSize}px ${fontFamily}`;
+  let max = 0;
+  for (const line of text.split('\n')) {
+    max = Math.max(max, ctx.measureText(line.length ? line : ' ').width);
+  }
+  // +2px pad so the last glyph's overhang isn't clipped by the wrap box.
+  return Math.max(20, Math.ceil(max) + 2);
+}
+measureTextWidth.canvas = null as HTMLCanvasElement | null;
+
 /**
  * Force-close any open text-editing session (module singleton) WITHOUT committing
  * or aborting a draft. Used when the overlay re-engages / re-enters edit mode.
@@ -184,6 +211,9 @@ function commitSession(): void {
   const sess = useTextEditSession.getState();
   const { nodeId, isNew, value } = sess;
   if (nodeId === null) return;
+  // Preserve intentional trailing spaces? Strip only pure-whitespace trails of
+  // the whole block so "hello  " becomes "hello" — multi-line trailing blank
+  // lines still collapse via the empty check.
   const trimmed = value.replace(/\s+$/g, '');
   const store = useEditorStore.getState();
 
@@ -198,10 +228,21 @@ function commitSession(): void {
     return;
   }
 
+  // Shrink wrap-width to the measured content so the Transformer hugs the text
+  // (the DEFAULT_TEXT_WIDTH placeholder left a big empty strip on the right).
+  const existing = store.nodes.find((n) => n.id === nodeId);
+  const fontSize =
+    existing && existing.type === 'text' ? existing.fontSize : sess.fontSize;
+  const fontFamily =
+    existing && existing.type === 'text' ? existing.fontFamily : FONT_FAMILY;
+  const width = measureTextWidth(trimmed, fontSize, fontFamily);
+  const patch = { text: trimmed, width } as Partial<EditorNode>;
+
   if (isNew) {
-    store.mutateDrawingNode(nodeId, { text: value } as Partial<EditorNode>);
+    // addNode already recorded history; finalise geometry without a second step.
+    store.mutateDrawingNode(nodeId, patch);
   } else {
-    store.updateNode(nodeId, { text: value } as Partial<EditorNode>);
+    store.updateNode(nodeId, patch);
   }
   sess.close();
 }

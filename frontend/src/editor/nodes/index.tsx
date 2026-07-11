@@ -16,6 +16,7 @@ import type {
   EllipseNode, LineNode, ArrowNode, TextNode, EmojiNode, NodeId,
 } from '../types';
 import { useEditorStore } from '../store';
+import { useEditingTextId } from '../tools/text';
 
 /** Load an HTMLImageElement (crossOrigin anonymous so toDataURL doesn't taint). */
 function useHTMLImage(src: string): HTMLImageElement | null {
@@ -271,6 +272,9 @@ function ArrowView({ node, attachRef, selectable }: NodeProps<ArrowNode>) {
 
 function TextView({ node, attachRef, selectable }: NodeProps<TextNode>) {
   const ref = useRef<Konva.Text>(null);
+  // Hide the Konva glyph while the HTML textarea is open so the user only sees
+  // one text surface (and no residual empty wrap-box under the caret).
+  const isEditing = useEditingTextId() === node.id;
   useEffect(() => {
     attachRef(node.id, ref.current);
     return () => attachRef(node.id, null);
@@ -294,8 +298,9 @@ function TextView({ node, attachRef, selectable }: NodeProps<TextNode>) {
       scaleX={sx}
       scaleY={sy}
       rotation={node.rotation}
-      opacity={node.opacity}
-      draggable={node.draggable && selectable}
+      opacity={isEditing ? 0 : node.opacity}
+      listening={!isEditing}
+      draggable={node.draggable && selectable && !isEditing}
       {...commonHandlers(node.id)}
       onTransformEnd={(e) => {
         const n = e.target as Konva.Text;

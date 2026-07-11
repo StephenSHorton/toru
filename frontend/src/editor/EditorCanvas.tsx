@@ -20,7 +20,7 @@ import { toImageSpace } from './geometry';
 import type { NodeId, LineNode, ArrowNode } from './types';
 import { PointPairHandles } from './PointPairHandles';
 import { STAGE_W, STAGE_H, useView, useStageSize, resetFit, zoomAtPointer, getView } from './viewStore';
-import { cancelTextEditIfAny, isTextEditing } from './tools/text';
+import { cancelTextEditIfAny, isTextEditing, useEditingTextId } from './tools/text';
 
 useStrictMode(true);
 
@@ -40,6 +40,9 @@ export function EditorCanvas({ stageRef }: EditorCanvasProps) {
   const nodes = useEditorStore((s) => s.nodes);
   const selectedId = useEditorStore((s) => s.selectedId);
   const activeTool = useEditorStore((s) => s.activeTool);
+  // While the HTML textarea is open, hide the Transformer so the user isn't
+  // fighting a resize box over the typing field.
+  const editingTextId = useEditingTextId();
 
   const trRef = useRef<Konva.Transformer>(null);
   const nodeRefs = useRef<Record<NodeId, Konva.Node>>({});
@@ -78,17 +81,23 @@ export function EditorCanvas({ stageRef }: EditorCanvasProps) {
 
   // Bind the Transformer to the selected node (select tool only). Line/arrow
   // nodes are EXCLUDED — they use PointPairHandles, not the resize/rotate box.
+  // Also hidden while inline text editing (textarea owns that node).
   useEffect(() => {
     const tr = trRef.current;
     if (!tr) return;
     const node = selectedId ? nodes.find((n) => n.id === selectedId) : undefined;
     const isPointPair = !!node && (node.type === 'line' || node.type === 'arrow');
+    const editingThis = !!editingTextId && selectedId === editingTextId;
     const usesTransformer =
-      !!selectedId && selectedId !== BASE_IMAGE_ID && activeTool === 'select' && !isPointPair;
+      !!selectedId &&
+      selectedId !== BASE_IMAGE_ID &&
+      activeTool === 'select' &&
+      !isPointPair &&
+      !editingThis;
     const sel = usesTransformer ? nodeRefs.current[selectedId] : null;
     tr.nodes(sel ? [sel] : []);
     tr.getLayer()?.batchDraw();
-  }, [selectedId, activeTool, nodes]);
+  }, [selectedId, activeTool, nodes, editingTextId]);
 
   const attachRef = (id: NodeId, node: Konva.Node | null) => {
     if (node) nodeRefs.current[id] = node;
