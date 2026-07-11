@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/export"
@@ -76,6 +77,11 @@ type OverlayService struct {
 	// %AppData%/toru/captures so the tray menu can re-open it. Optional: a nil
 	// history is a no-op (tests / stubs).
 	history *history.Store
+
+	// suspendDismiss is set while a native Save dialog (or similar) is open so
+	// WindowLostFocus does not Cancel the session mid-dialog. Alt-Tab to another
+	// app still cancels once the dialog restores this to false and focus is gone.
+	suspendDismiss atomic.Bool
 
 	mu sync.RWMutex
 	// windows are the REUSED overlay windows, keyed by monitorID. Created once
@@ -209,6 +215,14 @@ func (s *OverlayService) SetEditorOpener(fn func(imagePath string)) {
 //wails:ignore
 func (s *OverlayService) SetHistory(h *history.Store) {
 	s.history = h
+}
+
+// SetSuspendDismiss freezes alt-tab/focus-loss cancellation (e.g. while a native
+// Save dialog is open). Pair with false when the dialog returns.
+//
+//wails:ignore
+func (s *OverlayService) SetSuspendDismiss(on bool) {
+	s.suspendDismiss.Store(on)
 }
 
 // rememberScreenshot auto-copies the fresh crop PNG to the clipboard and
@@ -841,6 +855,10 @@ func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft,
 	// Leaving capture for in-place edit: disarm the global Escape hook (Esc now
 	// drives the annotation editor, not Cancel). Matches EnterEdit (frozen path).
 	s.armEscape(false)
+	// Suspend focus-loss cancel while we Hide the target window for a clean live
+	// grab — Hide fires WindowLostFocus and would otherwise Cancel mid-capture.
+	s.SetSuspendDismiss(true)
+	defer s.SetSuspendDismiss(false)
 
 	s.mu.RLock()
 	var sc capture.ScreenInfo
@@ -968,6 +986,10 @@ func (s *OverlayService) EnterEditMulti(region capture.Rect) error {
 	// stray Esc can't fire Cancel mid-stitch (HideOverlay also disarms on the success
 	// path, but the early-return/grab-error paths return before reaching it).
 	s.armEscape(false)
+	// Suspend focus-loss cancel across the hide-for-grab / HideOverlay dance so we
+	// don't treat the intermediate focus loss as an Alt-Tab cancel.
+	s.SetSuspendDismiss(true)
+	defer s.SetSuspendDismiss(false)
 
 	s.mu.RLock()
 	screens := append([]capture.ScreenInfo(nil), s.screens...)

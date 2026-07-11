@@ -91,8 +91,8 @@ func main() {
 	windowsSvc := &WindowsService{cap: capturer}
 	updateSvc := update.New(updateRepo, version)
 
-	// Recent-captures store for the tray menu. onChange is wired after the tray
-	// controller exists (below) so the first Add doesn't fire a nil rebuild.
+	// Recent-captures store for the tray menu + dashboard Library. onChange is
+	// wired after the tray controller exists so the first Add doesn't fire a nil rebuild.
 	var tray *trayController
 	hist := history.New(func() {
 		if tray != nil {
@@ -100,6 +100,7 @@ func main() {
 		}
 	})
 	overlaySvc.SetHistory(hist)
+	histSvc := history.NewService(hist)
 
 	// App-level preferences (currently just "launch at Windows login"). Backed by
 	// Wails' AutostartManager; app is injected after application.New below.
@@ -124,6 +125,7 @@ func main() {
 			application.NewService(updateSvc),
 			application.NewService(hotkeySvc),
 			application.NewService(settingsSvc),
+			application.NewService(histSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
@@ -159,6 +161,13 @@ func main() {
 	windowsSvc.overlay = overlaySvc
 	updateSvc.SetApp(app)
 	settingsSvc.app = app // for app.Autostart (launch-at-login)
+	histSvc.SetOpeners(windowsSvc.OpenEditor, windowsSvc.OpenTrim)
+	// Suspend alt-tab-cancels while a native Save dialog is up (dialog steals
+	// focus but the user is still mid-edit).
+	exportSvc.SetBeforeDialog(func() (restore func()) {
+		overlaySvc.SetSuspendDismiss(true)
+		return func() { overlaySvc.SetSuspendDismiss(false) }
+	})
 
 	// overlay-v2: a SINGLE-monitor screenshot is annotated IN PLACE on the same
 	// overlay surface (single-surface morph via OverlayService.EnterEdit) — no

@@ -95,10 +95,10 @@ func (w *WindowsService) OpenSettings() {
 		return
 	}
 	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Toru — Settings",
+		Title:            "Toru",
 		URL:              "/?view=settings",
-		Width:            720,
-		Height:           560,
+		Width:            920,
+		Height:           640,
 		BackgroundColour: dark,
 		// AlwaysOnTop so summoning Settings from the editor's ⚙ raises it ABOVE the
 		// always-on-top capture/edit overlay — otherwise Show().Focus() lands it
