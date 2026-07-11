@@ -35,6 +35,8 @@ import {
   AudioSession,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
 import * as SettingsService from "../../bindings/github.com/StephenSHorton/toru/settingsservice.js";
+import * as HistoryService from "../../bindings/github.com/StephenSHorton/toru/internal/history/historyservice.js";
+import { Item as CaptureItem } from "../../bindings/github.com/StephenSHorton/toru/internal/history/models.js";
 
 export {
   ExportService,
@@ -50,4 +52,6 @@ export {
   AudioConfig,
   AudioSession,
   SettingsService,
+  HistoryService,
 };
+export type { CaptureItem };

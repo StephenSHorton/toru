@@ -12,15 +12,12 @@
 //                              next to <EditorCanvas/>) that renders the textarea
 //                              and owns the Stage `dblclick`-to-edit affordance.
 //
-// The two halves are bridged by a tiny module-local Zustand store
-// (`useTextEditSession`) so the imperative tool can open an editing session that
-// the React overlay reacts to. No edits to the shared editor store, registry,
-// or toolbar are required.
-//
-// COORDINATE MODEL (mirrors EditorCanvas): annotation coords are IMAGE space.
-// On-screen, an image-space point (x,y) maps to the Stage-container-local point
-// (view.dx + x*view.scale, view.dy + y*view.scale); add the container's
-// client-rect origin to get viewport (position:fixed) coordinates.
+// FOCUS GOTCHA (the "text tool doesn't work" bug): WebView2 + AlwaysOnTop overlays
+// often fail the first ta.focus() if it runs in the same tick as the Stage
+// pointerdown that opened the session. A deferred focus (rAF + short timeout)
+// is required. Also: onBlur must NOT immediately discard an empty draft — a
+// spurious blur during focus handoff would abort the place before the user
+// types anything.
 
 import { useEffect, useRef, useState } from 'react';
 import type Konva from 'konva';
@@ -91,15 +88,17 @@ export function isTextEditing(): boolean {
 
 /**
  * Force-close any open text-editing session (module singleton) WITHOUT committing
- * or aborting a draft. Used when the overlay re-engages / re-enters edit mode: the
- * scene store is reset by loadBaseImage, but this session store is separate, so a
- * textarea left open on a prior capture would otherwise resurface over the new
- * image at stale coords. A bare close() is correct here — any draft node lived in
- * the (now reset) scene store, so there is nothing to abort.
+ * or aborting a draft. Used when the overlay re-engages / re-enters edit mode.
  */
 export function resetTextEditSession(): void {
   if (useTextEditSession.getState().nodeId === null) return;
   useTextEditSession.getState().close();
+}
+
+/** Cancel the current text session if any (right-click / Esc tool cancel). */
+export function cancelTextEditIfAny(): void {
+  if (!isTextEditing()) return;
+  cancelSession();
 }
 
 // ---------------------------------------------------------------------------
@@ -110,14 +109,12 @@ export function resetTextEditSession(): void {
 function textBox(n: TextNode): { x: number; y: number; w: number; h: number } {
   const lines = n.text.length ? n.text.split('\n') : [''];
   const longest = lines.reduce((m, l) => Math.max(m, l.length), 1);
-  // Konva wraps to node.width when set; otherwise width grows with content.
   const w = n.width ?? Math.max(longest * n.fontSize * 0.6, 20);
-  const h = lines.length * n.fontSize * 1.2;
+  const h = Math.max(lines.length, 1) * n.fontSize * 1.2;
   return { x: n.x, y: n.y, w, h };
 }
 
 function findTextNodeAt(nodes: EditorNode[], px: number, py: number): TextNode | null {
-  // Topmost first (later nodes render on top).
   for (let i = nodes.length - 1; i >= 0; i--) {
     const n = nodes[i];
     if (n.type !== 'text') continue;
@@ -163,8 +160,6 @@ function beginPlaceNew(px: number, py: number): void {
     width: DEFAULT_TEXT_WIDTH,
     align: 'left',
   };
-  // addNode commits a history step; an empty commit/cancel on close calls
-  // abortDraft, which removes the draft AND pops that snapshot, so undo stays clean.
   store.addNode(node);
   store.select(id);
   useTextEditSession.getState().open({
@@ -189,11 +184,8 @@ function commitSession(): void {
 
   if (trimmed.length === 0) {
     if (isNew) {
-      // Discard the empty draft AND pop the snapshot its addNode() pushed, so the
-      // aborted placement leaves no phantom undo/redo step.
       store.abortDraft(nodeId);
     } else {
-      // Existing node emptied -> delete it as a normal undoable edit.
       store.select(nodeId);
       store.deleteSelected();
     }
@@ -202,12 +194,8 @@ function commitSession(): void {
   }
 
   if (isNew) {
-    // The draft's `addNode` already pushed the single "before this text existed"
-    // history step. Write the text WITHOUT a second step so one undo removes the
-    // whole text node.
     store.mutateDrawingNode(nodeId, { text: value } as Partial<EditorNode>);
   } else {
-    // Re-editing an existing node: the text change is its own undoable edit.
     store.updateNode(nodeId, { text: value } as Partial<EditorNode>);
   }
   sess.close();
@@ -218,13 +206,8 @@ function cancelSession(): void {
   const sess = useTextEditSession.getState();
   const { nodeId, isNew } = sess;
   if (nodeId !== null && isNew) {
-    // The draft node was created via addNode (one history step). abortDraft drops
-    // the node AND pops that snapshot in one call, so the cancelled placement
-    // leaves no orphaned (phantom) undo step.
     useEditorStore.getState().abortDraft(nodeId);
   }
-  // Existing nodes were never mutated during editing (text lives only in the
-  // session until commit), so cancel needs no store change for them.
   sess.close();
 }
 
@@ -236,7 +219,10 @@ export const textTool: Tool = {
   id: 'text',
   cursor: 'text',
 
-  onPointerDown(_e: Konva.KonvaEventObject<PointerEvent>, ctx: ToolContext) {
+  onPointerDown(e: Konva.KonvaEventObject<PointerEvent>, ctx: ToolContext) {
+    // Right-click is handled globally (cancel tool) — ignore here.
+    if (e.evt.button === 2) return;
+
     // If a session is already open, commit it first (clicking away = commit).
     if (isTextEditing()) {
       commitSession();
@@ -244,19 +230,13 @@ export const textTool: Tool = {
     }
     const p = ctx.getPointer();
     if (!p) return;
-    // Clicking an existing text node edits it; empty space places a new node.
     const hit = findTextNodeAt(ctx.store.nodes, p.x, p.y);
     if (hit) beginEditExisting(hit);
     else beginPlaceNew(p.x, p.y);
   },
 
-  onPointerMove() {
-    // no-op: text is placed on click, not dragged.
-  },
-
-  onPointerUp() {
-    // no-op.
-  },
+  onPointerMove() {},
+  onPointerUp() {},
 };
 
 // ---------------------------------------------------------------------------
@@ -264,22 +244,17 @@ export const textTool: Tool = {
 // ---------------------------------------------------------------------------
 
 export interface TextEditingOverlayProps {
-  /** Same Stage ref passed to <EditorCanvas/>. */
   stageRef: React.RefObject<Konva.Stage | null>;
 }
 
-/**
- * Renders the inline editing <textarea> while a text session is open and owns the
- * Stage `dblclick`-to-edit affordance (works from any active tool). Mount this
- * once, as a sibling of <EditorCanvas/>, inside the Stage container wrapper.
- */
 export function TextEditingOverlay({ stageRef }: TextEditingOverlayProps) {
   const session = useTextEditSession();
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const chipRef = useRef<HTMLDivElement>(null);
   const [, force] = useState(0);
+  // Ignore blur until focus has successfully landed (prevents place→abort race).
+  const armedRef = useRef(false);
 
-  // Live view (fit + Ctrl+wheel zoom), shared with the canvas so the inline
-  // textarea sits exactly over the text node — at the right size — while zoomed.
   const view = useView();
 
   // Double-click on the Stage: if it lands on a text node, open it for editing.
@@ -302,17 +277,43 @@ export function TextEditingOverlay({ stageRef }: TextEditingOverlayProps) {
       stage.off('dblclick', onDbl);
       stage.off('dbltap', onDbl);
     };
-    // stageRef is stable; the effect binds once the Stage exists. We intentionally
-    // re-run when `session.nodeId` toggles so a fresh bind survives remounts.
   }, [stageRef, session.nodeId]);
 
-  // Focus + select the textarea whenever a new session opens.
+  // Focus the textarea AFTER the Stage pointerdown settles. WebView2 + AlwaysOnTop
+  // routinely drops a same-tick focus() call; rAF + short timeout is reliable.
   useEffect(() => {
-    if (session.nodeId === null) return;
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.focus();
-    ta.select();
+    if (session.nodeId === null) {
+      armedRef.current = false;
+      return;
+    }
+    armedRef.current = false;
+    let cancelled = false;
+    const focusTA = () => {
+      if (cancelled) return;
+      const ta = taRef.current;
+      if (!ta) return;
+      ta.focus({ preventScroll: true });
+      // Only select existing text (re-edit); leave caret at end for new places.
+      if (!useTextEditSession.getState().isNew) {
+        ta.select();
+      }
+      if (document.activeElement === ta) {
+        armedRef.current = true;
+      }
+    };
+    const raf = requestAnimationFrame(() => {
+      focusTA();
+      // Second attempt — covers the common AlwaysOnTop / WebView2 late-focus case.
+      window.setTimeout(focusTA, 30);
+      window.setTimeout(() => {
+        focusTA();
+        armedRef.current = true; // arm blur handling even if focus failed
+      }, 80);
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
   }, [session.nodeId]);
 
   // Keep the overlay aligned if the window resizes while editing.
@@ -332,11 +333,29 @@ export function TextEditingOverlay({ stageRef }: TextEditingOverlayProps) {
   const left = containerRect.left + view.dx + session.x * view.scale;
   const top = containerRect.top + view.dy + session.y * view.scale;
   const screenFontSize = Math.max(8, session.fontSize * view.scale);
-  const screenWidth = Math.max(40, session.width * view.scale);
+  const screenWidth = Math.max(80, session.width * view.scale);
 
   function finish(commit: boolean) {
     if (commit) commitSession();
     else cancelSession();
+  }
+
+  function handleBlur(e: React.FocusEvent<HTMLTextAreaElement>) {
+    // Focus moving to the confirm/cancel chip — ignore (mousedown already preventDefault).
+    const next = e.relatedTarget as Node | null;
+    if (next && chipRef.current?.contains(next)) return;
+    if (!armedRef.current) {
+      // Spurious blur during focus handoff — re-focus.
+      window.setTimeout(() => taRef.current?.focus({ preventScroll: true }), 0);
+      return;
+    }
+    // Defer so a mousedown on the chip / canvas can run first.
+    window.setTimeout(() => {
+      if (!isTextEditing()) return;
+      if (document.activeElement === taRef.current) return;
+      if (chipRef.current?.contains(document.activeElement)) return;
+      finish(true);
+    }, 0);
   }
 
   return (
@@ -345,9 +364,10 @@ export function TextEditingOverlay({ stageRef }: TextEditingOverlayProps) {
         ref={taRef}
         value={session.value}
         spellCheck={false}
+        autoFocus
+        placeholder="Type…"
         onChange={(e) => useTextEditSession.getState().setValue(e.target.value)}
         onKeyDown={(e) => {
-          // Enter commits; Shift+Enter inserts a newline; Esc cancels.
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             finish(true);
@@ -355,46 +375,46 @@ export function TextEditingOverlay({ stageRef }: TextEditingOverlayProps) {
             e.preventDefault();
             finish(false);
           }
-          // Stop global editor shortcuts (Del/Backspace/tool keys) from firing.
           e.stopPropagation();
         }}
-        onBlur={() => finish(true)}
+        onBlur={handleBlur}
         style={{
           position: 'fixed',
           left,
           top,
           width: screenWidth,
-          minHeight: screenFontSize * 1.3,
+          minHeight: screenFontSize * 1.4,
           fontSize: screenFontSize,
           lineHeight: 1.2,
           fontFamily: FONT_FAMILY,
           color: session.fill,
-          background: 'transparent',
+          // Slightly opaque fill so the caret is always visible on dark crops.
+          background: 'color-mix(in oklch, var(--color-card) 55%, transparent)',
           caretColor: session.fill,
-          border: '1px dashed color-mix(in oklch, var(--color-border) 90%, transparent)',
+          border: '1px dashed color-mix(in oklch, var(--color-ring) 80%, transparent)',
           outline: 'none',
-          padding: 0,
+          padding: '2px 4px',
           margin: 0,
           resize: 'none',
           overflow: 'hidden',
           zIndex: 50,
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
+          boxShadow: '0 2px 12px oklch(0 0 0 / 0.35)',
         }}
       />
-      {/* Frosted confirm/cancel chip — sharp corners, shadcn Buttons + lucide. */}
       <div
+        ref={chipRef}
         className="frost"
         style={{
           position: 'fixed',
           left,
-          top: top - 40,
+          top: Math.max(4, top - 40),
           display: 'flex',
           gap: 4,
           padding: 4,
           zIndex: 51,
         }}
-        // Keep mousedown from blurring the textarea before the click handler runs.
         onMouseDown={(e) => e.preventDefault()}
       >
         <Button

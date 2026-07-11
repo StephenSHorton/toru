@@ -96,6 +96,19 @@
     border: 1px solid color-mix(in oklch, var(--color-border) 75%, transparent);
     box-shadow: 0 8px 30px oklch(0 0 0 / 0.45);
   }
+
+  /* Visually hidden but focusable/clickable (native color input). */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
 }
 
 /* Indeterminate progress sweep (Progress component, e.g. Discord re-encode). */

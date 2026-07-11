@@ -5,9 +5,11 @@ import (
 	"image"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 // MonitorSession is the per-overlay-window payload. One is produced per monitor
@@ -211,10 +213,58 @@ func (s *OverlayService) ensureWindows(screens []capture.ScreenInfo) bool {
 				HiddenOnTaskbar:                   true,
 			},
 		})
+		// Alt-Tab / click-away: if Toru as a whole loses focus while a capture
+		// session is live, cancel the screenshot entirely (user expectation:
+		// leaving the overlay abandons the capture). Window-to-window focus
+		// inside Toru (Settings gear, Save dialog with suspend flag) is ignored.
+		s.wireFocusLossCancel(w)
 		s.windows[sc.ID] = w
 	}
 	s.mu.Unlock()
 	return wasVisible
+}
+
+// wireFocusLossCancel cancels the active capture/edit session when the user
+// Alt-Tabs away from Toru. Deferred slightly so focus can land on another Toru
+// window (Settings) or a suspended native dialog without false-cancelling.
+func (s *OverlayService) wireFocusLossCancel(w *application.WebviewWindow) {
+	if w == nil {
+		return
+	}
+	w.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) {
+		// Defer so a focus transfer to Settings / another Toru window settles.
+		time.AfterFunc(120*time.Millisecond, func() {
+			if s.suspendDismiss.Load() {
+				return
+			}
+			// Any visible overlay means a session is live (capture or edit).
+			if !s.hasVisibleOverlay() {
+				return
+			}
+			// If any Toru window still holds focus (Settings, editor, etc.), keep
+			// the session — only cancel when the whole app lost activation.
+			if s.app != nil {
+				for _, win := range s.app.Window.GetAll() {
+					if win != nil && win.IsFocused() {
+						return
+					}
+				}
+			}
+			_ = s.Cancel()
+		})
+	})
+}
+
+// hasVisibleOverlay reports whether any overlay window is currently shown.
+func (s *OverlayService) hasVisibleOverlay() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, w := range s.windows {
+		if w != nil && w.IsVisible() {
+			return true
+		}
+	}
+	return false
 }
 
 // dipBoundsFor returns the DIP Bounds of the Wails Screen whose PhysicalBounds

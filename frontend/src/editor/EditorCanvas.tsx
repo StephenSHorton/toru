@@ -20,6 +20,7 @@ import { toImageSpace } from './geometry';
 import type { NodeId, LineNode, ArrowNode } from './types';
 import { PointPairHandles } from './PointPairHandles';
 import { STAGE_W, STAGE_H, useView, useStageSize, resetFit, zoomAtPointer, getView } from './viewStore';
+import { cancelTextEditIfAny, isTextEditing } from './tools/text';
 
 useStrictMode(true);
 
@@ -105,18 +106,48 @@ export function EditorCanvas({ stageRef }: EditorCanvasProps) {
     };
   }
 
+  /** Right-click cancels the current tool (back to select) and aborts drafts. */
+  const cancelActiveTool = () => {
+    cancelTextEditIfAny();
+    const s = useEditorStore.getState();
+    if (s.activeTool !== 'select') s.setTool('select');
+    s.select(null);
+  };
+
   const onDown = (e: Konva.KonvaEventObject<PointerEvent>) => {
+    // Right-click (button 2) / pen eraser equivalents: cancel tool, don't draw.
+    if (e.evt.button === 2) {
+      e.evt.preventDefault();
+      cancelActiveTool();
+      return;
+    }
     const ctx = buildCtx();
     if (ctx) tool.onPointerDown(e, ctx);
   };
   const onMove = (e: Konva.KonvaEventObject<PointerEvent>) => {
+    if (e.evt.buttons === 2) return; // ignore right-drag
     const ctx = buildCtx();
     if (ctx) tool.onPointerMove(e, ctx);
   };
   const onUp = (e: Konva.KonvaEventObject<PointerEvent>) => {
+    if (e.evt.button === 2) return;
     const ctx = buildCtx();
     if (ctx) tool.onPointerUp(e, ctx);
   };
+
+  // Suppress the browser context menu over the canvas so right-click is ours.
+  useEffect(() => {
+    const c = stageRef.current?.container();
+    if (!c) return;
+    const onCtx = (ev: Event) => {
+      ev.preventDefault();
+      // If text is mid-edit, cancel that first; otherwise cancel tool.
+      if (isTextEditing()) cancelTextEditIfAny();
+      else cancelActiveTool();
+    };
+    c.addEventListener('contextmenu', onCtx);
+    return () => c.removeEventListener('contextmenu', onCtx);
+  }, [stageRef, activeTool]);
 
   // Mouse wheel (and trackpad pinch) zooms toward the cursor. preventDefault so
   // the page never scrolls under the canvas.

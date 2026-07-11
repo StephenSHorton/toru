@@ -73,6 +73,66 @@ func (s *Store) Dir() string {
 	return s.dir
 }
 
+// Get returns the item with the given id, if present.
+func (s *Store) Get(id string) (Item, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, it := range s.items {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return Item{}, false
+}
+
+// Delete removes the item with id from the list and deletes its file.
+func (s *Store) Delete(id string) error {
+	s.mu.Lock()
+	var removed *Item
+	kept := s.items[:0]
+	for i := range s.items {
+		if s.items[i].ID == id {
+			cp := s.items[i]
+			removed = &cp
+			continue
+		}
+		kept = append(kept, s.items[i])
+	}
+	s.items = kept
+	if removed != nil {
+		_ = saveIndex(s.index, s.items)
+	}
+	cb := s.onChange
+	s.mu.Unlock()
+
+	if removed == nil {
+		return fmt.Errorf("history: unknown id %q", id)
+	}
+	_ = os.Remove(removed.Path)
+	if cb != nil {
+		cb()
+	}
+	emitHistoryChanged()
+	return nil
+}
+
+// emitHistoryChanged notifies open dashboard windows that the recent list
+// changed. Best-effort; no-op when the app isn't running (tests).
+func emitHistoryChanged() {
+	// Lazy import avoidance: application.Get is safe when nil.
+	// Defined in emit_wails.go so unit tests without wails don't fail compile
+	// on non-linked paths — here we call the shared helper.
+	emitHistoryChangedImpl()
+}
+
+// SetOnChange replaces the change callback (used when the tray controller is
+// ready after Store construction).
+func (s *Store) SetOnChange(fn func()) {
+	s.mu.Lock()
+	s.onChange = fn
+	s.mu.Unlock()
+}
+
 // Add copies srcPath into the captures folder and prepends it to the recent
 // list. kind is KindImage or KindVideo. Best-effort: errors are returned but
 // callers typically log-and-ignore so a history failure never blocks capture.
@@ -143,6 +203,8 @@ func (s *Store) Add(srcPath, kind string) (Item, error) {
 	if cb != nil {
 		cb()
 	}
+	// Also broadcast so an open dashboard library refreshes live.
+	emitHistoryChanged()
 	return item, nil
 }
 

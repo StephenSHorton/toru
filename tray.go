@@ -65,7 +65,7 @@ func (t *trayController) rebuildMenu() {
 	})
 
 	menu.AddSeparator()
-	menu.Add("Settings…").OnClick(func(*application.Context) {
+	menu.Add("Open Toru…").OnClick(func(*application.Context) {
 		if t.windows != nil {
 			t.windows.OpenSettings()
 		}

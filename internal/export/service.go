@@ -20,10 +20,35 @@ const (
 )
 
 // Service is the Wails-bound export API.
-type ExportService struct{}
+type ExportService struct {
+	// beforeDialog, if set, runs just before a native Save dialog opens and
+	// returns a restore func deferred until the dialog returns. Used by main to
+	// suspend "alt-tab cancels overlay" so the Save dialog itself doesn't
+	// dismiss the capture mid-save.
+	beforeDialog func() (restore func())
+}
 
 // NewService returns the shared export service.
 func NewService() *ExportService { return &ExportService{} }
+
+// SetBeforeDialog injects a guard run around native file dialogs.
+//
+//wails:ignore
+func (s *ExportService) SetBeforeDialog(fn func() (restore func())) {
+	s.beforeDialog = fn
+	beforeDialogHook = fn
+}
+
+// beforeDialogHook is a package-level copy so dialog_windows.go (same package)
+// can run the guard without holding an ExportService receiver.
+var beforeDialogHook func() (restore func())
+
+func runBeforeDialog() (restore func()) {
+	if beforeDialogHook == nil {
+		return nil
+	}
+	return beforeDialogHook()
+}
 
 // CopyImageFile publishes a PNG at path to the system clipboard. Package-level
 // so the overlay can auto-copy on capture without going through the Wails

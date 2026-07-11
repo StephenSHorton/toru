@@ -38,6 +38,11 @@ func saveAsDialog(srcPath, suggestedName string) (string, error) {
 		return "", fmt.Errorf("saveAs: no running application")
 	}
 
+	// Optional app-level guard (suspend alt-tab-cancels-overlay, etc.).
+	if restoreExtra := runBeforeDialog(); restoreExtra != nil {
+		defer restoreExtra()
+	}
+
 	restore := lowerOverlayAlwaysOnTop(app)
 	defer restore()
 
