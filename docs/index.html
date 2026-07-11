@@ -14,20 +14,24 @@
       content="Hotkey capture, region / window / full screen, annotation editor, library, and auto-update."
     />
     <meta property="og:image" content="toru-banner.png" />
-    <meta name="theme-color" content="#0c0c0e" />
+    <meta name="theme-color" content="#121318" />
     <link rel="icon" href="appicon.png" type="image/png" />
     <style>
+      /* Palette mirrors frontend/src/index.css — primary hue ~248 (sky blue). */
       :root {
-        --bg: #0c0c0e;
-        --bg-elevated: #141418;
-        --fg: #f4f4f5;
-        --muted: #a1a1aa;
-        --border: #27272a;
-        --primary: #a78bfa;
-        --primary-fg: #0c0c0e;
-        --frost: color-mix(in oklab, #1c1c22 78%, transparent);
-        --ring: color-mix(in oklab, var(--primary) 45%, transparent);
-        --radius: 0; /* sharp edges — Toru house style */
+        --bg: oklch(0.145 0.004 264);
+        --bg-elevated: oklch(0.18 0.004 264);
+        --fg: oklch(0.985 0 0);
+        --muted: oklch(0.708 0.01 264);
+        --border: oklch(0.3 0.006 264);
+        --primary: oklch(0.72 0.15 248);
+        --primary-soft: oklch(0.72 0.15 248 / 0.18);
+        --primary-glow: oklch(0.72 0.15 248 / 0.35);
+        --primary-fg: oklch(0.145 0.02 264);
+        --frost: color-mix(in oklch, oklch(0.18 0.004 264) 60%, transparent);
+        --ring: oklch(0.72 0.15 248 / 0.45);
+        --grid-line: oklch(0.72 0.12 248 / 0.09);
+        --radius: 0;
         --font: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
         --mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
       }
@@ -47,6 +51,61 @@
         color: var(--fg);
         line-height: 1.55;
         -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+        position: relative;
+        overflow-x: hidden;
+      }
+
+      /* Fixed atmosphere: blue smoke + fading grid (matches app chrome vibe). */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background:
+          /* soft smoke blobs */
+          radial-gradient(55rem 40rem at 12% -8%, oklch(0.72 0.15 248 / 0.22), transparent 62%),
+          radial-gradient(48rem 38rem at 92% 8%, oklch(0.68 0.14 248 / 0.14), transparent 58%),
+          radial-gradient(42rem 36rem at 78% 88%, oklch(0.62 0.12 248 / 0.12), transparent 60%),
+          radial-gradient(36rem 30rem at 8% 72%, oklch(0.7 0.13 248 / 0.1), transparent 55%),
+          /* deeper cool wash */
+          radial-gradient(80rem 50rem at 50% 120%, oklch(0.35 0.06 264 / 0.45), transparent 55%);
+      }
+
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        /* grid that fades toward edges via mask */
+        background-image:
+          linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+          linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+        background-size: 48px 48px;
+        background-position: center top;
+        mask-image: radial-gradient(
+          ellipse 85% 70% at 50% 35%,
+          #000 0%,
+          #000 35%,
+          transparent 78%
+        );
+        -webkit-mask-image: radial-gradient(
+          ellipse 85% 70% at 50% 35%,
+          #000 0%,
+          #000 35%,
+          transparent 78%
+        );
+        opacity: 0.95;
+      }
+
+      /* Content above atmosphere */
+      header.nav,
+      main,
+      footer {
+        position: relative;
+        z-index: 1;
       }
 
       a {
@@ -67,10 +126,11 @@
         position: sticky;
         top: 0;
         z-index: 40;
-        border-bottom: 1px solid var(--border);
-        background: color-mix(in oklab, var(--bg) 82%, transparent);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid color-mix(in oklch, var(--border) 80%, var(--primary) 20%);
+        background: color-mix(in oklch, var(--bg) 78%, transparent);
+        backdrop-filter: blur(16px) saturate(140%);
+        -webkit-backdrop-filter: blur(16px) saturate(140%);
+        box-shadow: 0 1px 0 oklch(0.72 0.15 248 / 0.08);
       }
 
       .nav-inner {
@@ -140,18 +200,19 @@
       .btn-primary {
         background: var(--primary);
         color: var(--primary-fg);
+        box-shadow: 0 0 0 1px oklch(0.72 0.15 248 / 0.25), 0 8px 28px oklch(0.72 0.15 248 / 0.22);
       }
       .btn-primary:hover {
         filter: brightness(1.06);
       }
       .btn-ghost {
-        background: transparent;
+        background: color-mix(in oklch, var(--bg-elevated) 55%, transparent);
         color: var(--fg);
-        border-color: var(--border);
+        border-color: color-mix(in oklch, var(--border) 70%, var(--primary) 30%);
       }
       .btn-ghost:hover {
         background: var(--bg-elevated);
-        border-color: #3f3f46;
+        border-color: var(--primary-glow);
       }
       .btn-lg {
         padding: 0.85rem 1.25rem;
@@ -169,7 +230,9 @@
         height: auto;
         margin: 0 auto 1.75rem;
         display: block;
-        filter: drop-shadow(0 20px 40px oklab(0% 0 0 / 0.45));
+        filter:
+          drop-shadow(0 0 40px oklch(0.72 0.15 248 / 0.25))
+          drop-shadow(0 24px 48px oklch(0 0 0 / 0.5));
       }
 
       .hero h1 {
@@ -203,9 +266,9 @@
       .version-line code {
         font-family: var(--mono);
         font-size: 0.82rem;
-        color: var(--fg);
-        background: var(--bg-elevated);
-        border: 1px solid var(--border);
+        color: var(--primary);
+        background: oklch(0.72 0.15 248 / 0.1);
+        border: 1px solid oklch(0.72 0.15 248 / 0.28);
         padding: 0.1rem 0.4rem;
       }
 
@@ -216,17 +279,19 @@
         margin-top: 1.5rem;
         padding: 0.55rem 0.85rem;
         background: var(--frost);
-        border: 1px solid var(--border);
-        backdrop-filter: blur(10px);
+        border: 1px solid color-mix(in oklch, var(--border) 65%, var(--primary) 35%);
+        backdrop-filter: blur(12px) saturate(150%);
+        -webkit-backdrop-filter: blur(12px) saturate(150%);
         color: var(--muted);
         font-size: 0.9rem;
+        box-shadow: 0 0 40px oklch(0.72 0.15 248 / 0.08);
       }
       kbd {
         font-family: var(--mono);
         font-size: 0.78rem;
         color: var(--fg);
         background: var(--bg-elevated);
-        border: 1px solid var(--border);
+        border: 1px solid color-mix(in oklch, var(--border) 70%, var(--primary) 30%);
         border-bottom-width: 2px;
         padding: 0.15rem 0.4rem;
       }
@@ -236,11 +301,12 @@
         padding: 2.75rem 0;
       }
       section.band {
-        border-block: 1px solid var(--border);
+        border-block: 1px solid color-mix(in oklch, var(--border) 85%, var(--primary) 15%);
         background: linear-gradient(
           180deg,
-          color-mix(in oklab, var(--bg-elevated) 55%, transparent),
-          transparent
+          oklch(0.72 0.15 248 / 0.05),
+          transparent 40%,
+          oklch(0.72 0.12 248 / 0.04)
         );
       }
 
@@ -263,15 +329,17 @@
 
       .card {
         background: var(--frost);
-        border: 1px solid var(--border);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid color-mix(in oklch, var(--border) 80%, var(--primary) 20%);
+        backdrop-filter: blur(14px) saturate(150%);
+        -webkit-backdrop-filter: blur(14px) saturate(150%);
         padding: 1.2rem 1.25rem;
         transition: border-color 0.15s ease, box-shadow 0.15s ease;
       }
       .card:hover {
         border-color: var(--ring);
-        box-shadow: 0 0 0 1px var(--ring);
+        box-shadow:
+          0 0 0 1px var(--ring),
+          0 12px 36px oklch(0.72 0.15 248 / 0.1);
       }
       .card h3 {
         margin: 0 0 0.4rem;
@@ -290,8 +358,8 @@
         align-items: center;
         justify-content: center;
         margin-bottom: 0.75rem;
-        border: 1px solid var(--border);
-        background: var(--bg-elevated);
+        border: 1px solid oklch(0.72 0.15 248 / 0.28);
+        background: oklch(0.72 0.15 248 / 0.1);
         color: var(--primary);
         font-size: 1rem;
       }
@@ -307,8 +375,9 @@
         gap: 0.9rem;
         align-items: start;
         padding: 1rem 1.1rem;
-        border: 1px solid var(--border);
-        background: var(--bg-elevated);
+        border: 1px solid color-mix(in oklch, var(--border) 80%, var(--primary) 20%);
+        background: color-mix(in oklch, var(--bg-elevated) 80%, transparent);
+        backdrop-filter: blur(10px);
       }
       .step::before {
         counter-increment: step;
@@ -321,6 +390,7 @@
         color: var(--primary-fg);
         font-weight: 700;
         font-size: 0.85rem;
+        box-shadow: 0 0 16px oklch(0.72 0.15 248 / 0.35);
       }
       .step strong {
         display: block;
@@ -337,9 +407,14 @@
         grid-template-columns: 1.2fr 1fr;
         align-items: center;
         padding: 1.5rem;
-        border: 1px solid var(--border);
+        border: 1px solid color-mix(in oklch, var(--border) 60%, var(--primary) 40%);
         background: var(--frost);
-        backdrop-filter: blur(12px);
+        backdrop-filter: blur(16px) saturate(150%);
+        -webkit-backdrop-filter: blur(16px) saturate(150%);
+        box-shadow:
+          0 0 0 1px oklch(0.72 0.15 248 / 0.08),
+          0 24px 60px oklch(0.72 0.15 248 / 0.08),
+          inset 0 1px 0 oklch(0.72 0.15 248 / 0.08);
       }
       @media (max-width: 720px) {
         .download-panel {
@@ -369,7 +444,7 @@
 
       footer {
         padding: 2.5rem 0 3rem;
-        border-top: 1px solid var(--border);
+        border-top: 1px solid color-mix(in oklch, var(--border) 85%, var(--primary) 15%);
         color: var(--muted);
         font-size: 0.88rem;
       }
