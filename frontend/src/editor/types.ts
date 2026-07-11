@@ -69,6 +69,10 @@ export interface TextNode extends BaseNode {
   type: 'text';
   text: string; fontSize: number; fontFamily: string; fill: string;
   width?: number; align: 'left' | 'center' | 'right';
+  // Non-uniform resize warps the glyph (Transformer scale baked here), rather than
+  // reflowing wrap-width / fontSize. Defaults to 1 when missing (legacy nodes).
+  scaleX?: number;
+  scaleY?: number;
 }
 export interface EmojiNode extends BaseNode {
   type: 'emoji';

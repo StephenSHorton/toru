@@ -275,6 +275,10 @@ function TextView({ node, attachRef, selectable }: NodeProps<TextNode>) {
     attachRef(node.id, ref.current);
     return () => attachRef(node.id, null);
   });
+  // Scale is the warp: dragging transformer handles stretches the glyph instead of
+  // reflowing wrap-width (old path baked scaleX into width + scaleY into fontSize).
+  const sx = node.scaleX ?? 1;
+  const sy = node.scaleY ?? 1;
   return (
     <Text
       id={node.id}
@@ -287,21 +291,23 @@ function TextView({ node, attachRef, selectable }: NodeProps<TextNode>) {
       fill={node.fill}
       width={node.width}
       align={node.align}
+      scaleX={sx}
+      scaleY={sy}
       rotation={node.rotation}
       opacity={node.opacity}
       draggable={node.draggable && selectable}
       {...commonHandlers(node.id)}
       onTransformEnd={(e) => {
         const n = e.target as Konva.Text;
+        // Persist the live transformer scale as warping. Do NOT bake into width /
+        // fontSize — that reflows the text to the new box instead of stretching it.
         useEditorStore.getState().updateNode(node.id, {
           x: n.x(),
           y: n.y(),
-          width: Math.max(20, n.width() * n.scaleX()),
-          fontSize: Math.max(6, node.fontSize * n.scaleY()),
           rotation: n.rotation(),
+          scaleX: n.scaleX() === 0 ? 0.01 : n.scaleX(),
+          scaleY: n.scaleY() === 0 ? 0.01 : n.scaleY(),
         });
-        n.scaleX(1);
-        n.scaleY(1);
       }}
     />
   );

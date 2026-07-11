@@ -129,7 +129,9 @@ function findTextNodeAt(nodes: EditorNode[], px: number, py: number): TextNode |
 // ---------------------------------------------------------------------------
 
 function beginEditExisting(node: TextNode): void {
-  useEditorStore.getState().select(node.id);
+  const store = useEditorStore.getState();
+  store.select(node.id);
+  store.setTool('select');
   useTextEditSession.getState().open({
     nodeId: node.id,
     isNew: false,
@@ -162,6 +164,9 @@ function beginPlaceNew(px: number, py: number): void {
   };
   store.addNode(node);
   store.select(id);
+  // Drop out of the text tool on place (matches rect/ellipse → select after draw).
+  // Typing still works: the textarea owns keyboard focus via isEditableTarget().
+  store.setTool('select');
   useTextEditSession.getState().open({
     nodeId: id,
     isNew: true,
