@@ -457,12 +457,13 @@ export default function Overlay() {
     return () => window.clearInterval(id);
   }, [target, mode, refreshWindows]);
 
-  // Apply a window's bounds as the shared crop (hover preview or click lock).
-  // Video clamps to one monitor because ddagrab can't span.
+  // Apply a window's bounds as the shared crop (hover preview or click commit).
+  // Video clamps to one monitor because ddagrab can't span. Returns the rect (or
+  // null) and ALWAYS syncs vcropRef so a same-tick Capture reads the new bounds.
   const applyWindowRect = useCallback(
-    (w: WindowInfo, opts: { persist: boolean }) => {
+    (w: WindowInfo, opts: { persist: boolean }): Rect | null => {
       const r = w.rect;
-      if (!r || r.w < 8 || r.h < 8) return;
+      if (!r || r.w < 8 || r.h < 8) return null;
       let next: Rect = { x: r.x, y: r.y, w: r.w, h: r.h };
       if (toolRef.current === "video") {
         const list = screensRef.current.length ? screensRef.current : [selfRef.current];
@@ -472,23 +473,13 @@ export default function Overlay() {
           selfRef.current;
         next = fitToScreen(next, mon);
       }
+      vcropRef.current = next;
       setVcrop(next);
       broadcastNow(next);
       if (opts.persist) persistVcrop(next);
+      return next;
     },
     [broadcastNow, persistVcrop],
-  );
-
-  // Click: lock the hovered window as the capture target.
-  const selectWindow = useCallback(
-    (w: WindowInfo) => {
-      setTarget("window");
-      setSelectedHwnd(w.hwnd);
-      setHoveredHwnd(w.hwnd);
-      setHoveredTitle(w.title ?? "");
-      applyWindowRect(w, { persist: true });
-    },
-    [applyWindowRect],
   );
 
   // Hover hit-test: client CSS → virtual-desktop physical, first Z-order hit wins.
@@ -510,7 +501,7 @@ export default function Overlay() {
       if (hit.hwnd === hoveredHwnd) return;
       setHoveredHwnd(hit.hwnd);
       setHoveredTitle(hit.title ?? "");
-      // Live-preview the highlight before click; only lock+persist on click.
+      // Live-preview the highlight before click; only lock+capture on click.
       if (selectedHwnd == null || hit.hwnd !== selectedHwnd) {
         applyWindowRect(hit, { persist: false });
       }
@@ -590,6 +581,26 @@ export default function Overlay() {
       setBusy(false);
     }
   }, [busy, session, target]);
+
+  // Click a highlighted window: lock crop + capture immediately (screenshot) or
+  // start recording (video) — Snipping Tool style, not "select then press Capture".
+  const selectWindow = useCallback(
+    (w: WindowInfo) => {
+      if (busy || !session) return;
+      setTarget("window");
+      setSelectedHwnd(w.hwnd);
+      setHoveredHwnd(w.hwnd);
+      setHoveredTitle(w.title ?? "");
+      const next = applyWindowRect(w, { persist: true });
+      if (!next) return;
+      if (toolRef.current === "video") {
+        void startRecording();
+      } else {
+        void captureScreenshot();
+      }
+    },
+    [busy, session, applyWindowRect, captureScreenshot, startRecording],
+  );
 
   // Window-level Esc: ONLY cancels in capture mode (edit mode owns its own Esc).
   useEffect(() => {
@@ -788,7 +799,7 @@ export default function Overlay() {
             <div className="pointer-events-none absolute inset-0 bg-black/45">
               {iAmPill ? (
                 <div className="frost absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-3 py-2 text-center text-xs text-muted-foreground">
-                  Hover a window to highlight it, then click to select
+                  Hover a window to highlight it, then click to capture
                 </div>
               ) : null}
             </div>
@@ -893,7 +904,7 @@ export default function Overlay() {
             size="sm"
             variant={target === "window" ? "default" : "ghost"}
             onClick={enterWindowMode}
-            title="Hover a window to highlight it, click to select"
+            title="Hover a window to highlight it, click to capture"
           >
             <AppWindow /> Window
           </Button>
@@ -924,14 +935,10 @@ export default function Overlay() {
           </Button>
           <Button
             size="sm"
-            disabled={
-              busy ||
-              !session ||
-              (target === "window" && selectedHwnd == null)
-            }
+            disabled={busy || !session || target === "window"}
             title={
-              target === "window" && selectedHwnd == null
-                ? "Click a highlighted window first"
+              target === "window"
+                ? "Click a highlighted window to capture"
                 : undefined
             }
             onClick={() => (tool === "video" ? startRecording() : captureScreenshot())}
