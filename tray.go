@@ -92,7 +92,7 @@ func (t *trayController) openRecent(it history.Item) {
 	}
 }
 
-// openCapturesFolder reveals %AppData%/toru/captures in Explorer (or the OS
+// openCapturesFolder reveals the configured library folder in Explorer (or the OS
 // equivalent). No-op if the directory couldn't be created.
 func (t *trayController) openCapturesFolder() {
 	if t.history == nil {

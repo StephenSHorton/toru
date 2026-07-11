@@ -15,10 +15,35 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 /**
+ * Add copies srcPath into the library folder and prepends it to the recent list.
+ * Used by the editor Done path (annotated PNG) and any other frontend import.
+ * kind is "image" or "video".
+ */
+export function Add(srcPath: string, kind: string): $CancellablePromise<$models.Item> {
+    return $Call.ByID(4179911378, srcPath, kind).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
  * Delete removes one capture from the list and deletes its file.
  */
 export function Delete(id: string): $CancellablePromise<void> {
     return $Call.ByID(2168179124, id);
+}
+
+/**
+ * GetDir returns the absolute path of the library folder (empty if unset).
+ */
+export function GetDir(): $CancellablePromise<string> {
+    return $Call.ByID(2434924928);
+}
+
+/**
+ * IsDefaultDir reports whether the library uses the built-in default path.
+ */
+export function IsDefaultDir(): $CancellablePromise<boolean> {
+    return $Call.ByID(2604347107);
 }
 
 /**
@@ -39,10 +64,32 @@ export function Open(id: string): $CancellablePromise<void> {
 }
 
 /**
- * OpenFolder reveals the captures directory in the OS file manager.
+ * OpenFolder reveals the library directory in the OS file manager.
  */
 export function OpenFolder(): $CancellablePromise<void> {
     return $Call.ByID(2936296111);
+}
+
+/**
+ * PickDir opens a native folder picker and, if the user chooses a path, switches
+ * the library there. Returns the new absolute path, or "" if the user cancelled.
+ */
+export function PickDir(): $CancellablePromise<string> {
+    return $Call.ByID(820868001);
+}
+
+/**
+ * ResetDir restores the built-in default library folder.
+ */
+export function ResetDir(): $CancellablePromise<void> {
+    return $Call.ByID(2167278397);
+}
+
+/**
+ * SetDir switches the library folder (creates it if needed) and reloads the list.
+ */
+export function SetDir(path: string): $CancellablePromise<void> {
+    return $Call.ByID(446929228, path);
 }
 
 // Private type creation functions

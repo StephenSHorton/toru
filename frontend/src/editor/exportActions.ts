@@ -18,7 +18,7 @@
 // export is also exact and un-letterboxed.
 
 import type Konva from 'konva';
-import { ExportService, ScreenshotService } from '@/lib/api';
+import { ExportService, HistoryService, ScreenshotService } from '@/lib/api';
 import { useEditorStore, BASE_IMAGE_ID } from './store';
 import { computeView } from './EditorCanvas';
 import type { ImageNodeBase } from './types';
@@ -103,4 +103,14 @@ export async function saveAs(stage: Konva.Stage, name = 'Screenshot.png'): Promi
   const url = flattenStage(stage);
   const path = await ScreenshotService.SavePNG(url);
   return ExportService.SaveAs(path, name);
+}
+
+/**
+ * Flatten the annotated stage and archive it in the Toru library (user-configurable
+ * folder under Settings). Called on Done — there is no separate Save button.
+ */
+export async function saveToLibrary(stage: Konva.Stage): Promise<void> {
+  const url = flattenStage(stage);
+  const path = await ScreenshotService.SavePNG(url);
+  await HistoryService.Add(path, 'image');
 }

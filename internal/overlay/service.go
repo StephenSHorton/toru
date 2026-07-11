@@ -232,20 +232,18 @@ func (s *OverlayService) SetSuspendDismiss(on bool) {
 	s.suspendDismiss.Store(on)
 }
 
-// rememberScreenshot auto-copies the fresh crop PNG to the clipboard and
-// archives a durable copy under %AppData%/toru/captures for the tray Recent
-// menu. Best-effort: a clipboard/history failure never fails the capture.
+// rememberScreenshot auto-copies the fresh crop PNG to the clipboard so the
+// user can paste without pressing Copy. Library archival happens later when the
+// user hits Done (annotated PNG via HistoryService.Add) — saving here would
+// store the unannotated crop and race the final export.
+// Best-effort: a clipboard failure never fails the capture.
 func (s *OverlayService) rememberScreenshot(cropPath string) {
 	if cropPath == "" {
 		return
 	}
-	// Auto-copy: macOS-style — capture lands on the clipboard immediately so the
-	// user can paste without pressing Copy. The toolbar Copy button still works
-	// for re-exporting after annotation.
+	// Auto-copy: macOS-style — capture lands on the clipboard immediately.
+	// The toolbar Copy button still re-exports after annotation.
 	_ = export.CopyImageFile(cropPath)
-	if s.history != nil {
-		_, _ = s.history.Add(cropPath, history.KindImage)
-	}
 }
 
 // rememberRecording archives a finished recording for the tray Recent menu.
@@ -657,12 +655,6 @@ func (s *OverlayService) ShotMiddleware() application.Middleware {
 	const shotPrefix = "/__shot/"
 	const filePrefix = "/__file/"
 	toruTmp := filepath.Join(os.TempDir(), "toru")
-	// capturesDir is the durable history folder. Empty if UserConfigDir fails;
-	// /__file then only serves temp (same as pre-history behaviour).
-	var capturesDir string
-	if cfg, err := os.UserConfigDir(); err == nil {
-		capturesDir = filepath.Join(cfg, "toru", "captures")
-	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
@@ -693,8 +685,12 @@ func (s *OverlayService) ShotMiddleware() application.Middleware {
 				// filepath.Base collapses any ../ so only a leaf name survives;
 				// joining it onto the allow-listed dirs confines the read there.
 				base := filepath.Base(strings.TrimPrefix(r.URL.Path, filePrefix))
-				// Prefer the session temp (hot path for live edit), then durable
-				// history captures (tray Recent re-open).
+				// Prefer the session temp (hot path for live edit), then the live
+				// library folder (user-configurable via Settings).
+				var capturesDir string
+				if s.history != nil {
+					capturesDir = s.history.Dir()
+				}
 				for _, dir := range []string{toruTmp, capturesDir} {
 					if dir == "" || base == "" || base == "." {
 						continue

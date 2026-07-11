@@ -47,8 +47,8 @@ export default function Editor() {
       </div>
 
       {/* Compact floating tool bar (macOS Screenshot style) over the canvas. It
-          is HTML OUTSIDE the Konva Stage, so Copy/Save (which flatten the Stage)
-          never bake it into the exported PNG. */}
+          is HTML OUTSIDE the Konva Stage, so Copy (which flattens the Stage)
+          never bakes it into the exported PNG. */}
       <Toolbar stageRef={stageRef} />
     </div>
   );

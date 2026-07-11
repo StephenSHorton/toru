@@ -138,7 +138,7 @@ function LibraryPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Library</h1>
           <p className="text-sm text-muted-foreground">
-            Recent screenshots and recordings
+            Screenshots save here when you hit Done; recordings save when they finish
           </p>
         </div>
         <div className="flex gap-2">
@@ -355,6 +355,18 @@ function SettingsPage() {
   const [launchBusy, setLaunchBusy] = useState(false);
   const [freezeOnCapture, setFreezeOnCapture] = useState(true);
   const [freezeBusy, setFreezeBusy] = useState(false);
+  const [libraryDir, setLibraryDir] = useState("");
+  const [libraryDefault, setLibraryDefault] = useState(true);
+  const [libraryBusy, setLibraryBusy] = useState(false);
+
+  const refreshLibraryPath = useCallback(() => {
+    void HistoryService.GetDir()
+      .then((d) => setLibraryDir(typeof d === "string" ? d : ""))
+      .catch(() => setLibraryDir(""));
+    void HistoryService.IsDefaultDir()
+      .then((v) => setLibraryDefault(!!v))
+      .catch(() => setLibraryDefault(true));
+  }, []);
 
   useEffect(() => {
     void SettingsService.GetLaunchAtLogin()
@@ -363,7 +375,8 @@ function SettingsPage() {
     void OverlayService.GetFreezeOnCapture()
       .then(setFreezeOnCapture)
       .catch(() => {});
-  }, []);
+    refreshLibraryPath();
+  }, [refreshLibraryPath]);
 
   const toggleFreezeOnCapture = async (next: boolean) => {
     const prev = freezeOnCapture;
@@ -388,6 +401,37 @@ function SettingsPage() {
       setLaunchAtLogin(prev);
     } finally {
       setLaunchBusy(false);
+    }
+  };
+
+  const pickLibraryDir = async () => {
+    if (libraryBusy) return;
+    setLibraryBusy(true);
+    try {
+      const chosen = await HistoryService.PickDir();
+      if (chosen) {
+        setLibraryDir(chosen);
+        setLibraryDefault(false);
+      } else {
+        refreshLibraryPath();
+      }
+    } catch {
+      refreshLibraryPath();
+    } finally {
+      setLibraryBusy(false);
+    }
+  };
+
+  const resetLibraryDir = async () => {
+    if (libraryBusy) return;
+    setLibraryBusy(true);
+    try {
+      await HistoryService.ResetDir();
+      refreshLibraryPath();
+    } catch {
+      refreshLibraryPath();
+    } finally {
+      setLibraryBusy(false);
     }
   };
 
@@ -429,6 +473,47 @@ function SettingsPage() {
             onCheckedChange={(v) => void toggleFreezeOnCapture(v)}
             aria-label="Freeze the screen while capturing"
           />
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border pt-4">
+          <div className="flex flex-col">
+            <span className="text-sm font-medium">Library folder</span>
+            <span className="text-xs text-muted-foreground">
+              Screenshots and recordings are saved here (and loaded into the Library)
+            </span>
+          </div>
+          <div
+            className="truncate rounded-none border border-border bg-background/40 px-2 py-1.5 font-mono text-[11px] text-muted-foreground"
+            title={libraryDir || "—"}
+          >
+            {libraryDir || "—"}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={libraryBusy}
+              onClick={() => void pickLibraryDir()}
+            >
+              <FolderOpen /> {libraryBusy ? "…" : "Change…"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={libraryBusy || libraryDefault}
+              onClick={() => void resetLibraryDir()}
+            >
+              Reset default
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!libraryDir}
+              onClick={() => void HistoryService.OpenFolder()}
+            >
+              Open folder
+            </Button>
+          </div>
         </div>
       </div>
 

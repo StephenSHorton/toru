@@ -49,6 +49,7 @@ import {
   Zap,
 } from "lucide-react";
 import { OverlayService } from "@/lib/api";
+import { saveToLibrary } from "@/editor/exportActions";
 import type { WindowInfo } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models";
 import {
   parseOverlayQuery,
@@ -205,8 +206,20 @@ export default function Overlay() {
   const audioCount = (audioSystem ? 1 : 0) + (audioMic ? 1 : 0) + audioApps.length;
 
   // Editor keyboard + clipboard paste — mounted once, GATED to edit mode.
-  const finishEdit = useCallback(() => void OverlayService.Finish(), []);
-  useEditorKeyboard(mode === "edit", finishEdit);
+  // Done / empty-Esc: flatten annotated stage → library, then hide overlay.
+  // Save is automatic on Done (no separate Save button).
+  const finishEdit = useCallback(async () => {
+    const stage = stageRef.current;
+    if (stage) {
+      try {
+        await saveToLibrary(stage);
+      } catch {
+        // Still dismiss on library failure so the user is never stuck.
+      }
+    }
+    await OverlayService.Finish();
+  }, []);
+  useEditorKeyboard(mode === "edit", () => void finishEdit());
   useClipboardPaste(mode === "edit");
 
   // ----- shared-crop broadcast + persistence -----
