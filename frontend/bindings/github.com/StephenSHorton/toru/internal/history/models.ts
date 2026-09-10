@@ -5,18 +5,27 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as time$0 from "../../../../../time/models.js";
+
 /**
- * Item is one recent capture shown in the tray menu / dashboard Library.
+ * Item is one recent capture shown in the tray menu.
  */
 export class Item {
     "id": string;
-    /** KindImage | KindVideo */
+
+    /**
+     * KindImage | KindVideo
+     */
     "kind": string;
-    /** absolute path under captures/ */
+
+    /**
+     * absolute path under captures/
+     */
     "path": string;
     "label": string;
-    /** ISO-8601 */
-    "takenAt": string;
+    "takenAt": time$0.Time;
 
     /** Creates a new Item instance. */
     constructor($$source: Partial<Item> = {}) {
@@ -33,7 +42,7 @@ export class Item {
             this["label"] = "";
         }
         if (!("takenAt" in $$source)) {
-            this["takenAt"] = "";
+            this["takenAt"] = null;
         }
 
         Object.assign(this, $$source);

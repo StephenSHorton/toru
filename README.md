@@ -15,11 +15,12 @@ Press <kbd>⊞</kbd> <kbd>Shift</kbd> <kbd>S</kbd> → pick a **region**, **wind
 
 - **Global hotkey** capture (default Win+Shift+S; remappable)
 - **Region / window / full screen** — window mode highlights on hover, click captures
-- **Annotation editor** — pen, shapes, arrows, text, emoji, crop, paste-as-layer
-- **Library** — Done saves automatically; choose the folder in Settings
+- **Annotation editor** — overlay editor after a new shot; library items open in a window. Pen, shapes, arrows, text, emoji, crop, paste-as-layer
+- **Library** — Done saves automatically; choose the folder in Settings. Optional: skip the editor and auto-save + copy
+- **Aspect lock** — freeform, 16:9, 9:16, 4:3, 3:2, 1:1, 21:9 while resizing the region
 - **Record & trim** — optional system / per-app / mic audio; Discord-friendly export
 - **Freeze or live** overlay while selecting
-- **Tray recents**, auto-copy, auto-update from Releases
+- **Tray recents**, auto-copy on capture, auto-update from Releases
 
 ## Download
 

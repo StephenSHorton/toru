@@ -3,6 +3,8 @@ package overlay
 import (
 	"fmt"
 	"image"
+	"net/url"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -59,6 +61,26 @@ type OverlayEditPayload struct {
 	CSSW      int          `json:"cssW"`    // region width  in CSS px = stage width
 	CSSH      int          `json:"cssH"`    // region height in CSS px = stage height
 	Sub       capture.Rect `json:"sub"`     // monitor-local physical crop (Save provenance)
+}
+
+// OverlayUi is the overlay:ui event payload: tool / target / aspect / hover
+// shared across the per-monitor overlay windows (which cannot message each
+// other). The window that changes a control calls SetSharedUi; every window
+// applies it so window-pick and aspect lock work on every screen.
+type OverlayUi struct {
+	Tool         string `json:"tool"`        // "screenshot" | "video"
+	Target       string `json:"target"`      // "region" | "window" | "fullscreen"
+	Aspect       string `json:"aspect"`      // "free" | "16:9" | "9:16" | "4:3" | "3:2" | "1:1" | "21:9"
+	HoveredHWND  uint64 `json:"hoveredHwnd"` // 0 = none
+	HoveredTitle string `json:"hoveredTitle"`
+}
+
+// servedFileURL turns an absolute temp-file path (under %TEMP%/toru) into the
+// /__file/<basename> URL ShotMiddleware serves. Duplicated from package main
+// (windows.go) because the overlay package cannot import package main; keep the
+// two trivial copies in sync.
+func servedFileURL(absPath string) string {
+	return "/__file/" + url.PathEscape(filepath.Base(absPath))
 }
 
 // freezeAll freezes every monitor's pixels IN MEMORY (image.RGBA) and pre-encodes
@@ -185,13 +207,13 @@ func (s *OverlayService) ensureWindows(screens []capture.ScreenInfo) bool {
 		}
 		dip := s.dipBoundsFor(MonitorSession{MonitorID: sc.ID, X: sc.X, Y: sc.Y, W: sc.W, H: sc.H, Scale: sc.ScaleFactor})
 		w := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name:             "toru-overlay-" + strconv.Itoa(sc.ID),
-			URL:              overlayURL(sc.ID, sc.IsPrimary, sc.ScaleFactor, sc.X, sc.Y, sc.W, sc.H),
-			X:                dip.X,
-			Y:                dip.Y,
-			Width:            dip.Width,
-			Height:           dip.Height,
-			Screen:           nil,
+			Name:            "toru-overlay-" + strconv.Itoa(sc.ID),
+			URL:             overlayURL(sc.ID, sc.IsPrimary, sc.ScaleFactor, sc.X, sc.Y, sc.W, sc.H),
+			X:               dip.X,
+			Y:               dip.Y,
+			Width:           dip.Width,
+			Height:          dip.Height,
+			Screen:          nil,
 			InitialPosition: application.WindowXY,
 			Hidden:          true,
 			Frameless:       true,

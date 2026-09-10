@@ -62,6 +62,7 @@ func init() {
 	// physical px) between the per-monitor windows so a straddle selection moves as
 	// a single rect across the seam.
 	application.RegisterEvent[capture.Rect](overlay.EventOverlayCropRect)
+	application.RegisterEvent[overlay.OverlayUi](overlay.EventOverlayUi)
 }
 
 func main() {
@@ -241,7 +242,7 @@ func main() {
 			windows:     windowsSvc,
 			openOverlay: windowsSvc.OpenOverlay,
 		}
-		tray.rebuildMenu() // initial menu (includes any persisted recents)
+		tray.rebuildMenu()                                         // initial menu (includes any persisted recents)
 		systray.OnClick(func() { windowsSvc.OpenSettings() })      // left-click = open home (menu-bar feel)
 		systray.OnDoubleClick(func() { windowsSvc.OpenOverlay() }) // double-click = quick capture
 		// Right-click opens the menu automatically (Wails smart default).

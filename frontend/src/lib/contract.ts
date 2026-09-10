@@ -140,6 +140,7 @@ export const Events = {
   // cross-monitor crop between windows so a straddle selection moves as a single
   // rectangle across the seam. Every window applies it and re-renders its slice.
   OverlayCropRect: "overlay:cropRect",
+  OverlayUi: "overlay:ui",
   // update:installing (string version) — the backend is about to install a forced
   // update and quit to relaunch; an open window flips to its "Updating…" state.
   UpdateInstalling: "update:installing",

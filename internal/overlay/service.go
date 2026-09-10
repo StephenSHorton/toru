@@ -15,6 +15,7 @@ package overlay
 import (
 	"fmt"
 	"image"
+	"image/png"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -133,6 +134,11 @@ type OverlayService struct {
 	freeze       bool
 	freezeLoaded bool
 
+	// openEditor is the cached "open annotation editor after a screenshot"
+	// preference (overlay.json). Same lazy-load pattern as freeze. Default ON.
+	openEditor       bool
+	openEditorLoaded bool
+
 	// sharedCrop is the latest cross-monitor selection (VIRTUAL-DESKTOP PHYSICAL px)
 	// relayed by SetSharedCrop. The crop lives in the front end; Go only relays it
 	// between the per-monitor windows (which can't message each other) and persists
@@ -234,7 +240,8 @@ func (s *OverlayService) SetSuspendDismiss(on bool) {
 // rememberScreenshot auto-copies the fresh crop PNG to the clipboard so the
 // user can paste without pressing Copy. Library archival happens later when the
 // user hits Done (annotated PNG via HistoryService.Add) — saving here would
-// store the unannotated crop and race the final export.
+// store the unannotated crop and race the final export. When the editor is
+// skipped, presentScreenshot archives immediately after this copy.
 // Best-effort: a clipboard failure never fails the capture.
 func (s *OverlayService) rememberScreenshot(cropPath string) {
 	if cropPath == "" {
@@ -243,6 +250,113 @@ func (s *OverlayService) rememberScreenshot(cropPath string) {
 	// Auto-copy: macOS-style — capture lands on the clipboard immediately.
 	// The toolbar Copy button still re-exports after annotation.
 	_ = export.CopyImageFile(cropPath)
+}
+
+// presentOpts is how a finished screenshot PNG is shown (or not) after capture.
+type presentOpts struct {
+	monitorID                   int
+	cssLeft, cssTop, cssW, cssH int
+	sub                         capture.Rect
+	liveGrab                    bool // freeze-off: EditReady must re-show the target window
+}
+
+// presentScreenshot always copies the crop to the clipboard, then either:
+//   - skip-editor: archives to the library and dismisses the overlay
+//   - overlay editor: morphs the target overlay window in place (other
+//     monitors hide so they don't steal clicks)
+func (s *OverlayService) presentScreenshot(cropPath string, opt presentOpts) {
+	if cropPath == "" {
+		return
+	}
+	s.rememberScreenshot(cropPath)
+
+	if !s.currentOpenEditor() {
+		if s.history != nil {
+			_, _ = s.history.Add(cropPath, history.KindImage)
+		}
+		s.HideOverlay()
+		_ = os.Remove(cropPath)
+		return
+	}
+
+	// No overlay window to morph into (shouldn't happen in a live session) —
+	// fall back to the standalone editor used by the library.
+	if s.window(opt.monitorID) == nil && s.editorOpener != nil {
+		s.HideOverlay()
+		s.editorOpener(cropPath)
+		return
+	}
+
+	if opt.cssW <= 0 || opt.cssH <= 0 {
+		opt.cssW, opt.cssH = cssSizeFor(cropPath, s.scaleOf(opt.monitorID))
+	}
+
+	s.trackCropTemp(cropPath)
+	s.armEscape(false)
+	s.inEdit.Store(true)
+	s.hideOverlaysExcept(opt.monitorID)
+	if opt.liveGrab {
+		s.mu.Lock()
+		s.pendingEditShow[opt.monitorID] = true
+		s.mu.Unlock()
+	}
+	s.emit(EventOverlayEdit, OverlayEditPayload{
+		MonitorID: opt.monitorID,
+		CropURL:   servedFileURL(cropPath),
+		CSSLeft:   opt.cssLeft,
+		CSSTop:    opt.cssTop,
+		CSSW:      opt.cssW,
+		CSSH:      opt.cssH,
+		Sub:       opt.sub,
+	})
+}
+
+// hideOverlaysExcept hides every overlay window except keepID (the editor
+// monitor). Copies handles out from under the lock before Hide() so we never
+// call into Wails while holding s.mu.
+func (s *OverlayService) hideOverlaysExcept(keepID int) {
+	s.mu.RLock()
+	others := make([]*application.WebviewWindow, 0, len(s.windows))
+	for id, w := range s.windows {
+		if id != keepID && w != nil {
+			others = append(others, w)
+		}
+	}
+	s.mu.RUnlock()
+	for _, w := range others {
+		if w.IsVisible() {
+			w.Hide()
+		}
+	}
+}
+
+// scaleOf returns the session scale for monitorID (1 if unknown).
+func (s *OverlayService) scaleOf(monitorID int) float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, sc := range s.screens {
+		if sc.ID == monitorID && sc.ScaleFactor > 0 {
+			return sc.ScaleFactor
+		}
+	}
+	return 1
+}
+
+// cssSizeFor returns the CSS (DIP) size of a PNG given a monitor scale.
+func cssSizeFor(path string, scale float64) (w, h int) {
+	if scale <= 0 {
+		scale = 1
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0
+	}
+	defer func() { _ = f.Close() }()
+	cfg, err := png.DecodeConfig(f)
+	if err != nil {
+		return 0, 0
+	}
+	return int(float64(cfg.Width)/scale + 0.5), int(float64(cfg.Height)/scale + 0.5)
 }
 
 // rememberRecording archives a finished recording for the tray Recent menu.
@@ -295,6 +409,49 @@ func (s *OverlayService) currentFreeze() bool {
 	s.mu.Lock()
 	s.freeze = v
 	s.freezeLoaded = true
+	s.mu.Unlock()
+	return v
+}
+
+// GetOpenEditorAfterCapture reports whether a new screenshot opens the overlay
+// annotation editor (default ON). Off: copy to clipboard + save to the library
+// and dismiss, no editor.
+func (s *OverlayService) GetOpenEditorAfterCapture() bool {
+	return s.currentOpenEditor()
+}
+
+// SetOpenEditorAfterCapture persists the post-screenshot editor preference.
+func (s *OverlayService) SetOpenEditorAfterCapture(enabled bool) {
+	cropFileMu.Lock()
+	st := loadCrops()
+	st.OpenEditor = &enabled
+	_ = saveCrops(st)
+	cropFileMu.Unlock()
+
+	s.mu.Lock()
+	s.openEditor = enabled
+	s.openEditorLoaded = true
+	s.mu.Unlock()
+}
+
+// currentOpenEditor returns the cached open-editor preference, lazily loading
+// it from disk on first use.
+func (s *OverlayService) currentOpenEditor() bool {
+	s.mu.RLock()
+	if s.openEditorLoaded {
+		v := s.openEditor
+		s.mu.RUnlock()
+		return v
+	}
+	s.mu.RUnlock()
+
+	cropFileMu.Lock()
+	v := loadCrops().openEditorEnabled()
+	cropFileMu.Unlock()
+
+	s.mu.Lock()
+	s.openEditor = v
+	s.openEditorLoaded = true
 	s.mu.Unlock()
 	return v
 }
@@ -715,7 +872,7 @@ func (s *OverlayService) ShotMiddleware() application.Middleware {
 // and frees the in-memory frozen pixels + backdrop JPEGs (~100MB). It does NOT
 // Close() the windows; Teardown does that, only at app shutdown.
 func (s *OverlayService) HideOverlay() {
-	s.armEscape(false) // overlay is going away — stop intercepting global Escape
+	s.armEscape(false)    // overlay is going away — stop intercepting global Escape
 	s.inEdit.Store(false) // focus-loss cancel only applies in annotation edit mode
 
 	s.mu.RLock()
@@ -801,14 +958,14 @@ func removeFiles(paths []string) {
 	}
 }
 
-// EnterEdit crops the in-memory FROZEN pixels for monitorID to a LOSSLESS PNG,
-// dismisses the capture overlay, and opens the standalone annotation editor
-// window (same destination as EnterEditMulti). cssLeft/Top/W/H are kept for
-// binding compatibility with the React capture path but are unused — the editor
-// is a separate centered window, not an in-overlay morph.
+// EnterEdit is THE single-surface screenshot morph (freeze-ON). It crops the
+// in-memory FROZEN pixels for monitorID to a LOSSLESS PNG and either morphs
+// THIS overlay window into the annotation editor (default) or copies+saves and
+// dismisses when "open editor after screenshot" is off.
+//
+// sub is the monitor-local PHYSICAL crop; cssLeft/Top/W/H are that region in
+// CSS px within this window (echoed back so React sizes the embedded stage).
 func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, cssTop, cssW, cssH int) error {
-	_, _, _, _ = cssLeft, cssTop, cssW, cssH
-	// Leaving capture: disarm global Escape (overlay Cancel) before dismiss/open.
 	s.armEscape(false)
 
 	s.mu.RLock()
@@ -820,23 +977,18 @@ func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, css
 
 	_ = s.SaveCrop(monitorID, sub)
 
-	// The frozen RGBA is immutable after the freeze, so cropping it lock-free after
-	// grabbing the pointer is safe — nothing mutates an already-frozen image.
 	cropPath, err := capture.CropImage(img, sub)
 	if err != nil {
 		return err
 	}
-	// Do NOT trackCropTemp: HideOverlay would delete the file the editor needs.
-	// The editor window owns temp lifecycle (isToruTempPath on close).
-	s.rememberScreenshot(cropPath)
-	// Dismiss overlay BEFORE opening the editor so AOT capture windows can't
-	// obscure the (not-AOT) editor — same as EnterEditMulti.
-	s.HideOverlay()
-	if s.editorOpener != nil {
-		s.editorOpener(cropPath)
-	} else {
-		_ = os.Remove(cropPath)
-	}
+	s.presentScreenshot(cropPath, presentOpts{
+		monitorID: monitorID,
+		cssLeft:   cssLeft,
+		cssTop:    cssTop,
+		cssW:      cssW,
+		cssH:      cssH,
+		sub:       sub,
+	})
 	return nil
 }
 
@@ -844,17 +996,13 @@ func (s *OverlayService) EnterEdit(monitorID int, sub capture.Rect, cssLeft, css
 // still, so the live pixels must be grabbed NOW. It (1) HIDES the TARGET monitor's
 // overlay window so the grab can't photograph dim panels / crop chrome, (2)
 // settles one DWM frame, (3) captures the live monitor, (4) crops to a PNG,
-// (5) HideOverlay + opens the standalone annotation editor.
+// (5) morphs into the overlay editor (EditReady re-shows the window) — or
+// copies+saves and dismisses when the editor is skipped.
 //
 // INVARIANT: if it hid the target window, error paths MUST re-show it (or the
-// overlay is stranded hidden). Success uses HideOverlay (all monitors) then opens
-// the editor — no in-overlay morph / EditReady path.
-//
-// cssLeft/Top/W/H are unused (binding-compat); the editor is a separate window.
+// overlay is stranded hidden). Success uses presentScreenshot.
 func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft, cssTop, cssW, cssH int) error {
-	_, _, _, _ = cssLeft, cssTop, cssW, cssH
 	s.armEscape(false)
-	// Suspend focus-loss cancel while we Hide for a clean live grab.
 	s.SetSuspendDismiss(true)
 	defer s.SetSuspendDismiss(false)
 
@@ -868,7 +1016,7 @@ func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft,
 			break
 		}
 	}
-	gen := s.gen // supersede-guard: a fresh engage bumps gen
+	gen := s.gen
 	win := s.windows[monitorID]
 	s.mu.RUnlock()
 	if !found {
@@ -902,21 +1050,21 @@ func (s *OverlayService) EnterEditLive(monitorID int, sub capture.Rect, cssLeft,
 		return err
 	}
 
-	// Supersede: a concurrent BeginSession owns the session now — drop our crop.
 	if s.superseded(gen) {
 		_ = os.Remove(cropPath)
 		return nil
 	}
 
 	_ = s.SaveCrop(monitorID, sub)
-	// Untracked temp — editor window owns delete-on-close.
-	s.rememberScreenshot(cropPath)
-	s.HideOverlay()
-	if s.editorOpener != nil {
-		s.editorOpener(cropPath)
-	} else {
-		_ = os.Remove(cropPath)
-	}
+	s.presentScreenshot(cropPath, presentOpts{
+		monitorID: monitorID,
+		cssLeft:   cssLeft,
+		cssTop:    cssTop,
+		cssW:      cssW,
+		cssH:      cssH,
+		sub:       sub,
+		liveGrab:  true,
+	})
 	return nil
 }
 
@@ -933,6 +1081,13 @@ func (s *OverlayService) SetSharedCrop(region capture.Rect) {
 	s.emit(EventOverlayCropRect, region)
 }
 
+// SetSharedUi relays capture-chrome state (tool, target, aspect, hovered window)
+// to EVERY overlay window. Same fire-and-forget pattern as SetSharedCrop: the
+// per-monitor windows can't talk to each other, so Go broadcasts overlay:ui.
+func (s *OverlayService) SetSharedUi(ui OverlayUi) {
+	s.emit(EventOverlayUi, ui)
+}
+
 // SaveSharedCrop persists the shared crop (VIRTUAL-DESKTOP PHYSICAL px) so the
 // next session reopens where the user left it. Called debounced on drag/resize end
 // (and by EnterEditMulti before it dismisses). Mirrors SaveCrop's file discipline.
@@ -945,10 +1100,175 @@ func (s *OverlayService) SaveSharedCrop(region capture.Rect) error {
 	return saveCrops(st)
 }
 
+// EnterEditWindow is the WINDOW-MODE screenshot Capture: crops the target HWND's
+// DWM frame bounds from frozen (or live) pixels, then composes a macOS-style
+// still — transparent padding, soft drop shadow, rounded-corner alpha — so the
+// result does NOT include the desktop around the window. Maximized windows skip
+// the beautify (flush work-area fill, no shadow).
+//
+// hwnd is the Win32 HWND from ListWindows / hover pick. The result morphs into
+// the overlay editor on the window's monitor (or copies+saves if the editor is
+// skipped).
+func (s *OverlayService) EnterEditWindow(hwnd uint64) error {
+	if hwnd == 0 {
+		return fmt.Errorf("overlay: EnterEditWindow requires a non-zero hwnd")
+	}
+	winfo, ok := capture.LookupWindow(hwnd)
+	if !ok {
+		return fmt.Errorf("overlay: window 0x%x is not capturable (gone/minimized?)", hwnd)
+	}
+	region := winfo.Rect
+
+	s.armEscape(false)
+	s.SetSuspendDismiss(true)
+	defer s.SetSuspendDismiss(false)
+
+	s.mu.RLock()
+	screens := append([]capture.ScreenInfo(nil), s.screens...)
+	gen := s.gen
+	s.mu.RUnlock()
+
+	hit := intersectingScreens(screens, region)
+	if len(hit) == 0 {
+		// Session screens empty? Fall back to EnumDisplays-enriched list via ListScreens.
+		// Prefer the live freeze path over failing when engage state is thin.
+		if listed, err := s.ListScreens(); err == nil {
+			screens = listed
+			hit = intersectingScreens(screens, region)
+		}
+	}
+	if len(hit) == 0 {
+		return fmt.Errorf("overlay: window rect %+v intersects no monitor", region)
+	}
+
+	freeze := s.currentFreeze()
+	hidden := map[int]*application.WebviewWindow{}
+
+	var frozens map[int]*image.RGBA
+	if freeze {
+		s.mu.RLock()
+		frozens = make(map[int]*image.RGBA, len(s.frozenImg))
+		for k, v := range s.frozenImg {
+			frozens[k] = v
+		}
+		s.mu.RUnlock()
+		if len(frozens) == 0 {
+			return fmt.Errorf("overlay: no frozen images for window capture (session not active?)")
+		}
+	} else {
+		s.mu.RLock()
+		hitWins := make(map[int]*application.WebviewWindow, len(hit))
+		for _, sc := range hit {
+			hitWins[sc.ID] = s.windows[sc.ID]
+		}
+		s.mu.RUnlock()
+		for id, w := range hitWins {
+			if w != nil && w.IsVisible() {
+				w.Hide()
+				hidden[id] = w
+			}
+		}
+		settleCompositor()
+		if s.superseded(gen) {
+			return nil
+		}
+		frozens = make(map[int]*image.RGBA, len(hit))
+		for _, sc := range hit {
+			img, err := capture.FreezeMonitorImage(image.Rect(sc.X, sc.Y, sc.X+sc.W, sc.Y+sc.H))
+			if err != nil {
+				reshowWindows(hidden)
+				return err
+			}
+			frozens[sc.ID] = img
+		}
+	}
+
+	// Stitch (or single-monitor crop via stitch) the window's virtual-desktop rect.
+	cropped, err := capture.StitchImageMulti(frozens, hit, region)
+	if err != nil {
+		reshowWindows(hidden)
+		return err
+	}
+
+	// DPI for shadow/corner scaling: prefer the window's dominant monitor.
+	scale := 1.0
+	for _, sc := range hit {
+		if sc.ID == winfo.MonitorID && sc.ScaleFactor > 0 {
+			scale = sc.ScaleFactor
+			break
+		}
+	}
+	if scale <= 0 {
+		scale = hit[0].ScaleFactor
+		if scale <= 0 {
+			scale = 1
+		}
+	}
+
+	opt := capture.DefaultWindowComposeOpts(scale)
+	// Maximized OR essentially filling its dominant monitor → no pad/shadow/round.
+	if capture.WindowIsMaximized(hwnd) || windowFillsMonitor(region, hit, winfo.MonitorID) {
+		opt.SkipBeautify = true
+		opt.Pad = 0
+		opt.CornerR = 0
+	}
+
+	path, err := capture.EncodeWindowStill(cropped, opt)
+	if err != nil {
+		reshowWindows(hidden)
+		return err
+	}
+
+	if s.superseded(gen) {
+		_ = os.Remove(path)
+		return nil
+	}
+
+	_ = s.SaveSharedCrop(region)
+	monID := winfo.MonitorID
+	if monID < 0 && len(hit) > 0 {
+		monID = hit[0].ID
+	}
+	s.presentScreenshot(path, presentOpts{
+		monitorID: monID,
+		sub:       capture.Rect{X: 0, Y: 0, W: region.W, H: region.H},
+		liveGrab:  !freeze,
+	})
+	return nil
+}
+
+// windowFillsMonitor is true when the window rect covers ≥98% of its dominant
+// monitor (or the largest-overlap hit) — treat like maximized for beautify.
+func windowFillsMonitor(region capture.Rect, hit []capture.ScreenInfo, preferID int) bool {
+	var mon *capture.ScreenInfo
+	for i := range hit {
+		if hit[i].ID == preferID {
+			mon = &hit[i]
+			break
+		}
+	}
+	if mon == nil && len(hit) > 0 {
+		mon = &hit[0]
+	}
+	if mon == nil || mon.W <= 0 || mon.H <= 0 {
+		return false
+	}
+	// Overlap area vs monitor area.
+	x1 := max(region.X, mon.X)
+	y1 := max(region.Y, mon.Y)
+	x2 := min(region.X+region.W, mon.X+mon.W)
+	y2 := min(region.Y+region.H, mon.Y+mon.H)
+	if x2 <= x1 || y2 <= y1 {
+		return false
+	}
+	overlap := (x2 - x1) * (y2 - y1)
+	area := mon.W * mon.H
+	return overlap*100 >= area*98
+}
+
 // EnterEditMulti is the STRADDLE screenshot Capture: the crop spans two or more
-// monitors, so it can't morph in place (no overlay window spans the seam). It
-// stitches the region out of the per-monitor pixels into ONE PNG, opens the
-// standalone annotation editor window for it, and dismisses the overlay.
+// monitors. It stitches the region into ONE PNG, then morphs the DOMINANT
+// monitor's overlay into the annotation editor (other overlay windows hide).
 //
 // It honours the freeze preference: freeze-ON crops the already-frozen images;
 // freeze-OFF grabs each touched monitor LIVE right now (hiding those windows first
@@ -1053,17 +1373,20 @@ func (s *OverlayService) EnterEditMulti(region capture.Rect) error {
 	}
 
 	_ = s.SaveSharedCrop(region)
-	s.rememberScreenshot(path)
-	// Dismiss the overlay BEFORE opening the editor so the always-on-top overlay
-	// windows can't briefly obscure the (not-always-on-top) editor window. HideOverlay
-	// frees the frozen pixels and hides every still-visible overlay window; `path` is
-	// untracked, so it is NOT deleted here (the editor window owns its lifecycle).
-	s.HideOverlay()
-	if s.editorOpener != nil {
-		s.editorOpener(path)
-	} else {
-		_ = os.Remove(path) // no editor to hand it to: don't leak the temp
+	monID := hit[0].ID
+	bestArea := 0
+	for _, sc := range hit {
+		a := intersectArea(region, sc)
+		if a > bestArea {
+			bestArea = a
+			monID = sc.ID
+		}
 	}
+	s.presentScreenshot(path, presentOpts{
+		monitorID: monID,
+		sub:       capture.Rect{X: 0, Y: 0, W: region.W, H: region.H},
+		liveGrab:  !freeze,
+	})
 	return nil
 }
 
@@ -1330,4 +1653,8 @@ const (
 	// single rectangle across the seam. Replaces the old single-active-monitor
 	// selection model.
 	EventOverlayCropRect = "overlay:cropRect"
+
+	// EventOverlayUi relays tool / target / aspect / hover between the per-monitor
+	// overlay windows so window-pick and aspect lock work on every screen.
+	EventOverlayUi = "overlay:ui"
 )

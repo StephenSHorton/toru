@@ -31,6 +31,30 @@ func TestFreezeEnabledDefault(t *testing.T) {
 	}
 }
 
+// TestOpenEditorEnabledDefault locks "absent => open editor ON" so older
+// overlay.json and a fresh install still morph into the annotation overlay.
+func TestOpenEditorEnabledDefault(t *testing.T) {
+	on := true
+	off := false
+	cases := []struct {
+		name string
+		in   *bool
+		want bool
+	}{
+		{"absent defaults on", nil, true},
+		{"explicit on", &on, true},
+		{"explicit off", &off, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st := cropStore{OpenEditor: c.in}
+			if got := st.openEditorEnabled(); got != c.want {
+				t.Fatalf("openEditorEnabled(%v) = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
 // TestRecordingErrorMessage verifies the failed-start message is collapsed to a
 // single line (it rides a window URL) and capped in length, while staying
 // non-empty for a real error.
