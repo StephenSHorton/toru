@@ -351,7 +351,7 @@ func cssSizeFor(path string, scale float64) (w, h int) {
 	if err != nil {
 		return 0, 0
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	cfg, err := png.DecodeConfig(f)
 	if err != nil {
 		return 0, 0

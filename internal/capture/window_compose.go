@@ -218,8 +218,7 @@ func coverageRounded(px, py, w, h, r float64) uint8 {
 		return 255
 	}
 	// Distance to nearest corner circle centre.
-	cx := px
-	cy := py
+	var cx, cy float64
 	switch {
 	case px < r && py < r: // top-left
 		cx, cy = r, r
