@@ -8,5 +8,6 @@ export {
 
 export {
     MonitorSession,
-    OverlayEditPayload
+    OverlayEditPayload,
+    OverlayUi
 } from "./models.js";

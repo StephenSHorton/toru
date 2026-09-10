@@ -10,17 +10,25 @@ import (
 )
 
 var (
-	user32Enum               = windows.NewLazySystemDLL("user32.dll")
-	procEnumWindows          = user32Enum.NewProc("EnumWindows")
-	procIsWindowVisible      = user32Enum.NewProc("IsWindowVisible")
-	procIsIconic             = user32Enum.NewProc("IsIconic")
-	procGetWindowTextW       = user32Enum.NewProc("GetWindowTextW")
-	procGetWindowTextLengthW = user32Enum.NewProc("GetWindowTextLengthW")
-	procGetWindowRect        = user32Enum.NewProc("GetWindowRect")
-	procGetWindowLongW       = user32Enum.NewProc("GetWindowLongW")
-	procGetWindow            = user32Enum.NewProc("GetWindow")
-	procGetClassNameW        = user32Enum.NewProc("GetClassNameW")
+	user32Enum                = windows.NewLazySystemDLL("user32.dll")
+	dwmapiEnum                = windows.NewLazySystemDLL("dwmapi.dll")
+	procEnumWindows           = user32Enum.NewProc("EnumWindows")
+	procIsWindowVisible       = user32Enum.NewProc("IsWindowVisible")
+	procIsIconic              = user32Enum.NewProc("IsIconic")
+	procIsZoomed              = user32Enum.NewProc("IsZoomed")
+	procGetWindowTextW        = user32Enum.NewProc("GetWindowTextW")
+	procGetWindowTextLengthW  = user32Enum.NewProc("GetWindowTextLengthW")
+	procGetWindowRect         = user32Enum.NewProc("GetWindowRect")
+	procGetWindowLongW        = user32Enum.NewProc("GetWindowLongW")
+	procGetWindow             = user32Enum.NewProc("GetWindow")
+	procGetClassNameW         = user32Enum.NewProc("GetClassNameW")
+	procDwmGetWindowAttribute = dwmapiEnum.NewProc("DwmGetWindowAttribute")
 )
+
+// DWMWA_EXTENDED_FRAME_BOUNDS — visible frame without the invisible Win10/11
+// resize borders that GetWindowRect includes (those borders photograph as
+// desktop pixels around the window).
+const dwmwaExtendedFrameBounds = 9
 
 const (
 	// GWL_EXSTYLE = -20; pass as the two's-complement bit pattern so Call's
@@ -124,6 +132,16 @@ func windowClass(hwnd uintptr) string {
 }
 
 func windowRect(hwnd uintptr) (Rect, bool) {
+	// Prefer DWM extended frame bounds: tight visible chrome, no invisible
+	// resize margins (those margins are the usual "desktop around the window"
+	// leak in region-crop window capture).
+	if r, ok := extendedFrameBounds(hwnd); ok {
+		return r, true
+	}
+	return getWindowRect(hwnd)
+}
+
+func getWindowRect(hwnd uintptr) (Rect, bool) {
 	var r winRECT
 	ok, _, _ := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
 	if ok == 0 {
@@ -135,6 +153,53 @@ func windowRect(hwnd uintptr) (Rect, bool) {
 		return Rect{}, false
 	}
 	return Rect{X: int(r.Left), Y: int(r.Top), W: w, H: h}, true
+}
+
+func extendedFrameBounds(hwnd uintptr) (Rect, bool) {
+	var r winRECT
+	hr, _, _ := procDwmGetWindowAttribute.Call(
+		hwnd,
+		uintptr(dwmwaExtendedFrameBounds),
+		uintptr(unsafe.Pointer(&r)),
+		unsafe.Sizeof(r),
+	)
+	if hr != 0 {
+		return Rect{}, false
+	}
+	w := int(r.Right - r.Left)
+	h := int(r.Bottom - r.Top)
+	if w <= 0 || h <= 0 {
+		return Rect{}, false
+	}
+	return Rect{X: int(r.Left), Y: int(r.Top), W: w, H: h}, true
+}
+
+// WindowIsMaximized reports IsZoomed(hwnd). Maximized windows skip shadow /
+// rounded-corner beautify (they already fill the work area).
+func WindowIsMaximized(hwnd uint64) bool {
+	r, _, _ := procIsZoomed.Call(uintptr(hwnd))
+	return r != 0
+}
+
+// LookupWindow returns a fresh WindowInfo for hwnd (current DWM bounds), or ok=false
+// if the window is gone / not measurable. Used at capture-commit time so a moved
+// window still snaps correctly after the hover list was built.
+func LookupWindow(hwnd uint64) (WindowInfo, bool) {
+	h := uintptr(hwnd)
+	if h == 0 || !isVisible(h) || isIconic(h) {
+		return WindowInfo{}, false
+	}
+	r, ok := windowRect(h)
+	if !ok || r.W < 8 || r.H < 8 {
+		return WindowInfo{}, false
+	}
+	screens := EnumDisplays()
+	return WindowInfo{
+		HWND:      hwnd,
+		Title:     windowTitle(h),
+		Rect:      r,
+		MonitorID: dominantMonitorIDFromDisplays(r, screens),
+	}, true
 }
 
 func isToruChrome(title, class string) bool {

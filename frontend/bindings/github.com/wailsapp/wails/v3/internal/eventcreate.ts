@@ -19,6 +19,7 @@ function configure() {
         "overlay:cropRect": $$createType1,
         "overlay:edit": $$createType2,
         "overlay:engage": $$createType3,
+        "overlay:ui": $$createType4,
     }));
 }
 
@@ -27,5 +28,6 @@ const $$createType0 = capture$0.CaptureResult.createFrom;
 const $$createType1 = capture$0.Rect.createFrom;
 const $$createType2 = overlay$0.OverlayEditPayload.createFrom;
 const $$createType3 = overlay$0.MonitorSession.createFrom;
+const $$createType4 = overlay$0.OverlayUi.createFrom;
 
 configure();

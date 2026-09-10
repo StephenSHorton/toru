@@ -101,17 +101,13 @@ export function EditReady(monitorID: number): $CancellablePromise<void> {
 }
 
 /**
- * EnterEdit is THE single-surface screenshot morph. It crops the in-memory FROZEN
- * pixels for monitorID to a small LOSSLESS PNG (served at /__file/<base>) and
- * emits overlay:edit to the SAME overlay window — NO separate editor window is
- * opened. React loads the crop as the editor base image, sizes the Konva stage to
- * the crop's CSS rect, positions it where the bright region was, and morphs the
- * dock into the annotation toolbar.
+ * EnterEdit is THE single-surface screenshot morph (freeze-ON). It crops the
+ * in-memory FROZEN pixels for monitorID to a LOSSLESS PNG and either morphs
+ * THIS overlay window into the annotation editor (default) or copies+saves and
+ * dismisses when "open editor after screenshot" is off.
  * 
- * sub is the monitor-local PHYSICAL crop (front end via CropToPhysical); cssLeft/
- * cssTop/cssW/cssH are that region in CSS px within this window (echoed back so
- * React positions/sizes the embedded stage). The window stays SHOWN — this is the
- * same surface, not a re-engage.
+ * sub is the monitor-local PHYSICAL crop; cssLeft/Top/W/H are that region in
+ * CSS px within this window (echoed back so React sizes the embedded stage).
  */
 export function EnterEdit(monitorID: number, sub: capture$0.Rect, cssLeft: number, cssTop: number, cssW: number, cssH: number): $CancellablePromise<void> {
     return $Call.ByID(3165688663, monitorID, sub, cssLeft, cssTop, cssW, cssH);
@@ -120,21 +116,13 @@ export function EnterEdit(monitorID: number, sub: capture$0.Rect, cssLeft: numbe
 /**
  * EnterEditLive is the FREEZE-OFF screenshot Capture: there is no pre-frozen
  * still, so the live pixels must be grabbed NOW. It (1) HIDES the TARGET monitor's
- * overlay window so the grab can't photograph that monitor's dim panels / crop ring
- * (other monitors' windows sit over disjoint rects and cannot appear in this grab,
- * so they stay shown — matching the frozen path), (2) settles one DWM frame, (3)
- * captures the live monitor into frozenImg, (4) crops to the served PNG and emits
- * overlay:edit, and (5) marks the window pendingEditShow so EditReady re-shows it
- * once React has painted the editor — re-showing immediately would flash the bare
- * live overlay.
+ * overlay window so the grab can't photograph dim panels / crop chrome, (2)
+ * settles one DWM frame, (3) captures the live monitor, (4) crops to a PNG,
+ * (5) morphs into the overlay editor (EditReady re-shows the window) — or
+ * copies+saves and dismisses when the editor is skipped.
  * 
- * INVARIANT: if it hid the target window, it MUST re-show it on EVERY return path
- * (the grab/crop can fail transiently — DXGI/GDI, display-mode change, GPU TDR),
- * or the overlay would be stranded hidden with the capture silently lost. The
- * success path re-shows via EditReady; the error paths re-show inline.
- * 
- * Args mirror EnterEdit: sub is the monitor-local PHYSICAL crop; cssLeft/Top/W/H
- * position the embedded stage where the bright region was.
+ * INVARIANT: if it hid the target window, error paths MUST re-show it (or the
+ * overlay is stranded hidden). Success uses presentScreenshot.
  */
 export function EnterEditLive(monitorID: number, sub: capture$0.Rect, cssLeft: number, cssTop: number, cssW: number, cssH: number): $CancellablePromise<void> {
     return $Call.ByID(748283773, monitorID, sub, cssLeft, cssTop, cssW, cssH);
@@ -156,6 +144,20 @@ export function EnterEditMulti(region: capture$0.Rect): $CancellablePromise<void
 }
 
 /**
+ * EnterEditWindow is the WINDOW-MODE screenshot Capture: crops the target HWND's
+ * DWM frame bounds from frozen (or live) pixels, then composes a macOS-style
+ * still — transparent padding, soft drop shadow, rounded-corner alpha — so the
+ * result does NOT include the desktop around the window. Maximized windows skip
+ * the beautify (flush work-area fill, no shadow).
+ * 
+ * hwnd is the Win32 HWND from ListWindows / hover pick. The editor opens as a
+ * standalone window (same as EnterEdit / EnterEditMulti).
+ */
+export function EnterEditWindow(hwnd: number): $CancellablePromise<void> {
+    return $Call.ByID(2326469287, hwnd);
+}
+
+/**
  * Finish is the explicit edit-mode "Done" (hide to tray) with NO cancel
  * semantics: it hides the overlay (keeping windows alive) WITHOUT firing
  * capture:cancelled (which other code may treat as a real cancel).
@@ -172,6 +174,15 @@ export function Finish(): $CancellablePromise<void> {
  */
 export function GetFreezeOnCapture(): $CancellablePromise<boolean> {
     return $Call.ByID(3128482551);
+}
+
+/**
+ * GetOpenEditorAfterCapture reports whether a new screenshot opens the overlay
+ * annotation editor (default ON). Off: copy to clipboard + save to the library
+ * and dismiss, no editor.
+ */
+export function GetOpenEditorAfterCapture(): $CancellablePromise<boolean> {
+    return $Call.ByID(1418389232);
 }
 
 /**
@@ -254,7 +265,7 @@ export function OverlayReady(monitorID: number): $CancellablePromise<void> {
  */
 export function RequestEngage(monitorID: number): $CancellablePromise<$models.MonitorSession | null> {
     return $Call.ByID(1626364143, monitorID).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType10($result);
     });
 }
 
@@ -296,6 +307,13 @@ export function SetFreezeOnCapture(enabled: boolean): $CancellablePromise<void> 
 }
 
 /**
+ * SetOpenEditorAfterCapture persists the post-screenshot editor preference.
+ */
+export function SetOpenEditorAfterCapture(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(384576580, enabled);
+}
+
+/**
  * SetSharedCrop relays the cross-monitor selection (VIRTUAL-DESKTOP PHYSICAL px)
  * to EVERY overlay window so each re-renders its slice of the one shared crop.
  * The per-monitor windows can't message each other directly, so the window that
@@ -305,6 +323,15 @@ export function SetFreezeOnCapture(enabled: boolean): $CancellablePromise<void> 
  */
 export function SetSharedCrop(region: capture$0.Rect): $CancellablePromise<void> {
     return $Call.ByID(4010892458, region);
+}
+
+/**
+ * SetSharedUi relays capture-chrome state (tool, target, aspect, hovered window)
+ * to EVERY overlay window. Same fire-and-forget pattern as SetSharedCrop: the
+ * per-monitor windows can't talk to each other, so Go broadcasts overlay:ui.
+ */
+export function SetSharedUi(ui: $models.OverlayUi): $CancellablePromise<void> {
+    return $Call.ByID(3344191118, ui);
 }
 
 /**
@@ -348,6 +375,6 @@ const $$createType4 = $Create.Array($$createType3);
 const $$createType5 = $Create.Array($Create.Any);
 const $$createType6 = capture$0.ScreenInfo.createFrom;
 const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = $Create.Nullable($$createType0);
-const $$createTypeW = capture$0.WindowInfo.createFrom;
-const $$createType9 = $Create.Array($$createTypeW);
+const $$createType8 = capture$0.WindowInfo.createFrom;
+const $$createType9 = $Create.Array($$createType8);
+const $$createType10 = $Create.Nullable($$createType0);

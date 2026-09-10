@@ -19,6 +19,7 @@ declare module "@wailsio/runtime" {
             "overlay:cropRect": capture$0.Rect;
             "overlay:edit": overlay$0.OverlayEditPayload;
             "overlay:engage": overlay$0.MonitorSession;
+            "overlay:ui": overlay$0.OverlayUi;
         }
     }
 }

@@ -204,5 +204,63 @@ export class OverlayEditPayload {
     }
 }
 
+/**
+ * OverlayUi is the overlay:ui event payload: tool / target / aspect / hover
+ * shared across the per-monitor overlay windows (which cannot message each
+ * other). The window that changes a control calls SetSharedUi; every window
+ * applies it so window-pick and aspect lock work on every screen.
+ */
+export class OverlayUi {
+    /**
+     * "screenshot" | "video"
+     */
+    "tool": string;
+
+    /**
+     * "region" | "window" | "fullscreen"
+     */
+    "target": string;
+
+    /**
+     * "free" | "16:9" | "9:16" | "4:3" | "3:2" | "1:1" | "21:9"
+     */
+    "aspect": string;
+
+    /**
+     * 0 = none
+     */
+    "hoveredHwnd": number;
+    "hoveredTitle": string;
+
+    /** Creates a new OverlayUi instance. */
+    constructor($$source: Partial<OverlayUi> = {}) {
+        if (!("tool" in $$source)) {
+            this["tool"] = "";
+        }
+        if (!("target" in $$source)) {
+            this["target"] = "";
+        }
+        if (!("aspect" in $$source)) {
+            this["aspect"] = "";
+        }
+        if (!("hoveredHwnd" in $$source)) {
+            this["hoveredHwnd"] = 0;
+        }
+        if (!("hoveredTitle" in $$source)) {
+            this["hoveredTitle"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new OverlayUi instance from a string or object.
+     */
+    static createFrom($$source: any = {}): OverlayUi {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new OverlayUi($$parsedSource as Partial<OverlayUi>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = capture$0.Rect.createFrom;

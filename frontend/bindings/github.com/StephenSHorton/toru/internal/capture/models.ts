@@ -339,50 +339,6 @@ export class ScreenInfo {
 }
 
 /**
- * WindowInfo describes a top-level app window that can be captured (screenshot
- * or video). Rect is virtual-desktop PHYSICAL px (same space as contract.Rect).
- */
-export class WindowInfo {
-    "hwnd": number;
-    "title": string;
-    "rect": Rect;
-    /**
-     * dominant monitor (kbinani idx); -1 if unknown
-     */
-    "monitorId": number;
-
-    /** Creates a new WindowInfo instance. */
-    constructor($$source: Partial<WindowInfo> = {}) {
-        if (!("hwnd" in $$source)) {
-            this["hwnd"] = 0;
-        }
-        if (!("title" in $$source)) {
-            this["title"] = "";
-        }
-        if (!("rect" in $$source)) {
-            this["rect"] = (new Rect());
-        }
-        if (!("monitorId" in $$source)) {
-            this["monitorId"] = 0;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new WindowInfo instance from a string or object.
-     */
-    static createFrom($$source: any = {}): WindowInfo {
-        const $$createField2_0 = $$createType1;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("rect" in $$parsedSource) {
-            $$parsedSource["rect"] = $$createField2_0($$parsedSource["rect"]);
-        }
-        return new WindowInfo($$parsedSource as Partial<WindowInfo>);
-    }
-}
-
-/**
  * TrimRequest is Developer 2's input to the video trimmer.
  */
 export class TrimRequest {
@@ -423,6 +379,51 @@ export class TrimRequest {
     static createFrom($$source: any = {}): TrimRequest {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new TrimRequest($$parsedSource as Partial<TrimRequest>);
+    }
+}
+
+/**
+ * WindowInfo describes a top-level app window that can be captured (screenshot
+ * or video). Rect is virtual-desktop PHYSICAL px (same space as contract.Rect).
+ */
+export class WindowInfo {
+    "hwnd": number;
+    "title": string;
+    "rect": Rect;
+
+    /**
+     * dominant monitor (kbinani idx); -1 if unknown
+     */
+    "monitorId": number;
+
+    /** Creates a new WindowInfo instance. */
+    constructor($$source: Partial<WindowInfo> = {}) {
+        if (!("hwnd" in $$source)) {
+            this["hwnd"] = 0;
+        }
+        if (!("title" in $$source)) {
+            this["title"] = "";
+        }
+        if (!("rect" in $$source)) {
+            this["rect"] = (new Rect());
+        }
+        if (!("monitorId" in $$source)) {
+            this["monitorId"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WindowInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WindowInfo {
+        const $$createField2_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("rect" in $$parsedSource) {
+            $$parsedSource["rect"] = $$createField2_0($$parsedSource["rect"]);
+        }
+        return new WindowInfo($$parsedSource as Partial<WindowInfo>);
     }
 }
 

@@ -8,5 +8,6 @@ export {
     CaptureResult,
     Rect,
     ScreenInfo,
-    TrimRequest
+    TrimRequest,
+    WindowInfo
 } from "./models.js";

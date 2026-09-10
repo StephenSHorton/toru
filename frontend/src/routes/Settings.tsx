@@ -355,6 +355,8 @@ function SettingsPage() {
   const [launchBusy, setLaunchBusy] = useState(false);
   const [freezeOnCapture, setFreezeOnCapture] = useState(true);
   const [freezeBusy, setFreezeBusy] = useState(false);
+  const [openEditor, setOpenEditor] = useState(true);
+  const [openEditorBusy, setOpenEditorBusy] = useState(false);
   const [libraryDir, setLibraryDir] = useState("");
   const [libraryDefault, setLibraryDefault] = useState(true);
   const [libraryBusy, setLibraryBusy] = useState(false);
@@ -375,6 +377,9 @@ function SettingsPage() {
     void OverlayService.GetFreezeOnCapture()
       .then(setFreezeOnCapture)
       .catch(() => {});
+    void OverlayService.GetOpenEditorAfterCapture()
+      .then(setOpenEditor)
+      .catch(() => {});
     refreshLibraryPath();
   }, [refreshLibraryPath]);
 
@@ -388,6 +393,19 @@ function SettingsPage() {
       setFreezeOnCapture(prev);
     } finally {
       setFreezeBusy(false);
+    }
+  };
+
+  const toggleOpenEditor = async (next: boolean) => {
+    const prev = openEditor;
+    setOpenEditorBusy(true);
+    setOpenEditor(next);
+    try {
+      await OverlayService.SetOpenEditorAfterCapture(next);
+    } catch {
+      setOpenEditor(prev);
+    } finally {
+      setOpenEditorBusy(false);
     }
   };
 
@@ -472,6 +490,21 @@ function SettingsPage() {
             disabled={freezeBusy}
             onCheckedChange={(v) => void toggleFreezeOnCapture(v)}
             aria-label="Freeze the screen while capturing"
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col">
+            <span className="text-sm font-medium">Open editor after screenshot</span>
+            <span className="text-xs text-muted-foreground">
+              Off: copy to clipboard and save to the library, skip annotation
+            </span>
+          </div>
+          <Switch
+            checked={openEditor}
+            disabled={openEditorBusy}
+            onCheckedChange={(v) => void toggleOpenEditor(v)}
+            aria-label="Open the screenshot editor after capture"
           />
         </div>
 
