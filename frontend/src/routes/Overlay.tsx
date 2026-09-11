@@ -543,7 +543,7 @@ export default function Overlay() {
     [broadcastNow, persistVcrop],
   );
 
-  // Hover hit-test: client CSS â†’ virtual-desktop physical, first Z-order hit wins.
+  // Hover hit-test: client CSS -> virtual-desktop physical, first Z-order hit wins.
   const pickWindowAt = useCallback(
     (clientX: number, clientY: number) => {
       if (target !== "window") return;
@@ -905,8 +905,8 @@ export default function Overlay() {
               >
                 <div className="frost absolute -top-8 left-0 max-w-[min(100%,20rem)] truncate px-2 py-0.5 text-[11px]">
                   {windowLabel
-                    ? `${windowLabel}  Â·  ${vcrop.w} Ã— ${vcrop.h}`
-                    : `${vcrop.w} Ã— ${vcrop.h}`}
+                    ? `${windowLabel}  -  ${vcrop.w} x ${vcrop.h}`
+                    : `${vcrop.w} x ${vcrop.h}`}
                 </div>
               </div>
             </>
@@ -931,8 +931,8 @@ export default function Overlay() {
             >
               {/* dimension badge — total PHYSICAL px of the shared crop */}
               <div className="frost absolute -top-7 left-0 px-2 py-0.5 text-[11px] tabular-nums">
-                {vcrop.w} Ã— {vcrop.h}
-                {aspect !== "free" ? `  Â·  ${aspect}` : ""}
+                {vcrop.w} x {vcrop.h}
+                {aspect !== "free" ? `  -  ${aspect}` : ""}
               </div>
               {HANDLES.map((h) => (
                 <span
@@ -947,7 +947,7 @@ export default function Overlay() {
           ) : (
             <div className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-primary/90">
               <div className="frost absolute left-1/2 top-3 -translate-x-1/2 px-2 py-0.5 text-[11px] tabular-nums">
-                Entire screen Â· {vcrop.w} Ã— {vcrop.h}
+                Entire screen - {vcrop.w} x {vcrop.h}
               </div>
             </div>
           )}
@@ -1104,7 +1104,7 @@ export default function Overlay() {
               }`}
             >
               <span>{a.id === "free" ? "Freeform" : a.label}</span>
-              {aspect === a.id ? <span className="text-primary">âœ“</span> : null}
+              {aspect === a.id ? <span className="text-primary">{"\u2713"}</span> : null}
             </button>
           ))}
         </div>
@@ -1182,7 +1182,7 @@ function PickRow({
           checked ? "border-primary bg-primary text-primary-foreground" : "border-border"
         }`}
       >
-        {checked ? "âœ“" : ""}
+        {checked ? "\u2713" : ""}
       </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
     </button>
