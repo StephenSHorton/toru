@@ -812,7 +812,9 @@ export default function Overlay() {
           <TextEditingOverlay stageRef={stageRef} />
         </div>
         <Toolbar
+          key={editPayload.cropUrl}
           stageRef={stageRef}
+          flashCopied
           onNewCapture={() => void OverlayService.BeginSession()}
           onDone={finishEdit}
         />

@@ -2,9 +2,11 @@
 // OVER the canvas. Frosted (.frost), shadcn Buttons, lucide icons, sharp corners
 // only (no rounded-*). Tool buttons are driven by a registry-aligned list
 // (TOOL_BUTTONS), mirroring the TOOLS registry in tools/index.ts. Color + stroke
-// controls bind to the store. Copy flattens the stage to the clipboard; Done
-// (when provided) archives the annotated PNG to the Toru library then dismisses.
-// A Settings gear opens the tray-driven Settings/home window.
+// controls bind to the store. Copy flattens the stage to the clipboard and
+// flashes a green check + "Copied"; a capture already auto-copies, so the bar
+// can flash the same state on open (flashCopied). Done (when provided)
+// archives the annotated PNG to the Toru library then dismisses. A Settings
+// gear opens the tray-driven Settings/home window.
 //
 // The bar is HTML OUTSIDE the Konva Stage, so Copy (which flattens the Stage)
 // never bakes it into the exported PNG. It sits above CropOverlay/TextEditingOverlay
@@ -12,7 +14,7 @@
 // itself absolutely (bottom-4 left-1/2 -translate-x-1/2) with no full-window
 // wrapper, so clicks elsewhere still reach the canvas underneath.
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type Konva from 'konva';
 import { Button } from '@/components/ui/button';
 import {
@@ -65,9 +67,14 @@ export interface ToolbarProps {
   docked?: boolean;
   /** Ref to the bar root — parent measures width/height for window chrome math. */
   barRef?: React.RefObject<HTMLDivElement | null>;
+  /**
+   * Flash the green Copied state on mount. Capture already auto-copies the PNG
+   * to the clipboard; this is how the toolbar tells the user it landed.
+   */
+  flashCopied?: boolean;
 }
 
-export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef }: ToolbarProps) {
+export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef, flashCopied }: ToolbarProps) {
   const activeTool = useEditorStore((s) => s.activeTool);
   const setTool = useEditorStore((s) => s.setTool);
   const selectedId = useEditorStore((s) => s.selectedId);
@@ -79,15 +86,33 @@ export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef }: Tool
 
   const hasSelection = !!selectedId && selectedId !== BASE_IMAGE_ID;
   const [copied, setCopied] = useState(false);
+  const [copiedGen, setCopiedGen] = useState(0);
   const [doneBusy, setDoneBusy] = useState(false);
+  const copiedTimer = useRef<number | null>(null);
+
+  const showCopied = useCallback(() => {
+    setCopied(true);
+    setCopiedGen((n) => n + 1);
+    if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => {
+      setCopied(false);
+      copiedTimer.current = null;
+    }, COPIED_FLASH_MS);
+  }, []);
+
+  useEffect(() => {
+    if (flashCopied) showCopied();
+    return () => {
+      if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
+    };
+  }, [flashCopied, showCopied]);
 
   async function handleCopy() {
     const stage = stageRef.current;
     if (!stage) return;
     try {
       await copyToClipboard(stage);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), COPIED_FLASH_MS);
+      showCopied();
     } catch {
       // Leave the button as "Copy" on failure — no toast surface here.
     }
@@ -181,10 +206,23 @@ export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef }: Tool
         size="sm"
         variant="ghost"
         title={copied ? 'Copied' : 'Copy to clipboard'}
+        className={cn("min-w-[5.75rem]", copied && "hover:bg-emerald-400/10")}
         onClick={() => void handleCopy()}
       >
-        {copied ? <Check /> : <Copy />}
-        {copied ? 'Copied' : 'Copy'}
+        {copied ? (
+          <span
+            key={copiedGen}
+            className="toru-copied-flash inline-flex items-center gap-2 text-emerald-400"
+          >
+            <Check />
+            Copied
+          </span>
+        ) : (
+          <>
+            <Copy />
+            Copy
+          </>
+        )}
       </Button>
 
       {(onNewCapture || onDone) && <Divider />}

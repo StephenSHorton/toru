@@ -175,7 +175,7 @@ func main() {
 	// separate editor window. A STRADDLE screenshot (crop spanning >1 monitor) can't
 	// morph in place, so EnterEditMulti stitches the region and opens it in the
 	// standalone editor window via this opener.
-	overlaySvc.SetEditorOpener(windowsSvc.OpenEditor)
+	overlaySvc.SetEditorOpener(windowsSvc.OpenEditorAfterCapture)
 	//
 	// Video keeps its Go-side window opener: StartRecording dismisses the overlay
 	// windows (record the live region, not the dim), which destroys the calling
