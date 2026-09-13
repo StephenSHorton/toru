@@ -128,12 +128,29 @@ func (w *WindowsService) OpenSettings() {
 // %AppData%/toru/captures MUST NOT be deleted — those files power the tray
 // Recent menu. isToruTempPath gates the removal.
 func (w *WindowsService) OpenEditor(imagePath string) {
+	w.openEditorWindow(imagePath, false)
+}
+
+// OpenEditorAfterCapture opens the annotation editor after a screenshot that
+// was already copied to the clipboard, so the Copy button can flash Copied.
+// Used by the overlay when it cannot morph in place (no overlay window).
+//
+//wails:ignore
+func (w *WindowsService) OpenEditorAfterCapture(imagePath string) {
+	w.openEditorWindow(imagePath, true)
+}
+
+func (w *WindowsService) openEditorWindow(imagePath string, flashCopied bool) {
 	if w.app == nil {
 		return
 	}
+	q := "/?view=editor&img=" + url.QueryEscape(servedFileURL(imagePath))
+	if flashCopied {
+		q += "&copied=1"
+	}
 	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "Toru — Edit Screenshot",
-		URL:              "/?view=editor&img=" + url.QueryEscape(servedFileURL(imagePath)),
+		URL:              q,
 		Width:            1000,
 		Height:           720,
 		BackgroundColour: dark,

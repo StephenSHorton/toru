@@ -38,7 +38,10 @@ export default function Editor() {
   const imgNatural = useRef({ w: STAGE_W, h: STAGE_H });
   const sizedOnce = useRef(false);
 
-  const imgPath = new URLSearchParams(window.location.search).get("img") ?? "";
+  const params = new URLSearchParams(window.location.search);
+  const imgPath = params.get("img") ?? "";
+  // Capture auto-copies before opening this window; library re-opens omit this.
+  const flashCopied = params.get("copied") === "1";
   const [src] = useState(imgPath || "/sample.png");
   const [stageBox, setStageBox] = useState({ w: STAGE_W, h: STAGE_H });
   const [ready, setReady] = useState(false);
@@ -154,6 +157,7 @@ export default function Editor() {
           stageRef={stageRef}
           docked
           barRef={toolbarRef}
+          flashCopied={flashCopied}
           onNewCapture={() => void WindowsService.OpenOverlay()}
           onDone={finish}
         />
