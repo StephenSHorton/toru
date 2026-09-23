@@ -177,6 +177,15 @@ export function GetFreezeOnCapture(): $CancellablePromise<boolean> {
 }
 
 /**
+ * GetCopyOnDone reports whether Done in the annotation editor copies the
+ * flattened annotated PNG to the clipboard (default ON). Off: Done saves to
+ * the library only.
+ */
+export function GetCopyOnDone(): $CancellablePromise<boolean> {
+    return $Call.ByID(3955425525);
+}
+
+/**
  * GetOpenEditorAfterCapture reports whether a new screenshot opens the overlay
  * annotation editor (default ON). Off: copy to clipboard + save to the library
  * and dismiss, no editor.
@@ -304,6 +313,13 @@ export function SetAudioSources(cfg: capture$0.AudioConfig): $CancellablePromise
  */
 export function SetFreezeOnCapture(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(3607977635, enabled);
+}
+
+/**
+ * SetCopyOnDone persists the copy-on-Done preference.
+ */
+export function SetCopyOnDone(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1663241273, enabled);
 }
 
 /**

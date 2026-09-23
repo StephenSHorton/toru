@@ -131,13 +131,13 @@ func (w *WindowsService) OpenEditor(imagePath string) {
 	w.openEditorWindow(imagePath, false)
 }
 
-// OpenEditorAfterCapture opens the annotation editor after a screenshot that
-// was already copied to the clipboard, so the Copy button can flash Copied.
-// Used by the overlay when it cannot morph in place (no overlay window).
+// OpenEditorAfterCapture opens the annotation editor after a screenshot.
+// Copy waits until Done (if the Copy-on-Done pref is on); the window does
+// not flash Copied on open. Used by the overlay when it cannot morph in place.
 //
 //wails:ignore
 func (w *WindowsService) OpenEditorAfterCapture(imagePath string) {
-	w.openEditorWindow(imagePath, true)
+	w.openEditorWindow(imagePath, false)
 }
 
 func (w *WindowsService) openEditorWindow(imagePath string, flashCopied bool) {

@@ -357,6 +357,8 @@ function SettingsPage() {
   const [freezeBusy, setFreezeBusy] = useState(false);
   const [openEditor, setOpenEditor] = useState(true);
   const [openEditorBusy, setOpenEditorBusy] = useState(false);
+  const [copyOnDone, setCopyOnDone] = useState(true);
+  const [copyOnDoneBusy, setCopyOnDoneBusy] = useState(false);
   const [libraryDir, setLibraryDir] = useState("");
   const [libraryDefault, setLibraryDefault] = useState(true);
   const [libraryBusy, setLibraryBusy] = useState(false);
@@ -379,6 +381,9 @@ function SettingsPage() {
       .catch(() => {});
     void OverlayService.GetOpenEditorAfterCapture()
       .then(setOpenEditor)
+      .catch(() => {});
+    void OverlayService.GetCopyOnDone()
+      .then(setCopyOnDone)
       .catch(() => {});
     refreshLibraryPath();
   }, [refreshLibraryPath]);
@@ -406,6 +411,19 @@ function SettingsPage() {
       setOpenEditor(prev);
     } finally {
       setOpenEditorBusy(false);
+    }
+  };
+
+  const toggleCopyOnDone = async (next: boolean) => {
+    const prev = copyOnDone;
+    setCopyOnDoneBusy(true);
+    setCopyOnDone(next);
+    try {
+      await OverlayService.SetCopyOnDone(next);
+    } catch {
+      setCopyOnDone(prev);
+    } finally {
+      setCopyOnDoneBusy(false);
     }
   };
 
@@ -505,6 +523,21 @@ function SettingsPage() {
             disabled={openEditorBusy}
             onCheckedChange={(v) => void toggleOpenEditor(v)}
             aria-label="Open the screenshot editor after capture"
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col">
+            <span className="text-sm font-medium">Copy to clipboard when Done</span>
+            <span className="text-xs text-muted-foreground">
+              Off: Done saves to the library without copying
+            </span>
+          </div>
+          <Switch
+            checked={copyOnDone}
+            disabled={copyOnDoneBusy}
+            onCheckedChange={(v) => void toggleCopyOnDone(v)}
+            aria-label="Copy to clipboard when Done"
           />
         </div>
 

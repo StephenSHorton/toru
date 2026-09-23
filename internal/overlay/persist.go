@@ -29,15 +29,21 @@ var cropFileMu sync.Mutex
 // POINTER so an absent field (older overlay.json) defaults ON. When false the
 // capture is copied to the clipboard and saved to the library with no editor.
 //
+// CopyOnDone is whether hitting Done in the annotation editor copies the
+// flattened annotated PNG to the clipboard (then saves to the library).
+// POINTER so an absent field (older overlay.json) defaults ON.
+//
 // Region is the last shared crop in VIRTUAL-DESKTOP PHYSICAL px (origin = primary
 // top-left; may be negative; MAY straddle monitors). It supersedes the per-monitor
 // Crops map for the shared-crop overlay (one selection across the whole desktop).
 // A POINTER so an absent field (older overlay.json) falls back to a centered
-// default on the primary.
+// default on the primary. Region-mode engage no longer seeds this on screen —
+// the overlay starts empty-first (drag to create).
 type cropStore struct {
 	Crops      map[string]capture.Rect `json:"crops"`
 	Freeze     *bool                   `json:"freeze,omitempty"`
 	OpenEditor *bool                   `json:"openEditor,omitempty"`
+	CopyOnDone *bool                   `json:"copyOnDone,omitempty"`
 	Region     *capture.Rect           `json:"region,omitempty"`
 }
 
@@ -47,6 +53,9 @@ const defaultFreeze = true
 
 // defaultOpenEditor is the post-screenshot editor default: ON (overlay morph).
 const defaultOpenEditor = true
+
+// defaultCopyOnDone is the Done-button clipboard default: ON (copy annotated PNG).
+const defaultCopyOnDone = true
 
 // freezeEnabled resolves the persisted freeze preference, defaulting to ON when
 // the field is absent.
@@ -64,6 +73,15 @@ func (st cropStore) openEditorEnabled() bool {
 		return defaultOpenEditor
 	}
 	return *st.OpenEditor
+}
+
+// copyOnDoneEnabled resolves the persisted "copy to clipboard when Done"
+// preference, defaulting to ON when the field is absent.
+func (st cropStore) copyOnDoneEnabled() bool {
+	if st.CopyOnDone == nil {
+		return defaultCopyOnDone
+	}
+	return *st.CopyOnDone
 }
 
 // overlayStorePath returns %AppData%\toru\overlay.json (os.UserConfigDir on

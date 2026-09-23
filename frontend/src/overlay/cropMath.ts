@@ -8,6 +8,14 @@ import type { WindowInfo } from "../../bindings/github.com/StephenSHorton/toru/i
 
 export const MIN_PHYS = 24; // minimum crop size, PHYSICAL px (drag/resize floor)
 
+/** Shared empty crop — region mode starts here (drag to create). */
+export const EMPTY_VCROP: Rect = { x: 0, y: 0, w: 0, h: 0 };
+
+/** True once a region drag has committed a usable rect. */
+export function hasVcrop(vr: Rect | null | undefined): boolean {
+  return !!vr && vr.w >= MIN_PHYS && vr.h >= MIN_PHYS;
+}
+
 export type Handle = "nw" | "n" | "ne" | "w" | "e" | "sw" | "s" | "se";
 export const HANDLES: Handle[] = ["nw", "n", "ne", "w", "e", "sw", "s", "se"];
 
@@ -120,6 +128,69 @@ export function fitToScreen(vr: Rect, s: ScreenInfo, aspect?: AspectId): Rect {
   const x = clamp(vr.x, s.x, s.x + s.w - w);
   const y = clamp(vr.y, s.y, s.y + s.h - h);
   return { x, y, w, h };
+}
+
+/**
+ * Build a crop from an origin (pointer-down) to the current point (pointer-move)
+ * while creating a region. Origin corner stays put; the box is clamped to bounds
+ * and optionally locked to an aspect ratio.
+ */
+export function rectFromDrag(
+  originX: number,
+  originY: number,
+  curX: number,
+  curY: number,
+  bounds: Bounds,
+  aspect: AspectId = "free",
+): Rect {
+  const ox = clamp(originX, bounds.minX, bounds.maxX);
+  const oy = clamp(originY, bounds.minY, bounds.maxY);
+  const cx = clamp(curX, bounds.minX, bounds.maxX);
+  const cy = clamp(curY, bounds.minY, bounds.maxY);
+
+  let left = Math.min(ox, cx);
+  let top = Math.min(oy, cy);
+  let w = Math.abs(cx - ox);
+  let h = Math.abs(cy - oy);
+
+  const ratio = aspectRatio(aspect);
+  if (ratio && (w > 0 || h > 0)) {
+    const wh = ratio.w / ratio.h;
+    if (h === 0 || w / Math.max(h, 1) >= wh) {
+      h = w / wh;
+    } else {
+      w = h * wh;
+    }
+    w = Math.round(w);
+    h = Math.round(h);
+    if (cx < ox) left = ox - w;
+    if (cy < oy) top = oy - h;
+    if (left < bounds.minX) {
+      w -= bounds.minX - left;
+      left = bounds.minX;
+    }
+    if (top < bounds.minY) {
+      h -= bounds.minY - top;
+      top = bounds.minY;
+    }
+    if (left + w > bounds.maxX) w = bounds.maxX - left;
+    if (top + h > bounds.maxY) h = bounds.maxY - top;
+    if (w > 0 && h > 0) {
+      if (w / h > wh) w = Math.round(h * wh);
+      else h = Math.round(w / wh);
+      if (cx < ox) left = ox - w;
+      if (cy < oy) top = oy - h;
+      left = clamp(left, bounds.minX, bounds.maxX - w);
+      top = clamp(top, bounds.minY, bounds.maxY - h);
+    }
+  }
+
+  return {
+    x: Math.round(left),
+    y: Math.round(top),
+    w: Math.max(0, Math.round(w)),
+    h: Math.max(0, Math.round(h)),
+  };
 }
 
 export function seedVcrop(region: Rect, screens: ScreenInfo[]): Rect {

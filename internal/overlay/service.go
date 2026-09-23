@@ -139,6 +139,11 @@ type OverlayService struct {
 	openEditor       bool
 	openEditorLoaded bool
 
+	// copyOnDone is the cached "copy annotated PNG when the user hits Done"
+	// preference (overlay.json). Same lazy-load pattern as freeze. Default ON.
+	copyOnDone       bool
+	copyOnDoneLoaded bool
+
 	// sharedCrop is the latest cross-monitor selection (VIRTUAL-DESKTOP PHYSICAL px)
 	// relayed by SetSharedCrop. The crop lives in the front end; Go only relays it
 	// between the per-monitor windows (which can't message each other) and persists
@@ -237,18 +242,15 @@ func (s *OverlayService) SetSuspendDismiss(on bool) {
 	s.suspendDismiss.Store(on)
 }
 
-// rememberScreenshot auto-copies the fresh crop PNG to the clipboard so the
-// user can paste without pressing Copy. Library archival happens later when the
-// user hits Done (annotated PNG via HistoryService.Add) — saving here would
-// store the unannotated crop and race the final export. When the editor is
-// skipped, presentScreenshot archives immediately after this copy.
+// rememberScreenshot auto-copies the fresh crop PNG to the clipboard. Used only
+// by the skip-editor path so a capture still lands on the clipboard immediately
+// when the annotation editor is off. When the editor opens, copy waits until
+// Done (annotated flatten via the toolbar) if the Copy-on-Done pref is on.
 // Best-effort: a clipboard failure never fails the capture.
 func (s *OverlayService) rememberScreenshot(cropPath string) {
 	if cropPath == "" {
 		return
 	}
-	// Auto-copy: macOS-style — capture lands on the clipboard immediately.
-	// The toolbar Copy button still re-exports after annotation.
 	_ = export.CopyImageFile(cropPath)
 }
 
@@ -260,17 +262,17 @@ type presentOpts struct {
 	liveGrab                    bool // freeze-off: EditReady must re-show the target window
 }
 
-// presentScreenshot always copies the crop to the clipboard, then either:
-//   - skip-editor: archives to the library and dismisses the overlay
-//   - overlay editor: morphs the target overlay window in place (other
-//     monitors hide so they don't steal clicks)
+// presentScreenshot either:
+//   - skip-editor: copies the unannotated crop, archives to the library, dismisses
+//   - overlay editor: morphs the target overlay window in place with NO copy
+//     (copy happens on Done if the Copy-on-Done pref is on)
 func (s *OverlayService) presentScreenshot(cropPath string, opt presentOpts) {
 	if cropPath == "" {
 		return
 	}
-	s.rememberScreenshot(cropPath)
 
 	if !s.currentOpenEditor() {
+		s.rememberScreenshot(cropPath)
 		if s.history != nil {
 			_, _ = s.history.Add(cropPath, history.KindImage)
 		}
@@ -452,6 +454,49 @@ func (s *OverlayService) currentOpenEditor() bool {
 	s.mu.Lock()
 	s.openEditor = v
 	s.openEditorLoaded = true
+	s.mu.Unlock()
+	return v
+}
+
+// GetCopyOnDone reports whether Done in the annotation editor copies the
+// flattened annotated PNG to the clipboard (default ON). Off: Done saves to
+// the library only.
+func (s *OverlayService) GetCopyOnDone() bool {
+	return s.currentCopyOnDone()
+}
+
+// SetCopyOnDone persists the copy-on-Done preference.
+func (s *OverlayService) SetCopyOnDone(enabled bool) {
+	cropFileMu.Lock()
+	st := loadCrops()
+	st.CopyOnDone = &enabled
+	_ = saveCrops(st)
+	cropFileMu.Unlock()
+
+	s.mu.Lock()
+	s.copyOnDone = enabled
+	s.copyOnDoneLoaded = true
+	s.mu.Unlock()
+}
+
+// currentCopyOnDone returns the cached copy-on-Done preference, lazily loading
+// it from disk on first use.
+func (s *OverlayService) currentCopyOnDone() bool {
+	s.mu.RLock()
+	if s.copyOnDoneLoaded {
+		v := s.copyOnDone
+		s.mu.RUnlock()
+		return v
+	}
+	s.mu.RUnlock()
+
+	cropFileMu.Lock()
+	v := loadCrops().copyOnDoneEnabled()
+	cropFileMu.Unlock()
+
+	s.mu.Lock()
+	s.copyOnDone = v
+	s.copyOnDoneLoaded = true
 	s.mu.Unlock()
 	return v
 }
@@ -1081,7 +1126,7 @@ func (s *OverlayService) SetSharedCrop(region capture.Rect) {
 	s.emit(EventOverlayCropRect, region)
 }
 
-// SetSharedUi relays capture-chrome state (tool, target, aspect, hovered window)
+// SetSharedUi relays capture-chrome state (tool, target, aspect, hover, picking)
 // to EVERY overlay window. Same fire-and-forget pattern as SetSharedCrop: the
 // per-monitor windows can't talk to each other, so Go broadcasts overlay:ui.
 func (s *OverlayService) SetSharedUi(ui OverlayUi) {

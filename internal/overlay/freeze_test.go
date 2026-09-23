@@ -31,6 +31,31 @@ func TestFreezeEnabledDefault(t *testing.T) {
 	}
 }
 
+// TestCopyOnDoneEnabledDefault locks "absent => copy on Done ON" so older
+// overlay.json and a fresh install still copy the annotated PNG when the user
+// hits Done.
+func TestCopyOnDoneEnabledDefault(t *testing.T) {
+	on := true
+	off := false
+	cases := []struct {
+		name string
+		in   *bool
+		want bool
+	}{
+		{"absent defaults on", nil, true},
+		{"explicit on", &on, true},
+		{"explicit off", &off, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st := cropStore{CopyOnDone: c.in}
+			if got := st.copyOnDoneEnabled(); got != c.want {
+				t.Fatalf("copyOnDoneEnabled(%v) = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
 // TestOpenEditorEnabledDefault locks "absent => open editor ON" so older
 // overlay.json and a fresh install still morph into the annotation overlay.
 func TestOpenEditorEnabledDefault(t *testing.T) {

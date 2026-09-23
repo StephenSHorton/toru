@@ -8,8 +8,9 @@
 //   • width at least wide enough for the full toolbar (+ side padding)
 //   • max size ~95% of the work area so huge captures scale down
 //
-// Done saves the annotated PNG to the Toru library and closes the window.
-// Esc with nothing selected does the same (useEditorKeyboard onEscapeEmpty).
+// Done (toolbar) copies the annotated PNG when the Copy-on-Done pref is on,
+// then saves to the library and closes. Esc with nothing selected saves and
+// closes WITHOUT copying (not a Done).
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type Konva from "konva";
@@ -40,12 +41,23 @@ export default function Editor() {
 
   const params = new URLSearchParams(window.location.search);
   const imgPath = params.get("img") ?? "";
-  // Capture auto-copies before opening this window; library re-opens omit this.
+  // Legacy: older captures appended ?copied=1 after auto-copy-on-open. Capture
+  // no longer copies before the editor opens, so this stays off unless a
+  // caller still sets the query flag.
   const flashCopied = params.get("copied") === "1";
   const [src] = useState(imgPath || "/sample.png");
   const [stageBox, setStageBox] = useState({ w: STAGE_W, h: STAGE_H });
   const [ready, setReady] = useState(false);
 
+  const dismiss = useCallback(async () => {
+    try {
+      await Window.Close();
+    } catch {
+      // Dev browser has no Window.Close — ignore.
+    }
+  }, []);
+
+  // Esc / New-Capture-adjacent dismiss: save to library, no clipboard copy.
   const finish = useCallback(async () => {
     const stage = stageRef.current;
     if (stage) {
@@ -55,12 +67,8 @@ export default function Editor() {
         // Still close on library failure so the user is never stuck.
       }
     }
-    try {
-      await Window.Close();
-    } catch {
-      // Dev browser has no Window.Close — ignore.
-    }
-  }, []);
+    await dismiss();
+  }, [dismiss]);
 
   useEditorKeyboard(true, () => void finish());
   useClipboardPaste();
@@ -159,7 +167,7 @@ export default function Editor() {
           barRef={toolbarRef}
           flashCopied={flashCopied}
           onNewCapture={() => void WindowsService.OpenOverlay()}
-          onDone={finish}
+          onDone={dismiss}
         />
       </div>
     </div>
