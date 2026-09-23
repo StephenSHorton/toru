@@ -232,6 +232,11 @@ export class OverlayUi {
     "hoveredHwnd": number;
     "hoveredTitle": string;
 
+    /**
+     * region empty-first: true while the user has not committed a drag-created rect
+     */
+    "picking": boolean;
+
     /** Creates a new OverlayUi instance. */
     constructor($$source: Partial<OverlayUi> = {}) {
         if (!("tool" in $$source)) {
@@ -248,6 +253,9 @@ export class OverlayUi {
         }
         if (!("hoveredTitle" in $$source)) {
             this["hoveredTitle"] = "";
+        }
+        if (!("picking" in $$source)) {
+            this["picking"] = false;
         }
 
         Object.assign(this, $$source);

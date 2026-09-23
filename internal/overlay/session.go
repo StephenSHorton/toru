@@ -37,9 +37,9 @@ type MonitorSession struct {
 	Crop capture.Rect `json:"crop"`
 	// Region is the SHARED crop in VIRTUAL-DESKTOP PHYSICAL px (origin = primary
 	// top-left; may be negative; MAY straddle monitors). EVERY window receives the
-	// SAME Region and renders its own slice of it — this is the single source of
-	// truth for the cross-monitor selection. Seeded from persisted state / a
-	// centered default by buildSessionPayloads.
+	// SAME Region. Region-mode engage starts empty-first (drag to create); this
+	// field is still filled from persisted state for callers that want a restore
+	// (e.g. fullscreen toggle) but the overlay does not paint a seeded rect.
 	Region capture.Rect `json:"region"`
 	// Freeze tells React how this engage was rendered: true => paint the frozen
 	// StillURL backdrop (classic); false => no backdrop, the transparent window
@@ -73,6 +73,10 @@ type OverlayUi struct {
 	Aspect       string `json:"aspect"`      // "free" | "16:9" | "9:16" | "4:3" | "3:2" | "1:1" | "21:9"
 	HoveredHWND  uint64 `json:"hoveredHwnd"` // 0 = none
 	HoveredTitle string `json:"hoveredTitle"`
+	// Picking is region empty-first: true while the user has not committed a
+	// drag-created rect (full dim + crosshair, no handles). Broadcast so every
+	// monitor stays in the same phase.
+	Picking bool `json:"picking"`
 }
 
 // servedFileURL turns an absolute temp-file path (under %TEMP%/toru) into the

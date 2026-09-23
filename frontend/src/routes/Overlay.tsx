@@ -15,7 +15,7 @@
 // OverlayService.SetSharedCrop -> overlay:cropRect; every other window applies it.
 //
 // STATE MACHINE: 'capture' | 'edit' (idle == the Wails window is Hidden).
-//   • overlay:engage (MonitorSession)  -> reset to capture mode; seed shared crop.
+//   • overlay:engage (MonitorSession)  -> reset to capture mode; region starts empty (drag to create).
 //   • overlay:cropRect (Rect)          -> apply shared crop from another monitor.
 //   • overlay:ui (OverlayUi)           -> tool / target / aspect / hover across monitors.
 //   • overlay:edit (OverlayEditPayload)-> single-surface morph on the target monitor.
@@ -70,7 +70,6 @@ import {
   ASPECTS,
   HANDLES,
   aspectRatio,
-  centeredV,
   clamp,
   computeDrag,
   dominantScreen,
@@ -79,7 +78,9 @@ import {
   overlapArea,
   rectsEqual,
   screenRect,
-  seedVcrop,
+  EMPTY_VCROP,
+  hasVcrop,
+  rectFromDrag,
   snapToAspect,
   unionBounds,
   vToLocal,
@@ -162,16 +163,16 @@ export default function Overlay() {
   const selfRef = useRef(self);
   selfRef.current = self;
 
-  // The SHARED crop in virtual-desktop PHYSICAL px. Seeded from session.region on
-  // each engage; updated live by drags here and by overlay:cropRect from elsewhere.
-  const [vcrop, setVcrop] = useState<Rect>(() => ({
-    x: q.bx + Math.round(q.mw / 4),
-    y: q.by + Math.round(q.mh / 4),
-    w: Math.round(q.mw / 2),
-    h: Math.round(q.mh / 2),
-  }));
+  // The SHARED crop in virtual-desktop PHYSICAL px. Region mode starts EMPTY
+  // (drag to create); updated live by drags here and by overlay:cropRect.
+  const [vcrop, setVcrop] = useState<Rect>(EMPTY_VCROP);
   const vcropRef = useRef(vcrop);
   vcropRef.current = vcrop;
+  // picking: region empty-first — no committed rect yet (full dim, crosshair,
+  // no handles). Broadcast via overlay:ui so every monitor stays in phase.
+  const [picking, setPicking] = useState(true);
+  const pickingRef = useRef(picking);
+  pickingRef.current = picking;
 
   // The full monitor layout (all screens) — used to clamp the crop to the desktop
   // and to decide which window owns the pill. Fetched on mount + each engage.
@@ -223,6 +224,7 @@ export default function Overlay() {
   }, [audioOpen]);
   const audioCount = (audioSystem ? 1 : 0) + (audioMic ? 1 : 0) + audioApps.length;
 
+  // Esc (empty selection): save to library and dismiss — NOT Done, so no copy.
   const finishEdit = useCallback(async () => {
     const stage = stageRef.current;
     if (stage) {
@@ -232,6 +234,9 @@ export default function Overlay() {
         // Still dismiss on library failure so the user is never stuck.
       }
     }
+    await OverlayService.Finish();
+  }, []);
+  const dismissEdit = useCallback(async () => {
     await OverlayService.Finish();
   }, []);
   useEditorKeyboard(mode === "edit", () => void finishEdit());
@@ -273,6 +278,7 @@ export default function Overlay() {
       aspect?: AspectId;
       hoveredHwnd?: number;
       hoveredTitle?: string;
+      picking?: boolean;
     }) => {
       uiEchoRef.current = true;
       void OverlayService.SetSharedUi({
@@ -281,14 +287,16 @@ export default function Overlay() {
         aspect: patch.aspect ?? aspectRef.current,
         hoveredHwnd: patch.hoveredHwnd ?? hoveredHwnd ?? 0,
         hoveredTitle: patch.hoveredTitle ?? hoveredTitle,
+        picking: patch.picking ?? pickingRef.current,
       });
     },
     [target, hoveredHwnd, hoveredTitle],
   );
 
-  // applyEngage resets THIS window to capture mode and seeds the shared crop from
-  // the engage's region. ACK gating (OverlayReady) is unchanged: frozen waits for
-  // the backdrop to decode; live acks after a painted frame.
+  // applyEngage resets THIS window to capture mode. Region starts empty-first
+  // (drag to create) — we do NOT seed a persisted / centered rect. ACK gating
+  // (OverlayReady) is unchanged: frozen waits for the backdrop to decode; live
+  // acks after a painted frame.
   const applyEngage = useCallback(
     (d: MonitorSession) => {
       resetEditor();
@@ -307,15 +315,9 @@ export default function Overlay() {
       setEditPayload(null);
       setMode("capture");
       setAspectOpen(false);
-      // Seed the shared crop; if we re-engage while ALREADY in video mode, the seeded
-      // region may straddle (persisted regions can) — confine it to one monitor now so
-      // the displayed crop matches what video will record (recording also clamps).
-      let seed = seedVcrop(d.region, screensRef.current);
-      if (toolRef.current === "video" && screensRef.current.length) {
-        const m = dominantScreen(seed, screensRef.current);
-        if (m) seed = fitToScreen(seed, m, aspectRef.current);
-      }
-      setVcrop(seed);
+      vcropRef.current = EMPTY_VCROP;
+      setVcrop(EMPTY_VCROP);
+      setPicking(true);
       setTarget("region");
       setSelectedHwnd(null);
       setHoveredHwnd(null);
@@ -352,7 +354,10 @@ export default function Overlay() {
     const offCrop = WailsEvents.On(Events.OverlayCropRect, (ev) => {
       if (draggingRef.current) return;
       const r = (Array.isArray(ev.data) ? ev.data[0] : ev.data) as Rect;
-      if (r && typeof r.w === "number" && typeof r.h === "number") setVcrop(r);
+      if (r && typeof r.w === "number" && typeof r.h === "number") {
+        setVcrop(r);
+        if (!hasVcrop(r)) setPicking(true);
+      }
     });
 
     const offUi = WailsEvents.On(Events.OverlayUi, (ev) => {
@@ -362,6 +367,7 @@ export default function Overlay() {
         aspect?: string;
         hoveredHwnd?: number;
         hoveredTitle?: string;
+        picking?: boolean;
       };
       if (!raw) return;
       if (uiEchoRef.current) {
@@ -375,6 +381,7 @@ export default function Overlay() {
       if (raw.aspect && ASPECTS.some((a) => a.id === raw.aspect)) {
         setAspect(raw.aspect as AspectId);
       }
+      if (typeof raw.picking === "boolean") setPicking(raw.picking);
       setHoveredHwnd(typeof raw.hoveredHwnd === "number" && raw.hoveredHwnd > 0 ? raw.hoveredHwnd : null);
       setHoveredTitle(raw.hoveredTitle ?? "");
     });
@@ -440,6 +447,7 @@ export default function Overlay() {
   // layout arrives (recording also clamps at the emit site as the hard backstop).
   useEffect(() => {
     if (tool !== "video") return;
+    if (pickingRef.current || !hasVcrop(vcropRef.current)) return;
     const list = screens.length ? screens : screensRef.current;
     if (!list.length) return;
     const d = dominantScreen(vcropRef.current, list);
@@ -461,27 +469,45 @@ export default function Overlay() {
   const layout = screens.length ? screens : [self];
   const dom = dominantScreen(vcrop, layout) ?? self;
   const isFullScreen = layout.some((s) => rectsEqual(vcrop, screenRect(s)));
+  const enterRegionPicking = useCallback(() => {
+    setTarget("region");
+    setSelectedHwnd(null);
+    setHoveredHwnd(null);
+    setHoveredTitle("");
+    setPicking(true);
+    vcropRef.current = EMPTY_VCROP;
+    setVcrop(EMPTY_VCROP);
+    broadcastNow(EMPTY_VCROP);
+    broadcastUi({ target: "region", picking: true, hoveredHwnd: 0, hoveredTitle: "" });
+  }, [broadcastNow, broadcastUi]);
+
   const toggleFullScreen = useCallback(() => {
     setSelectedHwnd(null);
     setHoveredHwnd(null);
     setHoveredTitle("");
     if (isFullScreen && target === "fullscreen") {
-      const restored = prevRegion.current ?? centeredV(self);
-      setTarget("region");
-      setVcrop(restored);
-      broadcastNow(restored);
-      persistVcrop(restored);
-      broadcastUi({ target: "region" });
+      const restored = prevRegion.current;
+      if (restored && hasVcrop(restored)) {
+        setTarget("region");
+        setPicking(false);
+        setVcrop(restored);
+        broadcastNow(restored);
+        persistVcrop(restored);
+        broadcastUi({ target: "region", picking: false });
+      } else {
+        enterRegionPicking();
+      }
     } else {
-      prevRegion.current = vcrop;
+      if (hasVcrop(vcrop) && target === "region") prevRegion.current = vcrop;
       const full = screenRect(dom);
       setTarget("fullscreen");
+      setPicking(false);
       setVcrop(full);
       broadcastNow(full);
       persistVcrop(full);
-      broadcastUi({ target: "fullscreen" });
+      broadcastUi({ target: "fullscreen", picking: false });
     }
-  }, [isFullScreen, target, vcrop, self, dom, broadcastNow, persistVcrop, broadcastUi]);
+  }, [isFullScreen, target, vcrop, dom, broadcastNow, persistVcrop, broadcastUi, enterRegionPicking]);
 
   // Refresh the Z-ordered top-level window list used for hover hit-testing.
   const refreshWindows = useCallback(() => {
@@ -504,9 +530,10 @@ export default function Overlay() {
     setSelectedHwnd(null);
     setHoveredHwnd(null);
     setHoveredTitle("");
-    prevRegion.current = vcropRef.current;
+    setPicking(false);
+    if (hasVcrop(vcropRef.current)) prevRegion.current = vcropRef.current;
     refreshWindows();
-    broadcastUi({ target: "window", hoveredHwnd: 0, hoveredTitle: "" });
+    broadcastUi({ target: "window", picking: false, hoveredHwnd: 0, hoveredTitle: "" });
   }, [refreshWindows, broadcastUi]);
 
   // While window mode is active, keep the window list reasonably fresh so
@@ -574,7 +601,7 @@ export default function Overlay() {
   // Screenshot Capture: single-monitor -> EnterEdit/EnterEditLive (in-place morph
   // in THIS window); straddle -> EnterEditMulti (Go stitches + opens editor window).
   const captureScreenshot = useCallback(async () => {
-    if (busy || !session) return;
+    if (busy || !session || !hasVcrop(vcropRef.current)) return;
     setBusy(true);
     try {
       const list = screensRef.current.length ? screensRef.current : [selfRef.current];
@@ -617,7 +644,7 @@ export default function Overlay() {
   // can never reach ddagrab regardless of how vcrop got into its current state (a stale
   // persisted region, a relay update, or a missed snap). This is the hard backstop.
   const startRecording = useCallback(async () => {
-    if (busy || !session) return;
+    if (busy || !session || (target === "region" && !hasVcrop(vcropRef.current))) return;
     setBusy(true);
     try {
       const list = screensRef.current.length ? screensRef.current : [selfRef.current];
@@ -686,10 +713,11 @@ export default function Overlay() {
     (e.target as Element).setPointerCapture?.(e.pointerId);
     // Manual crop edit exits window/fullscreen target mode.
     setTarget("region");
+    setPicking(false);
     setSelectedHwnd(null);
     setHoveredHwnd(null);
     setHoveredTitle("");
-    broadcastUi({ target: "region", hoveredHwnd: 0, hoveredTitle: "" });
+    broadcastUi({ target: "region", picking: false, hoveredHwnd: 0, hoveredTitle: "" });
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -729,6 +757,63 @@ export default function Overlay() {
     window.addEventListener("pointerup", onUp);
   };
 
+  // First region drag: create a rect from the pointer-down origin. On release
+  // with a valid size, enter the existing move+handles edit phase.
+  const beginCreate = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    if ((e.target as Element).closest?.("[data-capture-pill]")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+    setTarget("region");
+    setPicking(true);
+    setSelectedHwnd(null);
+    setHoveredHwnd(null);
+    setHoveredTitle("");
+    broadcastUi({ target: "region", picking: true, hoveredHwnd: 0, hoveredTitle: "" });
+
+    const me = selfRef.current;
+    const s = me.scaleFactor > 0 ? me.scaleFactor : 1;
+    const ox = me.x + Math.round(e.clientX * s);
+    const oy = me.y + Math.round(e.clientY * s);
+    draggingRef.current = true;
+
+    const onMove = (ev: PointerEvent) => {
+      const cx = me.x + Math.round(ev.clientX * s);
+      const cy = me.y + Math.round(ev.clientY * s);
+      const list = screensRef.current.length ? screensRef.current : [me];
+      const bounds =
+        toolRef.current === "video"
+          ? { minX: me.x, minY: me.y, maxX: me.x + me.w, maxY: me.y + me.h }
+          : unionBounds(list);
+      const next = rectFromDrag(ox, oy, cx, cy, bounds, aspectRef.current);
+      vcropRef.current = next;
+      setVcrop(next);
+      scheduleBroadcast(next);
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      (e.target as Element).releasePointerCapture?.(ev.pointerId);
+      draggingRef.current = false;
+      const final = vcropRef.current;
+      if (hasVcrop(final)) {
+        setPicking(false);
+        persistVcrop(final);
+        broadcastNow(final);
+        broadcastUi({ target: "region", picking: false });
+      } else {
+        vcropRef.current = EMPTY_VCROP;
+        setVcrop(EMPTY_VCROP);
+        setPicking(true);
+        broadcastNow(EMPTY_VCROP);
+        broadcastUi({ target: "region", picking: true });
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
   // Click a non-crop monitor to BRING the selection here (centered on the click,
   // confined to this monitor). Replaces the old click-to-switch affordance.
   const bringHere = (clientX: number, clientY: number) => {
@@ -761,7 +846,7 @@ export default function Overlay() {
       /* ignore */
     }
     const ratio = aspectRatio(id);
-    if (ratio) {
+    if (ratio && hasVcrop(vcropRef.current)) {
       const list = screensRef.current.length ? screensRef.current : [selfRef.current];
       const bounds =
         toolRef.current === "video"
@@ -814,9 +899,8 @@ export default function Overlay() {
         <Toolbar
           key={editPayload.cropUrl}
           stageRef={stageRef}
-          flashCopied
           onNewCapture={() => void OverlayService.BeginSession()}
-          onDone={finishEdit}
+          onDone={dismissEdit}
         />
       </div>
     );
@@ -828,7 +912,14 @@ export default function Overlay() {
   const onThis = overlapArea(vcrop, self) > 0; // does the crop touch this monitor?
   // Pill owner = dominant monitor. Before the layout loads, the primary window owns
   // it (old behaviour) so two windows never both show a pill.
-  const iAmPill = screens.length ? dom.id === q.mon : q.primary;
+  const regionPicking = target === "region" && picking;
+  // During empty-first picking the primary window keeps the pill (no crop to
+  // dominate). After a committed rect, the dominant monitor owns it as before.
+  const iAmPill = regionPicking
+    ? q.primary
+    : screens.length
+      ? dom.id === q.mon
+      : q.primary;
   // Window mode: freeform drag is off until the user picks (or after pick they can
   // still drag handles which drops back to region). Hover surface covers the whole
   // monitor so cross-monitor picks work on every overlay instance.
@@ -844,7 +935,7 @@ export default function Overlay() {
     <div
       className={`relative h-screen w-screen select-none overflow-hidden ${
         live ? "bg-transparent" : "bg-black"
-      } ${windowPicking ? "cursor-pointer" : ""}`}
+      } ${windowPicking ? "cursor-pointer" : regionPicking ? "cursor-crosshair" : ""}`}
       onPointerMove={
         windowPicking
           ? (e) => {
@@ -871,7 +962,9 @@ export default function Overlay() {
                 selectWindow(hit);
               }
             }
-          : undefined
+          : regionPicking
+            ? (e) => beginCreate(e)
+            : undefined
       }
     >
       {/* Frozen still backdrop (freeze mode only; empty when live). */}
@@ -916,6 +1009,31 @@ export default function Overlay() {
             <div className="pointer-events-none absolute inset-0 bg-black/45">
               <div className="frost absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-3 py-2 text-center text-xs text-muted-foreground">
                 Hover a window to highlight it, then click to capture
+              </div>
+            </div>
+          )}
+        </>
+      ) : regionPicking ? (
+        // Empty-first region: every monitor is fully dim until a drag creates a
+        // rect. Growing preview (no handles) is shown on the creating monitor(s).
+        <>
+          {vcrop.w > 0 && vcrop.h > 0 && onThis ? (
+            <>
+              <DimMask crop={local} monW={monW} monH={monH} />
+              <div
+                className="pointer-events-none absolute ring-1 ring-primary/90"
+                style={{ left: local.left, top: local.top, width: local.width, height: local.height }}
+              >
+                <div className="frost absolute -top-7 left-0 px-2 py-0.5 text-[11px] tabular-nums">
+                  {vcrop.w} x {vcrop.h}
+                  {aspect !== "free" ? `  -  ${aspect}` : ""}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="pointer-events-none absolute inset-0 bg-black/45">
+              <div className="frost absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-3 py-2 text-center text-xs text-muted-foreground">
+                Drag to select a region
               </div>
             </div>
           )}
@@ -1012,16 +1130,28 @@ export default function Overlay() {
             size="sm"
             variant={target === "region" ? "default" : "ghost"}
             onClick={() => {
-              setTarget("region");
-              setSelectedHwnd(null);
-              setHoveredHwnd(null);
-              setHoveredTitle("");
-              if (isFullScreen) {
-                const restored = prevRegion.current ?? centeredV(self);
-                setVcrop(restored);
-                broadcastNow(restored);
-                persistVcrop(restored);
+              if (target === "window") {
+                enterRegionPicking();
+                return;
               }
+              if (isFullScreen || target === "fullscreen") {
+                const restored = prevRegion.current;
+                if (restored && hasVcrop(restored)) {
+                  setTarget("region");
+                  setPicking(false);
+                  setSelectedHwnd(null);
+                  setHoveredHwnd(null);
+                  setHoveredTitle("");
+                  setVcrop(restored);
+                  broadcastNow(restored);
+                  persistVcrop(restored);
+                  broadcastUi({ target: "region", picking: false, hoveredHwnd: 0, hoveredTitle: "" });
+                } else {
+                  enterRegionPicking();
+                }
+                return;
+              }
+              setTarget("region");
               broadcastUi({ target: "region", hoveredHwnd: 0, hoveredTitle: "" });
             }}
             title="Drag a freeform region"
@@ -1074,11 +1204,13 @@ export default function Overlay() {
           </Button>
           <Button
             size="sm"
-            disabled={busy || !session || target === "window"}
+            disabled={busy || !session || target === "window" || regionPicking}
             title={
               target === "window"
                 ? "Click a highlighted window to capture"
-                : undefined
+                : regionPicking
+                  ? "Drag to select a region first"
+                  : undefined
             }
             onClick={() => (tool === "video" ? startRecording() : captureScreenshot())}
           >

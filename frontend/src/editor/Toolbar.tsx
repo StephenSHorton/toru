@@ -3,16 +3,19 @@
 // only (no rounded-*). Tool buttons are driven by a registry-aligned list
 // (TOOL_BUTTONS), mirroring the TOOLS registry in tools/index.ts. Color + stroke
 // controls bind to the store. Copy flattens the stage to the clipboard and
-// flashes a green check + "Copied"; a capture already auto-copies, so the bar
-// can flash the same state on open (flashCopied). Done (when provided)
-// archives the annotated PNG to the Toru library then dismisses. A Settings
-// gear opens the tray-driven Settings/home window.
+// flashes a green check + "Copied". Done (when provided) copies that same
+// flatten when the Copy-on-Done pref is on, archives to the library, then
+// the parent dismisses. A Settings gear opens the tray-driven Settings/home window.
 //
 // The bar is HTML OUTSIDE the Konva Stage, so Copy (which flattens the Stage)
 // never bakes it into the exported PNG. It sits above CropOverlay/TextEditingOverlay
 // (z-20) and is pointer-events-auto so its buttons stay clickable; it positions
 // itself absolutely (bottom-4 left-1/2 -translate-x-1/2) with no full-window
 // wrapper, so clicks elsewhere still reach the canvas underneath.
+//
+// Copy-on-Done (default ON, overlay.json): the Done button copies the annotated
+// flatten (same pipeline as Copy) then archives to the library. Esc / New
+// Capture do not go through this path and do not auto-copy.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type Konva from 'konva';
@@ -28,8 +31,8 @@ import type { ToolId } from './types';
 import { ColorPalette } from './ColorPalette';
 import { StrokeWidthControl } from './StrokeWidthControl';
 import { EmojiPicker } from './tools/emoji';
-import { copyToClipboard } from './exportActions';
-import { WindowsService } from '@/lib/api';
+import { copyToClipboard, saveToLibrary } from './exportActions';
+import { OverlayService, WindowsService } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 // Aligns with the TOOLS registry (tools/index.ts). Order mirrors macOS Markup.
@@ -56,8 +59,10 @@ export interface ToolbarProps {
   /** When provided, renders a "New" button to start a fresh capture. */
   onNewCapture?: () => void;
   /**
-   * When provided, renders a "Done" button. The parent is responsible for
-   * saving the annotated PNG to the library then dismissing.
+   * When provided, renders a "Done" button. The toolbar copies (if the
+   * Copy-on-Done pref is on) and archives to the library; the parent then
+   * dismisses (overlay Finish / window Close). Esc should NOT use this —
+   * it should save-only via the parent's own path.
    */
   onDone?: () => void | Promise<void>;
   /**
@@ -68,8 +73,8 @@ export interface ToolbarProps {
   /** Ref to the bar root — parent measures width/height for window chrome math. */
   barRef?: React.RefObject<HTMLDivElement | null>;
   /**
-   * Flash the green Copied state on mount. Capture already auto-copies the PNG
-   * to the clipboard; this is how the toolbar tells the user it landed.
+   * Flash the green Copied state on mount. Used only when a caller already
+   * copied (legacy); capture no longer auto-copies before the editor opens.
    */
   flashCopied?: boolean;
 }
@@ -119,8 +124,31 @@ export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef, flashC
   }
   async function handleDone() {
     if (!onDone || doneBusy) return;
+    const stage = stageRef.current;
+    if (!stage) return;
     setDoneBusy(true);
     try {
+      let shouldCopy = true;
+      try {
+        shouldCopy = await OverlayService.GetCopyOnDone();
+      } catch {
+        // Binding/pref read failed — keep the default ON.
+      }
+      if (shouldCopy) {
+        try {
+          await copyToClipboard(stage);
+          showCopied();
+          // Brief beat so the Copied flash is visible before the parent dismisses.
+          await new Promise((r) => window.setTimeout(r, 400));
+        } catch {
+          // Still archive so Done never gets stuck on a clipboard failure.
+        }
+      }
+      try {
+        await saveToLibrary(stage);
+      } catch {
+        // Parent still dismisses so the user is never stuck.
+      }
       await onDone();
     } finally {
       setDoneBusy(false);
@@ -234,7 +262,7 @@ export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef, flashC
       {onDone && (
         <Button
           size="sm"
-          title="Done — save to library and close"
+          title="Done — copy (if enabled), save to library, and close"
           disabled={doneBusy}
           onClick={() => void handleDone()}
         >
