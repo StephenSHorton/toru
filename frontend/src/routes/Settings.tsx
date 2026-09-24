@@ -52,13 +52,16 @@ export default function Settings() {
         />
 
         <div
-          className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-1 py-2"
+          className="flex min-h-0 flex-1 items-center justify-center overflow-hidden"
           aria-hidden="true"
         >
+          {/* Appicon has generous padding; scale past the strip so the rooster
+              fills the leftover sidebar space, then clip. Short heights clip
+              further instead of shoving Settings off-screen. */}
           <img
             src="/appicon.png"
             alt=""
-            className="pointer-events-none h-full w-full max-h-full select-none object-contain opacity-[0.22]"
+            className="pointer-events-none w-[210%] max-w-none shrink-0 select-none object-contain opacity-[0.2]"
             draggable={false}
           />
         </div>
