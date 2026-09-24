@@ -132,8 +132,9 @@ func (w *WindowsService) OpenEditor(imagePath string) {
 }
 
 // OpenEditorAfterCapture opens the annotation editor after a screenshot.
-// Copy waits until Done (if the Copy-on-Done pref is on); the window does
-// not flash Copied on open. Used by the overlay when it cannot morph in place.
+// Copy waits until Done or empty-selection Esc (if the Copy-on-Done pref is
+// on); the window does not flash Copied on open. Used by the overlay when it
+// cannot morph in place.
 //
 //wails:ignore
 func (w *WindowsService) OpenEditorAfterCapture(imagePath string) {

@@ -18,7 +18,7 @@
 // export is also exact and un-letterboxed.
 
 import type Konva from 'konva';
-import { ExportService, HistoryService, ScreenshotService } from '@/lib/api';
+import { ExportService, HistoryService, OverlayService, ScreenshotService } from '@/lib/api';
 import { useEditorStore, BASE_IMAGE_ID } from './store';
 import { computeView } from './EditorCanvas';
 import type { ImageNodeBase } from './types';
@@ -107,10 +107,46 @@ export async function saveAs(stage: Konva.Stage, name = 'Screenshot.png'): Promi
 
 /**
  * Flatten the annotated stage and archive it in the Toru library (user-configurable
- * folder under Settings). Called on Done — there is no separate Save button.
+ * folder under Settings). Called from finishAndArchive — there is no separate Save button.
  */
 export async function saveToLibrary(stage: Konva.Stage): Promise<void> {
   const url = flattenStage(stage);
   const path = await ScreenshotService.SavePNG(url);
   await HistoryService.Add(path, 'image');
+}
+
+/**
+ * Shared finish pipeline for the annotation editor: honor the Copy-on-Done
+ * preference (default ON), then archive to the library. Used by the Done
+ * button and by empty-selection Esc (select tool, nothing selected) so they
+ * stay in lockstep. First Esc that only clears a selection / returns to
+ * select must NOT call this.
+ *
+ * Clipboard or library failures are swallowed so the caller can still dismiss
+ * and the user is never stuck. `onCopied` runs only after a successful copy
+ * (Toolbar uses it for the Copied flash + brief beat before dismiss).
+ */
+export async function finishAndArchive(
+  stage: Konva.Stage,
+  opts?: { onCopied?: () => void | Promise<void> },
+): Promise<void> {
+  let shouldCopy = true;
+  try {
+    shouldCopy = await OverlayService.GetCopyOnDone();
+  } catch {
+    // Binding/pref read failed — keep the default ON.
+  }
+  if (shouldCopy) {
+    try {
+      await copyToClipboard(stage);
+      if (opts?.onCopied) await opts.onCopied();
+    } catch {
+      // Still archive so finish never gets stuck on a clipboard failure.
+    }
+  }
+  try {
+    await saveToLibrary(stage);
+  } catch {
+    // Caller still dismisses so the user is never stuck.
+  }
 }

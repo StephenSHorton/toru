@@ -47,7 +47,7 @@ import {
   Zap,
 } from "lucide-react";
 import { OverlayService, AudioConfig, type AudioSession } from "@/lib/api";
-import { saveToLibrary } from "@/editor/exportActions";
+import { finishAndArchive } from "@/editor/exportActions";
 import type { WindowInfo } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models";
 import {
   parseOverlayQuery,
@@ -224,15 +224,13 @@ export default function Overlay() {
   }, [audioOpen]);
   const audioCount = (audioSystem ? 1 : 0) + (audioMic ? 1 : 0) + audioApps.length;
 
-  // Esc (empty selection): save to library and dismiss — NOT Done, so no copy.
+  // Esc (empty selection / select tool): same finish as Done — honor
+  // Copy-on-Done, archive, then dismiss. First Esc that only clears a
+  // selection or returns to select never reaches here.
   const finishEdit = useCallback(async () => {
     const stage = stageRef.current;
     if (stage) {
-      try {
-        await saveToLibrary(stage);
-      } catch {
-        // Still dismiss on library failure so the user is never stuck.
-      }
+      await finishAndArchive(stage);
     }
     await OverlayService.Finish();
   }, []);

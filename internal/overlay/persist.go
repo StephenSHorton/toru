@@ -29,9 +29,9 @@ var cropFileMu sync.Mutex
 // POINTER so an absent field (older overlay.json) defaults ON. When false the
 // capture is copied to the clipboard and saved to the library with no editor.
 //
-// CopyOnDone is whether hitting Done in the annotation editor copies the
-// flattened annotated PNG to the clipboard (then saves to the library).
-// POINTER so an absent field (older overlay.json) defaults ON.
+// CopyOnDone is whether finishing the annotation editor (Done or empty-selection
+// Esc) copies the flattened annotated PNG to the clipboard (then saves to the
+// library). POINTER so an absent field (older overlay.json) defaults ON.
 //
 // Region is the last shared crop in VIRTUAL-DESKTOP PHYSICAL px (origin = primary
 // top-left; may be negative; MAY straddle monitors). It supersedes the per-monitor
@@ -54,7 +54,7 @@ const defaultFreeze = true
 // defaultOpenEditor is the post-screenshot editor default: ON (overlay morph).
 const defaultOpenEditor = true
 
-// defaultCopyOnDone is the Done-button clipboard default: ON (copy annotated PNG).
+// defaultCopyOnDone is the finish-editor clipboard default: ON (copy annotated PNG).
 const defaultCopyOnDone = true
 
 // freezeEnabled resolves the persisted freeze preference, defaulting to ON when
@@ -75,7 +75,7 @@ func (st cropStore) openEditorEnabled() bool {
 	return *st.OpenEditor
 }
 
-// copyOnDoneEnabled resolves the persisted "copy to clipboard when Done"
+// copyOnDoneEnabled resolves the persisted "copy to clipboard when finishing"
 // preference, defaulting to ON when the field is absent.
 func (st cropStore) copyOnDoneEnabled() bool {
 	if st.CopyOnDone == nil {
