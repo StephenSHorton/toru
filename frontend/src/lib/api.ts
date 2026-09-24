@@ -21,6 +21,7 @@
 //   SettingsService.GetLaunchAtLogin(): Promise<boolean>
 //   SettingsService.SetLaunchAtLogin(enabled: boolean): Promise<void>  (registry Run key; --startup => silent-to-tray)
 //   HistoryService.Add(srcPath, kind): Promise<Item>  (archive file into library)
+//   HistoryService.Delete(id): Promise<void>  (one item + file; Library bulk-delete loops this)
 //   HistoryService.GetDir / SetDir / PickDir / ResetDir / IsDefaultDir
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
