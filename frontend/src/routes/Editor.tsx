@@ -8,9 +8,9 @@
 //   • width at least wide enough for the full toolbar (+ side padding)
 //   • max size ~95% of the work area so huge captures scale down
 //
-// Done (toolbar) copies the annotated PNG when the Copy-on-Done pref is on,
-// then saves to the library and closes. Esc with nothing selected saves and
-// closes WITHOUT copying (not a Done).
+// Done (toolbar) and empty-selection Esc both honor Copy-on-Done, then save
+// to the library and close. First Esc that only clears a selection / returns
+// to select does neither.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type Konva from "konva";
@@ -23,7 +23,7 @@ import { useClipboardPaste } from "@/editor/useClipboardPaste";
 import { TextEditingOverlay } from "@/editor/tools/text";
 import { CropOverlay } from "@/editor/tools/crop";
 import { setStageSize } from "@/editor/viewStore";
-import { saveToLibrary } from "@/editor/exportActions";
+import { finishAndArchive } from "@/editor/exportActions";
 import { WindowsService } from "@/lib/api";
 
 /** Padding between window edge ↔ capture, capture ↔ toolbar, toolbar ↔ edge. */
@@ -57,15 +57,11 @@ export default function Editor() {
     }
   }, []);
 
-  // Esc / New-Capture-adjacent dismiss: save to library, no clipboard copy.
+  // Empty-selection Esc: same finish as Done (copy-on-Done + library), then close.
   const finish = useCallback(async () => {
     const stage = stageRef.current;
     if (stage) {
-      try {
-        await saveToLibrary(stage);
-      } catch {
-        // Still close on library failure so the user is never stuck.
-      }
+      await finishAndArchive(stage);
     }
     await dismiss();
   }, [dismiss]);

@@ -33,7 +33,7 @@ func TestFreezeEnabledDefault(t *testing.T) {
 
 // TestCopyOnDoneEnabledDefault locks "absent => copy on Done ON" so older
 // overlay.json and a fresh install still copy the annotated PNG when the user
-// hits Done.
+// finishes (Done or empty-selection Esc).
 func TestCopyOnDoneEnabledDefault(t *testing.T) {
 	on := true
 	off := false

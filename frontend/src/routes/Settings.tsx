@@ -528,16 +528,16 @@ function SettingsPage() {
 
         <div className="flex items-center justify-between gap-3">
           <div className="flex flex-col">
-            <span className="text-sm font-medium">Copy to clipboard when Done</span>
+            <span className="text-sm font-medium">Copy to clipboard when finishing</span>
             <span className="text-xs text-muted-foreground">
-              Off: Done saves to the library without copying
+              Off: Done or Esc saves to the library without copying
             </span>
           </div>
           <Switch
             checked={copyOnDone}
             disabled={copyOnDoneBusy}
             onCheckedChange={(v) => void toggleCopyOnDone(v)}
-            aria-label="Copy to clipboard when Done"
+            aria-label="Copy to clipboard when finishing with Done or Esc"
           />
         </div>
 

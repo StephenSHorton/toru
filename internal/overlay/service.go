@@ -139,7 +139,7 @@ type OverlayService struct {
 	openEditor       bool
 	openEditorLoaded bool
 
-	// copyOnDone is the cached "copy annotated PNG when the user hits Done"
+	// copyOnDone is the cached "copy annotated PNG when finishing the editor"
 	// preference (overlay.json). Same lazy-load pattern as freeze. Default ON.
 	copyOnDone       bool
 	copyOnDoneLoaded bool
@@ -245,7 +245,7 @@ func (s *OverlayService) SetSuspendDismiss(on bool) {
 // rememberScreenshot auto-copies the fresh crop PNG to the clipboard. Used only
 // by the skip-editor path so a capture still lands on the clipboard immediately
 // when the annotation editor is off. When the editor opens, copy waits until
-// Done (annotated flatten via the toolbar) if the Copy-on-Done pref is on.
+// Done / empty-selection Esc (annotated flatten) if the Copy-on-Done pref is on.
 // Best-effort: a clipboard failure never fails the capture.
 func (s *OverlayService) rememberScreenshot(cropPath string) {
 	if cropPath == "" {
@@ -265,7 +265,7 @@ type presentOpts struct {
 // presentScreenshot either:
 //   - skip-editor: copies the unannotated crop, archives to the library, dismisses
 //   - overlay editor: morphs the target overlay window in place with NO copy
-//     (copy happens on Done if the Copy-on-Done pref is on)
+//     (copy happens on Done / empty-selection Esc if the Copy-on-Done pref is on)
 func (s *OverlayService) presentScreenshot(cropPath string, opt presentOpts) {
 	if cropPath == "" {
 		return
@@ -458,9 +458,9 @@ func (s *OverlayService) currentOpenEditor() bool {
 	return v
 }
 
-// GetCopyOnDone reports whether Done in the annotation editor copies the
-// flattened annotated PNG to the clipboard (default ON). Off: Done saves to
-// the library only.
+// GetCopyOnDone reports whether finishing the annotation editor (Done or
+// empty-selection Esc) copies the flattened annotated PNG to the clipboard
+// (default ON). Off: finish saves to the library only.
 func (s *OverlayService) GetCopyOnDone() bool {
 	return s.currentCopyOnDone()
 }

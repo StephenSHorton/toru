@@ -48,12 +48,12 @@ const KEY_TOOLS: Record<string, ToolId> = {
 // undo would mutate a hidden store (later wiped by loadBaseImage). The standalone
 // Editor route omits the arg and stays always-on.
 //
-// `onEscapeEmpty` (optional) escalates Esc: in the overlay edit mode, Esc first
-// clears selection / returns to the select tool (normal editor UX); when there is
-// NOTHING left to clear (no selection AND already on select), it fires this to hide
-// the overlay to the tray — matching the spec's "Done / Esc from edit mode -> hide"
-// without surprising the user mid-edit. The standalone Editor route omits it, so
-// Esc there only ever deselects.
+// `onEscapeEmpty` (optional) escalates Esc: Esc first clears selection / returns
+// to the select tool (normal editor UX); when there is NOTHING left to clear
+// (no selection AND already on select), it fires this so the parent can finish
+// the same way as Done (copy-on-Done pref + library + dismiss). Mid-edit Esc
+// never escalates. The standalone Editor route also passes this so Esc-to-close
+// honors the same preference.
 export function useEditorKeyboard(enabled = true, onEscapeEmpty?: () => void) {
   useEffect(() => {
     if (!enabled) return;
