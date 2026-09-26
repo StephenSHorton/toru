@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Toru</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; color: #eee; font-family: "Segoe UI", sans-serif; }
+    video, img { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    #msg {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      padding: 12px 16px; font-size: 14px; text-align: center;
+      background: rgba(0,0,0,0.55);
+    }
+  </style>
+</head>
+<body>
+  <video id="v" hidden autoplay playsinline></video>
+  <img id="img" alt="" hidden>
+  <div id="msg">Waiting for the stream…</div>
+  <script src="/hls.min.js"></script>
+  <script>
+    const msg = document.getElementById("msg");
+    const video = document.getElementById("v");
+    const img = document.getElementById("img");
+
+    function fail(text) { msg.hidden = false; msg.textContent = text; }
+
+    async function waitPlaylist(url) {
+      for (let i = 0; i < 40; i++) {
+        try {
+          const res = await fetch(url, { cache: "no-store" });
+          if (res.ok) return true;
+        } catch (e) { /* server still starting */ }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      return false;
+    }
+
+    async function main() {
+      let info;
+      try {
+        info = await fetch("/api/info", { cache: "no-store" }).then((r) => r.json());
+      } catch (e) {
+        fail("This share has ended.");
+        return;
+      }
+      if (info.kind === "mjpeg") {
+        img.hidden = false;
+        img.src = "/live.mjpg";
+        msg.hidden = true;
+        return;
+      }
+      const src = info.playlist || "/live/index.m3u8";
+      if (!(await waitPlaylist(src))) {
+        fail("The stream did not start. On the computer, stop sharing and try again.");
+        return;
+      }
+      video.hidden = false;
+      msg.hidden = true;
+      if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = src;
+        video.play().catch(() => {});
+        return;
+      }
+      if (window.Hls && Hls.isSupported()) {
+        const hls = new Hls({
+          lowLatencyMode: false,
+          liveSyncDurationCount: 1,
+          liveMaxLatencyDurationCount: 4,
+          maxLiveSyncPlaybackRate: 1.5,
+          manifestLoadingMaxRetry: 30,
+        });
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (data && data.fatal) fail("Playback stopped. Refresh this page.");
+        });
+        return;
+      }
+      fail("This browser cannot play the stream. Open the link in Chrome, Edge, or Safari.");
+    }
+    main();
+  </script>
+</body>
+</html>

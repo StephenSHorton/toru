@@ -21,6 +21,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/history"
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/StephenSHorton/toru/internal/overlay"
+	"github.com/StephenSHorton/toru/internal/share"
 	"github.com/StephenSHorton/toru/internal/shot"
 	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/StephenSHorton/toru/internal/vid"
@@ -188,6 +189,11 @@ func main() {
 	overlaySvc.SetRecordingErrorOpener(windowsSvc.OpenRecordingError)
 	overlaySvc.SetRecordingFrameOpener(windowsSvc.OpenRecordingFrame)
 	overlaySvc.SetRecordingFrameCloser(windowsSvc.CloseRecordingFrame)
+	// Screen share reuses the capture region and the outline window. The card
+	// (link + QR) is opened from Go because StartShare hides the overlay first.
+	overlaySvc.SetShare(share.New())
+	overlaySvc.SetShareControlsOpener(windowsSvc.OpenShareControls)
+	overlaySvc.SetRecordingActive(recorder.Active)
 	// Audio capture is a privacy-sensitive OPT-IN, per SOURCE: the recorder
 	// starts with no audio selected; the overlay's Audio picker pushes the
 	// user's selection (system mix / individual apps / microphone) through

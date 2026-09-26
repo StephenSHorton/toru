@@ -118,6 +118,16 @@ export function OpenSettings(): $CancellablePromise<void> {
 }
 
 /**
+ * OpenShareControls opens the card that shows the LAN link and QR code for a
+ * live share. Placement matches the recording pill: outside the shared region
+ * when there is room, otherwise on an idle monitor, so the card is not baked
+ * into the stream.
+ */
+export function OpenShareControls(monitorID: number, regionX: number, regionY: number, regionW: number, regionH: number, fullscreen: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2925727409, monitorID, regionX, regionY, regionW, regionH, fullscreen);
+}
+
+/**
  * OpenTrim opens Developer 2's trim editor for videoPath. Same routing + served-
  * file rules as OpenEditor (/?view=trim, /__file/<basename> for the media src).
  * The raw absolute path rides along as ?path= — the webview needs the served

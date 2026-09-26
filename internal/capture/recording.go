@@ -130,6 +130,42 @@ func (r *Recorder) SetAudioConfig(c AudioConfig) {
 	r.audioConfig = c
 }
 
+// Active reports whether a recording is in flight. Sharing and recording both
+// need Desktop Duplication, so the overlay refuses to start one while the
+// other holds the output.
+func (r *Recorder) Active() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.recs) > 0
+}
+
+// openAudioSources starts every opted-in loopback (system mix and per-app).
+// The microphone is not a pipe — callers pass AudioConfig.MicDevice straight
+// to the arg builder. A source that fails to open is skipped.
+func openAudioSources(cfg AudioConfig) []audioSource {
+	if !cfg.System && len(cfg.AppPIDs) == 0 {
+		return nil
+	}
+	var sources []audioSource
+	if cfg.System {
+		if a, err := startLoopbackAudio(fmt.Sprintf("toru-audio-sys-%d", time.Now().UnixNano())); err == nil {
+			sources = append(sources, a)
+		}
+	}
+	for _, pid := range cfg.AppPIDs {
+		if a, err := startProcessLoopbackAudio(pid, fmt.Sprintf("toru-audio-app%d-%d", pid, time.Now().UnixNano())); err == nil {
+			sources = append(sources, a)
+		}
+	}
+	return sources
+}
+
+func stopAudioSources(sources []audioSource) {
+	for _, s := range sources {
+		s.Stop()
+	}
+}
+
 // enumScreens adapts EnumDisplays to the contract's ScreenInfo. Only ID/X/Y
 // matter for the ddagrab rebase; ScaleFactor/IsPrimary are display-chrome
 // concerns owned by the overlay's enriched ListScreens.
@@ -210,24 +246,8 @@ func (r *Recorder) StartRecording(req CaptureRequest) (string, error) {
 	r.mu.Lock()
 	audioCfg := r.audioConfig
 	r.mu.Unlock()
-	var sources []audioSource
-	if audioCfg.enabled() {
-		if audioCfg.System {
-			if a, audErr := startLoopbackAudio(fmt.Sprintf("toru-audio-sys-%d", time.Now().UnixNano())); audErr == nil {
-				sources = append(sources, a)
-			}
-		}
-		for _, pid := range audioCfg.AppPIDs {
-			if a, audErr := startProcessLoopbackAudio(pid, fmt.Sprintf("toru-audio-app%d-%d", pid, time.Now().UnixNano())); audErr == nil {
-				sources = append(sources, a)
-			}
-		}
-	}
-	stopSources := func() {
-		for _, s := range sources {
-			s.Stop()
-		}
-	}
+	sources := openAudioSources(audioCfg)
+	stopSources := func() { stopAudioSources(sources) }
 
 	candidates := r.argCandidates(req, r.screens(), enc, outPath)
 	if len(sources) > 0 || audioCfg.MicDevice != "" {

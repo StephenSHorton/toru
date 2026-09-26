@@ -98,6 +98,13 @@ func BuildVideoArgsGDI(req CaptureRequest, enc VideoEncoder, outPath string) []s
 // the mic input exists). Opus at 128k is the WebM-native choice; ffmpeg
 // auto-resamples sources whose rate Opus doesn't take.
 func injectAudioMix(videoArgs []string, pipes []AudioInput, micDevice string) []string {
+	return injectAudioMixCodec(videoArgs, pipes, micDevice, "libopus", "128k")
+}
+
+// injectAudioMixCodec is injectAudioMix with the output audio codec chosen by
+// the caller. Recordings use Opus (WebM-native). Live HLS uses AAC, which is
+// what browsers and TVs actually play inside MPEG-TS.
+func injectAudioMixCodec(videoArgs []string, pipes []AudioInput, micDevice, audioCodec, audioBitrate string) []string {
 	total := len(pipes)
 	if micDevice != "" {
 		total++
@@ -165,7 +172,7 @@ func injectAudioMix(videoArgs []string, pipes []AudioInput, micDevice string) []
 			"-map", "[aout]",
 		)
 	}
-	post = append(post, "-c:a", "libopus", "-b:a", "128k")
+	post = append(post, "-c:a", audioCodec, "-b:a", audioBitrate)
 
 	res := make([]string, 0, len(videoArgs)+len(audioIn)+len(post))
 	res = append(res, head...)

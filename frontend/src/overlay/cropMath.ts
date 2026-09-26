@@ -238,14 +238,15 @@ export function computeDrag(
   handle: Handle | "body",
   dxV: number,
   dyV: number,
-  tool: "screenshot" | "video",
+  tool: "screenshot" | "video" | "share",
   screens: ScreenInfo[],
   self: ScreenInfo,
   aspect: AspectId = "free",
 ): Rect {
   const list = screens.length ? screens : [self];
   let bounds: Bounds;
-  if (tool === "video") {
+  // Share uses the same grab as recording, so it is stuck to one monitor too.
+  if (tool === "video" || tool === "share") {
     const proposed =
       handle === "body" ? { x: startV.x + dxV, y: startV.y + dyV, w: startV.w, h: startV.h } : startV;
     const d = dominantScreen(proposed, list) ?? self;

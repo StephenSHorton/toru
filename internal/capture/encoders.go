@@ -102,12 +102,21 @@ var (
 // EncoderUsable reports whether `name` can actually encode on this machine,
 // verified by a ~3-frame lavfi test encode to the null muxer (cached).
 func EncoderUsable(name string) bool {
+	return encoderUsableWithin(name, 10*time.Second)
+}
+
+// encoderUsableWithin is EncoderUsable with a caller-chosen probe budget.
+// Share uses a shorter budget so a missing GPU encoder doesn't freeze the
+// capture pill for the full recording-probe timeout on every candidate.
+func encoderUsableWithin(name string, timeout time.Duration) bool {
 	probeMu.Lock()
-	defer probeMu.Unlock()
 	if ok, seen := probeCache[name]; seen {
+		probeMu.Unlock()
 		return ok
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	probeMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	err := RunFFmpeg(ctx, []string{
 		"-hide_banner", "-loglevel", "error",
@@ -116,6 +125,14 @@ func EncoderUsable(name string) bool {
 		"-c:v", name,
 		"-f", "null", "-",
 	})
-	probeCache[name] = err == nil
-	return err == nil
+	ok := err == nil
+
+	probeMu.Lock()
+	defer probeMu.Unlock()
+	// A concurrent probe that already succeeded wins over a timeout miss.
+	if prev, seen := probeCache[name]; seen && prev {
+		return true
+	}
+	probeCache[name] = ok
+	return ok
 }

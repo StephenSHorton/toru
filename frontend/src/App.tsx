@@ -4,6 +4,7 @@ import Editor from "@/routes/Editor";
 import Trim from "@/routes/Trim";
 import Recording from "@/routes/Recording";
 import RecFrame from "@/routes/RecFrame";
+import Share from "@/routes/Share";
 
 // Each Wails window opens with a `?view=` query param (see windows.go). We route
 // on that rather than the path so the embedded SPA needs no server fallback.
@@ -20,6 +21,8 @@ export default function App() {
       return <Trim />;
     case "recording":
       return <Recording />;
+    case "share":
+      return <Share />;
     case "recframe":
       return <RecFrame />;
     case "settings":

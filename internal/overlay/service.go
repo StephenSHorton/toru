@@ -27,6 +27,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/export"
 	"github.com/StephenSHorton/toru/internal/history"
+	"github.com/StephenSHorton/toru/internal/share"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -60,6 +61,19 @@ type OverlayService struct {
 	// calls through). Held as a func so the frozen Capturer seam stays
 	// untouched.
 	audioConfigSetter func(cfg capture.AudioConfig)
+	// audioCfg is the last opt-in the picker pushed. Share reads it when a
+	// session starts; the recorder keeps its own copy for recordings.
+	audioCfg capture.AudioConfig
+	// shares is the LAN screen-share server (injected by main). Nil in tests
+	// that never start a share.
+	shares *share.Manager
+	// shareControlsOpener opens the card with the link and QR code. Go opens
+	// it, same reason as the recording pill: StartShare hides the overlay
+	// before the frontend's await returns.
+	shareControlsOpener func(monitorID, regionX, regionY, regionW, regionH int, fullscreen bool)
+	// recordingActive reports a live recording so Share can refuse to start
+	// a second Desktop Duplication session.
+	recordingActive func() bool
 	// escArmer toggles the global Escape-to-cancel hook (injected by main via
 	// SetEscapeArmer -> hotkey.Manager.ArmEscape). Armed only while the capture
 	// overlay is up, so a global Escape cancels even when the transparent overlay
@@ -506,10 +520,30 @@ func (s *OverlayService) currentCopyOnDone() bool {
 // enabled here by the user (the overlay's Audio picker); the zero config
 // records no audio. Applies to future recordings.
 func (s *OverlayService) SetAudioSources(cfg capture.AudioConfig) {
+	s.mu.Lock()
+	s.audioCfg = cfg
+	s.mu.Unlock()
 	if s.audioConfigSetter != nil {
 		s.audioConfigSetter(cfg)
 	}
 }
+
+// SetShare injects the LAN share server. Go-only.
+//
+//wails:ignore
+func (s *OverlayService) SetShare(m *share.Manager) { s.shares = m }
+
+// SetShareControlsOpener injects the share-card window opener. Go-only.
+//
+//wails:ignore
+func (s *OverlayService) SetShareControlsOpener(fn func(monitorID, regionX, regionY, regionW, regionH int, fullscreen bool)) {
+	s.shareControlsOpener = fn
+}
+
+// SetRecordingActive injects the "a recording is in flight" check. Go-only.
+//
+//wails:ignore
+func (s *OverlayService) SetRecordingActive(fn func() bool) { s.recordingActive = fn }
 
 // ListAudioSessions returns the applications currently producing audio — the
 // rows of the Audio picker's per-app section.
@@ -1566,6 +1600,9 @@ func (s *OverlayService) Cancel() error {
 // is already hidden, so without it a failed start leaves a blank screen with no
 // explanation.
 func (s *OverlayService) StartRecording(req capture.CaptureRequest) (string, error) {
+	if s.shares != nil && s.shares.On() {
+		return "", fmt.Errorf("stop sharing before you start a recording")
+	}
 	s.HideOverlay()
 	handle, err := s.cap.StartRecording(req)
 	if err != nil {
@@ -1656,6 +1693,73 @@ func (s *OverlayService) StopRecording(handleID string) (capture.CaptureResult, 
 	s.rememberRecording(res.VideoPath)
 	s.emit(EventCaptureDone, res)
 	return res, nil
+}
+
+// StartShare hides the overlay, encodes the region, and serves it on the LAN.
+// The share card (link + QR) is opened here: once the overlay is hidden the
+// calling page is not a place to render it. A failure before the hide (no
+// ffmpeg, already recording) leaves the overlay up so the pill can show the
+// error. A failure after the hide opens the recording error pill.
+func (s *OverlayService) StartShare(req capture.CaptureRequest) (share.Info, error) {
+	if s.shares == nil {
+		return share.Info{}, fmt.Errorf("screen sharing is not available")
+	}
+	if s.recordingActive != nil && s.recordingActive() {
+		return share.Info{}, fmt.Errorf("stop the recording before you share")
+	}
+	if s.shares.On() {
+		return share.Info{}, fmt.Errorf("already sharing")
+	}
+	if req.Rect.W < 2 || req.Rect.H < 2 {
+		return share.Info{}, fmt.Errorf("drag a region, pick a window, or choose full screen first")
+	}
+	if err := capture.PrepareShare(); err != nil {
+		return share.Info{}, err
+	}
+	s.HideOverlay()
+	s.mu.RLock()
+	audio := s.audioCfg
+	s.mu.RUnlock()
+	info, err := s.shares.Start(req, audio)
+	if err != nil {
+		if s.recordingErrorOpener != nil {
+			s.recordingErrorOpener(recordingErrorMessage(err), req.MonitorID)
+		}
+		return share.Info{}, err
+	}
+	fullscreen := req.Sub == capture.SubFullscreen
+	rx, ry, rw, rh, regionOK := s.regionDIP(req.Rect, req.MonitorID)
+	if s.recordingFrameOpener != nil && !fullscreen && regionOK {
+		s.recordingFrameOpener(rx, ry, rw, rh, req.MonitorID)
+	}
+	if s.shareControlsOpener != nil {
+		s.shareControlsOpener(req.MonitorID, rx, ry, rw, rh, fullscreen || !regionOK)
+	}
+	return info, nil
+}
+
+// StopShare ends the LAN stream and takes down the region outline. Closing
+// the share card also calls this, so it is idempotent.
+func (s *OverlayService) StopShare() error {
+	if s.recordingFrameCloser != nil {
+		s.recordingFrameCloser()
+	}
+	if s.shares != nil {
+		return s.shares.Stop()
+	}
+	return nil
+}
+
+// ShareInfo is the link, QR code, and hint for the share card.
+func (s *OverlayService) ShareInfo() (share.Info, error) {
+	if s.shares == nil {
+		return share.Info{}, fmt.Errorf("not sharing")
+	}
+	info, ok := s.shares.Current()
+	if !ok {
+		return share.Info{}, fmt.Errorf("not sharing")
+	}
+	return info, nil
 }
 
 // SaveCrop persists the monitor-local PHYSICAL-px crop for monitorID. Called by

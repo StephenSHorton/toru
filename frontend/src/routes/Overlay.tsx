@@ -39,6 +39,7 @@ import {
   Camera,
   Maximize,
   Ratio,
+  ScreenShare,
   Snowflake,
   Video,
   Volume2,
@@ -93,6 +94,16 @@ import {
 const SAVE_DEBOUNCE_MS = 300;
 const ASPECT_KEY = "toru.aspect";
 
+// Record and Share both go through ddagrab, which cannot span monitors.
+function grabsOneMonitor(tool: string): boolean {
+  return tool === "video" || tool === "share";
+}
+
+function errText(e: unknown): string {
+  const s = e instanceof Error && e.message ? e.message : String(e);
+  return s.replace(/\s+/g, " ").slice(0, 280);
+}
+
 function resetEditor(): void {
   resetCropDraft();
   resetTextEditSession();
@@ -115,7 +126,8 @@ export default function Overlay() {
   const q = parseOverlayQuery(window.location.search);
 
   const [mode, setMode] = useState<"capture" | "edit">("capture");
-  const [tool, setToolMode] = useState<"screenshot" | "video">("screenshot");
+  const [tool, setToolMode] = useState<"screenshot" | "video" | "share">("screenshot");
+  const [actionError, setActionError] = useState("");
   // toolRef lets applyEngage (a stable listener callback) read the current tool
   // without listing it as a dep (which would rebind the bind-once event effect).
   const toolRef = useRef(tool);
@@ -271,7 +283,7 @@ export default function Overlay() {
 
   const broadcastUi = useCallback(
     (patch: {
-      tool?: "screenshot" | "video";
+      tool?: "screenshot" | "video" | "share";
       target?: "region" | "window" | "fullscreen";
       aspect?: AspectId;
       hoveredHwnd?: number;
@@ -372,7 +384,7 @@ export default function Overlay() {
         uiEchoRef.current = false;
         return;
       }
-      if (raw.tool === "screenshot" || raw.tool === "video") setToolMode(raw.tool);
+      if (raw.tool === "screenshot" || raw.tool === "video" || raw.tool === "share") setToolMode(raw.tool);
       if (raw.target === "region" || raw.target === "window" || raw.target === "fullscreen") {
         setTarget(raw.target);
       }
@@ -444,7 +456,7 @@ export default function Overlay() {
   // too so a switch-to-video that raced ahead of ListScreens still snaps once the
   // layout arrives (recording also clamps at the emit site as the hard backstop).
   useEffect(() => {
-    if (tool !== "video") return;
+    if (!grabsOneMonitor(tool)) return;
     if (pickingRef.current || !hasVcrop(vcropRef.current)) return;
     const list = screens.length ? screens : screensRef.current;
     if (!list.length) return;
@@ -551,7 +563,7 @@ export default function Overlay() {
       const r = w.rect;
       if (!r || r.w < 8 || r.h < 8) return null;
       let next: Rect = { x: r.x, y: r.y, w: r.w, h: r.h };
-      if (toolRef.current === "video") {
+      if (grabsOneMonitor(toolRef.current)) {
         const list = screensRef.current.length ? screensRef.current : [selfRef.current];
         const mon =
           list.find((s) => s.id === w.monitorId) ??
@@ -662,12 +674,47 @@ export default function Overlay() {
         copyOnCommit: false,
       };
       await OverlayService.StartRecording(req);
-    } catch {
-      // Go opens a dismissible error pill on a failed start; swallow the rejection.
+    } catch (e) {
+      // A failure after the overlay hides is also shown on the Go error pill.
+      // A failure before the hide (already sharing) stays on this pill.
+      setActionError(errText(e));
     } finally {
       setBusy(false);
     }
   }, [busy, session, target]);
+
+  // Share uses the same single-monitor clamp as recording, then serves the
+  // region on the LAN. The card (link + QR) is opened by Go after the overlay
+  // hides, so there is nothing to render here on success.
+  const startShare = useCallback(async () => {
+    if (busy || !session || (target === "region" && !hasVcrop(vcropRef.current))) return;
+    setBusy(true);
+    setActionError("");
+    try {
+      const list = screensRef.current.length ? screensRef.current : [selfRef.current];
+      const mon = dominantScreen(vcropRef.current, list) ?? selfRef.current;
+      const vr = fitToScreen(vcropRef.current, mon, aspectRef.current);
+      const full = rectsEqual(vr, screenRect(mon));
+      const sub = target === "window" ? "window" : full ? "fullscreen" : "region";
+      await OverlayService.SetAudioSources(
+        new AudioConfig({ system: audioSystem, appPids: audioApps, micDevice: audioMic }),
+      );
+      await OverlayService.StartShare({
+        mode: "share",
+        sub,
+        monitorId: mon.id,
+        rect: vr,
+        dpiScale: mon.scaleFactor > 0 ? mon.scaleFactor : 1,
+        includeCursor: true,
+        countdownSec: 0,
+        copyOnCommit: false,
+      });
+    } catch (e) {
+      setActionError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, session, target, audioSystem, audioApps, audioMic]);
 
   // Click a highlighted window: lock crop + capture immediately (screenshot) or
   // start recording (video) — Snipping Tool style, not "select then press Capture".
@@ -686,10 +733,14 @@ export default function Overlay() {
         void startRecording();
         return;
       }
+      if (toolRef.current === "share") {
+        void startShare();
+        return;
+      }
       setBusy(true);
       void OverlayService.EnterEditWindow(w.hwnd).finally(() => setBusy(false));
     },
-    [busy, session, applyWindowRect, startRecording],
+    [busy, session, applyWindowRect, startRecording, startShare],
   );
 
   // Window-level Esc: ONLY cancels in capture mode (edit mode owns its own Esc).
@@ -780,10 +831,9 @@ export default function Overlay() {
       const cx = me.x + Math.round(ev.clientX * s);
       const cy = me.y + Math.round(ev.clientY * s);
       const list = screensRef.current.length ? screensRef.current : [me];
-      const bounds =
-        toolRef.current === "video"
-          ? { minX: me.x, minY: me.y, maxX: me.x + me.w, maxY: me.y + me.h }
-          : unionBounds(list);
+      const bounds = grabsOneMonitor(toolRef.current)
+        ? { minX: me.x, minY: me.y, maxX: me.x + me.w, maxY: me.y + me.h }
+        : unionBounds(list);
       const next = rectFromDrag(ox, oy, cx, cy, bounds, aspectRef.current);
       vcropRef.current = next;
       setVcrop(next);
@@ -846,9 +896,8 @@ export default function Overlay() {
     const ratio = aspectRatio(id);
     if (ratio && hasVcrop(vcropRef.current)) {
       const list = screensRef.current.length ? screensRef.current : [selfRef.current];
-      const bounds =
-        toolRef.current === "video"
-          ? (() => {
+      const bounds = grabsOneMonitor(toolRef.current)
+        ? (() => {
               const d = dominantScreen(vcropRef.current, list) ?? selfRef.current;
               return { minX: d.x, minY: d.y, maxX: d.x + d.w, maxY: d.y + d.h };
             })()
@@ -1109,7 +1158,18 @@ export default function Overlay() {
           >
             <Video /> Record
           </Button>
-          {tool === "video" ? (
+          <Button
+            size="sm"
+            variant={tool === "share" ? "default" : "ghost"}
+            onClick={() => {
+              setToolMode("share");
+              setActionError("");
+              broadcastUi({ tool: "share" });
+            }}
+          >
+            <ScreenShare /> Share
+          </Button>
+          {grabsOneMonitor(tool) ? (
             <Button
               size="sm"
               variant={audioCount > 0 ? "default" : "ghost"}
@@ -1210,9 +1270,14 @@ export default function Overlay() {
                   ? "Drag to select a region first"
                   : undefined
             }
-            onClick={() => (tool === "video" ? startRecording() : captureScreenshot())}
+            onClick={() => {
+              setActionError("");
+              if (tool === "video") startRecording();
+              else if (tool === "share") startShare();
+              else captureScreenshot();
+            }}
           >
-            {tool === "video" ? "Start Recording" : "Capture"}
+            {tool === "video" ? "Start Recording" : tool === "share" ? "Start Sharing" : "Capture"}
           </Button>
         </div>
       ) : null}
@@ -1243,7 +1308,17 @@ export default function Overlay() {
       ) : null}
 
       {/* Audio sources picker — every row is an independent OPT-IN. */}
-      {iAmPill && audioOpen && tool === "video" ? (
+      {iAmPill && actionError ? (
+        <div
+          data-capture-pill
+          className="frost absolute bottom-20 left-1/2 z-30 max-w-xl -translate-x-1/2 px-3 py-2 text-xs text-red-400"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {actionError}
+        </div>
+      ) : null}
+
+      {iAmPill && audioOpen && grabsOneMonitor(tool) ? (
         <div
           data-capture-pill
           className="frost absolute bottom-20 left-1/2 z-30 w-80 -translate-x-1/2 p-3 text-sm"

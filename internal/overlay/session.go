@@ -68,7 +68,7 @@ type OverlayEditPayload struct {
 // other). The window that changes a control calls SetSharedUi; every window
 // applies it so window-pick and aspect lock work on every screen.
 type OverlayUi struct {
-	Tool         string `json:"tool"`        // "screenshot" | "video"
+	Tool         string `json:"tool"`        // "screenshot" | "video" | "share"
 	Target       string `json:"target"`      // "region" | "window" | "fullscreen"
 	Aspect       string `json:"aspect"`      // "free" | "16:9" | "9:16" | "4:3" | "3:2" | "1:1" | "21:9"
 	HoveredHWND  uint64 `json:"hoveredHwnd"` // 0 = none

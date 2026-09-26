@@ -12,7 +12,7 @@ export interface Rect {
   h: number;
 }
 
-export type CaptureMode = "screenshot" | "video";
+export type CaptureMode = "screenshot" | "video" | "share";
 export type CaptureSub = "region" | "window" | "fullscreen";
 
 export interface CaptureRequest {

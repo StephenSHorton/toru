@@ -54,9 +54,9 @@ export class MonitorSession {
     /**
      * Region is the SHARED crop in VIRTUAL-DESKTOP PHYSICAL px (origin = primary
      * top-left; may be negative; MAY straddle monitors). EVERY window receives the
-     * SAME Region and renders its own slice of it — this is the single source of
-     * truth for the cross-monitor selection. Seeded from persisted state / a
-     * centered default by buildSessionPayloads.
+     * SAME Region. Region-mode engage starts empty-first (drag to create); this
+     * field is still filled from persisted state for callers that want a restore
+     * (e.g. fullscreen toggle) but the overlay does not paint a seeded rect.
      */
     "region": capture$0.Rect;
 
@@ -212,7 +212,7 @@ export class OverlayEditPayload {
  */
 export class OverlayUi {
     /**
-     * "screenshot" | "video"
+     * "screenshot" | "video" | "share"
      */
     "tool": string;
 
@@ -233,7 +233,9 @@ export class OverlayUi {
     "hoveredTitle": string;
 
     /**
-     * region empty-first: true while the user has not committed a drag-created rect
+     * Picking is region empty-first: true while the user has not committed a
+     * drag-created rect (full dim + crosshair, no handles). Broadcast so every
+     * monitor stays in the same phase.
      */
     "picking": boolean;
 

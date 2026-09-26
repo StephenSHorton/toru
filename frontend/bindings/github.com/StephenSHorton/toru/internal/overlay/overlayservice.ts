@@ -13,6 +13,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as capture$0 from "../capture/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as share$0 from "../share/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -130,9 +133,8 @@ export function EnterEditLive(monitorID: number, sub: capture$0.Rect, cssLeft: n
 
 /**
  * EnterEditMulti is the STRADDLE screenshot Capture: the crop spans two or more
- * monitors, so it can't morph in place (no overlay window spans the seam). It
- * stitches the region out of the per-monitor pixels into ONE PNG, opens the
- * standalone annotation editor window for it, and dismisses the overlay.
+ * monitors. It stitches the region into ONE PNG, then morphs the DOMINANT
+ * monitor's overlay into the annotation editor (other overlay windows hide).
  * 
  * It honours the freeze preference: freeze-ON crops the already-frozen images;
  * freeze-OFF grabs each touched monitor LIVE right now (hiding those windows first
@@ -150,8 +152,9 @@ export function EnterEditMulti(region: capture$0.Rect): $CancellablePromise<void
  * result does NOT include the desktop around the window. Maximized windows skip
  * the beautify (flush work-area fill, no shadow).
  * 
- * hwnd is the Win32 HWND from ListWindows / hover pick. The editor opens as a
- * standalone window (same as EnterEdit / EnterEditMulti).
+ * hwnd is the Win32 HWND from ListWindows / hover pick. The result morphs into
+ * the overlay editor on the window's monitor (or copies+saves if the editor is
+ * skipped).
  */
 export function EnterEditWindow(hwnd: number): $CancellablePromise<void> {
     return $Call.ByID(2326469287, hwnd);
@@ -167,6 +170,15 @@ export function Finish(): $CancellablePromise<void> {
 }
 
 /**
+ * GetCopyOnDone reports whether finishing the annotation editor (Done or
+ * empty-selection Esc) copies the flattened annotated PNG to the clipboard
+ * (default ON). Off: finish saves to the library only.
+ */
+export function GetCopyOnDone(): $CancellablePromise<boolean> {
+    return $Call.ByID(3955425525);
+}
+
+/**
  * GetFreezeOnCapture reports whether the screen is frozen during capture (the
  * default) or shown live through a see-through overlay. Read by the Settings
  * toggle and the in-overlay pill toggle. Reads the persisted preference once,
@@ -174,15 +186,6 @@ export function Finish(): $CancellablePromise<void> {
  */
 export function GetFreezeOnCapture(): $CancellablePromise<boolean> {
     return $Call.ByID(3128482551);
-}
-
-/**
- * GetCopyOnDone reports whether Done in the annotation editor copies the
- * flattened annotated PNG to the clipboard (default ON). Off: Done saves to
- * the library only.
- */
-export function GetCopyOnDone(): $CancellablePromise<boolean> {
-    return $Call.ByID(3955425525);
 }
 
 /**
@@ -307,19 +310,19 @@ export function SetAudioSources(cfg: capture$0.AudioConfig): $CancellablePromise
 }
 
 /**
+ * SetCopyOnDone persists the copy-on-Done preference.
+ */
+export function SetCopyOnDone(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1663241273, enabled);
+}
+
+/**
  * SetFreezeOnCapture persists the freeze preference and updates the in-memory
  * cache so the NEXT BeginSession honours it. The overlay pill re-engages after
  * calling this so the change is visible immediately; Settings just persists it.
  */
 export function SetFreezeOnCapture(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(3607977635, enabled);
-}
-
-/**
- * SetCopyOnDone persists the copy-on-Done preference.
- */
-export function SetCopyOnDone(enabled: boolean): $CancellablePromise<void> {
-    return $Call.ByID(1663241273, enabled);
 }
 
 /**
@@ -342,12 +345,21 @@ export function SetSharedCrop(region: capture$0.Rect): $CancellablePromise<void>
 }
 
 /**
- * SetSharedUi relays capture-chrome state (tool, target, aspect, hovered window)
+ * SetSharedUi relays capture-chrome state (tool, target, aspect, hover, picking)
  * to EVERY overlay window. Same fire-and-forget pattern as SetSharedCrop: the
  * per-monitor windows can't talk to each other, so Go broadcasts overlay:ui.
  */
 export function SetSharedUi(ui: $models.OverlayUi): $CancellablePromise<void> {
     return $Call.ByID(3344191118, ui);
+}
+
+/**
+ * ShareInfo is the link, QR code, and hint for the share card.
+ */
+export function ShareInfo(): $CancellablePromise<share$0.Info> {
+    return $Call.ByID(392319366).then(($result: any) => {
+        return $$createType11($result);
+    });
 }
 
 /**
@@ -372,6 +384,19 @@ export function StartRecording(req: capture$0.CaptureRequest): $CancellablePromi
 }
 
 /**
+ * StartShare hides the overlay, encodes the region, and serves it on the LAN.
+ * The share card (link + QR) is opened here: once the overlay is hidden the
+ * calling page is not a place to render it. A failure before the hide (no
+ * ffmpeg, already recording) leaves the overlay up so the pill can show the
+ * error. A failure after the hide opens the recording error pill.
+ */
+export function StartShare(req: capture$0.CaptureRequest): $CancellablePromise<share$0.Info> {
+    return $Call.ByID(4177652968, req).then(($result: any) => {
+        return $$createType11($result);
+    });
+}
+
+/**
  * StopRecording finalizes a recording and broadcasts capture:done. It first tears
  * down the recorded-region border window (regardless of how the finalize goes, so
  * the outline never outlives the recording).
@@ -380,6 +405,14 @@ export function StopRecording(handleID: string): $CancellablePromise<capture$0.C
     return $Call.ByID(1557301730, handleID).then(($result: any) => {
         return $$createType2($result);
     });
+}
+
+/**
+ * StopShare ends the LAN stream and takes down the region outline. Closing
+ * the share card also calls this, so it is idempotent.
+ */
+export function StopShare(): $CancellablePromise<void> {
+    return $Call.ByID(3788717278);
 }
 
 // Private type creation functions
@@ -394,3 +427,4 @@ const $$createType7 = $Create.Array($$createType6);
 const $$createType8 = capture$0.WindowInfo.createFrom;
 const $$createType9 = $Create.Array($$createType8);
 const $$createType10 = $Create.Nullable($$createType0);
+const $$createType11 = share$0.Info.createFrom;

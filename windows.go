@@ -51,6 +51,10 @@ type WindowsService struct {
 	// (NewWithOptions/Close) marshal to the main thread internally and Close no-ops
 	// on an already-destroyed window, so no extra locking is needed here.
 	recFrameWin *application.WebviewWindow
+
+	// shareWin is the link + QR card for a live share. Closing it stops the
+	// stream (see the WindowClosing hook in OpenShareControls).
+	shareWin *application.WebviewWindow
 }
 
 // recFrameMargin is the DIP gap between the recorded region's edge and the
@@ -248,6 +252,51 @@ func (w *WindowsService) OpenRecordingControls(handleID string, monitorID, regio
 		opts.InitialPosition = application.WindowXY
 	}
 	w.app.Window.NewWithOptions(opts)
+}
+
+// OpenShareControls opens the card that shows the LAN link and QR code for a
+// live share. Placement matches the recording pill: outside the shared region
+// when there is room, otherwise on an idle monitor, so the card is not baked
+// into the stream.
+func (w *WindowsService) OpenShareControls(monitorID, regionX, regionY, regionW, regionH int, fullscreen bool) {
+	if w.app == nil {
+		return
+	}
+	const cardW, cardH = 400, 560
+	opts := application.WebviewWindowOptions{
+		Name:             "toru-share-card",
+		Title:            "Toru — Sharing",
+		URL:              "/?view=share",
+		Width:            cardW,
+		Height:           cardH,
+		Frameless:        true,
+		AlwaysOnTop:      true,
+		DisableResize:    true,
+		BackgroundColour: dark,
+		Windows: application.WindowsWindow{
+			DisableFramelessWindowDecorations: true,
+			HiddenOnTaskbar:                   true,
+		},
+	}
+	if x, y, ok := pillPlacement(w.app, monitorID, regionX, regionY, regionW, regionH, fullscreen, cardW, cardH); ok {
+		opts.X = x
+		opts.Y = y
+		opts.InitialPosition = application.WindowXY
+	}
+	win := w.app.Window.NewWithOptions(opts)
+	w.shareWin = win
+	win.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
+		if w.shareWin == win {
+			w.shareWin = nil
+		}
+		// Stop off this callback. Closing the outline window from inside a
+		// window event deadlocks: that Close has to hop back to the same
+		// thread that is delivering this event.
+		overlay := w.overlay
+		if overlay != nil {
+			go func() { _ = overlay.StopShare() }()
+		}
+	})
 }
 
 // pillPlacement computes the recording pill's top-left DIP position. For a region
