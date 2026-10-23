@@ -11,3 +11,8 @@ func EnumAudioSessions() []AudioSession { return nil }
 func startProcessLoopbackAudio(uint32, string) (audioSource, error) {
 	return startLoopbackAudio("") // returns the platform error
 }
+
+// startExcludeProcessLoopbackAudio is Windows-only; see audio_process_windows.go.
+func startExcludeProcessLoopbackAudio(uint32, string) (audioSource, error) {
+	return startLoopbackAudio("")
+}
