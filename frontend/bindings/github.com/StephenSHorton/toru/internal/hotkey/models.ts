@@ -28,7 +28,7 @@ export class Shortcut {
     "win": boolean;
 
     /**
-     * single uppercase char "A".."Z" or "0".."9"
+     * "A".."Z", "0".."9" or "F1".."F24"
      */
     "key": string;
 

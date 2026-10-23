@@ -21,6 +21,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/history"
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/StephenSHorton/toru/internal/overlay"
+	"github.com/StephenSHorton/toru/internal/replay"
 	"github.com/StephenSHorton/toru/internal/share"
 	"github.com/StephenSHorton/toru/internal/shot"
 	"github.com/StephenSHorton/toru/internal/update"
@@ -115,6 +116,11 @@ func main() {
 	keys := hotkey.New()
 	hotkeySvc := hotkey.NewService(keys)
 
+	// Instant replay: an opt-in background buffer (GPU capture -> hardware
+	// encoder -> rolling segments on disk) whose hotkey saves the last N
+	// seconds. Nothing runs until the user enables it in Settings.
+	replaySvc := replay.NewService()
+
 	app := application.New(application.Options{
 		Name:        "Toru",
 		Description: "macOS-style screenshot & screen recording for Windows",
@@ -128,6 +134,7 @@ func main() {
 			application.NewService(hotkeySvc),
 			application.NewService(settingsSvc),
 			application.NewService(histSvc),
+			application.NewService(replaySvc),
 		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
@@ -220,6 +227,20 @@ func main() {
 	_ = keys.Register("overlay", overlayBinding, windowsSvc.OpenOverlay)
 	defer keys.Close()
 
+	// "Save instant replay" (default Alt+F10). The save waits for the segment in
+	// progress to close (~2s), so it runs off the hotkey dispatch goroutine to
+	// keep other hotkeys responsive. The combo is only intercepted while instant
+	// replay is enabled — otherwise the keys pass through to the game.
+	replayBinding := hotkey.LoadBinding("replaySave", hotkey.DefaultReplaySave)
+	_ = keys.Register("replaySave", replayBinding, func() {
+		go func() { _, _ = replaySvc.SaveReplay() }()
+	})
+	keys.SetActive("replaySave", replaySvc.GetSettings().Enabled)
+	replaySvc.SetOnChange(func(st replay.Settings) {
+		keys.SetActive("replaySave", st.Enabled)
+		tray.rebuildMenu()
+	})
+
 	// LAUNCH -> TRAY + SETTINGS. Toru is a tray ("menu-bar style") app: on launch
 	// it installs the system-tray icon and opens the Settings/home window ONCE so
 	// the user can see Toru is running, change the shortcut, and hit Capture. It
@@ -247,6 +268,8 @@ func main() {
 			history:     hist,
 			windows:     windowsSvc,
 			openOverlay: windowsSvc.OpenOverlay,
+			replay:      replaySvc,
+			keys:        keys,
 		}
 		tray.rebuildMenu()                                         // initial menu (includes any persisted recents)
 		systray.OnClick(func() { windowsSvc.OpenSettings() })      // left-click = open home (menu-bar feel)
@@ -276,11 +299,18 @@ func main() {
 		// the new version (project.nsi). Fire-and-forget; errors are logged, not
 		// fatal. dev builds short-circuit (CheckForUpdate returns nil).
 		go updateSvc.AutoUpdate()
+
+		// Start the instant-replay buffer if the user enabled it. Off the main
+		// thread: the hardware-encoder probe takes about a second.
+		go replaySvc.Init()
 	})
 
 	// Best-effort: close the reused overlay windows on app shutdown. Process exit
 	// frees everything regardless, so this is purely cosmetic belt-and-suspenders.
-	app.OnShutdown(func() { overlaySvc.Teardown() })
+	app.OnShutdown(func() {
+		overlaySvc.Teardown()
+		replaySvc.Shutdown() // stop ffmpeg + delete the rolling segments
+	})
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

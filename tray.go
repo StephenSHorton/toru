@@ -6,8 +6,11 @@ package main
 import (
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/StephenSHorton/toru/internal/history"
+	"github.com/StephenSHorton/toru/internal/hotkey"
+	"github.com/StephenSHorton/toru/internal/replay"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -15,11 +18,13 @@ import (
 // menu is rebuilt whenever a new capture lands in history so "Recent" stays
 // current without a separate refresh action.
 type trayController struct {
-	tray     *application.SystemTray
-	app      *application.App
-	history  *history.Store
-	windows  *WindowsService
+	tray        *application.SystemTray
+	app         *application.App
+	history     *history.Store
+	windows     *WindowsService
 	openOverlay func()
+	replay      *replay.ReplayService
+	keys        *hotkey.Manager
 }
 
 // rebuildMenu constructs a fresh tray menu and installs it. Safe to call from
@@ -36,6 +41,8 @@ func (t *trayController) rebuildMenu() {
 			t.openOverlay()
 		}
 	})
+
+	t.addReplayItems(menu)
 
 	menu.AddSeparator()
 
@@ -75,6 +82,52 @@ func (t *trayController) rebuildMenu() {
 	})
 
 	t.tray.SetMenu(menu)
+}
+
+// addReplayItems adds the instant-replay toggle, and while it's on, the save
+// action labelled with its hotkey.
+func (t *trayController) addReplayItems(menu *application.Menu) {
+	if t.replay == nil {
+		return
+	}
+	st := t.replay.GetSettings()
+	if st.Enabled {
+		label := "Save instant replay"
+		if t.keys != nil {
+			if b, ok := t.keys.Binding("replaySave"); ok && b.Key != 0 {
+				label += " (" + comboLabel(b) + ")"
+			}
+		}
+		menu.Add(label).OnClick(func(*application.Context) {
+			go func() { _, _ = t.replay.SaveReplay() }()
+		})
+	}
+	menu.AddCheckbox("Instant replay", st.Enabled).OnClick(func(*application.Context) {
+		next := t.replay.GetSettings()
+		next.Enabled = !next.Enabled
+		go func() { _, _ = t.replay.SetSettings(next) }() // SetOnChange rebuilds the menu
+	})
+	menu.Add("Open replays folder…").OnClick(func(*application.Context) {
+		_ = t.replay.OpenSaveDir()
+	})
+}
+
+// comboLabel renders a binding as "Ctrl+Shift+S" / "Alt+F10" for menu labels.
+func comboLabel(b hotkey.Binding) string {
+	var parts []string
+	if b.Win {
+		parts = append(parts, "⊞")
+	}
+	if b.Ctrl {
+		parts = append(parts, "Ctrl")
+	}
+	if b.Alt {
+		parts = append(parts, "Alt")
+	}
+	if b.Shift {
+		parts = append(parts, "Shift")
+	}
+	return strings.Join(append(parts, hotkey.KeyName(b.Key)), "+")
 }
 
 // openRecent re-opens a capture from history: screenshots go to the annotation

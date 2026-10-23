@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Updater } from "@/updater/Updater";
 import { Shortcuts } from "@/shortcuts/Shortcuts";
+import { ReplayPanel } from "@/replay/ReplayPanel";
 import {
   HistoryService,
   OverlayService,
@@ -737,6 +738,7 @@ function SettingsPage() {
         </div>
       </div>
 
+      <ReplayPanel />
       <Shortcuts />
       <Updater />
     </div>

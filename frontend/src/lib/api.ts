@@ -23,6 +23,9 @@
 //   HistoryService.Add(srcPath, kind): Promise<Item>  (archive file into library)
 //   HistoryService.Delete(id): Promise<void>  (one item + file; Library bulk-delete loops this)
 //   HistoryService.GetDir / SetDir / PickDir / ResetDir / IsDefaultDir
+//   ReplayService.GetSettings / SetSettings(s) -> ReplayStatus  (instant replay; SetSettings rejects if the buffer can't start)
+//   ReplayService.GetStatus / SaveReplay / ListMonitors / ListMicrophones / DiscordRunning / EncoderSupport
+//   ReplayService.GetSaveDir / PickSaveDir / ResetSaveDir / OpenSaveDir
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
@@ -36,10 +39,16 @@ import {
   TrimRequest,
   AudioConfig,
   AudioSession,
+  ReplayStatus,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
 import * as SettingsService from "../../bindings/github.com/StephenSHorton/toru/settingsservice.js";
 import * as HistoryService from "../../bindings/github.com/StephenSHorton/toru/internal/history/historyservice.js";
 import { Item as CaptureItem } from "../../bindings/github.com/StephenSHorton/toru/internal/history/models.js";
+import * as ReplayService from "../../bindings/github.com/StephenSHorton/toru/internal/replay/replayservice.js";
+import {
+  Settings as ReplaySettings,
+  Monitor as ReplayMonitor,
+} from "../../bindings/github.com/StephenSHorton/toru/internal/replay/models.js";
 
 export {
   ExportService,
@@ -56,5 +65,9 @@ export {
   AudioSession,
   SettingsService,
   HistoryService,
+  ReplayService,
+  ReplaySettings,
+  ReplayMonitor,
+  ReplayStatus,
 };
 export type { CaptureItem };

@@ -5,11 +5,23 @@ import { Keyboard } from "lucide-react";
 import { Shortcut } from "@/lib/api";
 import { useShortcuts } from "./useShortcuts";
 
-// Keys offered in the combo builder: A-Z then 0-9 (the v1 trigger-key set).
+// Keys offered in the combo builder: A-Z, 0-9, then F1-F24 (the Go side's
+// ParseKeyName set).
 const KEY_OPTIONS: string[] = [
   ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""),
   ..."0123456789".split(""),
+  ...Array.from({ length: 24 }, (_, i) => `F${i + 1}`),
 ];
+
+// Function keys may be bound bare (Go: validateShortcut); letters/digits need a
+// modifier so they don't fire while typing.
+function isFunctionKey(key: string): boolean {
+  return /^F\d{1,2}$/.test(key);
+}
+
+// Actions that render their shortcut row inside their own Settings panel instead
+// of this generic list (the replay hotkey lives in the Instant replay panel).
+const PANEL_OWNED_ACTIONS = new Set(["replaySave"]);
 
 // isSnip reports whether a combo is Win+Shift+S (the Snipping Tool combo we
 // override). Shown as a small note so the behavior is never a surprise.
@@ -38,7 +50,7 @@ function ComboKeys({ sc }: { sc: Shortcut }) {
 }
 
 // ShortcutRow is one editable action (display mode + combo-builder edit mode).
-function ShortcutRow({
+export function ShortcutRow({
   sc,
   onSave,
   onReset,
@@ -94,11 +106,12 @@ function ShortcutRow({
 
   const shown = editing ? draft : sc;
 
-  // Mirror the Go rule (validateShortcut: needs >=1 modifier) on the client for
-  // instant feedback. The <select> always holds a valid A-Z/0-9 key, so the only
-  // invalid state the builder can produce is zero modifiers. The Go side stays the
-  // authoritative backstop; this just avoids a pointless round-trip + hints early.
-  const noModifiers = !draft.win && !draft.ctrl && !draft.alt && !draft.shift;
+  // Mirror the Go rule (validateShortcut: needs >=1 modifier unless it's an F-key)
+  // on the client for instant feedback. The <select> always holds a valid key, so
+  // the only invalid state the builder can produce is a bare letter/digit. The Go
+  // side stays the authoritative backstop; this just avoids a pointless round-trip.
+  const noModifiers =
+    !draft.win && !draft.ctrl && !draft.alt && !draft.shift && !isFunctionKey(draft.key);
 
   return (
     <div className="flex flex-col gap-2 border-t border-border pt-2 first:border-t-0 first:pt-0">
@@ -161,7 +174,7 @@ function ShortcutRow({
 
           {noModifiers && (
             <p className="text-xs text-muted-foreground">
-              Pick at least one modifier (Win / Ctrl / Alt / Shift).
+              Pick at least one modifier (Win / Ctrl / Alt / Shift), or use an F-key.
             </p>
           )}
           {err && <p className="text-xs text-destructive">{err}</p>}
@@ -192,7 +205,9 @@ function ShortcutRow({
 // Shortcuts — frosted panel listing the configurable global shortcuts. Sharp
 // corners, dark, lucide + shadcn Button. Reads/writes only via @/lib/api.
 export function Shortcuts() {
-  const { shortcuts, loading, save, reset } = useShortcuts();
+  const all = useShortcuts();
+  const { loading, save, reset } = all;
+  const shortcuts = all.shortcuts.filter((sc) => !PANEL_OWNED_ACTIONS.has(sc.action));
 
   return (
     <div className="frost flex w-full flex-col gap-3 p-4" style={{ maxWidth: 420 }}>

@@ -7,6 +7,7 @@ export {
     CaptureRequest,
     CaptureResult,
     Rect,
+    ReplayStatus,
     ScreenInfo,
     TrimRequest,
     WindowInfo
