@@ -54,6 +54,7 @@ const (
 	vkControl = 0x11 // VK_CONTROL (merged L+R)
 	vkMenu    = 0x12 // VK_MENU / Alt (merged L+R)
 	vkEscape  = 0x1B // VK_ESCAPE (global overlay cancel)
+	vkF1      = 0x70 // VK_F1; F2-F24 follow consecutively
 
 	asyncDownBit = 0x8000 // GetAsyncKeyState high bit => key currently down
 )
@@ -114,8 +115,12 @@ func keyDown(vk int) bool {
 }
 
 // triggerVK maps a binding Key rune to its virtual-key code. For A-Z and 0-9 the
-// VK equals the ASCII uppercase rune ('S'==0x53, '1'==0x31).
+// VK equals the ASCII uppercase rune ('S'==0x53, '1'==0x31); F1-F24 are
+// VK_F1 (0x70) onward.
 func triggerVK(key rune) uint32 {
+	if n := fKeyNumber(key); n > 0 {
+		return vkF1 + uint32(n-1)
+	}
 	return uint32(unicode.ToUpper(key))
 }
 
@@ -288,7 +293,7 @@ func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 			var cands []cand
 			m.mu.Lock()
 			for action, b := range m.bindings {
-				if b.Key == 0 || triggerVK(b.Key) != vk {
+				if b.Key == 0 || triggerVK(b.Key) != vk || m.inactive[action] {
 					continue
 				}
 				cands = append(cands, cand{action, b})

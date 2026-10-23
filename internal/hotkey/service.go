@@ -1,9 +1,6 @@
 package hotkey
 
-import (
-	"fmt"
-	"unicode"
-)
+import "fmt"
 
 // Shortcut is the binding-friendly wire shape for the frontend. Key is a STRING
 // ("S") so the TS side stays clean; it converts to/from the internal rune Binding
@@ -17,7 +14,7 @@ type Shortcut struct {
 	Shift  bool   `json:"shift"`
 	Alt    bool   `json:"alt"`
 	Win    bool   `json:"win"`
-	Key    string `json:"key"` // single uppercase char "A".."Z" or "0".."9"
+	Key    string `json:"key"` // "A".."Z", "0".."9" or "F1".."F24"
 }
 
 // HotkeyService is the Wails-bound API the React Shortcuts panel calls. It is a
@@ -75,10 +72,6 @@ func (s *HotkeyService) ResetShortcut(action string) error {
 
 // bindingToShortcut builds the wire Shortcut for an action + label.
 func bindingToShortcut(action, label string, b Binding) Shortcut {
-	key := ""
-	if b.Key != 0 {
-		key = string(unicode.ToUpper(b.Key))
-	}
 	return Shortcut{
 		Action: action,
 		Label:  label,
@@ -86,7 +79,7 @@ func bindingToShortcut(action, label string, b Binding) Shortcut {
 		Shift:  b.Shift,
 		Alt:    b.Alt,
 		Win:    b.Win,
-		Key:    key,
+		Key:    KeyName(b.Key),
 	}
 }
 
@@ -95,7 +88,7 @@ func shortcutToBinding(sc Shortcut) (Binding, error) {
 	if err := validateShortcut(sc); err != nil {
 		return Binding{}, err
 	}
-	key := unicode.ToUpper([]rune(sc.Key)[0])
+	key, _ := ParseKeyName(sc.Key)
 	return Binding{
 		Ctrl:  sc.Ctrl,
 		Shift: sc.Shift,
@@ -105,15 +98,16 @@ func shortcutToBinding(sc Shortcut) (Binding, error) {
 	}, nil
 }
 
-// validateShortcut enforces the v1 rules: at least one modifier (a bare key would
-// fire constantly), and a single trigger key in A-Z or 0-9.
+// validateShortcut enforces the rules: a trigger key in A-Z, 0-9 or F1-F24, and
+// at least one modifier unless the key is a function key (a bare letter would
+// fire while typing; a bare F-key is a normal gaming/macro-key bind).
 func validateShortcut(sc Shortcut) error {
-	if !sc.Ctrl && !sc.Shift && !sc.Alt && !sc.Win {
-		return fmt.Errorf("shortcut needs at least one modifier")
+	key, ok := ParseKeyName(sc.Key)
+	if !ok {
+		return fmt.Errorf("shortcut key must be a letter A-Z, digit 0-9 or F1-F24")
 	}
-	rs := []rune(sc.Key)
-	if len(rs) != 1 || !validKeyRune(rs[0]) {
-		return fmt.Errorf("shortcut key must be a single letter A-Z or digit 0-9")
+	if fKeyNumber(key) == 0 && !sc.Ctrl && !sc.Shift && !sc.Alt && !sc.Win {
+		return fmt.Errorf("shortcut needs at least one modifier")
 	}
 	return nil
 }

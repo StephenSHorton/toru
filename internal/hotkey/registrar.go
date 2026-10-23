@@ -14,7 +14,7 @@
 // compiles everywhere.
 //
 // Known v1 limitations (documented, not bugs):
-//   - Trigger keys are A-Z and 0-9 only; F-keys, punctuation, etc. are future.
+//   - Trigger keys are A-Z, 0-9 and F1-F24 only; punctuation etc. are future.
 //   - Modifier matching is a SUPERSET test: a binding matches (and swallows) any
 //     chord where every modifier it sets is down, even if EXTRA modifiers are also
 //     down (e.g. {Ctrl,'S'} also fires on Ctrl+Shift+S). This is conventional,
@@ -24,8 +24,11 @@
 package hotkey
 
 import (
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode"
 )
 
 // escapeAction is the reserved internal action id fired when Escape is pressed
@@ -35,10 +38,54 @@ import (
 const escapeAction = "__overlay_escape"
 
 // Binding is a parsed hotkey combo, e.g. {Win:true, Shift:true, Key:'S'}. Key is
-// the ASCII-uppercase rune of the trigger key; v1 supports A-Z and 0-9 only.
+// the ASCII-uppercase rune of the trigger key (A-Z, 0-9), or FKey(n) for F1-F24.
 type Binding struct {
 	Ctrl, Shift, Alt, Win bool
 	Key                   rune
+}
+
+// fKeyBase maps F1-F24 into the Unicode private-use area so a function key
+// fits the same rune-typed Binding.Key as letters and digits: FKey(n) ==
+// fKeyBase+n. It never collides with a real A-Z/0-9 key.
+const fKeyBase rune = 0xE000
+
+// FKey returns the Binding.Key value for function key Fn (1..24).
+func FKey(n int) rune { return fKeyBase + rune(n) }
+
+// fKeyNumber returns n for an FKey(n) rune, or 0 if r isn't a function key.
+func fKeyNumber(r rune) int {
+	if n := int(r - fKeyBase); n >= 1 && n <= 24 {
+		return n
+	}
+	return 0
+}
+
+// KeyName is the wire/persisted spelling of a trigger key: "S", "7", "F10".
+func KeyName(r rune) string {
+	if n := fKeyNumber(r); n > 0 {
+		return "F" + strconv.Itoa(n)
+	}
+	if r == 0 {
+		return ""
+	}
+	return string(unicode.ToUpper(r))
+}
+
+// ParseKeyName is the inverse of KeyName. ok=false for anything outside
+// A-Z, 0-9, F1-F24.
+func ParseKeyName(s string) (rune, bool) {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	if len(s) >= 2 && s[0] == 'F' {
+		if n, err := strconv.Atoi(s[1:]); err == nil && n >= 1 && n <= 24 {
+			return FKey(n), true
+		}
+		return 0, false
+	}
+	rs := []rune(s)
+	if len(rs) != 1 || !validKeyRune(rs[0]) {
+		return 0, false
+	}
+	return rs[0], true
 }
 
 // Default Toru hotkeys.
@@ -52,6 +99,10 @@ var (
 	DefaultShot      = Binding{Ctrl: true, Shift: true, Key: '1'} // instant region screenshot
 	DefaultRecord    = Binding{Ctrl: true, Shift: true, Key: '3'} // instant region recording
 	DefaultStopVideo = Binding{Ctrl: true, Shift: true, Key: '0'} // stop active recording
+
+	// DefaultReplaySave matches NVIDIA ShadowPlay's "save instant replay" so
+	// gamers' muscle memory carries over.
+	DefaultReplaySave = Binding{Alt: true, Key: FKey(10)}
 )
 
 // actionMeta maps a stable action id to its human label + default binding. It
@@ -62,7 +113,8 @@ var actionMeta = map[string]struct {
 	Label   string
 	Default Binding
 }{
-	"overlay": {"Open capture overlay", DefaultOverlay},
+	"overlay":    {"Open capture overlay", DefaultOverlay},
+	"replaySave": {"Save instant replay", DefaultReplaySave},
 }
 
 // shortcutRow is the internal snapshot row used by service.go's GetShortcuts. It
@@ -85,6 +137,7 @@ type Manager struct {
 	callbacks map[string]func()
 	labels    map[string]string  // action -> human label (for GetShortcuts)
 	defaults  map[string]Binding // action -> default binding (for ResetShortcut)
+	inactive  map[string]bool    // actions whose combo is currently NOT intercepted
 	order     []string           // action ids in registration order (stable GetShortcuts)
 
 	hook     uintptr // HHOOK (0 off-Windows / not installed)
@@ -111,6 +164,7 @@ func New() *Manager {
 		callbacks: map[string]func(){},
 		labels:    map[string]string{},
 		defaults:  map[string]Binding{},
+		inactive:  map[string]bool{},
 		sig:       make(chan string, 16),
 		stop:      make(chan struct{}),
 	}
@@ -150,6 +204,19 @@ func (m *Manager) Register(id string, b Binding, cb func()) error {
 func (m *Manager) SetBinding(id string, b Binding) {
 	m.mu.Lock()
 	m.bindings[id] = b
+	m.mu.Unlock()
+}
+
+// SetActive turns interception of id's combo on or off without forgetting the
+// binding. An inactive action's keys pass straight through to the focused app
+// (e.g. Alt+F10 reaches the game while instant replay is disabled).
+func (m *Manager) SetActive(id string, on bool) {
+	m.mu.Lock()
+	if on {
+		delete(m.inactive, id)
+	} else {
+		m.inactive[id] = true
+	}
 	m.mu.Unlock()
 }
 
