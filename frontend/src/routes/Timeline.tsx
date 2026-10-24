@@ -32,7 +32,8 @@ import { cn } from "@/lib/utils";
 // markers on a zoomable timeline. Drag on the timeline (or press I / O) to
 // select a range, then Create clip to save it and open it in the editor.
 
-const ZOOMS = [1, 4, 16, 64];
+// The timeline never zooms in past this many seconds across.
+const MIN_SPAN_SEC = 4;
 
 function fmt(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
@@ -84,7 +85,10 @@ export default function Timeline() {
   const [cur, setCur] = useState(0);
   const [ready, setReady] = useState(false);
   const [sel, setSel] = useState<{ a: number; b: number } | null>(null);
+  // zoom = how many times the whole recording fits in the track (1 = all of
+  // it); viewStart = the time at the track's left edge.
   const [zoom, setZoom] = useState(1);
+  const [viewStart, setViewStart] = useState(0);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -138,13 +142,58 @@ export default function Timeline() {
 
   const duration = Math.max(session?.durationSec ?? 0, cur);
 
-  // Visible window of the timeline for the current zoom, centred on the playhead.
+  const maxZoom = Math.max(1, duration / MIN_SPAN_SEC);
   const view = useMemo(() => {
-    const span = duration / zoom;
-    const start = Math.min(Math.max(0, cur - span / 2), Math.max(0, duration - span));
-    return { start, end: start + span, span: Math.max(span, 0.001) };
-  }, [duration, zoom, cur]);
+    const span = Math.max(duration / zoom, 0.001);
+    const start = Math.min(Math.max(0, viewStart), Math.max(0, duration - span));
+    return { start, end: start + span, span };
+  }, [duration, zoom, viewStart]);
   const pct = (t: number) => ((t - view.start) / view.span) * 100;
+
+  // Zoom keeping the time at track fraction anchorFrac (0..1) in place.
+  const zoomTo = useCallback(
+    (next: number, anchorFrac: number) => {
+      const z = Math.min(Math.max(1, next), maxZoom);
+      const anchorT = view.start + anchorFrac * view.span;
+      setZoom(z);
+      setViewStart(anchorT - (anchorFrac * duration) / z);
+    },
+    [view.start, view.span, duration, maxZoom],
+  );
+  const zoomAroundPlayhead = (factor: number) => {
+    const frac = view.span > 0 ? Math.min(1, Math.max(0, (cur - view.start) / view.span)) : 0.5;
+    zoomTo(zoom * factor, frac);
+  };
+
+  // While playing, scroll the view so the playhead stays visible.
+  useEffect(() => {
+    if (playing && (cur < view.start || cur > view.end)) setViewStart(cur - view.span * 0.1);
+  }, [playing, cur, view.start, view.end, view.span]);
+
+  // Mouse wheel zooms around the cursor; Shift+wheel / horizontal wheel pans.
+  // A native listener, because React's wheel handler is passive and can't
+  // stop the page from scrolling.
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const wheelRef = useRef<(e: WheelEvent) => void>(() => {});
+  wheelRef.current = (e: WheelEvent) => {
+    const r = trackRef.current?.getBoundingClientRect();
+    if (!r || duration <= 0) return;
+    e.preventDefault();
+    if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      const delta = e.shiftKey ? e.deltaY : e.deltaX;
+      setViewStart(view.start + (delta / r.width) * view.span);
+      return;
+    }
+    const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    zoomTo(zoom * Math.pow(1.0015, -e.deltaY), frac);
+  };
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => wheelRef.current(e);
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [session !== null]);
 
   const seek = (t: number) => {
     const v = vidRef.current;
@@ -175,13 +224,25 @@ export default function Timeline() {
   // Click = seek; drag = select a range. Pointer capture keeps the drag on
   // the track (no window listeners to leak if a pointerup is lost).
   const dragRef = useRef<{ x0: number; t0: number; dragging: boolean } | null>(null);
+  const panRef = useRef<{ x0: number; start0: number } | null>(null);
   const trackHandlers = {
     onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
+      if (e.button === 1) {
+        // Middle-button drag pans the zoomed timeline.
+        panRef.current = { x0: e.clientX, start0: view.start };
+        return;
+      }
       dragRef.current = { x0: e.clientX, t0: timeAt(e.clientX), dragging: false };
     },
     onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
+      const pan = panRef.current;
+      if (pan) {
+        const w = trackRef.current?.getBoundingClientRect().width ?? 1;
+        setViewStart(pan.start0 - ((e.clientX - pan.x0) / w) * view.span);
+        return;
+      }
       const d = dragRef.current;
       if (!d) return;
       if (!d.dragging && Math.abs(e.clientX - d.x0) > 4) d.dragging = true;
@@ -191,13 +252,24 @@ export default function Timeline() {
       }
     },
     onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => {
+      panRef.current = null;
       const d = dragRef.current;
       dragRef.current = null;
       if (d && !d.dragging) seek(timeAt(e.clientX));
     },
     onLostPointerCapture: () => {
       dragRef.current = null;
+      panRef.current = null;
     },
+  };
+
+  // Dragging a selection handle (start/end bar) moves that edge.
+  const moveEdge = (edge: "a" | "b", clientX: number) => {
+    const t = timeAt(clientX);
+    setSel((s) => {
+      if (!s) return s;
+      return edge === "a" ? { a: Math.min(t, s.b - 0.5), b: s.b } : { a: s.a, b: Math.max(t, s.a + 0.5) };
+    });
   };
 
   const markers = session?.markers ?? [];
@@ -402,7 +474,7 @@ export default function Timeline() {
         </div>
 
         {/* Timeline */}
-        <div className="select-none">
+        <div ref={timelineRef} className="select-none" title="Scroll to zoom · Shift+scroll or middle-drag to pan">
           <div className="relative h-5">
             {markers
               .filter((m) => m.offsetSec >= view.start && m.offsetSec <= view.end)
@@ -432,11 +504,10 @@ export default function Timeline() {
             ref={trackRef}
             {...trackHandlers}
             className="relative h-10 cursor-pointer touch-none overflow-hidden border border-border bg-muted/40"
-            title="Click to seek · drag to select a range"
           >
             {sel ? (
               <div
-                className="absolute inset-y-0 border-x-2 border-primary bg-primary/25"
+                className="pointer-events-none absolute inset-y-0 bg-primary/25"
                 style={{ left: `${pct(sel.a)}%`, width: `${pct(sel.b) - pct(sel.a)}%` }}
               />
             ) : null}
@@ -447,7 +518,13 @@ export default function Timeline() {
                 style={{ left: `${pct(m.offsetSec)}%` }}
               />
             ))}
-            <div className="absolute inset-y-0 w-0.5 bg-white" style={{ left: `${pct(cur)}%` }} />
+            <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-white" style={{ left: `${pct(cur)}%` }} />
+            {sel ? (
+              <>
+                <EdgeHandle left={pct(sel.a)} label={`Start ${fmt(sel.a)}`} onDrag={(x) => moveEdge("a", x)} />
+                <EdgeHandle left={pct(sel.b)} label={`End ${fmt(sel.b)}`} onDrag={(x) => moveEdge("b", x)} />
+              </>
+            ) : null}
           </div>
           <div className="relative h-4 text-[10px] text-muted-foreground">
             {ticks.map((t) => (
@@ -486,8 +563,8 @@ export default function Timeline() {
           <Button
             size="sm"
             variant="ghost"
-            disabled={zoom === ZOOMS[0]}
-            onClick={() => setZoom(ZOOMS[Math.max(0, ZOOMS.indexOf(zoom) - 1)])}
+            disabled={zoom <= 1}
+            onClick={() => zoomAroundPlayhead(0.5)}
             title="Zoom out"
           >
             <ZoomOut />
@@ -495,8 +572,8 @@ export default function Timeline() {
           <Button
             size="sm"
             variant="ghost"
-            disabled={zoom === ZOOMS[ZOOMS.length - 1]}
-            onClick={() => setZoom(ZOOMS[Math.min(ZOOMS.length - 1, ZOOMS.indexOf(zoom) + 1)])}
+            disabled={zoom >= maxZoom}
+            onClick={() => zoomAroundPlayhead(2)}
             title="Zoom in"
           >
             <ZoomIn />
@@ -556,6 +633,38 @@ export default function Timeline() {
           </div>
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+// EdgeHandle is a draggable start/end bar on the selection. Pointer capture
+// keeps the drag on the bar; it stops the track's click-to-seek.
+function EdgeHandle({ left, label, onDrag }: { left: number; label: string; onDrag: (clientX: number) => void }) {
+  const dragging = useRef(false);
+  if (left < -2 || left > 102) return null; // edge is outside the zoomed view
+  return (
+    <div
+      title={label}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        dragging.current = true;
+      }}
+      onPointerMove={(e) => {
+        if (dragging.current) onDrag(e.clientX);
+      }}
+      onPointerUp={(e) => {
+        e.stopPropagation();
+        dragging.current = false;
+      }}
+      onLostPointerCapture={() => {
+        dragging.current = false;
+      }}
+      className="group/edge absolute inset-y-0 z-10 flex w-5 -translate-x-1/2 cursor-ew-resize touch-none justify-center"
+      style={{ left: `${left}%` }}
+    >
+      <div className="h-full w-2.5 bg-primary shadow-[0_0_0_1px_rgba(0,0,0,0.4)] transition-[width] group-hover/edge:w-3" />
     </div>
   );
 }
