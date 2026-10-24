@@ -109,9 +109,19 @@ export async function saveAs(stage: Konva.Stage, name = 'Screenshot.png'): Promi
  * Flatten the annotated stage and archive it in the Toru library (user-configurable
  * folder under Settings). Called from finishAndArchive — there is no separate Save button.
  */
-export async function saveToLibrary(stage: Konva.Stage): Promise<void> {
+export async function saveToLibrary(stage: Konva.Stage, libraryId?: string): Promise<void> {
   const url = flattenStage(stage);
   const path = await ScreenshotService.SavePNG(url);
+  if (libraryId) {
+    // Re-opened from the library: update that item in place instead of adding
+    // a duplicate. Fall back to a new item if it was deleted meanwhile.
+    try {
+      await HistoryService.Replace(libraryId, path);
+      return;
+    } catch {
+      // fall through to Add
+    }
+  }
   await HistoryService.Add(path, 'image');
 }
 
@@ -128,7 +138,7 @@ export async function saveToLibrary(stage: Konva.Stage): Promise<void> {
  */
 export async function finishAndArchive(
   stage: Konva.Stage,
-  opts?: { onCopied?: () => void | Promise<void> },
+  opts?: { onCopied?: () => void | Promise<void>; libraryId?: string },
 ): Promise<void> {
   let shouldCopy = true;
   try {
@@ -145,7 +155,7 @@ export async function finishAndArchive(
     }
   }
   try {
-    await saveToLibrary(stage);
+    await saveToLibrary(stage, opts?.libraryId);
   } catch {
     // Caller still dismisses so the user is never stuck.
   }

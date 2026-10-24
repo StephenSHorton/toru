@@ -16,7 +16,7 @@ import (
 // HistoryService is the Wails-bound history API.
 type HistoryService struct {
 	store     *Store
-	openImage func(path string)
+	openImage func(path, id string) // id lets the editor update the item on Done
 	openVideo func(path string)
 }
 
@@ -29,7 +29,7 @@ func NewService(store *Store) *HistoryService {
 // annotation editor, video → trim editor). Wired from main.
 //
 //wails:ignore
-func (s *HistoryService) SetOpeners(openImage, openVideo func(path string)) {
+func (s *HistoryService) SetOpeners(openImage func(path, id string), openVideo func(path string)) {
 	s.openImage = openImage
 	s.openVideo = openVideo
 }
@@ -56,6 +56,15 @@ func (s *HistoryService) Add(srcPath, kind string) (Item, error) {
 	return s.store.Add(srcPath, kind)
 }
 
+// Replace swaps an existing item's file for srcPath, keeping its place in the
+// library. The editor calls it on Done when it was opened from the library.
+func (s *HistoryService) Replace(id, srcPath string) (Item, error) {
+	if s == nil || s.store == nil {
+		return Item{}, fmt.Errorf("history: not configured")
+	}
+	return s.store.Replace(id, srcPath)
+}
+
 // Open re-opens a capture by id: screenshots in the annotation editor,
 // recordings in the trim editor.
 func (s *HistoryService) Open(id string) error {
@@ -76,7 +85,7 @@ func (s *HistoryService) Open(id string) error {
 		}
 	default:
 		if s.openImage != nil {
-			s.openImage(it.Path)
+			s.openImage(it.Path, it.ID)
 		}
 	}
 	return nil

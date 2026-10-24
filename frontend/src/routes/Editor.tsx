@@ -45,6 +45,8 @@ export default function Editor() {
   // no longer copies before the editor opens, so this stays off unless a
   // caller still sets the query flag.
   const flashCopied = params.get("copied") === "1";
+  // Set when re-opened from the library: finishing updates that item.
+  const libraryId = params.get("lib") ?? undefined;
   const [src] = useState(imgPath || "/sample.png");
   const [stageBox, setStageBox] = useState({ w: STAGE_W, h: STAGE_H });
   const [ready, setReady] = useState(false);
@@ -61,10 +63,10 @@ export default function Editor() {
   const finish = useCallback(async () => {
     const stage = stageRef.current;
     if (stage) {
-      await finishAndArchive(stage);
+      await finishAndArchive(stage, { libraryId });
     }
     await dismiss();
-  }, [dismiss]);
+  }, [dismiss, libraryId]);
 
   useEditorKeyboard(true, () => void finish());
   useClipboardPaste();
@@ -162,6 +164,7 @@ export default function Editor() {
           docked
           barRef={toolbarRef}
           flashCopied={flashCopied}
+          libraryId={libraryId}
           onNewCapture={() => void WindowsService.OpenOverlay()}
           onDone={dismiss}
         />

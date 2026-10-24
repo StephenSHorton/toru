@@ -132,7 +132,15 @@ func (w *WindowsService) OpenSettings() {
 // %AppData%/toru/captures MUST NOT be deleted — those files power the tray
 // Recent menu. isToruTempPath gates the removal.
 func (w *WindowsService) OpenEditor(imagePath string) {
-	w.openEditorWindow(imagePath, false)
+	w.openEditorWindow(imagePath, "", false)
+}
+
+// OpenLibraryEditor re-opens a library capture in the annotation editor. The
+// item id rides along so Done replaces that item instead of adding a copy.
+//
+//wails:ignore
+func (w *WindowsService) OpenLibraryEditor(imagePath, libraryID string) {
+	w.openEditorWindow(imagePath, libraryID, false)
 }
 
 // OpenEditorAfterCapture opens the annotation editor after a screenshot.
@@ -142,14 +150,17 @@ func (w *WindowsService) OpenEditor(imagePath string) {
 //
 //wails:ignore
 func (w *WindowsService) OpenEditorAfterCapture(imagePath string) {
-	w.openEditorWindow(imagePath, false)
+	w.openEditorWindow(imagePath, "", false)
 }
 
-func (w *WindowsService) openEditorWindow(imagePath string, flashCopied bool) {
+func (w *WindowsService) openEditorWindow(imagePath, libraryID string, flashCopied bool) {
 	if w.app == nil {
 		return
 	}
 	q := "/?view=editor&img=" + url.QueryEscape(servedFileURL(imagePath))
+	if libraryID != "" {
+		q += "&lib=" + url.QueryEscape(libraryID)
+	}
 	if flashCopied {
 		q += "&copied=1"
 	}

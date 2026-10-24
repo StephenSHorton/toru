@@ -163,7 +163,7 @@ func main() {
 	windowsSvc.overlay = overlaySvc
 	updateSvc.SetApp(app)
 	settingsSvc.app = app // for app.Autostart (launch-at-login)
-	histSvc.SetOpeners(windowsSvc.OpenEditor, windowsSvc.OpenTrim)
+	histSvc.SetOpeners(windowsSvc.OpenLibraryEditor, windowsSvc.OpenTrim)
 	// Suspend alt-tab-cancels while a native Save dialog is up (dialog steals
 	// focus but the user is still mid-edit).
 	exportSvc.SetBeforeDialog(func() (restore func()) {
