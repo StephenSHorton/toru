@@ -41,6 +41,8 @@ type ReplayService struct {
 	onChange func(Settings)
 	// clipOpener shows a clip in Toru's editor (see SetClipOpener).
 	clipOpener func(path, servedURL string)
+	// sessionOpener shows a recording in the timeline viewer.
+	sessionOpener func(id int)
 
 	saving atomic.Bool
 

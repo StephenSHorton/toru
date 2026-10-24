@@ -54,6 +54,9 @@ import {
   Settings as ReplaySettings,
   Monitor as ReplayMonitor,
   Clip as ReplayClip,
+  Session as RecordingSession,
+  SessionMarker as RecordingMarker,
+  RecorderState,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/replay/models.js";
 
 export {
@@ -76,6 +79,9 @@ export {
   ReplaySettings,
   ReplayMonitor,
   ReplayClip,
+  RecordingSession,
+  RecordingMarker,
+  RecorderState,
   ReplayStatus,
 };
 export type { CaptureItem };

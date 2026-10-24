@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clapperboard, FolderOpen, Headphones, Mic, Save, Volume2 } from "lucide-react";
+import { Circle, Clapperboard, Film, FolderOpen, Headphones, Mic, Save, Square, Volume2 } from "lucide-react";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ShortcutRow } from "@/shortcuts/Shortcuts";
 import { useShortcuts } from "@/shortcuts/useShortcuts";
 import { ReplayService, ReplaySettings, ReplayStatus } from "@/lib/api";
-import type { ReplayMonitor } from "@/lib/api";
+import type { RecorderState, ReplayMonitor } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 // Instant replay panel — ShadowPlay-style "save the last N minutes". Every
@@ -15,6 +15,42 @@ import { cn } from "@/lib/utils";
 // what's buffered so far, so the status line drops back to 0).
 
 const DURATIONS = [15, 30, 60, 120, 300, 600, 1200];
+
+// Recording modes: ShadowPlay-style instant replay, plus Steam Game
+// Recording's background and manual modes.
+const MODES: { value: string; label: string; icon: React.ReactNode; summary: string; detail: string }[] = [
+  {
+    value: "replay",
+    label: "Instant replay",
+    icon: <Clapperboard className="size-4" />,
+    summary: "Keeps the last few minutes. Press the hotkey to save a clip.",
+    detail: "Lightest on disk: nothing is kept unless you save it.",
+  },
+  {
+    value: "background",
+    label: "Background recording",
+    icon: <Film className="size-4" />,
+    summary: "Records your whole play session, like Steam. Scrub back and cut clips later.",
+    detail: "Old footage is deleted automatically after the time you choose.",
+  },
+  {
+    value: "manual",
+    label: "Manual recording",
+    icon: <Circle className="size-4" />,
+    summary: "Press a hotkey to start and stop recording.",
+    detail: "Recordings are kept until you delete them.",
+  },
+];
+const KEEP_OPTIONS = [30, 60, 120, 240, 480, 720, 1440];
+const DISK_OPTIONS = [10, 25, 50, 100, 200, 500];
+
+function formatMinutes(m: number): string {
+  return m < 60 ? `${m} min` : `${m / 60} h`;
+}
+
+function formatGB(bytes: number): string {
+  return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
+}
 const FPS_OPTIONS = [30, 60, 120, 144];
 const RESOLUTIONS: { value: number; label: string }[] = [
   { value: 0, label: "Native (recommended)" },
@@ -116,6 +152,23 @@ export function ReplayPanel() {
   settingsRef.current = settings;
   const shortcuts = useShortcuts();
   const saveShortcut = shortcuts.shortcuts.find((sc) => sc.action === "replaySave");
+  const recordShortcut = shortcuts.shortcuts.find((sc) => sc.action === "recordToggle");
+  const markerShortcut = shortcuts.shortcuts.find((sc) => sc.action === "timelineMarker");
+  const [recorder, setRecorder] = useState<RecorderState | null>(null);
+  const [recordingsDir, setRecordingsDir] = useState("");
+  const refreshRecorder = useCallback(() => {
+    void ReplayService.GetRecorderState()
+      .then((r) => {
+        setRecorder(r);
+        setRecordingsDir(r.dir);
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    refreshRecorder();
+    const off = WailsEvents.On("recording:changed", () => refreshRecorder());
+    return () => off();
+  }, [refreshRecorder]);
 
   const refreshStatus = useCallback(() => {
     void ReplayService.GetStatus()
@@ -165,9 +218,32 @@ export function ReplayPanel() {
   const enabled = settings?.enabled ?? false;
   useEffect(() => {
     if (!enabled) return;
-    const id = window.setInterval(refreshStatus, 2000);
+    const id = window.setInterval(() => {
+      refreshStatus();
+      refreshRecorder();
+    }, 2000);
     return () => window.clearInterval(id);
-  }, [enabled, refreshStatus]);
+  }, [enabled, refreshStatus, refreshRecorder]);
+
+  const toggleManual = async () => {
+    try {
+      await ReplayService.ToggleRecording();
+    } catch (e) {
+      setApplyError(String(e).replace(/^Error:\s*/, ""));
+    }
+    refreshRecorder();
+    refreshStatus();
+  };
+
+  const pickRecordingsDir = async () => {
+    try {
+      const chosen = await ReplayService.PickRecordingsDir();
+      if (chosen) setRecordingsDir(chosen);
+      setSettings(await ReplayService.GetSettings());
+    } catch {
+      // keep the current folder
+    }
+  };
 
   const update = useCallback(
     async (patch: Partial<ReplaySettings>) => {
@@ -275,21 +351,56 @@ export function ReplayPanel() {
         <div className="flex flex-col gap-0.5">
           <PanelHeader />
           <span className="text-xs text-muted-foreground">
-            Keeps the last {formatLength(settings.durationSec)} of your screen ready in the
-            background. Press the hotkey to save it.
+            {MODES.find((m) => m.value === settings.mode)?.summary}
           </span>
         </div>
         <Switch
           checked={settings.enabled}
           disabled={busy}
           onCheckedChange={(v) => void update({ enabled: v })}
-          aria-label="Enable instant replay"
+          aria-label="Enable game recording"
         />
       </div>
 
-      {settings.enabled && (
-        <StatusLine status={status} busy={busy} error={error} keep={settings.durationSec} />
-      )}
+      <div role="radiogroup" aria-label="Recording mode" className="grid gap-2 sm:grid-cols-3">
+        {MODES.map((m) => {
+          const selected = settings.mode === m.value;
+          return (
+            <button
+              key={m.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={busy}
+              onClick={() => void update({ mode: m.value })}
+              className={cn(
+                "flex flex-col gap-1.5 border p-3 text-left transition-colors disabled:opacity-60",
+                selected ? "border-primary bg-primary/10" : "border-border hover:border-primary/60",
+              )}
+            >
+              <span className={cn("flex items-center gap-1.5 text-sm font-medium", selected && "text-primary")}>
+                {m.icon} {m.label}
+              </span>
+              <span className="text-xs">{m.summary}</span>
+              <span className="text-xs text-muted-foreground">{m.detail}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {settings.enabled &&
+        (settings.mode === "replay" ? (
+          <StatusLine status={status} busy={busy} error={error} keep={settings.durationSec} />
+        ) : (
+          <RecorderLine
+            recorder={recorder}
+            status={status}
+            busy={busy}
+            error={error}
+            gamesOnly={settings.gamesOnly}
+            recordKey={recordShortcut ? comboText(recordShortcut) : ""}
+          />
+        ))}
       {!settings.enabled && applyError && <p className="text-xs text-destructive">{applyError}</p>}
 
       {saveShortcut && (
@@ -319,7 +430,140 @@ export function ReplayPanel() {
         </div>
       )}
 
-      <Section title="Clip length" hint="How much the hotkey saves">
+      {settings.mode !== "replay" && (
+        <Section
+          title={settings.mode === "background" ? "Background recording" : "Manual recording"}
+          hint="Open recordings from the Library's Recordings tab to scrub the timeline and cut clips"
+        >
+          {settings.mode === "manual" && (
+            <div className="flex flex-col gap-2">
+              {recordShortcut && (
+                <ShortcutRow sc={recordShortcut} onSave={shortcuts.save} onReset={shortcuts.reset} />
+              )}
+              <div>
+                <Button
+                  size="sm"
+                  variant={recorder?.manual ? "destructive" : "secondary"}
+                  disabled={!settings.enabled || busy}
+                  onClick={() => void toggleManual()}
+                >
+                  {recorder?.manual ? <Square /> : <Circle />}{" "}
+                  {recorder?.manual ? "Stop recording" : "Start recording"}
+                </Button>
+              </div>
+            </div>
+          )}
+          {settings.mode === "background" && (
+            <>
+              <Field label="Keep the last">
+                <div className="flex flex-wrap gap-1.5">
+                  {KEEP_OPTIONS.map((m) => (
+                    <Button
+                      key={m}
+                      size="sm"
+                      variant={settings.backgroundMinutes === m ? "default" : "outline"}
+                      disabled={busy}
+                      onClick={() => void update({ backgroundMinutes: m })}
+                    >
+                      {formatMinutes(m)}
+                    </Button>
+                  ))}
+                </div>
+              </Field>
+              <ToggleRow
+                label="Only record while playing a game"
+                hint="Starts when a game is in focus (fullscreen, or anything from Steam, Epic, Xbox, Riot, …) and stops when it closes, like Steam. Turn off to record your screen all the time."
+                checked={settings.gamesOnly}
+                disabled={busy}
+                onChange={(v) => void update({ gamesOnly: v })}
+              />
+            </>
+          )}
+          {markerShortcut && (
+            <div className="flex flex-col gap-1">
+              <ShortcutRow sc={markerShortcut} onSave={shortcuts.save} onReset={shortcuts.reset} />
+              <span className="text-xs text-muted-foreground">
+                Drops a marker on the timeline so you can find the moment later. Saved clips and
+                screenshots are marked automatically.
+              </span>
+            </div>
+          )}
+          <Field label="Storage limit">
+            <div className="flex flex-wrap gap-1.5">
+              {DISK_OPTIONS.map((g) => (
+                <Button
+                  key={g}
+                  size="sm"
+                  variant={settings.maxDiskGB === g ? "default" : "outline"}
+                  disabled={busy}
+                  onClick={() => void update({ maxDiskGB: g })}
+                >
+                  {g} GB
+                </Button>
+              ))}
+            </div>
+          </Field>
+          {recorder && (
+            <div className="flex flex-col gap-1">
+              <div className="h-1.5 w-full overflow-hidden bg-muted">
+                <div
+                  className={cn(
+                    "h-full",
+                    recorder.diskBytes > recorder.maxBytes * 0.9 ? "bg-destructive" : "bg-primary",
+                  )}
+                  style={{ width: `${Math.min(100, (recorder.diskBytes / Math.max(1, recorder.maxBytes)) * 100)}%` }}
+                />
+              </div>
+              <span className="text-xs text-muted-foreground">
+                Recordings use {formatGB(recorder.diskBytes)} of {settings.maxDiskGB} GB.{" "}
+                {settings.mode === "background"
+                  ? "The oldest background footage is deleted first; manual and kept recordings never are."
+                  : "Manual recordings are never deleted automatically."}{" "}
+                About {Math.round((settings.maxDiskGB * 8000) / Math.max(1, mbps) / 60)} minutes fit at{" "}
+                {mbps} Mbps.
+              </span>
+            </div>
+          )}
+          <div
+            className="truncate border border-border bg-background/40 px-2 py-1.5 font-mono text-[11px] text-muted-foreground"
+            title={recordingsDir}
+          >
+            {recordingsDir || "—"}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" onClick={() => void pickRecordingsDir()}>
+              <FolderOpen /> Change…
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!settings.recordingsDir}
+              onClick={() => void ReplayService.ResetRecordingsDir().then(refreshRecorder)}
+            >
+              Reset default
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => void ReplayService.OpenRecordingsDir()}>
+              Open folder
+            </Button>
+          </div>
+          <ToggleRow
+            label="Notify when recording starts and stops"
+            hint="A small corner message that never takes focus from your game."
+            checked={settings.recordingNotices}
+            disabled={busy}
+            onChange={(v) => void update({ recordingNotices: v })}
+          />
+        </Section>
+      )}
+
+      <Section
+        title={settings.mode === "replay" ? "Clip length" : "Instant clip length"}
+        hint={
+          settings.mode === "replay"
+            ? "How much the hotkey saves"
+            : "The save hotkey still works while recording: it saves this much as a clip"
+        }
+      >
         <div className="flex flex-wrap gap-1.5">
           {DURATIONS.map((d) => (
             <Button
@@ -424,7 +668,9 @@ export function ReplayPanel() {
           </span>
           <div role="radiogroup" aria-label="Encoder" className="grid gap-2 sm:grid-cols-3">
             {CODECS.map((c) => {
-              const unsupported = encoders !== null && encoders[c.value] === false;
+              const unsupported =
+                (encoders !== null && encoders[c.value] === false) ||
+                (c.value === "av1" && settings.mode !== "replay");
               const selected = settings.codec === c.value;
               return (
                 <button
@@ -616,8 +862,56 @@ function PanelHeader() {
   return (
     <div className="flex items-center gap-2">
       <Clapperboard className="size-4" />
-      <span className="text-sm font-medium">Instant replay</span>
+      <span className="text-sm font-medium">Game recording</span>
     </div>
+  );
+}
+
+function comboText(sc: { win: boolean; ctrl: boolean; alt: boolean; shift: boolean; key: string }): string {
+  return [sc.win && "Win", sc.ctrl && "Ctrl", sc.alt && "Alt", sc.shift && "Shift", sc.key].filter(Boolean).join("+");
+}
+
+function RecorderLine({
+  recorder,
+  status,
+  busy,
+  error,
+  gamesOnly,
+  recordKey,
+}: {
+  recorder: RecorderState | null;
+  status: ReplayStatus | null;
+  busy: boolean;
+  error: string;
+  gamesOnly: boolean;
+  recordKey: string;
+}) {
+  if (busy) return <p className="text-xs text-muted-foreground">Applying…</p>;
+  if (error) return <p className="text-xs text-destructive">{error}</p>;
+  if (!recorder) return null;
+  if (recorder.recording) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="size-2 shrink-0 animate-pulse bg-red-500" aria-hidden="true" />
+        <span>
+          Recording {recorder.game ? recorder.game : "your screen"}
+          {status?.encoder ? ` · ${status.encoder}${status.zeroCopy ? " (GPU zero-copy)" : ""}` : ""}
+          {recorder.mode === "manual" && recordKey ? ` · press ${recordKey} to stop` : ""}
+        </span>
+      </div>
+    );
+  }
+  if (recorder.mode === "manual") {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Ready. Press {recordKey || "the record hotkey"} or Start recording below.
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs text-muted-foreground">
+      {gamesOnly ? "Waiting for a game. Recording starts automatically when one is in focus." : "Starting…"}
+    </p>
   );
 }
 

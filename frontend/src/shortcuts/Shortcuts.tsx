@@ -8,7 +8,7 @@ import { useShortcuts } from "./useShortcuts";
 
 // Actions that render their shortcut row inside their own Settings panel instead
 // of this generic list (the replay hotkey lives in the Instant replay panel).
-const PANEL_OWNED_ACTIONS = new Set(["replaySave"]);
+const PANEL_OWNED_ACTIONS = new Set(["replaySave", "recordToggle", "timelineMarker"]);
 
 // isSnip reports whether a combo is Win+Shift+S (the Snipping Tool combo we
 // override). Shown as a small note so the behavior is never a surprise.

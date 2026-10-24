@@ -91,6 +91,23 @@ func (t *trayController) addReplayItems(menu *application.Menu) {
 		return
 	}
 	st := t.replay.GetSettings()
+	if st.Enabled && st.Mode == replay.ModeManual {
+		label := "Start recording"
+		if t.replay.GetRecorderState().Manual {
+			label = "Stop recording"
+		}
+		if t.keys != nil {
+			if b, ok := t.keys.Binding("recordToggle"); ok && b.Key != 0 {
+				label += " (" + comboLabel(b) + ")"
+			}
+		}
+		menu.Add(label).OnClick(func(*application.Context) {
+			go func() {
+				_, _ = t.replay.ToggleRecording()
+				t.rebuildMenu()
+			}()
+		})
+	}
 	if st.Enabled {
 		label := "Save instant replay"
 		if t.keys != nil {
@@ -102,7 +119,7 @@ func (t *trayController) addReplayItems(menu *application.Menu) {
 			go func() { _, _ = t.replay.SaveReplay() }()
 		})
 	}
-	menu.AddCheckbox("Instant replay", st.Enabled).OnClick(func(*application.Context) {
+	menu.AddCheckbox("Game recording", st.Enabled).OnClick(func(*application.Context) {
 		next := t.replay.GetSettings()
 		next.Enabled = !next.Enabled
 		go func() { _, _ = t.replay.SetSettings(next) }() // SetOnChange rebuilds the menu

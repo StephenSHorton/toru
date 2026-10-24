@@ -189,6 +189,7 @@ func main() {
 	updateSvc.SetApp(app)
 	settingsSvc.app = app // for app.Autostart (launch-at-login)
 	replaySvc.SetClipOpener(windowsSvc.OpenClipEditor)
+	replaySvc.SetSessionOpener(windowsSvc.OpenTimeline)
 	histSvc.SetOpeners(windowsSvc.OpenEditor, windowsSvc.OpenTrim)
 	// Suspend alt-tab-cancels while a native Save dialog is up (dialog steals
 	// focus but the user is still mid-edit).

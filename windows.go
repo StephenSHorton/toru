@@ -208,6 +208,23 @@ func (w *WindowsService) OpenTrim(videoPath string) {
 	w.openTrimWindow("Toru — Trim Recording", videoPath, servedFileURL(videoPath))
 }
 
+// OpenTimeline opens a session recording in the timeline viewer.
+//
+//wails:ignore
+func (w *WindowsService) OpenTimeline(id int) {
+	if w.app == nil {
+		return
+	}
+	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:            "Toru — Recording",
+		URL:              "/?view=timeline&id=" + strconv.Itoa(id),
+		Width:            1180,
+		Height:           800,
+		BackgroundColour: dark,
+	})
+	win.Center()
+}
+
 // OpenClipEditor opens a saved instant-replay clip in the same editor
 // (play, trim, save, share). Clips live outside the /__file dirs, so the
 // player gets the replay service's served URL instead.

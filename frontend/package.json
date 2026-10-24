@@ -13,6 +13,7 @@
     "@wailsio/runtime": "latest",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "hls.js": "1.6.13",
     "konva": "^9.3.20",
     "lucide-react": "^0.544.0",
     "react": "^19.2.0",

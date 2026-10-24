@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Camera,
   Check,
+  Circle,
   Clapperboard,
+  Film,
+  Lock,
   FolderOpen,
   Image as ImageIcon,
   Settings2,
@@ -23,7 +26,7 @@ import {
   SettingsService,
   WindowsService,
 } from "@/lib/api";
-import type { CaptureItem, ReplayClip } from "@/lib/api";
+import type { CaptureItem, RecordingSession, ReplayClip } from "@/lib/api";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { cn } from "@/lib/utils";
 
@@ -118,14 +121,14 @@ function NavBtn({
 // Library
 // ---------------------------------------------------------------------------
 
-type LibraryView = "all" | "shots" | "recordings" | "clips";
+type LibraryView = "all" | "shots" | "recordings" | "clips" | "sessions";
 
 const LIBRARY_VIEW_KEY = "toru.library.view";
 
 function readLibraryView(): LibraryView {
   try {
     const v = window.localStorage.getItem(LIBRARY_VIEW_KEY);
-    if (v === "all" || v === "shots" || v === "recordings" || v === "clips") return v;
+    if (v === "all" || v === "shots" || v === "recordings" || v === "clips" || v === "sessions") return v;
   } catch {
     // storage unavailable: default view
   }
@@ -139,6 +142,27 @@ function LibraryPage() {
   const [clips, setClips] = useState<ReplayClip[]>([]);
   const [game, setGame] = useState("");
   const [pendingClip, setPendingClip] = useState<ReplayClip | null>(null);
+  const [sessions, setSessions] = useState<RecordingSession[]>([]);
+  const [pendingSession, setPendingSession] = useState<RecordingSession | null>(null);
+
+  const refreshSessions = useCallback(() => {
+    void ReplayService.ListSessions()
+      .then((list) => setSessions(Array.isArray(list) ? list : []))
+      .catch(() => setSessions([]));
+  }, []);
+
+  useEffect(() => {
+    refreshSessions();
+    const off = WailsEvents.On("recording:changed", () => refreshSessions());
+    window.addEventListener("focus", refreshSessions);
+    // Live recordings grow; keep their durations current while visible.
+    const t = window.setInterval(refreshSessions, 10000);
+    return () => {
+      off();
+      window.removeEventListener("focus", refreshSessions);
+      window.clearInterval(t);
+    };
+  }, [refreshSessions]);
 
   const setView = (v: LibraryView) => {
     setViewState(v);
@@ -240,11 +264,26 @@ function LibraryPage() {
         setPendingClip(null);
         return;
       }
+      if (pendingSession) {
+        setPendingSession(null);
+        return;
+      }
       if (selected.size > 0) clearSelection();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pendingDelete, pendingClip, deleting, selected.size]);
+  }, [pendingDelete, pendingClip, pendingSession, deleting, selected.size]);
+
+  const confirmSessionDelete = async () => {
+    if (!pendingSession) return;
+    try {
+      await ReplayService.DeleteSession(pendingSession.id);
+    } catch {
+      // the re-list shows whether it went
+    }
+    setPendingSession(null);
+    refreshSessions();
+  };
 
   const confirmClipDelete = async () => {
     if (!pendingClip) return;
@@ -286,7 +325,9 @@ function LibraryPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Library</h1>
           <p className="text-sm text-muted-foreground">
-            {view === "clips"
+            {view === "sessions"
+              ? "Background and manual recordings. Open one to scrub its timeline and cut clips"
+              : view === "clips"
               ? "Instant replays you saved with the hotkey, sorted by game"
               : "Screenshots save here when you hit Done; recordings save when they finish"}
           </p>
@@ -305,7 +346,11 @@ function LibraryPage() {
             size="sm"
             variant="ghost"
             onClick={() =>
-              void (view === "clips" ? ReplayService.OpenSaveDir() : HistoryService.OpenFolder())
+              void (view === "clips"
+                ? ReplayService.OpenSaveDir()
+                : view === "sessions"
+                  ? ReplayService.OpenRecordingsDir()
+                  : HistoryService.OpenFolder())
             }
           >
             <FolderOpen /> Folder
@@ -348,6 +393,7 @@ function LibraryPage() {
               ["shots", "Screenshots", shots.length],
               ["recordings", "Recordings", recordings.length],
               ["clips", "Clips", clips.length],
+              ["sessions", "Recordings", sessions.length],
             ] as const
           ).map(([id, label, count]) => (
             <Button
@@ -384,7 +430,23 @@ function LibraryPage() {
         ) : null}
       </div>
 
-      {loading ? (
+      {view === "sessions" ? (
+        sessions.length === 0 ? (
+          <EmptySessions />
+        ) : (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+            {sessions.map((s) => (
+              <SessionCard
+                key={s.id}
+                session={s}
+                onOpen={() => void ReplayService.OpenSession(s.id)}
+                onKeep={() => void ReplayService.KeepSession(s.id, !s.kept).then(refreshSessions)}
+                onDelete={() => setPendingSession(s)}
+              />
+            ))}
+          </div>
+        )
+      ) : loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : entries.length === 0 ? (
         view === "clips" ? (
@@ -420,6 +482,23 @@ function LibraryPage() {
           )}
         </div>
       )}
+
+      {pendingSession ? (
+        <ConfirmDialog
+          title="Delete this recording?"
+          body={
+            <>
+              <span className="font-medium text-foreground">
+                {pendingSession.game || "Recording"} · {formatDuration(pendingSession.durationSec)}
+              </span>{" "}
+              ({formatSize(pendingSession.sizeBytes)}) will be deleted from disk. Clips saved from it
+              are kept. This can’t be undone.
+            </>
+          }
+          onCancel={() => setPendingSession(null)}
+          onConfirm={() => void confirmSessionDelete()}
+        />
+      ) : null}
 
       {pendingClip ? (
         <ConfirmDialog
@@ -476,6 +555,117 @@ function EmptyClips() {
           Turn on Instant replay in Settings, then press its hotkey while you play to save the last
           few minutes.
         </p>
+      </div>
+    </div>
+  );
+}
+
+function EmptySessions() {
+  return (
+    <div className="frost flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
+      <Film className="size-10 text-muted-foreground" />
+      <div>
+        <p className="font-medium">No recordings yet</p>
+        <p className="mt-1 max-w-md text-sm text-muted-foreground">
+          In Settings → Game recording, choose Background recording to keep your whole play
+          sessions (like Steam), or Manual recording to record with a hotkey.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function formatDuration(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s % 60}s`;
+  return `${s}s`;
+}
+
+// SessionCard is one background/manual recording; click opens the timeline.
+function SessionCard({
+  session,
+  onOpen,
+  onKeep,
+  onDelete,
+}: {
+  session: RecordingSession;
+  onOpen: () => void;
+  onKeep: () => void;
+  onDelete: () => void;
+}) {
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const title = session.game || (session.mode === "manual" ? "Manual recording" : "Desktop");
+  const minsLeft = session.deleteAtMs ? Math.max(0, Math.round((session.deleteAtMs - Date.now()) / 60000)) : 0;
+  return (
+    <div
+      className={cn(
+        "frost group flex flex-col overflow-hidden border border-transparent",
+        "transition-[border-color,box-shadow,transform] duration-150",
+        "hover:-translate-y-0.5 hover:border-primary/70 hover:shadow-[0_0_0_1px_var(--color-ring),0_12px_28px_oklch(0_0_0/0.45)]",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="relative aspect-video w-full overflow-hidden bg-black/40 text-left"
+        title="Open the timeline"
+      >
+        {thumbFailed ? (
+          <span className="flex h-full w-full items-center justify-center">
+            <Film className="size-8 text-muted-foreground" />
+          </span>
+        ) : (
+          <img
+            src={session.thumbUrl}
+            alt=""
+            loading="lazy"
+            onError={() => setThumbFailed(true)}
+            className="h-full w-full object-contain transition-transform duration-150 group-hover:scale-[1.03]"
+          />
+        )}
+        <span className="pointer-events-none absolute inset-0 bg-primary/0 transition-colors duration-150 group-hover:bg-primary/10" />
+        <span className="absolute left-1.5 top-1.5 flex max-w-[85%] items-center gap-1 bg-black/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-white">
+          {session.live ? <Circle className="size-2.5 shrink-0 fill-red-500 text-red-500" /> : <Film className="size-3 shrink-0" />}
+          <span className="truncate">{session.live ? "Recording" : session.mode === "manual" ? "Manual" : "Background"}</span>
+        </span>
+        <span className="absolute bottom-1.5 right-1.5 bg-black/60 px-1.5 py-0.5 text-[10px] tabular-nums text-white">
+          {formatDuration(session.durationSec)}
+        </span>
+      </button>
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-medium" title={title}>
+            {title}
+          </div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {formatWhen(new Date(session.startMs).toISOString())} · {formatSize(session.sizeBytes)}
+            {session.kept ? " · kept" : session.deleteAtMs ? ` · auto-deletes in ${minsLeft >= 60 ? `${Math.floor(minsLeft / 60)}h` : `${minsLeft}m`}` : ""}
+          </div>
+        </div>
+        {session.mode !== "manual" ? (
+          <Button
+            size="icon"
+            variant="ghost"
+            className={cn("size-7 shrink-0 hover:opacity-100", session.kept ? "text-primary opacity-100" : "opacity-60")}
+            title={session.kept ? "Kept: won't be auto-deleted (click to undo)" : "Keep: don't auto-delete this recording"}
+            onClick={onKeep}
+          >
+            <Lock className="size-3.5" />
+          </Button>
+        ) : null}
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 shrink-0 opacity-60 hover:opacity-100"
+          title={session.live ? "Still recording" : "Delete"}
+          disabled={session.live}
+          onClick={onDelete}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
       </div>
     </div>
   );

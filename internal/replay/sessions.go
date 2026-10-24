@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // Session is one recording on the Library's Recordings tab: consecutive runs
@@ -306,6 +307,90 @@ func (s *ReplayService) DeleteSession(id int) error {
 	s.invalidateProtect()
 	emit(EventRecordings, nil)
 	return nil
+}
+
+// GetSession returns one recording (fresh markers, live state).
+func (s *ReplayService) GetSession(id int) (Session, error) {
+	b, err := s.findSession(id)
+	return b.Session, err
+}
+
+// SetSessionOpener registers how OpenSession shows a recording (main passes
+// the timeline window opener).
+//
+//wails:ignore
+func (s *ReplayService) SetSessionOpener(fn func(id int)) {
+	s.mu.Lock()
+	s.sessionOpener = fn
+	s.mu.Unlock()
+}
+
+// OpenSession opens a recording in the timeline viewer.
+func (s *ReplayService) OpenSession(id int) error {
+	if _, err := s.findSession(id); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	open := s.sessionOpener
+	s.mu.Unlock()
+	if open == nil {
+		return errors.New("timeline viewer unavailable")
+	}
+	open(id)
+	return nil
+}
+
+// AddSessionMarker drops a marker offsetSec into a recording (the viewer's
+// add-marker button).
+func (s *ReplayService) AddSessionMarker(id int, offsetSec float64) error {
+	b, err := s.findSession(id)
+	if err != nil {
+		return err
+	}
+	for i, ts := range b.segs {
+		if offsetSec < ts.offset+ts.dur || i == len(b.segs)-1 {
+			s.addMarkerAt(ts.wallStart+int64(max(0, offsetSec-ts.offset)*1000), MarkerUser, "")
+			return nil
+		}
+	}
+	return errors.New("empty recording")
+}
+
+// PickRecordingsDir lets the user move where recordings are stored (new
+// recordings only; existing ones stay where they are). Returns "" if
+// cancelled.
+func (s *ReplayService) PickRecordingsDir() (string, error) {
+	app := application.Get()
+	if app == nil {
+		return "", errors.New("replay: no running application")
+	}
+	dlg := app.Dialog.OpenFile().
+		CanChooseDirectories(true).
+		CanChooseFiles(false).
+		CanCreateDirectories(true).
+		SetTitle("Choose where recordings are stored").
+		SetDirectory(recordingsDirFor(s.GetSettings()))
+	if win := app.Window.Current(); win != nil {
+		dlg = dlg.AttachToWindow(win)
+	}
+	path, err := dlg.PromptForSingleSelection()
+	if err != nil || path == "" {
+		return "", nil
+	}
+	st := s.GetSettings()
+	st.RecordingsDir = path
+	if _, err := s.SetSettings(st); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// ResetRecordingsDir goes back to the default recordings folder.
+func (s *ReplayService) ResetRecordingsDir() error {
+	st := s.GetSettings()
+	st.RecordingsDir = ""
+	_, err := s.SetSettings(st)
+	return err
 }
 
 // OpenRecordingsDir reveals the recordings folder.
