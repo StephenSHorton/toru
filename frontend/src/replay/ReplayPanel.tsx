@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ShortcutRow } from "@/shortcuts/Shortcuts";
 import { useShortcuts } from "@/shortcuts/useShortcuts";
-import { ReplayService, ReplaySettings, ReplayStatus } from "@/lib/api";
+import { ReplayService, ReplaySettings, ReplayStatus, Shortcut } from "@/lib/api";
 import type { RecorderState, ReplayMonitor } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -438,10 +438,28 @@ export function ReplayPanel() {
       <Collapsible
         id="hotkeys"
         title="Hotkeys & clips"
-        summary={saveKey ? `${saveKey} saves the last ${formatLength(settings.durationSec)}` : `Saves the last ${formatLength(settings.durationSec)}`}
+        summary={
+          (saveKey ? `${saveKey} saves the last ${formatLength(settings.durationSec)}` : `Saves the last ${formatLength(settings.durationSec)}`) +
+          (settings.mode === "manual" && recordShortcut ? ` · ${comboText(recordShortcut)} records` : "") +
+          (session && markerShortcut ? ` · ${comboText(markerShortcut)} marks` : "")
+        }
         defaultOpen
       >
-        {saveShortcut && <ShortcutRow sc={saveShortcut} onSave={shortcuts.save} onReset={shortcuts.reset} />}
+        {saveShortcut && (
+          <div className="flex flex-col gap-1">
+            <ShortcutRow
+              sc={session ? Shortcut.createFrom({ ...saveShortcut, label: "Save a clip" }) : saveShortcut}
+              onSave={shortcuts.save}
+              onReset={shortcuts.reset}
+            />
+            {session ? (
+              <span className="text-xs text-muted-foreground">
+                Saves the last {formatLength(settings.durationSec)} of the recording to your clips. The
+                recording keeps going.
+              </span>
+            ) : null}
+          </div>
+        )}
         <Field
           label={
             <>
@@ -470,6 +488,11 @@ export function ReplayPanel() {
           >
             <Save /> {saving ? "Saving…" : `Save last ${formatLength(settings.durationSec)} now`}
           </Button>
+          {session && !status?.recording && settings.enabled ? (
+            <span className="text-xs text-muted-foreground">
+              {settings.mode === "background" ? "Available while a game is being recorded" : "Available while recording"}
+            </span>
+          ) : null}
           {lastSave && (
             <span
               className={cn("truncate text-xs", lastSave.ok ? "text-muted-foreground" : "text-destructive")}
