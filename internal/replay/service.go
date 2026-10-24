@@ -39,6 +39,8 @@ type ReplayService struct {
 	mu       sync.Mutex
 	settings Settings
 	onChange func(Settings)
+	// clipOpener shows a clip in Toru's editor (see SetClipOpener).
+	clipOpener func(path, servedURL string)
 
 	saving atomic.Bool
 }

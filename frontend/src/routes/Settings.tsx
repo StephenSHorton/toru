@@ -512,7 +512,7 @@ function ClipCard({
         type="button"
         onClick={onOpen}
         className="relative aspect-video w-full overflow-hidden bg-black/40 text-left"
-        title="Open in your video player"
+        title="Open in Toru: play, trim, save or share"
       >
         {thumbFailed ? (
           <span className="flex h-full w-full items-center justify-center">

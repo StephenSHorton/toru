@@ -26,6 +26,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/share"
 	"github.com/StephenSHorton/toru/internal/shot"
 	"github.com/StephenSHorton/toru/internal/update"
+	"github.com/StephenSHorton/toru/internal/upload"
 	"github.com/StephenSHorton/toru/internal/vid"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -121,6 +122,7 @@ func main() {
 	// encoder -> rolling segments on disk) whose hotkey saves the last N
 	// seconds. Nothing runs until the user enables it in Settings.
 	replaySvc := replay.NewService()
+	uploadSvc := upload.New()
 
 	app := application.New(application.Options{
 		Name:        "Toru",
@@ -136,6 +138,7 @@ func main() {
 			application.NewService(settingsSvc),
 			application.NewService(histSvc),
 			application.NewService(replaySvc),
+			application.NewService(uploadSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -174,6 +177,7 @@ func main() {
 	windowsSvc.overlay = overlaySvc
 	updateSvc.SetApp(app)
 	settingsSvc.app = app // for app.Autostart (launch-at-login)
+	replaySvc.SetClipOpener(windowsSvc.OpenClipEditor)
 	histSvc.SetOpeners(windowsSvc.OpenEditor, windowsSvc.OpenTrim)
 	// Suspend alt-tab-cancels while a native Save dialog is up (dialog steals
 	// focus but the user is still mid-edit).

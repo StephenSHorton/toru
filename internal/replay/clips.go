@@ -33,7 +33,10 @@ type Clip struct {
 // maxListedClips bounds a listing so a huge archive can't stall the page.
 const maxListedClips = 500
 
-const thumbPrefix = "/__replaythumb/"
+const (
+	thumbPrefix = "/__replaythumb/"
+	clipPrefix  = "/__replayclip/"
+)
 
 // ListClips returns the saved clips in the save folder and its game folders
 // (one level deep), newest first.
@@ -106,8 +109,48 @@ func (s *ReplayService) clipInSaveDir(path string) (string, error) {
 	return abs, nil
 }
 
-// OpenClip opens a clip in the default video player.
+// SetClipOpener registers how OpenClip shows a clip: main passes the window
+// opener for Toru's clip editor (path + the served URL its player loads).
+//
+//wails:ignore
+func (s *ReplayService) SetClipOpener(fn func(path, servedURL string)) {
+	s.mu.Lock()
+	s.clipOpener = fn
+	s.mu.Unlock()
+}
+
+// ClipURL returns the URL Toru's player streams a saved clip from, or "" if
+// path isn't in the save folder.
+func (s *ReplayService) ClipURL(path string) string {
+	p, err := s.clipInSaveDir(path)
+	if err != nil {
+		return ""
+	}
+	rel, err := filepath.Rel(filepath.Clean(s.GetSaveDir()), p)
+	if err != nil {
+		return ""
+	}
+	return clipPrefix + url.PathEscape(filepath.ToSlash(rel))
+}
+
+// OpenClip opens a clip in Toru's clip editor (play, trim, save, share).
 func (s *ReplayService) OpenClip(path string) error {
+	p, err := s.clipInSaveDir(path)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	opener := s.clipOpener
+	s.mu.Unlock()
+	if opener == nil {
+		return s.OpenClipExternal(p)
+	}
+	opener(p, s.ClipURL(p))
+	return nil
+}
+
+// OpenClipExternal opens a clip in the default video player.
+func (s *ReplayService) OpenClipExternal(path string) error {
 	p, err := s.clipInSaveDir(path)
 	if err != nil {
 		return err
@@ -206,13 +249,24 @@ func ensureThumb(clip string) (string, error) {
 	return out, os.Rename(tmp, out)
 }
 
-// ClipMiddleware serves clip thumbnails at /__replaythumb/<path relative to
-// the save folder>. The path is confined to the save folder.
+// ClipMiddleware serves saved clips at /__replayclip/<path relative to the
+// save folder> (with range requests, so the player can seek) and their
+// thumbnails at /__replaythumb/<same>. Paths are confined to the save folder.
 //
 //wails:ignore
 func (s *ReplayService) ClipMiddleware() application.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if rel, ok := strings.CutPrefix(r.URL.Path, clipPrefix); ok {
+				clip, err := s.clipInSaveDir(filepath.Join(s.GetSaveDir(), filepath.FromSlash(rel)))
+				if err != nil {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Cache-Control", "no-store")
+				http.ServeFile(w, r, clip)
+				return
+			}
 			if !strings.HasPrefix(r.URL.Path, thumbPrefix) {
 				next.ServeHTTP(w, r)
 				return

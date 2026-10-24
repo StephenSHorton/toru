@@ -29,6 +29,7 @@
 //   ReplayService.GetStatus / SaveReplay / ListMonitors / ListMicrophones / DiscordRunning / EncoderSupport
 //   ReplayService.GetSaveDir / PickSaveDir / ResetSaveDir / OpenSaveDir
 //   ReplayService.ListClips / OpenClip(path) / RevealClip(path) / DeleteClip(path)  (Library "Clips")
+//   UploadService.ShareLink(path, startMs, endMs) -> public catbox link; "upload:progress" events; CancelShare / LinkFor(path)
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
@@ -47,6 +48,7 @@ import {
 import * as SettingsService from "../../bindings/github.com/StephenSHorton/toru/settingsservice.js";
 import * as HistoryService from "../../bindings/github.com/StephenSHorton/toru/internal/history/historyservice.js";
 import { Item as CaptureItem } from "../../bindings/github.com/StephenSHorton/toru/internal/history/models.js";
+import * as UploadService from "../../bindings/github.com/StephenSHorton/toru/internal/upload/uploadservice.js";
 import * as ReplayService from "../../bindings/github.com/StephenSHorton/toru/internal/replay/replayservice.js";
 import {
   Settings as ReplaySettings,
@@ -70,6 +72,7 @@ export {
   SettingsService,
   HistoryService,
   ReplayService,
+  UploadService,
   ReplaySettings,
   ReplayMonitor,
   ReplayClip,

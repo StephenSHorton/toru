@@ -21,6 +21,14 @@ import * as capture$0 from "../capture/models.js";
 import * as $models from "./models.js";
 
 /**
+ * ClipURL returns the URL Toru's player streams a saved clip from, or "" if
+ * path isn't in the save folder.
+ */
+export function ClipURL(path: string): $CancellablePromise<string> {
+    return $Call.ByID(1235773932, path);
+}
+
+/**
  * DeleteClip deletes a clip (and its cached thumbnail). An emptied game
  * folder is removed too.
  */
@@ -99,10 +107,17 @@ export function ListMonitors(): $CancellablePromise<$models.Monitor[]> {
 }
 
 /**
- * OpenClip opens a clip in the default video player.
+ * OpenClip opens a clip in Toru's clip editor (play, trim, save, share).
  */
 export function OpenClip(path: string): $CancellablePromise<void> {
     return $Call.ByID(4174676775, path);
+}
+
+/**
+ * OpenClipExternal opens a clip in the default video player.
+ */
+export function OpenClipExternal(path: string): $CancellablePromise<void> {
+    return $Call.ByID(865517468, path);
 }
 
 /**

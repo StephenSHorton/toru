@@ -202,12 +202,25 @@ func isToruTempPath(p string) bool {
 // URL to PLAY the file, but Copy/Save-As/Trim are Go-side operations on the
 // real path, which cannot be reconstructed from the served URL.
 func (w *WindowsService) OpenTrim(videoPath string) {
+	w.openTrimWindow("Toru — Trim Recording", videoPath, servedFileURL(videoPath))
+}
+
+// OpenClipEditor opens a saved instant-replay clip in the same editor
+// (play, trim, save, share). Clips live outside the /__file dirs, so the
+// player gets the replay service's served URL instead.
+//
+//wails:ignore
+func (w *WindowsService) OpenClipEditor(videoPath, servedURL string) {
+	w.openTrimWindow("Toru — "+strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath)), videoPath, servedURL)
+}
+
+func (w *WindowsService) openTrimWindow(title, videoPath, servedURL string) {
 	if w.app == nil {
 		return
 	}
 	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "Toru — Trim Recording",
-		URL: "/?view=trim&vid=" + url.QueryEscape(servedFileURL(videoPath)) +
+		Title: title,
+		URL: "/?view=trim&vid=" + url.QueryEscape(servedURL) +
 			"&path=" + url.QueryEscape(videoPath),
 		Width:            900,
 		Height:           620,
