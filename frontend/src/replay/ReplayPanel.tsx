@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Circle, Clapperboard, Film, FolderOpen, Headphones, Mic, Save, Square, Volume2 } from "lucide-react";
+import { ChevronRight, Circle, Clapperboard, Film, FolderOpen, Headphones, Info, Mic, Save, Square, Volume2 } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -42,6 +43,16 @@ const MODES: { value: string; label: string; icon: React.ReactNode; summary: str
   },
 ];
 const KEEP_OPTIONS = [30, 60, 120, 240, 480, 720, 1440];
+const QUALITY: { value: string; label: string; mbps?: number }[] = [
+  { value: "standard", label: "Standard", mbps: 12 },
+  { value: "high", label: "High", mbps: 25 },
+  { value: "custom", label: "Custom" },
+];
+
+function formatHours(h: number): string {
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
+  return h < 10 ? `${h.toFixed(1)} hours` : `${Math.round(h)} hours`;
+}
 const DISK_OPTIONS = [10, 25, 50, 100, 200, 500];
 
 function formatMinutes(m: number): string {
@@ -344,279 +355,298 @@ export function ReplayPanel() {
 
   const mbps = bitrateDraft ?? settings.bitrateMbps;
   const error = applyError || status?.error || "";
+  const mode = MODES.find((m) => m.value === settings.mode) ?? MODES[0];
+  const codec = CODECS.find((c) => c.value === settings.codec) ?? CODECS[0];
+  const session = settings.mode !== "replay";
+  const saveKey = saveShortcut ? comboText(saveShortcut) : "";
+  const monitorLabel =
+    settings.monitorId < 0
+      ? "Primary display"
+      : (monitors.find((m) => m.id === settings.monitorId)?.label.split(" · ")[0] ?? "Display");
+  // Background/manual recording has its own (lighter) quality unless Custom.
+  const recMbps =
+    settings.recordingQuality === "standard" ? 12 : settings.recordingQuality === "high" ? 25 : mbps;
+  const gbPerHour = (m: number) => (m * 3600) / 8 / 1000;
+  const audioParts = [
+    settings.desktopAudio && "Game",
+    settings.discordAudio && "Discord",
+    settings.micDevice && "Mic",
+  ].filter(Boolean);
 
   return (
-    <div className="frost flex flex-col gap-4 p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-col gap-0.5">
+    <div className="flex flex-col gap-3">
+      {/* Header: on/off, live status, mode */}
+      <div className="frost flex flex-col gap-3 p-4">
+        <div className="flex items-center justify-between gap-3">
           <PanelHeader />
-          <span className="text-xs text-muted-foreground">
-            {MODES.find((m) => m.value === settings.mode)?.summary}
-          </span>
-        </div>
-        <Switch
-          checked={settings.enabled}
-          disabled={busy}
-          onCheckedChange={(v) => void update({ enabled: v })}
-          aria-label="Enable game recording"
-        />
-      </div>
-
-      <div role="radiogroup" aria-label="Recording mode" className="grid gap-2 sm:grid-cols-3">
-        {MODES.map((m) => {
-          const selected = settings.mode === m.value;
-          return (
-            <button
-              key={m.value}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              disabled={busy}
-              onClick={() => void update({ mode: m.value })}
-              className={cn(
-                "flex flex-col gap-1.5 border p-3 text-left transition-colors disabled:opacity-60",
-                selected ? "border-primary bg-primary/10" : "border-border hover:border-primary/60",
-              )}
-            >
-              <span className={cn("flex items-center gap-1.5 text-sm font-medium", selected && "text-primary")}>
-                {m.icon} {m.label}
-              </span>
-              <span className="text-xs">{m.summary}</span>
-              <span className="text-xs text-muted-foreground">{m.detail}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {settings.enabled &&
-        (settings.mode === "replay" ? (
-          <StatusLine status={status} busy={busy} error={error} keep={settings.durationSec} />
-        ) : (
-          <RecorderLine
-            recorder={recorder}
-            status={status}
-            busy={busy}
-            error={error}
-            gamesOnly={settings.gamesOnly}
-            recordKey={recordShortcut ? comboText(recordShortcut) : ""}
+          <Switch
+            checked={settings.enabled}
+            disabled={busy}
+            onCheckedChange={(v) => void update({ enabled: v })}
+            aria-label="Enable game recording"
           />
-        ))}
-      {!settings.enabled && applyError && <p className="text-xs text-destructive">{applyError}</p>}
-
-      {saveShortcut && (
-        <div className="flex flex-col gap-2 border-t border-border pt-4">
-          <ShortcutRow sc={saveShortcut} onSave={shortcuts.save} onReset={shortcuts.reset} />
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={!settings.enabled || saving || !status?.recording}
-              onClick={() => void saveNow()}
-            >
-              <Save /> {saving ? "Saving…" : `Save last ${formatLength(settings.durationSec)}`}
-            </Button>
-            {lastSave && (
-              <span
-                className={cn(
-                  "truncate text-xs",
-                  lastSave.ok ? "text-muted-foreground" : "text-destructive",
-                )}
-                title={lastSave.text}
-              >
-                {lastSave.text}
-              </span>
-            )}
-          </div>
         </div>
-      )}
 
-      {settings.mode !== "replay" && (
-        <Section
-          title={settings.mode === "background" ? "Background recording" : "Manual recording"}
-          hint="Open recordings from the Library's Recordings tab to scrub the timeline and cut clips"
+        <div role="radiogroup" aria-label="Recording mode" className="grid grid-cols-3 border border-border">
+          {MODES.map((m, i) => {
+            const selected = settings.mode === m.value;
+            return (
+              <button
+                key={m.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                disabled={busy}
+                onClick={() => void update({ mode: m.value })}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium transition-colors disabled:opacity-60",
+                  i > 0 && "border-l border-border",
+                  selected ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                {m.icon}
+                <span className="truncate">{m.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          {mode.summary}
+          <InfoTip>{mode.detail}</InfoTip>
+        </p>
+
+        {settings.enabled ? (
+          settings.mode === "replay" ? (
+            <StatusLine status={status} busy={busy} error={error} keep={settings.durationSec} />
+          ) : (
+            <RecorderLine
+              recorder={recorder}
+              status={status}
+              busy={busy}
+              error={error}
+              gamesOnly={settings.gamesOnly}
+              recordKey={recordShortcut ? comboText(recordShortcut) : ""}
+            />
+          )
+        ) : applyError ? (
+          <p className="text-xs text-destructive">{applyError}</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">Off. Turn it on to start.</p>
+        )}
+      </div>
+
+      <Collapsible
+        id="hotkeys"
+        title="Hotkeys & clips"
+        summary={saveKey ? `${saveKey} saves the last ${formatLength(settings.durationSec)}` : `Saves the last ${formatLength(settings.durationSec)}`}
+        defaultOpen
+      >
+        {saveShortcut && <ShortcutRow sc={saveShortcut} onSave={shortcuts.save} onReset={shortcuts.reset} />}
+        <Field
+          label={
+            <>
+              Clip length
+              <InfoTip>
+                How much the save hotkey keeps.
+                {session ? " It works while recording too, and drops a marker on the timeline." : ""}
+              </InfoTip>
+            </>
+          }
         >
-          {settings.mode === "manual" && (
-            <div className="flex flex-col gap-2">
-              {recordShortcut && (
-                <ShortcutRow sc={recordShortcut} onSave={shortcuts.save} onReset={shortcuts.reset} />
-              )}
-              <div>
-                <Button
-                  size="sm"
-                  variant={recorder?.manual ? "destructive" : "secondary"}
-                  disabled={!settings.enabled || busy}
-                  onClick={() => void toggleManual()}
-                >
-                  {recorder?.manual ? <Square /> : <Circle />}{" "}
-                  {recorder?.manual ? "Stop recording" : "Start recording"}
-                </Button>
-              </div>
-            </div>
+          <Chips
+            options={DURATIONS}
+            value={settings.durationSec}
+            format={formatLength}
+            disabled={busy}
+            onPick={(d) => void update({ durationSec: d })}
+          />
+        </Field>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!settings.enabled || saving || !status?.recording}
+            onClick={() => void saveNow()}
+          >
+            <Save /> {saving ? "Saving…" : `Save last ${formatLength(settings.durationSec)} now`}
+          </Button>
+          {lastSave && (
+            <span
+              className={cn("truncate text-xs", lastSave.ok ? "text-muted-foreground" : "text-destructive")}
+              title={lastSave.text}
+            >
+              {lastSave.text}
+            </span>
           )}
+        </div>
+        {settings.mode === "manual" && recordShortcut && (
+          <div className="flex flex-col gap-2 border-t border-border pt-3">
+            <ShortcutRow sc={recordShortcut} onSave={shortcuts.save} onReset={shortcuts.reset} />
+            <div>
+              <Button
+                size="sm"
+                variant={recorder?.manual ? "destructive" : "secondary"}
+                disabled={!settings.enabled || busy}
+                onClick={() => void toggleManual()}
+              >
+                {recorder?.manual ? <Square /> : <Circle />} {recorder?.manual ? "Stop recording" : "Start recording"}
+              </Button>
+            </div>
+          </div>
+        )}
+        {session && markerShortcut && (
+          <div className="border-t border-border pt-3">
+            <ShortcutRow sc={markerShortcut} onSave={shortcuts.save} onReset={shortcuts.reset} />
+          </div>
+        )}
+      </Collapsible>
+
+      {session && (
+        <Collapsible
+          id="storage"
+          title={settings.mode === "background" ? "Background recording" : "Recording storage"}
+          summary={
+            `${QUALITY.find((q) => q.value === settings.recordingQuality)?.label ?? "Custom"} quality · ` +
+            (settings.mode === "background" ? `keeps ${formatMinutes(settings.backgroundMinutes)} · ` : "") +
+            (recorder ? `${formatGB(recorder.diskBytes)} of ${settings.maxDiskGB} GB used` : `${settings.maxDiskGB} GB limit`)
+          }
+          defaultOpen
+        >
+          <Field
+            label={
+              <>
+                Recording quality
+                <InfoTip>
+                  Whole sessions need a much lower bitrate than instant replay to fit on disk. Standard
+                  looks good for watching back and cutting clips; Custom uses your Video settings.
+                </InfoTip>
+              </>
+            }
+          >
+            <div role="radiogroup" aria-label="Recording quality" className="grid grid-cols-3 border border-border">
+              {QUALITY.map((q, i) => {
+                const selected = settings.recordingQuality === q.value;
+                const qm = q.mbps ?? mbps;
+                return (
+                  <button
+                    key={q.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={busy}
+                    onClick={() => void update({ recordingQuality: q.value })}
+                    className={cn(
+                      "flex flex-col items-center px-2 py-1.5 text-xs transition-colors disabled:opacity-60",
+                      i > 0 && "border-l border-border",
+                      selected ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    <span className="font-medium">{q.label}</span>
+                    <span className={cn("text-[10px]", selected ? "opacity-90" : "opacity-70")}>
+                      ~{gbPerHour(qm).toFixed(gbPerHour(qm) < 10 ? 1 : 0)} GB/hour
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
           {settings.mode === "background" && (
             <>
               <Field label="Keep the last">
-                <div className="flex flex-wrap gap-1.5">
-                  {KEEP_OPTIONS.map((m) => (
-                    <Button
-                      key={m}
-                      size="sm"
-                      variant={settings.backgroundMinutes === m ? "default" : "outline"}
-                      disabled={busy}
-                      onClick={() => void update({ backgroundMinutes: m })}
-                    >
-                      {formatMinutes(m)}
-                    </Button>
-                  ))}
-                </div>
+                <Chips
+                  options={KEEP_OPTIONS}
+                  value={settings.backgroundMinutes}
+                  format={formatMinutes}
+                  disabled={busy}
+                  onPick={(m) => void update({ backgroundMinutes: m })}
+                />
               </Field>
               <ToggleRow
-                label="Only record while playing a game"
-                hint="Starts when a game is in focus (fullscreen, or anything from Steam, Epic, Xbox, Riot, …) and stops when it closes. Turn off to record your screen all the time."
+                label="Only while playing a game"
+                info="Starts when a game is in focus (fullscreen, or anything installed from Steam, Epic, Xbox, Riot, …) and stops when it closes. Off: records your screen all the time."
                 checked={settings.gamesOnly}
                 disabled={busy}
                 onChange={(v) => void update({ gamesOnly: v })}
               />
             </>
           )}
-          {markerShortcut && (
-            <div className="flex flex-col gap-1">
-              <ShortcutRow sc={markerShortcut} onSave={shortcuts.save} onReset={shortcuts.reset} />
-              <span className="text-xs text-muted-foreground">
-                Drops a marker on the timeline so you can find the moment later. Saved clips and
-                screenshots are marked automatically.
-              </span>
-            </div>
-          )}
-          <Field label="Storage limit">
-            <div className="flex flex-wrap gap-1.5">
-              {DISK_OPTIONS.map((g) => (
-                <Button
-                  key={g}
-                  size="sm"
-                  variant={settings.maxDiskGB === g ? "default" : "outline"}
-                  disabled={busy}
-                  onClick={() => void update({ maxDiskGB: g })}
-                >
-                  {g} GB
-                </Button>
-              ))}
-            </div>
+          <Field
+            label={
+              <>
+                Storage limit
+                <InfoTip>
+                  {settings.mode === "background"
+                    ? "When full, the oldest background footage is deleted first. Manual and kept recordings are never deleted automatically."
+                    : "Manual recordings are never deleted automatically. Delete old ones from the Library's Recordings tab."}
+                </InfoTip>
+              </>
+            }
+          >
+            <Chips
+              options={DISK_OPTIONS}
+              value={settings.maxDiskGB}
+              format={(g) => `${g} GB`}
+              disabled={busy}
+              onPick={(g) => void update({ maxDiskGB: g })}
+            />
           </Field>
           {recorder && (
             <div className="flex flex-col gap-1">
-              <div className="h-1.5 w-full overflow-hidden bg-muted">
+              <div className="h-1 w-full overflow-hidden bg-muted">
                 <div
-                  className={cn(
-                    "h-full",
-                    recorder.diskBytes > recorder.maxBytes * 0.9 ? "bg-destructive" : "bg-primary",
-                  )}
+                  className={cn("h-full", recorder.diskBytes > recorder.maxBytes * 0.9 ? "bg-destructive" : "bg-primary")}
                   style={{ width: `${Math.min(100, (recorder.diskBytes / Math.max(1, recorder.maxBytes)) * 100)}%` }}
                 />
               </div>
               <span className="text-xs text-muted-foreground">
-                Recordings use {formatGB(recorder.diskBytes)} of {settings.maxDiskGB} GB.{" "}
-                {settings.mode === "background"
-                  ? "The oldest background footage is deleted first; manual and kept recordings never are."
-                  : "Manual recordings are never deleted automatically."}{" "}
-                About {Math.round((settings.maxDiskGB * 8000) / Math.max(1, mbps) / 60)} minutes fit at{" "}
-                {mbps} Mbps.
+                {formatGB(recorder.diskBytes)} used · fits about{" "}
+                {formatHours((settings.maxDiskGB * 8000) / Math.max(1, recMbps) / 3600)} · Toru always leaves
+                10 GB free on the drive
               </span>
             </div>
           )}
-          <div
-            className="truncate border border-border bg-background/40 px-2 py-1.5 font-mono text-[11px] text-muted-foreground"
-            title={recordingsDir}
-          >
-            {recordingsDir || "—"}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="secondary" onClick={() => void pickRecordingsDir()}>
-              <FolderOpen /> Change…
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={!settings.recordingsDir}
-              onClick={() => void ReplayService.ResetRecordingsDir().then(refreshRecorder)}
-            >
-              Reset default
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => void ReplayService.OpenRecordingsDir()}>
-              Open folder
-            </Button>
-          </div>
+          <FolderRow
+            label="Recordings folder"
+            path={recordingsDir}
+            onChange={() => void pickRecordingsDir()}
+            onReset={settings.recordingsDir ? () => void ReplayService.ResetRecordingsDir().then(refreshRecorder) : undefined}
+            onOpen={() => void ReplayService.OpenRecordingsDir()}
+          />
           <ToggleRow
             label="Notify when recording starts and stops"
-            hint="A small corner message that never takes focus from your game."
+            info="A small corner message that never takes focus from your game."
             checked={settings.recordingNotices}
             disabled={busy}
             onChange={(v) => void update({ recordingNotices: v })}
           />
-        </Section>
+        </Collapsible>
       )}
 
-      <Section
-        title={settings.mode === "replay" ? "Clip length" : "Instant clip length"}
-        hint={
-          settings.mode === "replay"
-            ? "How much the hotkey saves"
-            : "The save hotkey still works while recording: it saves this much as a clip"
-        }
+      <Collapsible
+        id="video"
+        title="Video"
+        summary={`${monitorLabel} · ${RESOLUTIONS.find((r) => r.value === settings.height)?.label.replace(" (recommended)", "") ?? "Native"} · ${settings.fps} fps · ${mbps} Mbps · ${codec.label}`}
       >
-        <div className="flex flex-wrap gap-1.5">
-          {DURATIONS.map((d) => (
-            <Button
-              key={d}
-              size="sm"
-              variant={settings.durationSec === d ? "default" : "outline"}
-              disabled={busy}
-              onClick={() => void update({ durationSec: d })}
-            >
-              {formatLength(d)}
-            </Button>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Capture">
-        <Field label="Screen">
-          <select
-            className={selectClass}
-            value={settings.monitorId}
-            disabled={busy}
-            onChange={(e) => void update({ monitorId: Number(e.target.value) })}
-          >
-            <option value={-1} className={optionClass}>
-              Primary display
-            </option>
-            {monitors.map((m) => (
-              <option key={m.id} value={m.id} className={optionClass}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <ToggleRow
-          label="Show mouse cursor"
-          checked={settings.includeCursor}
-          disabled={busy}
-          onChange={(v) => void update({ includeCursor: v })}
-        />
-      </Section>
-
-      <Section title="Quality">
+        {session && settings.recordingQuality !== "custom" ? (
+          <p className="text-xs text-muted-foreground">
+            Recording uses {QUALITY.find((q) => q.value === settings.recordingQuality)?.label} quality (60 fps,{" "}
+            {recMbps} Mbps). Frame rate and bitrate below apply in Instant replay mode or with Custom quality.
+          </p>
+        ) : null}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Resolution">
+          <Field label="Screen">
             <select
               className={selectClass}
-              value={settings.height}
+              value={settings.monitorId}
               disabled={busy}
-              onChange={(e) => void update({ height: Number(e.target.value) })}
+              onChange={(e) => void update({ monitorId: Number(e.target.value) })}
             >
-              {RESOLUTIONS.map((r) => (
-                <option key={r.value} value={r.value} className={optionClass}>
-                  {r.label}
+              <option value={-1} className={optionClass}>
+                Primary display
+              </option>
+              {monitors.map((m) => (
+                <option key={m.id} value={m.id} className={optionClass}>
+                  {m.label}
                 </option>
               ))}
             </select>
@@ -635,13 +665,39 @@ export function ReplayPanel() {
               ))}
             </select>
           </Field>
+          <Field
+            label={
+              <>
+                Resolution
+                <InfoTip>
+                  Native is captured and encoded entirely on your graphics card. Lower resolutions are
+                  resized on the CPU (about one core). For smaller files, lower the bitrate instead.
+                </InfoTip>
+              </>
+            }
+          >
+            <select
+              className={selectClass}
+              value={settings.height}
+              disabled={busy}
+              onChange={(e) => void update({ height: Number(e.target.value) })}
+            >
+              {RESOLUTIONS.map((r) => (
+                <option key={r.value} value={r.value} className={optionClass}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="flex items-end pb-1">
+            <ToggleRow
+              label="Show mouse cursor"
+              checked={settings.includeCursor}
+              disabled={busy}
+              onChange={(v) => void update({ includeCursor: v })}
+            />
+          </div>
         </div>
-        {settings.height !== 0 && (
-          <p className="text-xs text-muted-foreground">
-            Resizing happens on the CPU (about one core). Native stays entirely on the GPU — for
-            smaller files, lower the bitrate instead.
-          </p>
-        )}
 
         <Field label={`Bitrate · ${mbps} Mbps`}>
           <input
@@ -656,70 +712,67 @@ export function ReplayPanel() {
             aria-label="Video bitrate in megabits per second"
           />
           <span className="text-xs text-muted-foreground">
-            A {formatLength(settings.durationSec)} clip is about{" "}
-            {formatMB(clipMB(mbps, settings.durationSec))}
+            A {formatLength(settings.durationSec)} clip ≈ {formatMB(clipMB(mbps, settings.durationSec))}
           </span>
         </Field>
 
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-muted-foreground">
-            Encoder — all three run on your graphics card's video chip, so none of them
-            costs game performance. They differ in file size and where clips play.
-          </span>
-          <div role="radiogroup" aria-label="Encoder" className="grid gap-2 sm:grid-cols-3">
-            {CODECS.map((c) => {
-              const unsupported =
-                (encoders !== null && encoders[c.value] === false) ||
-                (c.value === "av1" && settings.mode !== "replay");
+        <Field
+          label={
+            <>
+              Encoder
+              <InfoTip>
+                All three run on your graphics card's video chip, so none of them costs game
+                performance. They differ in file size and where clips play.
+              </InfoTip>
+            </>
+          }
+        >
+          <div role="radiogroup" aria-label="Encoder" className="grid grid-cols-3 border border-border">
+            {CODECS.map((c, i) => {
+              const noGPU = encoders !== null && encoders[c.value] === false;
+              const noSession = c.value === "av1" && session;
               const selected = settings.codec === c.value;
+              const why = noGPU
+                ? "Your graphics card can't encode this."
+                : noSession
+                  ? "Not available for background or manual recording."
+                  : `${c.plays}. ${c.size}.`;
               return (
-                <button
-                  key={c.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  disabled={busy || unsupported}
-                  onClick={() => void update({ codec: c.value })}
-                  className={cn(
-                    "flex flex-col gap-1.5 border p-3 text-left transition-colors",
-                    "disabled:cursor-not-allowed disabled:opacity-50",
-                    selected
-                      ? "border-primary bg-primary/10"
-                      : "border-border hover:border-primary/60",
-                  )}
-                >
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-sm font-medium">{c.label}</span>
-                    {c.tag && (
-                      <span className="bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                        {c.tag}
-                      </span>
+                <Tooltip key={c.value} content={why} side="bottom" className="max-w-[18rem]">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={busy || noGPU || noSession}
+                    onClick={() => void update({ codec: c.value })}
+                    className={cn(
+                      "w-full px-2 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                      i > 0 && "border-l border-border",
+                      selected ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
                     )}
-                  </span>
-                  <span className="text-xs">{c.summary}</span>
-                  <span className="text-xs text-muted-foreground">{c.plays}</span>
-                  <span className="text-xs text-muted-foreground">{c.size}</span>
-                  {unsupported && (
-                    <span className="text-xs text-destructive">Your graphics card can't encode this</span>
-                  )}
-                </button>
+                  >
+                    {c.label}
+                  </button>
+                </Tooltip>
               );
             })}
           </div>
           <span className="text-xs text-muted-foreground">
-            Not sure? Keep H.264 if you post clips to Discord. Pick AV1 to save disk space.
+            {codec.summary}
+            {codec.tag ? ` ${codec.tag}.` : ""}
           </span>
-        </div>
-      </Section>
+        </Field>
+      </Collapsible>
 
-      <Section
+      <Collapsible
+        id="audio"
         title="Audio"
-        hint="Choose what ends up in your clips. Each source has its own volume."
+        summary={`${audioParts.length ? audioParts.join(", ") : "No audio"} · ${settings.audioBitrateKbps} kbps${settings.separateTracks ? " · separate tracks" : ""}`}
       >
         <AudioSourceRow
           icon={<Volume2 />}
           label="Game & desktop"
-          hint="Your game, music, browser: everything you hear except Discord"
+          hint="Everything you hear except Discord"
           checked={settings.desktopAudio}
           volume={volumeDrafts.desktopVolume ?? settings.desktopVolume}
           disabled={busy}
@@ -729,11 +782,7 @@ export function ReplayPanel() {
         <AudioSourceRow
           icon={<Headphones />}
           label="Discord voice chat"
-          hint={
-            discordRunning
-              ? "Your friends in the call, plus Discord's sounds"
-              : "Discord isn't running. It's picked up automatically when it starts"
-          }
+          hint={discordRunning ? "Your call and Discord's sounds" : "Picked up when Discord starts"}
           checked={settings.discordAudio}
           volume={volumeDrafts.discordVolume ?? settings.discordVolume}
           disabled={busy}
@@ -743,11 +792,7 @@ export function ReplayPanel() {
         <AudioSourceRow
           icon={<Mic />}
           label="Your microphone"
-          hint={
-            mics.length === 0
-              ? "No microphone found"
-              : "Your own voice. Turn it off to keep yourself out of clips"
-          }
+          hint={mics.length === 0 ? "No microphone found" : "Turn off to keep your voice out"}
           checked={settings.micDevice !== ""}
           volume={volumeDrafts.micVolume ?? settings.micVolume}
           disabled={busy || mics.length === 0}
@@ -775,85 +820,219 @@ export function ReplayPanel() {
             </select>
           )}
         </AudioSourceRow>
-
-        <ToggleRow
-          label="Separate audio tracks"
-          hint="Also saves game, Discord and mic as their own tracks, so you can mute or level each one later in an editor like Premiere or DaVinci Resolve. Players still play the full mix."
-          checked={settings.separateTracks}
-          disabled={busy}
-          onChange={(v) => void update({ separateTracks: v })}
-        />
-        <Field label="Audio quality">
-          <select
-            className={selectClass}
-            value={settings.audioBitrateKbps}
+        <div className="grid grid-cols-2 items-end gap-3">
+          <ToggleRow
+            label="Separate tracks"
+            info="Also saves game, Discord and mic as their own tracks, so you can mute or level each one later in a video editor. Players still play the full mix."
+            checked={settings.separateTracks}
             disabled={busy}
-            onChange={(e) => void update({ audioBitrateKbps: Number(e.target.value) })}
-          >
-            {AUDIO_QUALITY.map((q) => (
-              <option key={q.value} value={q.value} className={optionClass}>
-                {q.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <span className="text-xs text-muted-foreground">
-          Changing audio settings restarts the buffer, so anything recorded before the change is
-          cleared.
-        </span>
-      </Section>
+            onChange={(v) => void update({ separateTracks: v })}
+          />
+          <Field label="Quality">
+            <select
+              className={selectClass}
+              value={settings.audioBitrateKbps}
+              disabled={busy}
+              onChange={(e) => void update({ audioBitrateKbps: Number(e.target.value) })}
+            >
+              {AUDIO_QUALITY.map((q) => (
+                <option key={q.value} value={q.value} className={optionClass}>
+                  {q.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Audio changes restart recording, so what was buffered before is cleared.
+        </p>
+      </Collapsible>
 
-      <Section title="Saving">
-        <div
-          className="truncate border border-border bg-background/40 px-2 py-1.5 font-mono text-[11px] text-muted-foreground"
-          title={saveDir || "—"}
-        >
-          {saveDir || "—"}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="secondary" onClick={() => void pickDir()}>
-            <FolderOpen /> Change…
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!settings.saveDir}
-            onClick={() => void resetDir()}
-          >
-            Reset default
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => void ReplayService.OpenSaveDir()}>
-            Open folder
-          </Button>
-        </div>
+      <Collapsible
+        id="saving"
+        title="Saving clips"
+        summary={[
+          saveDir.split(/[\\/]/).slice(-2).join("\\"),
+          settings.gameFolders && "game folders",
+          settings.soundOnSave && "sound",
+          settings.toastOnSave && "message",
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      >
+        <FolderRow
+          label="Clips folder"
+          path={saveDir}
+          onChange={() => void pickDir()}
+          onReset={settings.saveDir ? () => void resetDir() : undefined}
+          onOpen={() => void ReplayService.OpenSaveDir()}
+        />
         <ToggleRow
-          label="Sort clips into game folders"
-          hint="Each clip goes into a folder named after the game you're playing when you press the hotkey (fullscreen games, and anything from Steam, Epic, Xbox, Riot, GOG, EA or Ubisoft). Everything else goes into Desktop."
+          label="Sort into game folders"
+          info="Each clip goes into a folder named after the game you were playing (fullscreen games, and anything installed from Steam, Epic, Xbox, Riot, GOG, EA or Ubisoft). Everything else goes into Desktop."
           checked={settings.gameFolders}
           disabled={busy}
           onChange={(v) => void update({ gameFolders: v })}
         />
         <ToggleRow
-          label="Show a message when a clip is saved"
-          hint="A small note in the top-right corner. It never takes focus from your game. Exclusive-fullscreen games hide it, so keep the sound on too."
-          checked={settings.toastOnSave}
-          disabled={busy}
-          onChange={(v) => void update({ toastOnSave: v })}
-        />
-        <ToggleRow
-          label="Play a sound when a clip is saved"
+          label="Play a sound when saved"
           checked={settings.soundOnSave}
           disabled={busy}
           onChange={(v) => void update({ soundOnSave: v })}
         />
-      </Section>
+        <ToggleRow
+          label="Show a message when saved"
+          info="A small note in the top-right corner that never takes focus from your game. Exclusive-fullscreen games hide it, so keep the sound on too."
+          checked={settings.toastOnSave}
+          disabled={busy}
+          onChange={(v) => void update({ toastOnSave: v })}
+        />
+      </Collapsible>
+    </div>
+  );
+}
 
-      <p className="border-t border-border pt-4 text-xs text-muted-foreground">
-        Built for gaming: the screen is captured and encoded by your GPU's dedicated video engine,
-        so frames never touch the CPU at native resolution. While on, it uses about{" "}
-        {formatMB(clipMB(mbps, settings.durationSec + 6))} of temporary disk space, cleared when
-        you turn it off.
-      </p>
+// Collapsible is a settings section that shows a one-line summary of its
+// current values while closed. Open/closed is remembered per viewer.
+function Collapsible({
+  id,
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  id: string;
+  title: string;
+  summary?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const key = `toru.settings.open.${id}`;
+  const [open, setOpen] = useState(() => {
+    try {
+      const v = window.localStorage.getItem(key);
+      return v === null ? defaultOpen : v === "1";
+    } catch {
+      return defaultOpen;
+    }
+  });
+  const toggle = () => {
+    setOpen((o) => {
+      try {
+        window.localStorage.setItem(key, o ? "0" : "1");
+      } catch {
+        // per-viewer convenience only
+      }
+      return !o;
+    });
+  };
+  return (
+    <div className="frost flex flex-col">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        className="flex items-center gap-2 px-4 py-3 text-left hover:bg-accent/40"
+      >
+        <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
+        <span className="shrink-0 text-sm font-medium">{title}</span>
+        {summary && !open ? (
+          <span className="ml-auto min-w-0 truncate text-xs text-muted-foreground" title={summary}>
+            {summary}
+          </span>
+        ) : null}
+      </button>
+      {open ? <div className="flex flex-col gap-4 border-t border-border px-4 pb-4 pt-3">{children}</div> : null}
+    </div>
+  );
+}
+
+// InfoTip is a small ⓘ that explains a setting on hover/focus, keeping the
+// layout to one short line per option.
+function InfoTip({ children }: { children: React.ReactNode }) {
+  return (
+    <Tooltip content={children} side="bottom" className="max-w-[18rem] text-left font-normal">
+      <button
+        type="button"
+        tabIndex={0}
+        aria-label="More info"
+        className="inline-flex text-muted-foreground/70 hover:text-foreground"
+        onClick={(e) => e.preventDefault()}
+      >
+        <Info className="size-3.5" />
+      </button>
+    </Tooltip>
+  );
+}
+
+// Chips is a row of exclusive choice buttons.
+function Chips<T extends number>({
+  options,
+  value,
+  format,
+  disabled,
+  onPick,
+}: {
+  options: T[];
+  value: T;
+  format: (v: T) => string;
+  disabled?: boolean;
+  onPick: (v: T) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {options.map((o) => (
+        <Button
+          key={o}
+          size="sm"
+          variant={value === o ? "default" : "outline"}
+          disabled={disabled}
+          onClick={() => onPick(o)}
+          className="h-7 px-2.5 text-xs"
+        >
+          {format(o)}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+// FolderRow shows a folder path with change / reset / open actions.
+function FolderRow({
+  label,
+  path,
+  onChange,
+  onReset,
+  onOpen,
+}: {
+  label: string;
+  path: string;
+  onChange: () => void;
+  onReset?: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-1">
+        <div
+          className="min-w-0 flex-1 truncate border border-border bg-background/40 px-2 py-1.5 font-mono text-[11px] text-muted-foreground"
+          title={path || "—"}
+        >
+          {path || "—"}
+        </div>
+        <Button size="sm" variant="secondary" className="h-7" onClick={onChange}>
+          Change…
+        </Button>
+        {onReset ? (
+          <Button size="sm" variant="ghost" className="h-7" onClick={onReset} title="Back to the default folder">
+            Reset
+          </Button>
+        ) : null}
+        <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onOpen} title="Open in Explorer">
+          <FolderOpen />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -947,32 +1126,12 @@ function StatusLine({
   );
 }
 
-function Section({
-  title,
-  hint,
-  children,
-}: {
-  title: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-3 border-t border-border pt-4">
-      <div className="flex flex-col">
-        <span className="text-sm font-medium">{title}</span>
-        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
-      </div>
+    <div className="flex flex-col gap-1.5">
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">{label}</span>
       {children}
     </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      {children}
-    </label>
   );
 }
 
@@ -1000,7 +1159,7 @@ function AudioSourceRow({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 border p-3 transition-colors",
+        "flex flex-col gap-2 border px-3 py-2.5 transition-colors",
         checked ? "border-border" : "border-border/50",
       )}
     >
@@ -1049,20 +1208,25 @@ function AudioSourceRow({
 function ToggleRow({
   label,
   hint,
+  info,
   checked,
   disabled,
   onChange,
 }: {
   label: string;
   hint?: string;
+  info?: React.ReactNode;
   checked: boolean;
   disabled?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex flex-col">
-        <span className="text-sm">{label}</span>
+    <div className="flex w-full items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-col">
+        <span className="flex items-center gap-1.5 text-sm">
+          {label}
+          {info ? <InfoTip>{info}</InfoTip> : null}
+        </span>
         {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
       </div>
       <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} aria-label={label} />

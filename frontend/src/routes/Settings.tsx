@@ -988,7 +988,27 @@ function formatWhen(iso: string | Date): string {
 // Settings panel
 // ---------------------------------------------------------------------------
 
+type SettingsTab = "general" | "recording" | "shortcuts" | "about";
+const SETTINGS_TAB_KEY = "toru.settings.tab";
+
 function SettingsPage() {
+  const [tab, setTabState] = useState<SettingsTab>(() => {
+    try {
+      const v = window.localStorage.getItem(SETTINGS_TAB_KEY);
+      if (v === "general" || v === "recording" || v === "shortcuts" || v === "about") return v;
+    } catch {
+      // default tab
+    }
+    return "general";
+  });
+  const setTab = (t: SettingsTab) => {
+    setTabState(t);
+    try {
+      window.localStorage.setItem(SETTINGS_TAB_KEY, t);
+    } catch {
+      // per-viewer convenience only
+    }
+  };
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [launchBusy, setLaunchBusy] = useState(false);
   const [freezeOnCapture, setFreezeOnCapture] = useState(true);
@@ -1109,15 +1129,42 @@ function SettingsPage() {
     }
   };
 
+  const tabs: { id: SettingsTab; label: string }[] = [
+    { id: "general", label: "General" },
+    { id: "recording", label: "Recording" },
+    { id: "shortcuts", label: "Shortcuts" },
+    { id: "about", label: "About" },
+  ];
+
   return (
-    <div className="mx-auto flex max-w-lg flex-col gap-6">
-      <div>
+    <div className="mx-auto flex max-w-2xl flex-col gap-5">
+      <div className="flex flex-col gap-3">
         <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Preferences, shortcuts, and updates
-        </p>
+        <div role="tablist" aria-label="Settings sections" className="flex gap-1 border-b border-border">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => setTab(t.id)}
+              className={cn(
+                "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+                tab === t.id
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
+      {tab === "recording" ? <ReplayPanel /> : null}
+      {tab === "shortcuts" ? <Shortcuts includeAll /> : null}
+      {tab === "about" ? <Updater /> : null}
+      {tab === "general" ? (
       <div className="frost flex flex-col gap-4 p-5">
         <div className="flex items-center justify-between gap-3">
           <div className="flex flex-col">
@@ -1220,10 +1267,7 @@ function SettingsPage() {
           </div>
         </div>
       </div>
-
-      <ReplayPanel />
-      <Shortcuts />
-      <Updater />
+      ) : null}
     </div>
   );
 }

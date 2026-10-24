@@ -164,13 +164,15 @@ export function ShortcutRow({
 
 // Shortcuts — frosted panel listing the configurable global shortcuts. Sharp
 // corners, dark, lucide + shadcn Button. Reads/writes only via @/lib/api.
-export function Shortcuts() {
+export function Shortcuts({ includeAll = false }: { includeAll?: boolean }) {
   const all = useShortcuts();
   const { loading, save, reset } = all;
-  const shortcuts = all.shortcuts.filter((sc) => !PANEL_OWNED_ACTIONS.has(sc.action));
+  // The recording hotkeys also live in the Recording settings; the Shortcuts
+  // tab shows everything in one place.
+  const shortcuts = includeAll ? all.shortcuts : all.shortcuts.filter((sc) => !PANEL_OWNED_ACTIONS.has(sc.action));
 
   return (
-    <div className="frost flex w-full flex-col gap-3 p-4" style={{ maxWidth: 420 }}>
+    <div className="frost flex w-full flex-col gap-3 p-4">
       <div className="flex items-center gap-2">
         <Keyboard className="size-4" />
         <span className="text-sm font-medium">Shortcuts</span>
