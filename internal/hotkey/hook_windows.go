@@ -28,6 +28,8 @@ var (
 	procGetMessageW         = user32.NewProc("GetMessageW")
 	procPostThreadMessageW  = user32.NewProc("PostThreadMessageW")
 	procGetAsyncKeyState    = user32.NewProc("GetAsyncKeyState")
+	procRegisterHotKey      = user32.NewProc("RegisterHotKey")
+	procUnregisterHotKey    = user32.NewProc("UnregisterHotKey")
 
 	procGetCurrentThreadId = kernel32.NewProc("GetCurrentThreadId")
 
@@ -171,14 +173,149 @@ func (m *Manager) installHook() {
 		// Pump. An LL-hook thread only needs to keep pumping; the OS delivers the
 		// callback directly, so no TranslateMessage/DispatchMessage is needed.
 		// GetMessageW returns BOOL: 0 == WM_QUIT, -1 == error; break on <= 0.
+		m.applySystemHotkeys()
+
 		var mm msg
 		for {
 			r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&mm)), 0, 0, 0)
 			if int32(r) <= 0 {
 				break
 			}
+			switch mm.Message {
+			case wmHotkey:
+				m.fireSystemHotkey(int(mm.WParam))
+			case wmSyncHotkeys:
+				m.applySystemHotkeys()
+			}
 		}
+		m.unregisterSystemHotkeys()
 	}()
+}
+
+// System hotkeys. A low-level keyboard hook in an unelevated process is not
+// called while an elevated window has focus, and many games and anti-cheat
+// launchers run elevated, so a hook-only hotkey silently does nothing in
+// exactly the games people clip. RegisterHotKey works regardless of the
+// focused window's elevation, so actions in systemHotkeyActions are
+// registered with it whenever possible; the hook skips those actions (so they
+// can't fire twice) and remains the fallback when registration fails (combo
+// already owned by another app, e.g. GeForce's Alt+F10). Win+Shift+S stays
+// hook-only: the shell owns it and it must be swallowed.
+//
+// RegisterHotKey binds to the calling thread, so registrations are only ever
+// changed on the hook thread (wmSyncHotkeys), whose message loop also
+// receives WM_HOTKEY.
+var systemHotkeyActions = map[string]bool{"replaySave": true}
+
+const (
+	wmHotkey      = 0x0312 // WM_HOTKEY
+	wmSyncHotkeys = 0x8000 + 0x71
+
+	modAlt, modControl, modShift, modWin, modNoRepeat = 0x1, 0x2, 0x4, 0x8, 0x4000
+)
+
+// System hotkey registrations, touched only on the hook thread.
+var (
+	sysIDs      = map[string]int{} // action -> RegisterHotKey id
+	sysBindings = map[int]Binding{}
+	sysActions  = map[int]string{}
+	sysNextID   = 1
+)
+
+// syncSystemHotkeys asks the hook thread to re-apply registrations after a
+// binding or active state changed. Safe from any goroutine.
+func (m *Manager) syncSystemHotkeys() {
+	m.mu.Lock()
+	tid := m.threadID
+	m.mu.Unlock()
+	if tid != 0 {
+		_, _, _ = procPostThreadMessageW.Call(uintptr(tid), wmSyncHotkeys, 0, 0)
+	}
+}
+
+// applySystemHotkeys registers/unregisters to match the current bindings.
+// Hook thread only.
+func (m *Manager) applySystemHotkeys() {
+	m.mu.Lock()
+	want := map[string]Binding{}
+	for action := range systemHotkeyActions {
+		if b, ok := m.bindings[action]; ok && b.Key != 0 && !m.inactive[action] {
+			want[action] = b
+		}
+	}
+	m.mu.Unlock()
+
+	owned := map[string]bool{}
+	for action, id := range sysIDs {
+		if b, ok := want[action]; ok && b == sysBindings[id] {
+			owned[action] = true
+			continue
+		}
+		_, _, _ = procUnregisterHotKey.Call(0, uintptr(id))
+		delete(sysIDs, action)
+		delete(sysBindings, id)
+		delete(sysActions, id)
+	}
+	for action, b := range want {
+		if owned[action] {
+			continue
+		}
+		id := sysNextID
+		sysNextID++
+		mods := uintptr(modNoRepeat)
+		if b.Alt {
+			mods |= modAlt
+		}
+		if b.Ctrl {
+			mods |= modControl
+		}
+		if b.Shift {
+			mods |= modShift
+		}
+		if b.Win {
+			mods |= modWin
+		}
+		if r, _, _ := procRegisterHotKey.Call(0, uintptr(id), mods, uintptr(triggerVK(b.Key))); r != 0 {
+			sysIDs[action], sysBindings[id], sysActions[id] = id, b, action
+			owned[action] = true
+		}
+	}
+
+	m.mu.Lock()
+	m.sysOwned = owned
+	m.mu.Unlock()
+}
+
+func (m *Manager) unregisterSystemHotkeys() {
+	for _, id := range sysIDs {
+		_, _, _ = procUnregisterHotKey.Call(0, uintptr(id))
+	}
+	clear(sysIDs)
+	clear(sysBindings)
+	clear(sysActions)
+	m.mu.Lock()
+	m.sysOwned = nil
+	m.mu.Unlock()
+}
+
+// fireSystemHotkey dispatches a WM_HOTKEY, unless a shortcut is being
+// recorded (the hook swallows keys then, but it can't see keys aimed at an
+// elevated window).
+func (m *Manager) fireSystemHotkey(id int) {
+	action, ok := sysActions[id]
+	if !ok {
+		return
+	}
+	actMu.Lock()
+	recording := recCh != nil
+	actMu.Unlock()
+	if recording {
+		return
+	}
+	select {
+	case m.sig <- action:
+	default:
+	}
 }
 
 // stopHook unhooks and breaks the GetMessageW pump so the hook thread exits
@@ -372,7 +509,7 @@ func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 			var cands []cand
 			m.mu.Lock()
 			for action, b := range m.bindings {
-				if b.Key == 0 || triggerVK(b.Key) != vk || m.inactive[action] {
+				if b.Key == 0 || triggerVK(b.Key) != vk || m.inactive[action] || m.sysOwned[action] {
 					continue
 				}
 				cands = append(cands, cand{action, b})

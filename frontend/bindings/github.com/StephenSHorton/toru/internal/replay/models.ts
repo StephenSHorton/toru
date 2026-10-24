@@ -134,9 +134,14 @@ export class Settings {
     "gameFolders": boolean;
 
     /**
-     * short system sound when a clip lands
+     * short chime when a clip lands
      */
     "soundOnSave": boolean;
+
+    /**
+     * ToastOnSave shows a small corner message that never takes focus.
+     */
+    "toastOnSave": boolean;
 
     /** Creates a new Settings instance. */
     constructor($$source: Partial<Settings> = {}) {
@@ -196,6 +201,9 @@ export class Settings {
         }
         if (!("soundOnSave" in $$source)) {
             this["soundOnSave"] = false;
+        }
+        if (!("toastOnSave" in $$source)) {
+            this["toastOnSave"] = false;
         }
 
         Object.assign(this, $$source);

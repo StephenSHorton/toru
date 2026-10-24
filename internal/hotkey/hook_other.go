@@ -15,3 +15,5 @@ func (m *Manager) beginRecord() (<-chan recordResult, error) {
 }
 
 func endRecord() {}
+
+func (m *Manager) syncSystemHotkeys() {}

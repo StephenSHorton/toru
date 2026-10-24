@@ -180,9 +180,23 @@ func (s *ReplayService) SaveReplay() (string, error) {
 	if app, ok := foreground(); ok {
 		game = gameFolderFor(app)
 	}
+	what := "Last " + formatClipLength(st.DurationSec)
+	if game != "" {
+		what = game + " · " + what
+	}
+	if st.ToastOnSave {
+		showToast("Saving clip…", what, true)
+	}
 	path, err := s.save(st, game)
 	if st.SoundOnSave {
 		playSaveSound(err == nil)
+	}
+	if st.ToastOnSave {
+		if err != nil {
+			showToast("Couldn't save clip", err.Error(), false)
+		} else {
+			showToast("Clip saved", what, true)
+		}
 	}
 	if err != nil {
 		emit(EventError, err.Error())
@@ -204,6 +218,17 @@ func (s *ReplayService) save(st Settings, game string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+// formatClipLength renders a clip length for the toast: "30s", "1 min", "1:30".
+func formatClipLength(sec int) string {
+	switch {
+	case sec < 60:
+		return fmt.Sprintf("%ds", sec)
+	case sec%60 == 0:
+		return fmt.Sprintf("%d min", sec/60)
+	}
+	return fmt.Sprintf("%d:%02d", sec/60, sec%60)
 }
 
 // clipLocation returns the folder and file-name prefix for a clip.

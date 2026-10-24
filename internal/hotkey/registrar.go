@@ -143,7 +143,10 @@ type Manager struct {
 	labels    map[string]string  // action -> human label (for GetShortcuts)
 	defaults  map[string]Binding // action -> default binding (for ResetShortcut)
 	inactive  map[string]bool    // actions whose combo is currently NOT intercepted
-	order     []string           // action ids in registration order (stable GetShortcuts)
+	// sysOwned are actions currently registered with RegisterHotKey (Windows);
+	// the LL hook leaves their keys alone so the system hotkey fires instead.
+	sysOwned map[string]bool
+	order    []string // action ids in registration order (stable GetShortcuts)
 
 	hook     uintptr // HHOOK (0 off-Windows / not installed)
 	threadID uint32  // hook OS-thread id (for WM_QUIT)
@@ -210,6 +213,7 @@ func (m *Manager) SetBinding(id string, b Binding) {
 	m.mu.Lock()
 	m.bindings[id] = b
 	m.mu.Unlock()
+	m.syncSystemHotkeys()
 }
 
 // SetActive turns interception of id's combo on or off without forgetting the
@@ -223,6 +227,7 @@ func (m *Manager) SetActive(id string, on bool) {
 		m.inactive[id] = true
 	}
 	m.mu.Unlock()
+	m.syncSystemHotkeys()
 }
 
 // Binding returns the current binding for id (ok=false if absent).

@@ -15,3 +15,5 @@ func videosDir() string {
 }
 
 func playSaveSound(bool) {}
+
+func showToast(string, string, bool) {}

@@ -41,7 +41,9 @@ type Settings struct {
 	// GameFolders files each clip under a folder named after the game in
 	// focus (DesktopFolder when none), like ShadowPlay.
 	GameFolders bool `json:"gameFolders"`
-	SoundOnSave bool `json:"soundOnSave"` // short system sound when a clip lands
+	SoundOnSave bool `json:"soundOnSave"` // short chime when a clip lands
+	// ToastOnSave shows a small corner message that never takes focus.
+	ToastOnSave bool `json:"toastOnSave"`
 }
 
 // Option lists the UI offers. Normalize snaps anything else to the nearest
@@ -82,6 +84,7 @@ func DefaultSettings() Settings {
 		MicVolume:        100,
 		AudioBitrateKbps: 160,
 		GameFolders:      true,
+		ToastOnSave:      true,
 		SoundOnSave:      true,
 	}
 }

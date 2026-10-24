@@ -588,6 +588,13 @@ export function ReplayPanel() {
           onChange={(v) => void update({ gameFolders: v })}
         />
         <ToggleRow
+          label="Show a message when a clip is saved"
+          hint="A small note in the top-right corner. It never takes focus from your game. Exclusive-fullscreen games hide it, so keep the sound on too."
+          checked={settings.toastOnSave}
+          disabled={busy}
+          onChange={(v) => void update({ toastOnSave: v })}
+        />
+        <ToggleRow
           label="Play a sound when a clip is saved"
           checked={settings.soundOnSave}
           disabled={busy}

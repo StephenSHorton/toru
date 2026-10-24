@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -92,5 +93,18 @@ func TestUniquePath(t *testing.T) {
 	_ = os.WriteFile(base+".mp4", nil, 0o644)
 	if p := uniquePath(base, ".mp4"); p != base+" (2).mp4" {
 		t.Errorf("second = %s", p)
+	}
+}
+
+func TestSaveSoundsAreValidWAV(t *testing.T) {
+	for name, wav := range map[string][]byte{"saved": savedSound, "failed": failedSound} {
+		if len(wav) < 1000 || string(wav[:4]) != "RIFF" || string(wav[8:16]) != "WAVEfmt " ||
+			string(wav[36:40]) != "data" || int(binary.LittleEndian.Uint32(wav[40:44])) != len(wav)-44 ||
+			binary.LittleEndian.Uint32(wav[24:28]) != 44100 {
+			t.Errorf("%s sound is not a PCM WAV (%d bytes)", name, len(wav))
+		}
+	}
+	if got := formatClipLength(90); got != "1:30" {
+		t.Errorf("formatClipLength(90) = %q", got)
 	}
 }
