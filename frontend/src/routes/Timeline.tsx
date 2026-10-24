@@ -88,6 +88,7 @@ export default function Timeline() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [playError, setPlayError] = useState("");
 
   const refresh = useCallback(() => {
     void ReplayService.GetSession(id)
@@ -116,8 +117,12 @@ export default function Timeline() {
   useEffect(() => {
     const v = vidRef.current;
     if (!v || !playlist) return;
+    setPlayError("");
     if (Hls.isSupported()) {
       const hls = new Hls({ startPosition: 0, maxBufferLength: 20 });
+      hls.on(Hls.Events.ERROR, (_e, data) => {
+        if (data.fatal) setPlayError(data.details || data.type || "playback error");
+      });
       hls.loadSource(playlist);
       hls.attachMedia(v);
       return () => hls.destroy();
@@ -324,7 +329,34 @@ export default function Timeline() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black/40 p-3">
-        {!ready ? (
+        {playError ? (
+          <div className="absolute z-10 flex max-w-md flex-col items-center gap-2 bg-black/80 px-4 py-3 text-center text-xs text-white">
+            <span>This recording can't be played here ({playError}).</span>
+            <span className="text-white/70">You can still save it as a clip and watch or trim it in the editor.</span>
+            <Button
+              size="sm"
+              disabled={busy || !session}
+              onClick={() => {
+                if (session) {
+                  setSel({ a: 0, b: session.durationSec });
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      const path = await ReplayService.CreateClip(id, 0, session.durationSec);
+                      await ReplayService.OpenClip(path);
+                    } catch (e) {
+                      setNote(String(e));
+                    } finally {
+                      setBusy(false);
+                    }
+                  })();
+                }
+              }}
+            >
+              <Scissors /> Save whole recording as a clip
+            </Button>
+          </div>
+        ) : !ready ? (
           <div className="pointer-events-none absolute flex items-center gap-2 bg-black/60 px-3 py-1.5 text-xs text-white">
             <Loader2 className="size-3.5 animate-spin" /> Loading recording…
           </div>
