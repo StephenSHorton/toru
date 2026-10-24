@@ -21,6 +21,7 @@ Press <kbd>⊞</kbd> <kbd>Shift</kbd> <kbd>S</kbd> → pick a **region**, **wind
 - **Record & trim** — optional system / per-app / mic audio; Discord-friendly export
 - **Freeze or live** overlay while selecting
 - **Tray recents**, auto-copy on capture, auto-update from Releases
+- **Hato** — send any file or capture peer-to-peer with a short spoken code; receiver uses Toru or `wormhole receive`
 
 ## Download
 
@@ -40,9 +41,10 @@ Grab the latest from **[Releases](https://github.com/StephenSHorton/toru/release
 | Editor | react-konva |
 | Stills | DXGI (`kbinani/screenshot`) |
 | Video | FFmpeg (`ddagrab` / gdigrab) |
+| Transfer | magic-wormhole (`wormhole-william`) |
 | Package manager | **bun** |
 
-Design notes: [`docs/PLAN.md`](docs/PLAN.md). Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Design notes: [`docs/PLAN.md`](docs/PLAN.md). Hato (file transfer): [`docs/hato.md`](docs/hato.md). Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Develop
 

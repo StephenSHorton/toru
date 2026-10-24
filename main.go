@@ -20,6 +20,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/dpi"
 	"github.com/StephenSHorton/toru/internal/export"
+	"github.com/StephenSHorton/toru/internal/hato"
 	"github.com/StephenSHorton/toru/internal/history"
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/StephenSHorton/toru/internal/overlay"
@@ -68,6 +69,10 @@ func init() {
 	// a single rect across the seam.
 	application.RegisterEvent[capture.Rect](overlay.EventOverlayCropRect)
 	application.RegisterEvent[overlay.OverlayUi](overlay.EventOverlayUi)
+	// Hato (peer-to-peer file transfer) progress: one event per transfer slot.
+	// hato:open carries no payload and is deliberately NOT registered.
+	application.RegisterEvent[hato.SendState](hato.EventSend)
+	application.RegisterEvent[hato.ReceiveState](hato.EventReceive)
 }
 
 func main() {
@@ -122,6 +127,10 @@ func main() {
 	// Wails' AutostartManager; app is injected after application.New below.
 	settingsSvc := &SettingsService{}
 
+	// Hato: send/receive files peer-to-peer with a short code (magic-wormhole,
+	// in-process). The app is injected after application.New like the others.
+	hatoSvc := hato.NewService()
+
 	// Global hotkeys. The Manager owns a low-level keyboard hook (WH_KEYBOARD_LL)
 	// so it can capture AND swallow Win-key combos — the default is Win+Shift+S,
 	// which RegisterHotKey can't claim from the Snipping Tool. HotkeyService
@@ -150,6 +159,7 @@ func main() {
 			application.NewService(histSvc),
 			application.NewService(replaySvc),
 			application.NewService(uploadSvc),
+			application.NewService(hatoSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -191,6 +201,8 @@ func main() {
 	replaySvc.SetClipOpener(windowsSvc.OpenClipEditor)
 	replaySvc.SetSessionOpener(windowsSvc.OpenTimeline)
 	histSvc.SetOpeners(windowsSvc.OpenLibraryEditor, windowsSvc.OpenTrim)
+	hatoSvc.SetApp(app)       // hato:send / hato:receive emits
+	windowsSvc.hato = hatoSvc // file drops on the hub window start a send
 	// Suspend alt-tab-cancels while a native Save dialog is up (dialog steals
 	// focus but the user is still mid-edit).
 	exportSvc.SetBeforeDialog(func() (restore func()) {
@@ -307,6 +319,7 @@ func main() {
 			openOverlay: windowsSvc.OpenOverlay,
 			replay:      replaySvc,
 			keys:        keys,
+			openHato:    windowsSvc.OpenHato,
 		}
 		tray.rebuildMenu()                                         // initial menu (includes any persisted recents)
 		systray.OnClick(func() { windowsSvc.OpenSettings() })      // left-click = open home (menu-bar feel)
@@ -344,9 +357,14 @@ func main() {
 
 	// Best-effort: close the reused overlay windows on app shutdown. Process exit
 	// frees everything regardless, so this is purely cosmetic belt-and-suspenders.
+	// Hato is cancelled here too (with a short bounded wait) to give an in-flight
+	// receive a chance to delete its .part file; a receive parked on a stalled
+	// sender can still leave one behind, since the library only notices the
+	// cancel at its next read.
 	app.OnShutdown(func() {
 		overlaySvc.Teardown()
 		replaySvc.Shutdown() // stop ffmpeg + delete the rolling segments
+		hatoSvc.Shutdown()
 	})
 
 	if err := app.Run(); err != nil {
