@@ -23,7 +23,7 @@ import { useClipboardPaste } from "@/editor/useClipboardPaste";
 import { TextEditingOverlay } from "@/editor/tools/text";
 import { CropOverlay } from "@/editor/tools/crop";
 import { setStageSize } from "@/editor/viewStore";
-import { finishAndArchive } from "@/editor/exportActions";
+import { finishAndClose } from "@/editor/exportActions";
 import { WindowsService } from "@/lib/api";
 
 /** Padding between window edge ↔ capture, capture ↔ toolbar, toolbar ↔ edge. */
@@ -45,6 +45,8 @@ export default function Editor() {
   // no longer copies before the editor opens, so this stays off unless a
   // caller still sets the query flag.
   const flashCopied = params.get("copied") === "1";
+  // Set when re-opened from the library: finishing updates that item.
+  const libraryId = params.get("lib") ?? undefined;
   const [src] = useState(imgPath || "/sample.png");
   const [stageBox, setStageBox] = useState({ w: STAGE_W, h: STAGE_H });
   const [ready, setReady] = useState(false);
@@ -58,13 +60,10 @@ export default function Editor() {
   }, []);
 
   // Empty-selection Esc: same finish as Done (copy-on-Done + library), then close.
-  const finish = useCallback(async () => {
-    const stage = stageRef.current;
-    if (stage) {
-      await finishAndArchive(stage);
-    }
-    await dismiss();
-  }, [dismiss]);
+  const finish = useCallback(
+    () => finishAndClose(stageRef.current, dismiss, { libraryId }),
+    [dismiss, libraryId],
+  );
 
   useEditorKeyboard(true, () => void finish());
   useClipboardPaste();
@@ -162,6 +161,7 @@ export default function Editor() {
           docked
           barRef={toolbarRef}
           flashCopied={flashCopied}
+          libraryId={libraryId}
           onNewCapture={() => void WindowsService.OpenOverlay()}
           onDone={dismiss}
         />

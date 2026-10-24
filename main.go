@@ -12,8 +12,10 @@ package main
 import (
 	"embed"
 	"log"
+	"net/http"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/dpi"
@@ -21,9 +23,11 @@ import (
 	"github.com/StephenSHorton/toru/internal/history"
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/StephenSHorton/toru/internal/overlay"
+	"github.com/StephenSHorton/toru/internal/replay"
 	"github.com/StephenSHorton/toru/internal/share"
 	"github.com/StephenSHorton/toru/internal/shot"
 	"github.com/StephenSHorton/toru/internal/update"
+	"github.com/StephenSHorton/toru/internal/upload"
 	"github.com/StephenSHorton/toru/internal/vid"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -96,9 +100,19 @@ func main() {
 	// Recent-captures store for the tray menu + dashboard Library. onChange is
 	// wired after the tray controller exists so the first Add doesn't fire a nil rebuild.
 	var tray *trayController
-	hist := history.New(func() {
+	var replaySvc *replay.ReplayService
+	var hist *history.Store
+	lastHistTop := ""
+	hist = history.New(func() {
 		if tray != nil {
 			tray.rebuildMenu()
+		}
+		// A new screenshot drops a marker on the session recording's timeline.
+		if items := hist.List(); len(items) > 0 && items[0].ID != lastHistTop {
+			lastHistTop = items[0].ID
+			if replaySvc != nil && items[0].Kind == history.KindImage && time.Since(items[0].TakenAt) < 5*time.Second {
+				replaySvc.NoteScreenshot()
+			}
 		}
 	})
 	overlaySvc.SetHistory(hist)
@@ -115,6 +129,12 @@ func main() {
 	keys := hotkey.New()
 	hotkeySvc := hotkey.NewService(keys)
 
+	// Instant replay: an opt-in background buffer (GPU capture -> hardware
+	// encoder -> rolling segments on disk) whose hotkey saves the last N
+	// seconds. Nothing runs until the user enables it in Settings.
+	replaySvc = replay.NewService()
+	uploadSvc := upload.New()
+
 	app := application.New(application.Options{
 		Name:        "Toru",
 		Description: "macOS-style screenshot & screen recording for Windows",
@@ -128,10 +148,15 @@ func main() {
 			application.NewService(hotkeySvc),
 			application.NewService(settingsSvc),
 			application.NewService(histSvc),
+			application.NewService(replaySvc),
+			application.NewService(uploadSvc),
 		},
 		Assets: application.AssetOptions{
-			Handler:    application.AssetFileServerFS(assets),
-			Middleware: overlaySvc.ShotMiddleware(),
+			Handler: application.AssetFileServerFS(assets),
+			// Overlay backdrops + served captures, then instant-replay thumbnails.
+			Middleware: func(next http.Handler) http.Handler {
+				return overlaySvc.ShotMiddleware()(replaySvc.ClipMiddleware()(next))
+			},
 		},
 		// Closing every overlay window (Cancel/Esc/commit) drops the live window
 		// count to zero. On Windows that posts WM_QUIT the instant windowMap
@@ -163,7 +188,9 @@ func main() {
 	windowsSvc.overlay = overlaySvc
 	updateSvc.SetApp(app)
 	settingsSvc.app = app // for app.Autostart (launch-at-login)
-	histSvc.SetOpeners(windowsSvc.OpenEditor, windowsSvc.OpenTrim)
+	replaySvc.SetClipOpener(windowsSvc.OpenClipEditor)
+	replaySvc.SetSessionOpener(windowsSvc.OpenTimeline)
+	histSvc.SetOpeners(windowsSvc.OpenLibraryEditor, windowsSvc.OpenTrim)
 	// Suspend alt-tab-cancels while a native Save dialog is up (dialog steals
 	// focus but the user is still mid-edit).
 	exportSvc.SetBeforeDialog(func() (restore func()) {
@@ -220,6 +247,37 @@ func main() {
 	_ = keys.Register("overlay", overlayBinding, windowsSvc.OpenOverlay)
 	defer keys.Close()
 
+	// "Save instant replay" (default Alt+F10). The save waits for the segment in
+	// progress to close (~2s), so it runs off the hotkey dispatch goroutine to
+	// keep other hotkeys responsive. The combo is only intercepted while instant
+	// replay is enabled — otherwise the keys pass through to the game.
+	replayBinding := hotkey.LoadBinding("replaySave", hotkey.DefaultReplaySave)
+	_ = keys.Register("replaySave", replayBinding, func() {
+		go func() { _, _ = replaySvc.SaveReplay() }()
+	})
+	// Steam-style recording: start/stop a manual recording (Ctrl+F11) and
+	// drop a timeline marker (Ctrl+F12). Only intercepted in the modes that
+	// use them.
+	_ = keys.Register("recordToggle", hotkey.LoadBinding("recordToggle", hotkey.DefaultRecordToggle), func() {
+		go func() {
+			_, _ = replaySvc.ToggleRecording()
+			tray.rebuildMenu()
+		}()
+	})
+	_ = keys.Register("timelineMarker", hotkey.LoadBinding("timelineMarker", hotkey.DefaultTimelineMarker), func() {
+		go func() { _ = replaySvc.AddMarker() }()
+	})
+	armRecordingKeys := func(st replay.Settings) {
+		keys.SetActive("replaySave", st.Enabled)
+		keys.SetActive("recordToggle", st.Enabled && st.Mode == replay.ModeManual)
+		keys.SetActive("timelineMarker", st.Enabled && st.Mode != replay.ModeReplay)
+	}
+	armRecordingKeys(replaySvc.GetSettings())
+	replaySvc.SetOnChange(func(st replay.Settings) {
+		armRecordingKeys(st)
+		tray.rebuildMenu()
+	})
+
 	// LAUNCH -> TRAY + SETTINGS. Toru is a tray ("menu-bar style") app: on launch
 	// it installs the system-tray icon and opens the Settings/home window ONCE so
 	// the user can see Toru is running, change the shortcut, and hit Capture. It
@@ -247,6 +305,8 @@ func main() {
 			history:     hist,
 			windows:     windowsSvc,
 			openOverlay: windowsSvc.OpenOverlay,
+			replay:      replaySvc,
+			keys:        keys,
 		}
 		tray.rebuildMenu()                                         // initial menu (includes any persisted recents)
 		systray.OnClick(func() { windowsSvc.OpenSettings() })      // left-click = open home (menu-bar feel)
@@ -276,11 +336,18 @@ func main() {
 		// the new version (project.nsi). Fire-and-forget; errors are logged, not
 		// fatal. dev builds short-circuit (CheckForUpdate returns nil).
 		go updateSvc.AutoUpdate()
+
+		// Start the instant-replay buffer if the user enabled it. Off the main
+		// thread: the hardware-encoder probe takes about a second.
+		go replaySvc.Init()
 	})
 
 	// Best-effort: close the reused overlay windows on app shutdown. Process exit
 	// frees everything regardless, so this is purely cosmetic belt-and-suspenders.
-	app.OnShutdown(func() { overlaySvc.Teardown() })
+	app.OnShutdown(func() {
+		overlaySvc.Teardown()
+		replaySvc.Shutdown() // stop ffmpeg + delete the rolling segments
+	})
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

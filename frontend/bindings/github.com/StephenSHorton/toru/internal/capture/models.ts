@@ -283,6 +283,73 @@ export class Rect {
 }
 
 /**
+ * ReplayStatus is the buffer's live state for the UI.
+ */
+export class ReplayStatus {
+    /**
+     * supervisor active (may be between restarts)
+     */
+    "running": boolean;
+
+    /**
+     * an ffmpeg is currently capturing
+     */
+    "recording": boolean;
+
+    /**
+     * e.g. "h264_nvenc"
+     */
+    "encoder": string;
+
+    /**
+     * frames stay on the GPU end to end
+     */
+    "zeroCopy": boolean;
+
+    /**
+     * seconds currently available to save
+     */
+    "bufferedSec": number;
+
+    /**
+     * last failure, "" when healthy
+     */
+    "error": string;
+
+    /** Creates a new ReplayStatus instance. */
+    constructor($$source: Partial<ReplayStatus> = {}) {
+        if (!("running" in $$source)) {
+            this["running"] = false;
+        }
+        if (!("recording" in $$source)) {
+            this["recording"] = false;
+        }
+        if (!("encoder" in $$source)) {
+            this["encoder"] = "";
+        }
+        if (!("zeroCopy" in $$source)) {
+            this["zeroCopy"] = false;
+        }
+        if (!("bufferedSec" in $$source)) {
+            this["bufferedSec"] = 0;
+        }
+        if (!("error" in $$source)) {
+            this["error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ReplayStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ReplayStatus {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ReplayStatus($$parsedSource as Partial<ReplayStatus>);
+    }
+}
+
+/**
  * ScreenInfo describes one monitor. Overlay.ListScreens() is the SINGLE source
  * of truth for screen enumeration that both halves trust.
  */

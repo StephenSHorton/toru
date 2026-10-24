@@ -12,4 +12,5 @@ var errUnsupported = errors.New("toru/export: clipboard is Windows-only")
 // Windows split (clipboard_windows.go + dialog_windows.go).
 func copyImageToClipboard(string) error   { return errUnsupported }
 func copyFileToClipboard(string) error    { return errUnsupported }
+func copyTextToClipboard(string) error    { return errUnsupported }
 func readClipboardImage() (string, error) { return "", errUnsupported }

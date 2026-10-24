@@ -121,7 +121,8 @@ export function useEditorKeyboard(enabled = true, onEscapeEmpty?: () => void) {
       if (ev.key === 'Escape') {
         // Nothing to clear (no selection, already on select) -> escalate to hide.
         if (!s.selectedId && s.activeTool === 'select') {
-          if (onEscapeEmpty) {
+          // A held Esc auto-repeats; only the first press finishes.
+          if (onEscapeEmpty && !ev.repeat) {
             ev.preventDefault();
             onEscapeEmpty();
           }

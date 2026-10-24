@@ -79,6 +79,16 @@ export function PickDir(): $CancellablePromise<string> {
 }
 
 /**
+ * Replace swaps an existing item's file for srcPath, keeping its place in the
+ * library. The editor calls it on Done when it was opened from the library.
+ */
+export function Replace(id: string, srcPath: string): $CancellablePromise<$models.Item> {
+    return $Call.ByID(4071502561, id, srcPath).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
  * ResetDir restores the built-in default library folder.
  */
 export function ResetDir(): $CancellablePromise<void> {

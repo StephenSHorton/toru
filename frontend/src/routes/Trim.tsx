@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Window } from "@wailsio/runtime";
+import { Browser, Events as WailsEvents, Window } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Dialog } from "@/components/ui/dialog";
@@ -17,8 +17,10 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  Link2,
+  ExternalLink,
 } from "lucide-react";
-import { ExportService, VideoService, TrimRequest } from "@/lib/api";
+import { ExportService, ReplayService, UploadService, VideoService, TrimRequest } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 // DEVELOPER 2 — video trim editor. A player, a timeline with TWO draggable
@@ -35,6 +37,11 @@ export default function Trim() {
 
   const params = new URLSearchParams(window.location.search);
   const [src, setSrc] = useState(params.get("vid") || "/sample.mp4");
+  // Instant-replay clips have a cached thumbnail: show it while the player
+  // spins up its decoder (a 1440p/144fps clip can take a moment).
+  const poster = src.startsWith("/__replayclip/") ? src.replace("/__replayclip/", "/__replaythumb/") : undefined;
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(false), [src]);
   const [absPath, setAbsPath] = useState(params.get("path") ?? "");
 
   // All times in SECONDS. duration=0 means metadata hasn't loaded yet.
@@ -52,6 +59,24 @@ export default function Trim() {
   const [discord, setDiscord] = useState<
     { state: "working" | "done" | "error"; msg: string } | null
   >(null);
+
+  // Share-as-link flow (catbox.moe). "consent" is the one-time explainer that
+  // links are public and permanent; null = dialog closed.
+  const [share, setShare] = useState<
+    | { state: "consent" }
+    | { state: "working"; stage: "prepare" | "compress" | "upload"; pct: number }
+    | { state: "done"; url: string; copied: boolean }
+    | { state: "error"; msg: string }
+    | null
+  >(null);
+  const [existingLink, setExistingLink] = useState("");
+  const [linkFlash, setLinkFlash] = useState(false);
+  useEffect(() => {
+    if (!absPath) return;
+    void UploadService.LinkFor(absPath)
+      .then((u) => setExistingLink(u ?? ""))
+      .catch(() => setExistingLink(""));
+  }, [absPath]);
 
   // Playback volume/mute — preview-only controls (the FILE's audio is
   // untouched; trims and exports keep the recorded track). Volume persists.
@@ -115,11 +140,29 @@ export default function Trim() {
     }
   };
 
+  // "Play from trim start": every play starts at the in point, so you can
+  // keep re-watching the cut while adjusting it. Remembered per viewer.
+  const [fromStart, setFromStart] = useState(() => {
+    try {
+      return window.localStorage.getItem("toru.trim.fromStart") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleFromStart = (on: boolean) => {
+    setFromStart(on);
+    try {
+      window.localStorage.setItem("toru.trim.fromStart", on ? "1" : "0");
+    } catch {
+      // per-viewer convenience only
+    }
+  };
+
   const toggle = () => {
     const v = vidRef.current;
     if (!v) return;
     if (v.paused) {
-      if (v.currentTime >= outSec - 0.01 || v.currentTime < inSec) {
+      if (fromStart || v.currentTime >= outSec - 0.01 || v.currentTime < inSec) {
         v.currentTime = inSec;
       }
       void v.play();
@@ -205,9 +248,11 @@ export default function Trim() {
         }),
       );
       // Swap the player onto the trimmed artifact; metadata reload resets
-      // duration and the in/out selection to the new clip.
+      // duration and the in/out selection to the new clip. Instant-replay
+      // clips are served from the replay folder, everything else via /__file.
+      const clipURL = await ReplayService.ClipURL(out).catch(() => "");
       setAbsPath(out);
-      setSrc("/__file/" + encodeURIComponent(baseName(out)));
+      setSrc(clipURL || "/__file/" + encodeURIComponent(baseName(out)));
       setPlaying(false);
       setCur(0);
       setNote(precise ? "Trimmed (frame-accurate) ✓" : "Trimmed ✓");
@@ -218,15 +263,71 @@ export default function Trim() {
     }
   }, [absPath, busy, duration, inSec, outSec, precise]);
 
+  const SHARE_CONSENT_KEY = "toru.share.consented";
+
+  const startShare = useCallback(async () => {
+    if (!absPath) return;
+    setShare({ state: "working", stage: "prepare", pct: 0 });
+    const off = WailsEvents.On("upload:progress", (ev) => {
+      const raw = Array.isArray(ev.data) ? ev.data[0] : ev.data;
+      const p = raw as { stage?: string; pct?: number } | undefined;
+      if (p?.stage === "compress" || p?.stage === "upload") {
+        setShare({ state: "working", stage: p.stage, pct: p.pct ?? 0 });
+      }
+    });
+    // The whole clip is shared as-is when it fits; a selection is cut out.
+    const whole = inSec <= 0.05 && outSec >= duration - 0.05;
+    try {
+      const url = await UploadService.ShareLink(
+        absPath,
+        whole ? 0 : Math.round(inSec * 1000),
+        whole ? 0 : Math.round(outSec * 1000),
+      );
+      let copied = true;
+      try {
+        await ExportService.CopyText(url);
+      } catch {
+        copied = false;
+      }
+      if (whole) setExistingLink(url);
+      setShare({ state: "done", url, copied });
+    } catch (err) {
+      const msg = String(err).replace(/^Error:\s*/, "");
+      setShare(msg.includes("cancelled") ? null : { state: "error", msg });
+    } finally {
+      off();
+    }
+  }, [absPath, inSec, outSec, duration]);
+
+  const doShare = useCallback(() => {
+    if (!absPath || busy) return;
+    let consented = false;
+    try {
+      consented = window.localStorage.getItem(SHARE_CONSENT_KEY) === "1";
+    } catch {
+      // storage unavailable: ask every time
+    }
+    if (consented) void startShare();
+    else setShare({ state: "consent" });
+  }, [absPath, busy, startShare]);
+
   const pct = (sec: number) => (duration > 0 ? (sec / duration) * 100 : 0);
   const noFile = !absPath;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex min-h-0 flex-1 items-center justify-center p-4">
+      <div className="relative flex min-h-0 flex-1 items-center justify-center p-4">
+        {!ready ? (
+          <div className="pointer-events-none absolute flex items-center gap-2 bg-black/60 px-3 py-1.5 text-xs text-white">
+            <Loader2 className="size-3.5 animate-spin" /> Loading clip…
+          </div>
+        ) : null}
         <video
           ref={vidRef}
           src={src}
+          poster={poster}
+          preload="auto"
+          onCanPlay={() => setReady(true)}
           className="max-h-full max-w-full cursor-pointer border"
           onLoadedMetadata={onLoadedMetadata}
           onTimeUpdate={onTimeUpdate}
@@ -279,10 +380,22 @@ export default function Trim() {
             size="icon"
             variant="secondary"
             onClick={toggle}
-            title={playing ? "Pause" : "Play selection"}
+            title={playing ? "Pause" : fromStart ? "Play from the trim start" : "Play selection"}
           >
             {playing ? <Pause /> : <Play />}
           </Button>
+          <label
+            className="flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground hover:text-foreground"
+            title="Each time you press play, start from the beginning of your trim"
+          >
+            <input
+              type="checkbox"
+              checked={fromStart}
+              onChange={(e) => toggleFromStart(e.target.checked)}
+              className="accent-primary"
+            />
+            From trim start
+          </label>
           <Button
             size="icon"
             variant="ghost"
@@ -305,7 +418,7 @@ export default function Trim() {
             className="w-20 accent-primary"
             title="Preview volume"
           />
-          <span className="text-xs tabular-nums text-muted-foreground">
+          <span className={cn("whitespace-nowrap text-xs tabular-nums text-muted-foreground", duration <= 0 && "invisible")}>
             {fmtSec(inSec)} – {fmtSec(outSec)}
             <span className="mx-1.5 opacity-50">·</span>
             keep {fmtSec(Math.max(0, outSec - inSec))} of {fmtSec(duration)}
@@ -337,6 +450,19 @@ export default function Trim() {
             >
               <Send /> For Discord
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={noFile || busy || duration <= 0}
+              onClick={doShare}
+              title={
+                existingLink
+                  ? `Already shared: ${existingLink}`
+                  : "Upload your selection and copy a link anyone can open"
+              }
+            >
+              <Link2 /> {existingLink ? "Copy link" : "Share link"}
+            </Button>
             <Button size="sm" disabled={noFile || busy || duration <= 0} onClick={() => void doTrim()}>
               <Scissors /> {busy ? "Working…" : "Trim"}
             </Button>
@@ -346,6 +472,124 @@ export default function Trim() {
           source: <span className="font-mono">{absPath || "(dev sample.mp4 — actions disabled)"}</span>
         </div>
       </div>
+
+      {/* Share as link — one-time explainer, then progress, then the link. */}
+      <Dialog
+        open={share !== null}
+        dismissable={share?.state !== "working"}
+        onClose={() => setShare(null)}
+      >
+        {share?.state === "consent" ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <Link2 className="size-4 text-primary" />
+              <h2 className="text-sm font-medium">Share as a link</h2>
+            </div>
+            <ul className="flex list-disc flex-col gap-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+              <li>
+                Toru uploads the clip (or your trimmed selection) to <b>catbox.moe</b>, a free host
+                with no account needed.
+              </li>
+              <li>
+                <b>Anyone with the link can watch it.</b> Links never expire, and they can't be
+                deleted from Toru afterwards.
+              </li>
+              <li>
+                Clips over 200&nbsp;MB are compressed first (1080p60, or 720p for long clips). The
+                link plays right in Discord.
+              </li>
+            </ul>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setShare(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  try {
+                    window.localStorage.setItem(SHARE_CONSENT_KEY, "1");
+                  } catch {
+                    // ask again next time
+                  }
+                  void startShare();
+                }}
+              >
+                <Link2 /> Upload &amp; copy link
+              </Button>
+            </div>
+          </div>
+        ) : share?.state === "working" ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <Loader2 className="size-4 animate-spin text-primary" />
+              <h2 className="text-sm font-medium">
+                {share.stage === "compress"
+                  ? `Compressing… ${Math.round(share.pct)}%`
+                  : share.stage === "upload"
+                    ? `Uploading… ${Math.round(share.pct)}%`
+                    : "Preparing…"}
+              </h2>
+            </div>
+            <Progress value={share.pct} indeterminate={share.stage === "prepare"} />
+            <div className="flex justify-end">
+              <Button size="sm" variant="ghost" onClick={() => void UploadService.CancelShare()}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : share?.state === "done" ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="size-4 text-primary" />
+              <h2 className="text-sm font-medium">
+                {share.copied ? "Link copied to your clipboard" : "Your link is ready"}
+              </h2>
+            </div>
+            <input
+              readOnly
+              value={share.url}
+              onFocus={(e) => e.currentTarget.select()}
+              className="border border-border bg-background/40 px-2 py-1.5 font-mono text-xs"
+            />
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => void Browser.OpenURL(share.url)}>
+                <ExternalLink /> Open
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void ExportService.CopyText(share.url)
+                    .then(() => {
+                      setShare({ ...share, copied: true });
+                      setLinkFlash(true);
+                      window.setTimeout(() => setLinkFlash(false), 1500);
+                    })
+                    .catch((err) => setNote(`Copy failed: ${err}`));
+                }}
+              >
+                {linkFlash ? <CheckCircle2 /> : <Copy />} {linkFlash ? "Copied" : "Copy link"}
+              </Button>
+              <Button size="sm" onClick={() => setShare(null)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        ) : share?.state === "error" ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="size-4 text-destructive" />
+              <h2 className="text-sm font-medium">Couldn&rsquo;t share</h2>
+            </div>
+            <p className="text-xs leading-relaxed text-destructive">{share.msg}</p>
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setShare(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Dialog>
 
       {/* Discord export — modal with an indeterminate bar while the two-pass
           re-encode runs, then a success/error message. Non-dismissable while
@@ -460,6 +704,11 @@ function baseName(p: string): string {
 }
 
 // Handle is a draggable in/out marker on the timeline, positioned in seconds.
+// The drag lives entirely on the handle via pointer capture (no window
+// listeners that could outlive a lost pointerup and fight the next drag),
+// ends cleanly on lostpointercapture, and always calls the latest onChange so
+// clamping uses the other handle's current position. The grab area is wider
+// than the visible bar.
 function Handle({
   sec,
   duration,
@@ -469,31 +718,41 @@ function Handle({
   duration: number;
   onChange: (s: number) => void;
 }) {
-  const onDown = (e: React.PointerEvent) => {
-    if (duration <= 0) return;
-    e.stopPropagation(); // don't trigger the track's click-to-seek
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-    const track = (e.currentTarget as HTMLElement).parentElement!;
-    const rect = track.getBoundingClientRect();
-    const move = (ev: PointerEvent) => {
-      const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-      // Snap to 10ms so the readout's 2 decimals are exact, not 0.4999….
-      onChange(Math.round(frac * duration * 100) / 100);
-    };
-    const up = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      (e.target as Element).releasePointerCapture?.(ev.pointerId);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+  const drag = useRef<DOMRect | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const apply = (clientX: number) => {
+    const rect = drag.current;
+    if (!rect || duration <= 0) return;
+    const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    // Snap to 10ms so the readout's 2 decimals are exact, not 0.4999….
+    onChangeRef.current(Math.round(frac * duration * 100) / 100);
   };
+
   const left = duration > 0 ? (sec / duration) * 100 : 0;
   return (
     <div
-      onPointerDown={onDown}
-      className="absolute top-0 z-10 h-full w-3 -translate-x-1/2 cursor-ew-resize bg-primary"
+      onPointerDown={(e) => {
+        if (duration <= 0) return;
+        e.preventDefault(); // no text selection / native drag
+        e.stopPropagation(); // don't trigger the track's click-to-seek
+        e.currentTarget.setPointerCapture(e.pointerId);
+        drag.current = e.currentTarget.parentElement!.getBoundingClientRect();
+      }}
+      onPointerMove={(e) => apply(e.clientX)}
+      onPointerUp={(e) => {
+        apply(e.clientX);
+        drag.current = null;
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+      }}
+      onLostPointerCapture={() => {
+        drag.current = null;
+      }}
+      className="group/handle absolute top-0 z-10 flex h-full w-5 -translate-x-1/2 cursor-ew-resize touch-none justify-center"
       style={{ left: `${left}%` }}
-    />
+    >
+      <div className="h-full w-3 bg-primary transition-[width] group-hover/handle:w-3.5" />
+    </div>
   );
 }

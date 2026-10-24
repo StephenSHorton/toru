@@ -29,17 +29,18 @@ import (
 //     an event instead of polling.
 
 var (
-	modMmdevapi                      = windows.NewLazySystemDLL("Mmdevapi.dll")
-	procActivateAudioInterfaceAsync  = modMmdevapi.NewProc("ActivateAudioInterfaceAsync")
-	modKernel32                      = windows.NewLazySystemDLL("kernel32.dll")
-	procCreateEventW                 = modKernel32.NewProc("CreateEventW")
-	iidIActivateCompletionHandler    = comGUID{0x41d949ab, 0x9862, 0x444a, [8]byte{0x80, 0xf6, 0xc2, 0x61, 0x33, 0x4d, 0xa5, 0xeb}}
-	iidIAgileObject                  = comGUID{0x94ea2b94, 0xe9cc, 0x49e0, [8]byte{0xc0, 0xff, 0xee, 0x64, 0xca, 0x8f, 0x5b, 0x90}}
-	iidIUnknown                      = comGUID{0x00000000, 0x0000, 0x0000, [8]byte{0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-	processLoopbackVAD               = windows.StringToUTF16Ptr(`VAD\Process_Loopback`)
-	audclntStreamFlagsEventCallback  = uint32(0x00040000)
-	processLoopbackModeIncludeTree   = uint32(0)
-	activationTypeProcessLoopback    = uint32(1)
+	modMmdevapi                     = windows.NewLazySystemDLL("Mmdevapi.dll")
+	procActivateAudioInterfaceAsync = modMmdevapi.NewProc("ActivateAudioInterfaceAsync")
+	modKernel32                     = windows.NewLazySystemDLL("kernel32.dll")
+	procCreateEventW                = modKernel32.NewProc("CreateEventW")
+	iidIActivateCompletionHandler   = comGUID{0x41d949ab, 0x9862, 0x444a, [8]byte{0x80, 0xf6, 0xc2, 0x61, 0x33, 0x4d, 0xa5, 0xeb}}
+	iidIAgileObject                 = comGUID{0x94ea2b94, 0xe9cc, 0x49e0, [8]byte{0xc0, 0xff, 0xee, 0x64, 0xca, 0x8f, 0x5b, 0x90}}
+	iidIUnknown                     = comGUID{0x00000000, 0x0000, 0x0000, [8]byte{0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	processLoopbackVAD              = windows.StringToUTF16Ptr(`VAD\Process_Loopback`)
+	audclntStreamFlagsEventCallback = uint32(0x00040000)
+	processLoopbackModeIncludeTree  = uint32(0)
+	processLoopbackModeExcludeTree  = uint32(1)
+	activationTypeProcessLoopback   = uint32(1)
 )
 
 // audioclientActivationParams mirrors AUDIOCLIENT_ACTIVATION_PARAMS for the
@@ -100,12 +101,14 @@ var handlerVtblSingleton = &activationHandlerVtbl{
 }
 
 // activateProcessLoopbackClient performs the async activation dance and
-// returns an IAudioClient scoped to pid's process tree.
-func activateProcessLoopbackClient(pid uint32) (*comObject, error) {
+// returns an IAudioClient scoped to pid's process tree. mode is
+// processLoopbackModeIncludeTree (only that tree) or
+// processLoopbackModeExcludeTree (the whole system mix minus that tree).
+func activateProcessLoopbackClient(pid, mode uint32) (*comObject, error) {
 	params := audioclientActivationParams{
 		ActivationType:      activationTypeProcessLoopback,
 		TargetProcessID:     pid,
-		ProcessLoopbackMode: processLoopbackModeIncludeTree,
+		ProcessLoopbackMode: mode,
 	}
 	pv := propVariantBlob{
 		Vt:       vtBlob,
@@ -157,7 +160,24 @@ func startProcessLoopbackAudio(pid uint32, pipeName string) (audioSource, error)
 		stop: make(chan struct{}),
 		done: make(chan struct{}),
 	}
-	go s.processPump(pid, pipeName, ready)
+	go s.processPump(pid, processLoopbackModeIncludeTree, pipeName, ready)
+	res := <-ready
+	if res.err != nil {
+		return nil, res.err
+	}
+	s.AudioInput = res.in
+	return s, nil
+}
+
+// startExcludeProcessLoopbackAudio captures the whole system mix EXCEPT pid's
+// process tree (the replay buffer's "desktop audio without Discord").
+func startExcludeProcessLoopbackAudio(pid uint32, pipeName string) (audioSource, error) {
+	ready := make(chan audioInitResult, 1)
+	s := &audioStream{
+		stop: make(chan struct{}),
+		done: make(chan struct{}),
+	}
+	go s.processPump(pid, processLoopbackModeExcludeTree, pipeName, ready)
 	res := <-ready
 	if res.err != nil {
 		return nil, res.err
@@ -168,7 +188,7 @@ func startProcessLoopbackAudio(pid uint32, pipeName string) (audioSource, error)
 
 // processPump mirrors audioStream.pump for the process-loopback client:
 // event-driven capture, our own fixed format, same pipe + silence handling.
-func (s *audioStream) processPump(pid uint32, pipeName string, ready chan<- audioInitResult) {
+func (s *audioStream) processPump(pid, mode uint32, pipeName string, ready chan<- audioInitResult) {
 	defer close(s.done)
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -180,7 +200,7 @@ func (s *audioStream) processPump(pid uint32, pipeName string, ready chan<- audi
 		return
 	}
 
-	client, err := activateProcessLoopbackClient(pid)
+	client, err := activateProcessLoopbackClient(pid, mode)
 	if err != nil {
 		fail(err)
 		return

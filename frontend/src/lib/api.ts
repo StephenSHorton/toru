@@ -14,6 +14,8 @@
 //   HotkeyService.GetShortcuts(): Promise<Shortcut[]>
 //   HotkeyService.SetShortcut(action: string, sc: Shortcut): Promise<void>  (rejects on validation error)
 //   HotkeyService.ResetShortcut(action: string): Promise<void>
+//   HotkeyService.RecordShortcut(): Promise<Shortcut>  (next combo pressed; key "" = cancelled)
+//   HotkeyService.CancelRecording(): Promise<void>
 //   WindowsService.OpenOverlay(): Promise<void>   (capture overlay session)
 //   WindowsService.OpenSettings(): Promise<void>  (Settings/home window)
 //   WindowsService.OpenTrim(videoPath): Promise<void>  (Dev 2 trim editor)
@@ -23,6 +25,11 @@
 //   HistoryService.Add(srcPath, kind): Promise<Item>  (archive file into library)
 //   HistoryService.Delete(id): Promise<void>  (one item + file; Library bulk-delete loops this)
 //   HistoryService.GetDir / SetDir / PickDir / ResetDir / IsDefaultDir
+//   ReplayService.GetSettings / SetSettings(s) -> ReplayStatus  (instant replay; SetSettings rejects if the buffer can't start)
+//   ReplayService.GetStatus / SaveReplay / ListMonitors / ListMicrophones / DiscordRunning / EncoderSupport
+//   ReplayService.GetSaveDir / PickSaveDir / ResetSaveDir / OpenSaveDir
+//   ReplayService.ListClips / OpenClip(path) / RevealClip(path) / DeleteClip(path)  (Library "Clips")
+//   UploadService.ShareLink(path, startMs, endMs) -> public catbox link; "upload:progress" events; CancelShare / LinkFor(path)
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
@@ -36,10 +43,22 @@ import {
   TrimRequest,
   AudioConfig,
   AudioSession,
+  ReplayStatus,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
 import * as SettingsService from "../../bindings/github.com/StephenSHorton/toru/settingsservice.js";
 import * as HistoryService from "../../bindings/github.com/StephenSHorton/toru/internal/history/historyservice.js";
 import { Item as CaptureItem } from "../../bindings/github.com/StephenSHorton/toru/internal/history/models.js";
+import * as UploadService from "../../bindings/github.com/StephenSHorton/toru/internal/upload/uploadservice.js";
+import * as ReplayService from "../../bindings/github.com/StephenSHorton/toru/internal/replay/replayservice.js";
+import {
+  Settings as ReplaySettings,
+  Monitor as ReplayMonitor,
+  Clip as ReplayClip,
+  Session as RecordingSession,
+  SessionMarker as RecordingMarker,
+  RecorderState,
+  RecordingPreset,
+} from "../../bindings/github.com/StephenSHorton/toru/internal/replay/models.js";
 
 export {
   ExportService,
@@ -56,5 +75,15 @@ export {
   AudioSession,
   SettingsService,
   HistoryService,
+  ReplayService,
+  UploadService,
+  ReplaySettings,
+  ReplayMonitor,
+  ReplayClip,
+  RecordingSession,
+  RecordingMarker,
+  RecorderState,
+  RecordingPreset,
+  ReplayStatus,
 };
 export type { CaptureItem };

@@ -115,6 +115,26 @@ func ProbeDurationMs(ctx context.Context, path string) (int, error) {
 	return int(sec * 1000), nil
 }
 
+// ProbeVideoSize returns the first video stream's width and height.
+func ProbeVideoSize(ctx context.Context, path string) (int, int, error) {
+	bin, err := LocateFFprobe()
+	if err != nil {
+		return 0, 0, err
+	}
+	cmd := exec.CommandContext(ctx, bin, "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=width,height", "-of", "csv=p=0", path)
+	configureSysProcAttr(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, 0, fmt.Errorf("ffprobe size: %w", err)
+	}
+	var w, h int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d,%d", &w, &h); err != nil || w <= 0 || h <= 0 {
+		return 0, 0, fmt.Errorf("ffprobe size: unparseable %q", strings.TrimSpace(string(out)))
+	}
+	return w, h, nil
+}
+
 // RunFFmpeg locates ffmpeg and runs it with args, returning combined output on error.
 func RunFFmpeg(ctx context.Context, args []string) error {
 	bin, err := LocateFFmpeg()

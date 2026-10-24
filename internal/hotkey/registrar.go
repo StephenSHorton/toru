@@ -13,19 +13,19 @@
 // installHook/stopHook behind build tags keeps ONE Manager definition that
 // compiles everywhere.
 //
-// Known v1 limitations (documented, not bugs):
-//   - Trigger keys are A-Z and 0-9 only; F-keys, punctuation, etc. are future.
-//   - Modifier matching is a SUPERSET test: a binding matches (and swallows) any
-//     chord where every modifier it sets is down, even if EXTRA modifiers are also
-//     down (e.g. {Ctrl,'S'} also fires on Ctrl+Shift+S). This is conventional,
-//     forgiving global-hotkey behavior and is harmless for the single-action v1; if
-//     future actions need to distinguish e.g. Ctrl+Shift+1 from Ctrl+Shift+Alt+1,
-//     add an exact-match check (require unset modifiers to be UP) in the proc.
+// Trigger keys are A-Z, 0-9, F1-F24 and the named keys in keys.go
+// (navigation, numpad, punctuation). Modifier matching is EXACT: a binding
+// fires only when its modifiers, and no others, are down, so e.g. Alt+F10 and
+// Ctrl+Alt+F10 can be different actions.
 package hotkey
 
 import (
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
+	"unicode"
 )
 
 // escapeAction is the reserved internal action id fired when Escape is pressed
@@ -35,10 +35,62 @@ import (
 const escapeAction = "__overlay_escape"
 
 // Binding is a parsed hotkey combo, e.g. {Win:true, Shift:true, Key:'S'}. Key is
-// the ASCII-uppercase rune of the trigger key; v1 supports A-Z and 0-9 only.
+// the ASCII-uppercase rune of the trigger key (A-Z, 0-9), FKey(n) for F1-F24,
+// or namedKeyBase+vk for a named key (keys.go).
 type Binding struct {
 	Ctrl, Shift, Alt, Win bool
 	Key                   rune
+}
+
+// fKeyBase maps F1-F24 into the Unicode private-use area so a function key
+// fits the same rune-typed Binding.Key as letters and digits: FKey(n) ==
+// fKeyBase+n. It never collides with a real A-Z/0-9 key.
+const fKeyBase rune = 0xE000
+
+// FKey returns the Binding.Key value for function key Fn (1..24).
+func FKey(n int) rune { return fKeyBase + rune(n) }
+
+// fKeyNumber returns n for an FKey(n) rune, or 0 if r isn't a function key.
+func fKeyNumber(r rune) int {
+	if n := int(r - fKeyBase); n >= 1 && n <= 24 {
+		return n
+	}
+	return 0
+}
+
+// KeyName is the wire/persisted spelling of a trigger key: "S", "7", "F10",
+// "PageUp", "Num5", "[".
+func KeyName(r rune) string {
+	if n := fKeyNumber(r); n > 0 {
+		return "F" + strconv.Itoa(n)
+	}
+	if k, ok := namedKeyFor(r); ok {
+		return k.name
+	}
+	if r == 0 {
+		return ""
+	}
+	return string(unicode.ToUpper(r))
+}
+
+// ParseKeyName is the inverse of KeyName (case-insensitive). ok=false for
+// anything outside A-Z, 0-9, F1-F24 and the named keys.
+func ParseKeyName(s string) (rune, bool) {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	if k, ok := namedByName[s]; ok {
+		return namedKeyBase + rune(k.vk), true
+	}
+	if len(s) >= 2 && s[0] == 'F' {
+		if n, err := strconv.Atoi(s[1:]); err == nil && n >= 1 && n <= 24 {
+			return FKey(n), true
+		}
+		return 0, false
+	}
+	rs := []rune(s)
+	if len(rs) != 1 || !validKeyRune(rs[0]) {
+		return 0, false
+	}
+	return rs[0], true
 }
 
 // Default Toru hotkeys.
@@ -52,6 +104,14 @@ var (
 	DefaultShot      = Binding{Ctrl: true, Shift: true, Key: '1'} // instant region screenshot
 	DefaultRecord    = Binding{Ctrl: true, Shift: true, Key: '3'} // instant region recording
 	DefaultStopVideo = Binding{Ctrl: true, Shift: true, Key: '0'} // stop active recording
+
+	// DefaultReplaySave matches NVIDIA ShadowPlay's "save instant replay" so
+	// gamers' muscle memory carries over.
+	DefaultReplaySave = Binding{Alt: true, Key: FKey(10)}
+	// Steam Game Recording's defaults: start/stop a manual recording, and
+	// add a timeline marker.
+	DefaultRecordToggle   = Binding{Ctrl: true, Key: FKey(11)}
+	DefaultTimelineMarker = Binding{Ctrl: true, Key: FKey(12)}
 )
 
 // actionMeta maps a stable action id to its human label + default binding. It
@@ -62,7 +122,10 @@ var actionMeta = map[string]struct {
 	Label   string
 	Default Binding
 }{
-	"overlay": {"Open capture overlay", DefaultOverlay},
+	"overlay":        {"Open capture overlay", DefaultOverlay},
+	"replaySave":     {"Save instant replay", DefaultReplaySave},
+	"recordToggle":   {"Start / stop recording", DefaultRecordToggle},
+	"timelineMarker": {"Add timeline marker", DefaultTimelineMarker},
 }
 
 // shortcutRow is the internal snapshot row used by service.go's GetShortcuts. It
@@ -85,7 +148,11 @@ type Manager struct {
 	callbacks map[string]func()
 	labels    map[string]string  // action -> human label (for GetShortcuts)
 	defaults  map[string]Binding // action -> default binding (for ResetShortcut)
-	order     []string           // action ids in registration order (stable GetShortcuts)
+	inactive  map[string]bool    // actions whose combo is currently NOT intercepted
+	// sysOwned are actions currently registered with RegisterHotKey (Windows);
+	// the LL hook leaves their keys alone so the system hotkey fires instead.
+	sysOwned map[string]bool
+	order    []string // action ids in registration order (stable GetShortcuts)
 
 	hook     uintptr // HHOOK (0 off-Windows / not installed)
 	threadID uint32  // hook OS-thread id (for WM_QUIT)
@@ -111,6 +178,7 @@ func New() *Manager {
 		callbacks: map[string]func(){},
 		labels:    map[string]string{},
 		defaults:  map[string]Binding{},
+		inactive:  map[string]bool{},
 		sig:       make(chan string, 16),
 		stop:      make(chan struct{}),
 	}
@@ -151,6 +219,21 @@ func (m *Manager) SetBinding(id string, b Binding) {
 	m.mu.Lock()
 	m.bindings[id] = b
 	m.mu.Unlock()
+	m.syncSystemHotkeys()
+}
+
+// SetActive turns interception of id's combo on or off without forgetting the
+// binding. An inactive action's keys pass straight through to the focused app
+// (e.g. Alt+F10 reaches the game while instant replay is disabled).
+func (m *Manager) SetActive(id string, on bool) {
+	m.mu.Lock()
+	if on {
+		delete(m.inactive, id)
+	} else {
+		m.inactive[id] = true
+	}
+	m.mu.Unlock()
+	m.syncSystemHotkeys()
 }
 
 // Binding returns the current binding for id (ok=false if absent).
@@ -177,6 +260,34 @@ func (m *Manager) snapshot() []shortcutRow {
 	}
 	return rows
 }
+
+// recordResult is what a shortcut recording ends with: the combo pressed, or
+// ok=false when it was cancelled (Esc, CancelRecord, timeout).
+type recordResult struct {
+	b  Binding
+	ok bool
+}
+
+// Record waits up to timeout for the next key combo pressed anywhere and
+// returns it (see HotkeyService.RecordShortcut). While recording, the hook
+// swallows every key and fires no actions. ok=false when cancelled or timed
+// out; err when the hook isn't running.
+func (m *Manager) Record(timeout time.Duration) (Binding, bool, error) {
+	ch, err := m.beginRecord()
+	if err != nil {
+		return Binding{}, false, err
+	}
+	select {
+	case r := <-ch:
+		return r.b, r.ok, nil
+	case <-time.After(timeout):
+		endRecord()
+		return Binding{}, false, nil
+	}
+}
+
+// CancelRecord ends a pending Record (it returns ok=false).
+func (m *Manager) CancelRecord() { endRecord() }
 
 // defaultFor returns the registered default binding for id (ok=false if absent).
 func (m *Manager) defaultFor(id string) (Binding, bool) {

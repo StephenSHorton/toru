@@ -19,11 +19,32 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 /**
+ * CancelRecording ends a pending RecordShortcut (it returns an empty Key).
+ */
+export function CancelRecording(): $CancellablePromise<void> {
+    return $Call.ByID(686122596);
+}
+
+/**
  * GetShortcuts returns every configured action's current combo for the UI.
  */
 export function GetShortcuts(): $CancellablePromise<$models.Shortcut[]> {
     return $Call.ByID(2331534736).then(($result: any) => {
         return $$createType1($result);
+    });
+}
+
+/**
+ * RecordShortcut waits for the user to press a key combo anywhere (up to 30s)
+ * and returns it WITHOUT saving it; the frontend then calls SetShortcut. It
+ * listens in the keyboard hook itself, so combos Windows or Toru would
+ * otherwise consume (Win+…, PrintScreen, Toru's own hotkeys) are captured
+ * too, and nothing fires while recording. Esc, CancelRecording or the timeout
+ * return an empty Key.
+ */
+export function RecordShortcut(): $CancellablePromise<$models.Shortcut> {
+    return $Call.ByID(3595095492).then(($result: any) => {
+        return $$createType0($result);
     });
 }
 

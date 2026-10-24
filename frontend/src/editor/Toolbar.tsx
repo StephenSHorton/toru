@@ -32,7 +32,7 @@ import type { ToolId } from './types';
 import { ColorPalette } from './ColorPalette';
 import { StrokeWidthControl } from './StrokeWidthControl';
 import { EmojiPicker } from './tools/emoji';
-import { copyToClipboard, finishAndArchive } from './exportActions';
+import { copyToClipboard, finishAndClose } from './exportActions';
 import { WindowsService } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -78,9 +78,11 @@ export interface ToolbarProps {
    * copied (legacy); capture no longer auto-copies before the editor opens.
    */
   flashCopied?: boolean;
+  /** Library item this editor re-opened; Done updates it instead of adding a copy. */
+  libraryId?: string;
 }
 
-export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef, flashCopied }: ToolbarProps) {
+export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef, flashCopied, libraryId }: ToolbarProps) {
   const activeTool = useEditorStore((s) => s.activeTool);
   const setTool = useEditorStore((s) => s.setTool);
   const selectedId = useEditorStore((s) => s.selectedId);
@@ -129,14 +131,14 @@ export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef, flashC
     if (!stage) return;
     setDoneBusy(true);
     try {
-      await finishAndArchive(stage, {
+      await finishAndClose(stage, onDone, {
+        libraryId,
         onCopied: async () => {
           showCopied();
           // Brief beat so the Copied flash is visible before the parent dismisses.
           await new Promise((r) => window.setTimeout(r, 400));
         },
       });
-      await onDone();
     } finally {
       setDoneBusy(false);
     }

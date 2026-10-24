@@ -14,9 +14,9 @@ import (
 // lost update on the read-modify-write. Mirrors overlay/persist.go's cropFileMu.
 var settingsMu sync.Mutex
 
-// persistedBinding is the on-disk shape of one shortcut. Key is a single
-// uppercase char ("S") so the JSON is human-readable; an empty/invalid Key means
-// "fall back to the default" on load.
+// persistedBinding is the on-disk shape of one shortcut. Key is KeyName's
+// spelling ("S", "F10") so the JSON is human-readable; an empty/invalid Key
+// means "fall back to the default" on load.
 type persistedBinding struct {
 	Ctrl  bool   `json:"ctrl"`
 	Shift bool   `json:"shift"`
@@ -121,8 +121,8 @@ func LoadBinding(action string, def Binding) Binding {
 	if !ok {
 		return def
 	}
-	rs := []rune(pb.Key)
-	if len(rs) != 1 || !validKeyRune(rs[0]) {
+	key, ok := ParseKeyName(pb.Key)
+	if !ok {
 		return def
 	}
 	return Binding{
@@ -130,7 +130,7 @@ func LoadBinding(action string, def Binding) Binding {
 		Shift: pb.Shift,
 		Alt:   pb.Alt,
 		Win:   pb.Win,
-		Key:   unicode.ToUpper(rs[0]),
+		Key:   key,
 	}
 }
 
@@ -148,7 +148,7 @@ func persistBinding(action string, b Binding) error {
 		Shift: b.Shift,
 		Alt:   b.Alt,
 		Win:   b.Win,
-		Key:   string(unicode.ToUpper(b.Key)),
+		Key:   KeyName(b.Key),
 	}
 	return saveSettings(st)
 }

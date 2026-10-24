@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/overlay"
@@ -93,8 +96,16 @@ func (w *WindowsService) OpenSettings() {
 	if w.app == nil {
 		return
 	}
+	// Summoned from the editor's ⚙ while the always-on-top capture/edit overlay
+	// is up, Settings must be topmost too or Show().Focus() lands it behind the
+	// overlay. Otherwise it's a normal window: other apps can cover it. The
+	// topmost bit is dropped as soon as it loses focus (see below).
+	overlayUp := w.overlayVisible()
 	if w.settingsWin != nil {
 		w.settingsWin.Restore() // no-op if normal; un-minimises if minimised
+		if overlayUp {
+			w.settingsWin.SetAlwaysOnTop(true)
+		}
 		w.settingsWin.Show().Focus()
 		return
 	}
@@ -104,18 +115,28 @@ func (w *WindowsService) OpenSettings() {
 		Width:            920,
 		Height:           640,
 		BackgroundColour: dark,
-		// AlwaysOnTop so summoning Settings from the editor's ⚙ raises it ABOVE the
-		// always-on-top capture/edit overlay — otherwise Show().Focus() lands it
-		// behind the overlay and the user (mid-edit) never sees it appear.
-		AlwaysOnTop: true,
+		AlwaysOnTop:      overlayUp,
 	})
 	w.settingsWin = win
+	win.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) {
+		dropTopmostBehindForeground(win)
+	})
 	// Drop the handle when this window closes so the next OpenSettings creates a
 	// fresh one (a closed WebviewWindow's Show/Focus are no-ops, which would
 	// otherwise leave the tray's "open home" silently dead).
 	win.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
 		w.settingsWin = nil
 	})
+}
+
+// overlayVisible reports whether a capture/edit overlay window is showing.
+func (w *WindowsService) overlayVisible() bool {
+	for _, win := range w.app.Window.GetAll() {
+		if win != nil && win.IsVisible() && strings.HasPrefix(win.Name(), "toru-overlay-") {
+			return true
+		}
+	}
+	return false
 }
 
 // OpenEditor opens Developer 1's screenshot annotation editor for imagePath.
@@ -132,7 +153,15 @@ func (w *WindowsService) OpenSettings() {
 // %AppData%/toru/captures MUST NOT be deleted — those files power the tray
 // Recent menu. isToruTempPath gates the removal.
 func (w *WindowsService) OpenEditor(imagePath string) {
-	w.openEditorWindow(imagePath, false)
+	w.openEditorWindow(imagePath, "", false)
+}
+
+// OpenLibraryEditor re-opens a library capture in the annotation editor. The
+// item id rides along so Done replaces that item instead of adding a copy.
+//
+//wails:ignore
+func (w *WindowsService) OpenLibraryEditor(imagePath, libraryID string) {
+	w.openEditorWindow(imagePath, libraryID, false)
 }
 
 // OpenEditorAfterCapture opens the annotation editor after a screenshot.
@@ -142,14 +171,17 @@ func (w *WindowsService) OpenEditor(imagePath string) {
 //
 //wails:ignore
 func (w *WindowsService) OpenEditorAfterCapture(imagePath string) {
-	w.openEditorWindow(imagePath, false)
+	w.openEditorWindow(imagePath, "", false)
 }
 
-func (w *WindowsService) openEditorWindow(imagePath string, flashCopied bool) {
+func (w *WindowsService) openEditorWindow(imagePath, libraryID string, flashCopied bool) {
 	if w.app == nil {
 		return
 	}
 	q := "/?view=editor&img=" + url.QueryEscape(servedFileURL(imagePath))
+	if libraryID != "" {
+		q += "&lib=" + url.QueryEscape(libraryID)
+	}
 	if flashCopied {
 		q += "&copied=1"
 	}
@@ -202,17 +234,79 @@ func isToruTempPath(p string) bool {
 // URL to PLAY the file, but Copy/Save-As/Trim are Go-side operations on the
 // real path, which cannot be reconstructed from the served URL.
 func (w *WindowsService) OpenTrim(videoPath string) {
+	w.openTrimWindow("Toru — Trim Recording", videoPath, servedFileURL(videoPath))
+}
+
+// OpenTimeline opens a session recording in the timeline viewer.
+//
+//wails:ignore
+func (w *WindowsService) OpenTimeline(id int) {
 	if w.app == nil {
 		return
 	}
-	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "Toru — Trim Recording",
-		URL: "/?view=trim&vid=" + url.QueryEscape(servedFileURL(videoPath)) +
-			"&path=" + url.QueryEscape(videoPath),
-		Width:            900,
-		Height:           620,
+	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:            "Toru — Recording",
+		URL:              "/?view=timeline&id=" + strconv.Itoa(id),
+		Width:            1180,
+		Height:           800,
 		BackgroundColour: dark,
 	})
+	win.Center()
+}
+
+// OpenClipEditor opens a saved instant-replay clip in the same editor
+// (play, trim, save, share). Clips live outside the /__file dirs, so the
+// player gets the replay service's served URL instead.
+//
+//wails:ignore
+func (w *WindowsService) OpenClipEditor(videoPath, servedURL string) {
+	w.openTrimWindow("Toru — "+strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath)), videoPath, servedURL)
+}
+
+func (w *WindowsService) openTrimWindow(title, videoPath, servedURL string) {
+	if w.app == nil {
+		return
+	}
+	// Open at the size the editor would resize itself to once the video's
+	// metadata loads (a big clip can take a moment), so the window doesn't
+	// jump. A quick ffprobe gives the dimensions up front.
+	width, height := 900, 620
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	if vw, vh, err := capture.ProbeVideoSize(ctx, videoPath); err == nil {
+		width, height = trimWindowSize(vw, vh, w.app.Screen.GetPrimary())
+	}
+	cancel()
+	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title: title,
+		URL: "/?view=trim&vid=" + url.QueryEscape(servedURL) +
+			"&path=" + url.QueryEscape(videoPath),
+		Width:            width,
+		Height:           height,
+		BackgroundColour: dark,
+	})
+	win.Center()
+}
+
+// trimWindowSize mirrors Trim.tsx fitWindowToVideo: the video at up to its
+// native size inside 95% x 92% of the work area (max 1280 x 960), plus the
+// editor chrome below it.
+func trimWindowSize(vw, vh int, screen *application.Screen) (int, int) {
+	const chromeH, sidePad, minW = 196, 32, 520
+	screenW, screenH := 1600.0, 1000.0
+	if screen != nil && screen.WorkArea.Width > 0 {
+		screenW, screenH = float64(screen.WorkArea.Width), float64(screen.WorkArea.Height)
+	}
+	maxW := math.Min(1280, math.Round(screenW*0.95))
+	maxH := math.Min(960, math.Round(screenH*0.92))
+	aspect := float64(vw) / float64(vh)
+	dispW := math.Min(float64(vw), maxW-sidePad)
+	dispH := dispW / aspect
+	if dispH > maxH-chromeH {
+		dispH = maxH - chromeH
+		dispW = dispH * aspect
+	}
+	return int(math.Round(math.Max(minW, math.Min(maxW, dispW+sidePad)))),
+		int(math.Round(math.Min(maxH, dispH+chromeH)))
 }
 
 // OpenRecordingControls opens the small frameless always-on-top "recording

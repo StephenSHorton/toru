@@ -71,11 +71,6 @@ type AudioConfig struct {
 	MicDevice string   `json:"micDevice"` // dshow device name; "" = no mic
 }
 
-// enabled reports whether any source is selected.
-func (c AudioConfig) enabled() bool {
-	return c.System || len(c.AppPIDs) > 0 || c.MicDevice != ""
-}
-
 // Recorder is the production video Capturer. Zero-value is not usable; build
 // with NewRecorder.
 type Recorder struct {

@@ -48,7 +48,7 @@ import {
   Zap,
 } from "lucide-react";
 import { OverlayService, AudioConfig, type AudioSession } from "@/lib/api";
-import { finishAndArchive } from "@/editor/exportActions";
+import { finishAndClose } from "@/editor/exportActions";
 import type { WindowInfo } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models";
 import {
   parseOverlayQuery,
@@ -239,13 +239,10 @@ export default function Overlay() {
   // Esc (empty selection / select tool): same finish as Done — honor
   // Copy-on-Done, archive, then dismiss. First Esc that only clears a
   // selection or returns to select never reaches here.
-  const finishEdit = useCallback(async () => {
-    const stage = stageRef.current;
-    if (stage) {
-      await finishAndArchive(stage);
-    }
-    await OverlayService.Finish();
-  }, []);
+  const finishEdit = useCallback(
+    () => finishAndClose(stageRef.current, () => OverlayService.Finish()),
+    [],
+  );
   const dismissEdit = useCallback(async () => {
     await OverlayService.Finish();
   }, []);

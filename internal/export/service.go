@@ -81,6 +81,15 @@ func (s *ExportService) CopyToClipboard(path, mediaType string) error {
 	}
 }
 
+// CopyText puts text (e.g. a share link) on the clipboard. Done in Go:
+// the webview's clipboard API is unreliable in Wails windows.
+func (s *ExportService) CopyText(text string) error {
+	if text == "" {
+		return fmt.Errorf("copy: empty text")
+	}
+	return copyTextToClipboard(text)
+}
+
 // SaveAs opens a native Save-As dialog seeded with suggestedName and copies
 // srcPath to the chosen destination. Used by BOTH editors. Returns the chosen
 // path, or an empty string if the user cancelled.
