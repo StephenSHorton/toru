@@ -81,13 +81,14 @@ var (
 	AudioKbpsOptions = []int{96, 128, 160, 192, 256, 320}
 	ModeOptions      = []string{ModeReplay, ModeBackground, ModeManual}
 	DiskGBOptions    = []int{10, 25, 50, 100, 200, 500}
-	QualityOptions   = []string{QualityStandard, QualityHigh, QualityCustom}
+	QualityOptions   = []string{QualitySaver, QualityStandard, QualityHigh, QualityCustom}
 )
 
 // Recording qualities for background/manual recording (Settings.RecordingQuality).
 const (
-	QualityStandard = "standard" // 60 fps, 12 Mbps: ~5.4 GB per hour
-	QualityHigh     = "high"     // 60 fps, 25 Mbps: ~11 GB per hour
+	QualitySaver    = "saver"    // 60 fps, HEVC 5 Mbps: ~2.3 GB per hour
+	QualityStandard = "standard" // 60 fps, HEVC 8 Mbps: ~3.6 GB per hour
+	QualityHigh     = "high"     // 60 fps, HEVC 15 Mbps: ~6.8 GB per hour
 	QualityCustom   = "custom"   // RecordingFPS / RecordingBitrateMbps
 )
 

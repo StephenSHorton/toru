@@ -265,7 +265,8 @@ export default function Timeline() {
     });
   };
 
-  const markers = session?.markers ?? [];
+  // "Recording started" markers just mark restarts; the timeline's start says it.
+  const markers = (session?.markers ?? []).filter((m) => m.kind !== "start");
   const jumpMarker = useCallback(
     (dir: 1 | -1) => {
       const sorted = [...markers].sort((a, b) => a.offsetSec - b.offsetSec);
@@ -273,7 +274,7 @@ export default function Timeline() {
         dir > 0
           ? sorted.find((m) => m.offsetSec > cur + 0.5)
           : [...sorted].reverse().find((m) => m.offsetSec < cur - 0.5);
-      if (next) seek(Math.max(0, next.offsetSec - 2));
+      if (next) seek(next.offsetSec);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [markers, cur],
@@ -479,7 +480,7 @@ export default function Timeline() {
                   key={`${m.t}-${i}`}
                   type="button"
                   title={`${markerLabel(m)} · ${fmt(m.offsetSec)}`}
-                  onClick={() => seek(Math.max(0, m.offsetSec - 2))}
+                  onClick={() => seek(m.offsetSec)}
                   className={cn(
                     "absolute top-0 flex size-5 -translate-x-1/2 items-center justify-center border border-black/40",
                     m.kind === "clip"
@@ -591,15 +592,17 @@ export default function Timeline() {
             <Button size="sm" disabled={!sel || busy || sel.b - sel.a < 0.5} onClick={() => void createClip()}>
               <Scissors /> {busy ? "Saving…" : "Create clip"}
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy || !session || session.live}
-              onClick={() => void saveFull()}
-              title={session?.live ? "Available once the recording ends" : "Save the whole recording to your clips folder"}
-            >
-              <Download /> Save full recording
-            </Button>
+            {session && !session.live ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => void saveFull()}
+                title="Save the whole recording to your clips folder"
+              >
+                <Download /> Save full recording
+              </Button>
+            ) : null}
             <Button size="sm" variant="ghost" onClick={() => void ReplayService.OpenRecordingsDir()} title="Open the recordings folder">
               <FolderOpen />
             </Button>

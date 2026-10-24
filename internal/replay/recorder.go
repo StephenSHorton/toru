@@ -45,10 +45,16 @@ type RecorderState struct {
 }
 
 // encodeTag/decodeTag store a run's mode and game in its sidecar.
-func encodeTag(mode, game string) string { return mode + "|" + game }
+// The codec is part of the tag so a codec change starts a new session
+// (one session's segments must share a codec to play back as one stream).
+func encodeTag(mode, game, codec string) string { return mode + "|" + game + "|" + codec }
 
 func decodeTag(tag string) (mode, game string) {
-	mode, game, _ = strings.Cut(tag, "|")
+	parts := strings.SplitN(tag, "|", 3)
+	mode = parts[0]
+	if len(parts) > 1 {
+		game = parts[1]
+	}
 	return mode, game
 }
 

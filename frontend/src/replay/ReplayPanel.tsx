@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { ShortcutRow } from "@/shortcuts/Shortcuts";
 import { useShortcuts } from "@/shortcuts/useShortcuts";
 import { ReplayService, ReplaySettings, ReplayStatus, Shortcut } from "@/lib/api";
-import type { RecorderState, ReplayMonitor } from "@/lib/api";
+import type { RecorderState, RecordingPreset, ReplayMonitor } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 // Instant replay panel — ShadowPlay-style "save the last N minutes". Every
@@ -42,9 +42,10 @@ const MODES: { value: string; label: string; icon: React.ReactNode; summary: str
     detail: "Recordings are kept until you delete them.",
   },
 ];
-const QUALITY: { value: string; label: string; mbps?: number }[] = [
-  { value: "standard", label: "Standard", mbps: 12 },
-  { value: "high", label: "High", mbps: 25 },
+const QUALITY: { value: string; label: string }[] = [
+  { value: "saver", label: "Saver" },
+  { value: "standard", label: "Standard" },
+  { value: "high", label: "High" },
   { value: "custom", label: "Custom" },
 ];
 
@@ -161,6 +162,9 @@ export function ReplayPanel() {
   const recordShortcut = shortcuts.shortcuts.find((sc) => sc.action === "recordToggle");
   const markerShortcut = shortcuts.shortcuts.find((sc) => sc.action === "timelineMarker");
   const [recorder, setRecorder] = useState<RecorderState | null>(null);
+  // What each recording-quality preset really records on this PC (codec,
+  // fps, bitrate); re-read when settings change.
+  const [presets, setPresets] = useState<RecordingPreset[]>([]);
   const [recordingsDir, setRecordingsDir] = useState("");
   const refreshRecorder = useCallback(() => {
     void ReplayService.GetRecorderState()
@@ -175,6 +179,13 @@ export function ReplayPanel() {
     const off = WailsEvents.On("recording:changed", () => refreshRecorder());
     return () => off();
   }, [refreshRecorder]);
+  const presetKey = settings ? `${settings.fps}|${settings.mode}` : "";
+  useEffect(() => {
+    if (!presetKey) return;
+    void ReplayService.RecordingPresets()
+      .then((p) => setPresets(p ?? []))
+      .catch(() => {});
+  }, [presetKey]);
 
   const refreshStatus = useCallback(() => {
     void ReplayService.GetStatus()
@@ -371,12 +382,14 @@ export function ReplayPanel() {
       : (monitors.find((m) => m.id === settings.monitorId)?.label.split(" · ")[0] ?? "Display");
   // Background/manual recording has its own quality, separate from instant replay.
   const customRecMbps = recBitrateDraft ?? settings.recordingBitrateMbps;
-  const qualitySpec = (q: string) =>
-    q === "standard"
-      ? { fps: Math.min(settings.fps, 60), mbps: 12 }
-      : q === "high"
-        ? { fps: Math.min(settings.fps, 60), mbps: 25 }
-        : { fps: settings.recordingFps, mbps: customRecMbps };
+  const qualitySpec = (q: string) => {
+    if (q === "custom") {
+      return { fps: settings.recordingFps, mbps: customRecMbps, codec: settings.codec === "av1" ? "h264" : settings.codec };
+    }
+    const p = presets.find((x) => x.quality === q);
+    return p ? { fps: p.fps, mbps: p.mbps, codec: p.codec } : { fps: 60, mbps: 0, codec: "hevc" };
+  };
+  const codecName = (c: string) => (c === "hevc" ? "HEVC" : c === "av1" ? "AV1" : "H.264");
   const recSpec = qualitySpec(settings.recordingQuality);
   const recMbps = recSpec.mbps;
   const gbPerHour = (m: number) => (m * 3600) / 8 / 1000;
@@ -432,6 +445,14 @@ export function ReplayPanel() {
           <InfoTip>{mode.detail}</InfoTip>
         </p>
 
+        {settings.enabled && (session ? recorder?.recording : status?.recording) ? (
+          <p className="flex items-start gap-1.5 border border-border bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+            <Info className="mt-0.5 size-3.5 shrink-0" />
+            {session
+              ? "Recording now. Changing video or audio settings restarts it for about 2 seconds and the session carries on (a new encoder starts a new session). Other settings apply right away."
+              : "Recording now. Changing video or audio settings restarts the buffer and clears what's been buffered so far. Other settings apply right away."}
+          </p>
+        ) : null}
         {settings.enabled ? (
           settings.mode === "replay" ? (
             <StatusLine status={status} busy={busy} error={error} keep={settings.durationSec} />
@@ -557,14 +578,16 @@ export function ReplayPanel() {
               <>
                 Recording quality
                 <InfoTip>
-                  Whole sessions need a much lower bitrate than instant replay to fit on disk. Standard
-                  looks good for watching back and cutting clips. Custom lets you pick the frame rate and
-                  bitrate yourself. Instant replay keeps its own quality (Video section).
+                  Whole sessions need a much lower bitrate than instant replay to fit on disk. The presets
+                  record HEVC when your graphics card supports it: the same picture as H.264 in about half
+                  the space. Saver fits the most hours; Standard looks good for watching back and cutting
+                  clips. Custom lets you pick the frame rate and bitrate yourself (it uses the Video
+                  section's encoder). Instant replay keeps its own quality.
                 </InfoTip>
               </>
             }
           >
-            <div role="radiogroup" aria-label="Recording quality" className="grid grid-cols-3 border border-border">
+            <div role="radiogroup" aria-label="Recording quality" className="grid grid-cols-4 border border-border">
               {QUALITY.map((q, i) => {
                 const selected = settings.recordingQuality === q.value;
                 const spec = qualitySpec(q.value);
@@ -584,10 +607,13 @@ export function ReplayPanel() {
                   >
                     <span className="font-medium">{q.label}</span>
                     <span className={cn("text-[10px]", selected ? "opacity-90" : "opacity-70")}>
-                      {spec.fps} fps · {spec.mbps} Mbps
+                      {spec.fps} fps · {spec.mbps} Mbps {codecName(spec.codec)}
                     </span>
                     <span className={cn("text-[10px]", selected ? "opacity-90" : "opacity-70")}>
                       ~{fmtGBh(spec.mbps)}
+                    </span>
+                    <span className={cn("text-[10px] font-medium", selected ? "opacity-100" : "opacity-80")}>
+                      {formatHours((settings.maxDiskGB * 8000) / Math.max(1, spec.mbps) / 3600)} in {settings.maxDiskGB} GB
                     </span>
                   </button>
                 );

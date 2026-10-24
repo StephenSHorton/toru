@@ -150,9 +150,21 @@ func DeleteRun(dir string, run int) error {
 // dir: oldest unprotected segments go first; the newest segment (still being
 // written) and protected runs are never touched. Sidecars of runs with no
 // segments left are removed too.
+// SetMaxBytes changes a running persistent recorder's size cap in place
+// (no restart); the next prune applies it.
+func (b *ReplayBuffer) SetMaxBytes(n int64) {
+	b.mu.Lock()
+	b.maxBytes = n
+	b.cfg.MaxBytes = n
+	b.mu.Unlock()
+}
+
 func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 	b.mu.Lock()
 	protect, current := b.protect, b.run
+	if b.maxBytes > 0 {
+		cfg.MaxBytes = b.maxBytes
+	}
 	b.mu.Unlock()
 	b.segMu.Lock()
 	defer b.segMu.Unlock()

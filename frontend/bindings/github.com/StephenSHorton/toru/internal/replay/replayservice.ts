@@ -218,6 +218,17 @@ export function PickSaveDir(): $CancellablePromise<string> {
 }
 
 /**
+ * RecordingPresets returns each recording-quality preset's real frame rate,
+ * codec and bitrate on this PC (HEVC when the GPU can encode it), for the
+ * Settings estimates.
+ */
+export function RecordingPresets(): $CancellablePromise<$models.RecordingPreset[]> {
+    return $Call.ByID(2850801440).then(($result: any) => {
+        return $$createType12($result);
+    });
+}
+
+/**
  * ResetRecordingsDir goes back to the default recordings folder.
  */
 export function ResetRecordingsDir(): $CancellablePromise<void> {
@@ -279,3 +290,5 @@ const $$createType7 = $Create.Array($Create.Any);
 const $$createType8 = $models.Monitor.createFrom;
 const $$createType9 = $Create.Array($$createType8);
 const $$createType10 = $Create.Array($$createType2);
+const $$createType11 = $models.RecordingPreset.createFrom;
+const $$createType12 = $Create.Array($$createType11);

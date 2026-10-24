@@ -107,9 +107,19 @@ func (s *ReplayService) buildSessions() []builtSession {
 			mode = ModeBackground
 		}
 		times := capture.SegmentTimes(dir, run)
+		// Anchor the run to the wall clock from its first finished segment:
+		// the file's mtime is when that segment ended, so start = mtime - end.
+		// (The sidecar's StartMs is when ffmpeg was launched, up to a second
+		// before its first frame, which shifted markers.)
 		startMs := info.StartMs
 		if startMs == 0 {
 			startMs = int64(run) * 1000
+		}
+		for _, seg := range byRun[run] {
+			if t, ok := times[seg.Name]; ok {
+				startMs = seg.ModTime.UnixMilli() - int64(t[1]*1000)
+				break
+			}
 		}
 
 		var rsegs []timedSeg

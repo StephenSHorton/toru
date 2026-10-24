@@ -178,6 +178,42 @@ export class RecorderState {
 }
 
 /**
+ * RecordingPreset is one recording-quality option as it will actually record.
+ */
+export class RecordingPreset {
+    "quality": string;
+    "fps": number;
+    "codec": string;
+    "mbps": number;
+
+    /** Creates a new RecordingPreset instance. */
+    constructor($$source: Partial<RecordingPreset> = {}) {
+        if (!("quality" in $$source)) {
+            this["quality"] = "";
+        }
+        if (!("fps" in $$source)) {
+            this["fps"] = 0;
+        }
+        if (!("codec" in $$source)) {
+            this["codec"] = "";
+        }
+        if (!("mbps" in $$source)) {
+            this["mbps"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecordingPreset instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecordingPreset {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecordingPreset($$parsedSource as Partial<RecordingPreset>);
+    }
+}
+
+/**
  * Session is one recording on the Library's Recordings tab: consecutive runs
  * of the same game/mode with no real gap, played back as one timeline.
  */

@@ -10,6 +10,7 @@ export {
     Clip,
     Monitor,
     RecorderState,
+    RecordingPreset,
     Session,
     SessionMarker,
     Settings

@@ -140,11 +140,29 @@ export default function Trim() {
     }
   };
 
+  // "Play from trim start": every play starts at the in point, so you can
+  // keep re-watching the cut while adjusting it. Remembered per viewer.
+  const [fromStart, setFromStart] = useState(() => {
+    try {
+      return window.localStorage.getItem("toru.trim.fromStart") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleFromStart = (on: boolean) => {
+    setFromStart(on);
+    try {
+      window.localStorage.setItem("toru.trim.fromStart", on ? "1" : "0");
+    } catch {
+      // per-viewer convenience only
+    }
+  };
+
   const toggle = () => {
     const v = vidRef.current;
     if (!v) return;
     if (v.paused) {
-      if (v.currentTime >= outSec - 0.01 || v.currentTime < inSec) {
+      if (fromStart || v.currentTime >= outSec - 0.01 || v.currentTime < inSec) {
         v.currentTime = inSec;
       }
       void v.play();
@@ -362,10 +380,22 @@ export default function Trim() {
             size="icon"
             variant="secondary"
             onClick={toggle}
-            title={playing ? "Pause" : "Play selection"}
+            title={playing ? "Pause" : fromStart ? "Play from the trim start" : "Play selection"}
           >
             {playing ? <Pause /> : <Play />}
           </Button>
+          <label
+            className="flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground hover:text-foreground"
+            title="Each time you press play, start from the beginning of your trim"
+          >
+            <input
+              type="checkbox"
+              checked={fromStart}
+              onChange={(e) => toggleFromStart(e.target.checked)}
+              className="accent-primary"
+            />
+            From trim start
+          </label>
           <Button
             size="icon"
             variant="ghost"

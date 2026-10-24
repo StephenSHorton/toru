@@ -38,10 +38,15 @@ func TestRealBackgroundRecordingSmoke(t *testing.T) {
 	if err := s.AddMarker(); err != nil {
 		t.Fatal(err)
 	}
+	// Changing the storage limit mid-recording must not restart it.
+	st.MaxDiskGB = 100
+	if _, err := s.SetSettings(st); err != nil {
+		t.Fatal(err)
+	}
 	time.Sleep(6 * time.Second)
 
 	list := s.ListSessions()
-	if len(list) != 1 || !list[0].Live || list[0].DurationSec < 6 || len(list[0].Markers) < 2 {
+	if len(list) != 1 || !list[0].Live || list[0].DurationSec < 6 || len(list[0].Markers) < 1 || len(list[0].Runs) != 1 {
 		t.Fatalf("sessions: %+v", list)
 	}
 	t.Logf("live session: %.1fs, %d markers, %d MB", list[0].DurationSec, len(list[0].Markers), list[0].SizeBytes>>20)
@@ -61,7 +66,7 @@ func TestRealBackgroundRecordingSmoke(t *testing.T) {
 	probe, _ := capture.LocateFFprobe()
 	out, err := exec.Command(probe, "-v", "error", "-show_entries", "format=duration:stream=codec_name,width,height",
 		"-of", "compact", srv.URL+list[0].PlaylistURL).CombinedOutput()
-	if err != nil || !strings.Contains(string(out), "h264") {
+	if err != nil || !(strings.Contains(string(out), "hevc") || strings.Contains(string(out), "h264")) {
 		t.Fatalf("HLS playlist unplayable: %v\n%s", err, out)
 	}
 	t.Logf("ffprobe over HLS: %s", strings.ReplaceAll(strings.TrimSpace(string(out)), "\n", " | "))

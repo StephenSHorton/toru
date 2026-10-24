@@ -190,6 +190,7 @@ type ReplayBuffer struct {
 	protect  func(run int) bool // Persist: runs that must never be pruned
 	diskUsed int64              // Persist: last measured segment bytes
 	diskFull bool               // Persist: paused for lack of free space
+	maxBytes int64              // Persist: live size cap (SetMaxBytes); 0 = cfg.MaxBytes
 
 	// segMu is held while pruning and while Save reads segments, so the pruner
 	// never deletes a file a stitch is about to read.
@@ -284,6 +285,7 @@ func (b *ReplayBuffer) Start(cfg ReplayConfig) error {
 
 	b.mu.Lock()
 	b.cfg = cfg
+	b.maxBytes = 0
 	b.stop = make(chan struct{})
 	b.done = make(chan struct{})
 	stop, done := b.stop, b.done
@@ -769,6 +771,9 @@ func stitchReplay(bin string, segs []replaySegment, outPath string, trackTitles 
 	// carry track titles (MPEG-TS has none), so they're set here; the mix
 	// is the default track players pick.
 	tail := []string{"-map", "0", "-c", "copy"}
+	if probeCodec(segs[0].path) == "hevc" {
+		tail = append(tail, "-tag:v", "hvc1") // MP4 players expect hvc1, not ffmpeg's default hev1
+	}
 	for i, title := range trackTitles {
 		disp := "0"
 		if i == 0 {
@@ -935,6 +940,22 @@ func resetReplayDir(dir string) error {
 }
 
 // lastLine returns the last non-empty line of s (ffmpeg's actionable error).
+// probeCodec returns the first video stream's codec name ("" if unknown).
+func probeCodec(path string) string {
+	bin, err := LocateFFprobe()
+	if err != nil {
+		return ""
+	}
+	cmd := exec.Command(bin, "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=codec_name", "-of", "csv=p=0", path)
+	configureSysProcAttr(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {

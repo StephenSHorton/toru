@@ -142,6 +142,8 @@ func (s *ReplayService) reconcile() error {
 		(st.Mode == ModeManual && manual))
 	cfg := toConfigFor(st, game)
 	same := cfg == s.runningCfg
+	// A new storage limit applies to the running recorder without a restart.
+	limitsOnly := !same && cfg.Persist && withMaxBytes(cfg, 0) == withMaxBytes(s.runningCfg, 0)
 	s.mu.Unlock()
 
 	if !want {
@@ -154,6 +156,13 @@ func (s *ReplayService) reconcile() error {
 	if same && s.buf.Running() {
 		return nil
 	}
+	if limitsOnly && s.buf.Running() {
+		s.buf.SetMaxBytes(cfg.MaxBytes)
+		s.mu.Lock()
+		s.runningCfg = cfg
+		s.mu.Unlock()
+		return nil
+	}
 	if cfg.Dir == "" {
 		return fmt.Errorf("replay: no storage directory")
 	}
@@ -164,9 +173,6 @@ func (s *ReplayService) reconcile() error {
 		s.runningCfg = capture.ReplayConfig{}
 	}
 	s.mu.Unlock()
-	if err == nil && cfg.Persist {
-		s.addMarker(MarkerStart, game)
-	}
 	return err
 }
 
@@ -195,20 +201,64 @@ func toConfigFor(st Settings, game string) capture.ReplayConfig {
 	cfg.Persist = true
 	cfg.MaxBytes = int64(st.MaxDiskGB) << 30
 	cfg.MinFreeBytes = minFreeBytes
-	switch st.RecordingQuality {
-	case QualityStandard:
-		cfg.FPS, cfg.BitrateKbps = min(cfg.FPS, 60), 12000
-	case QualityHigh:
-		cfg.FPS, cfg.BitrateKbps = min(cfg.FPS, 60), 25000
-	case QualityCustom:
+	if preset, ok := qualityPresets[st.RecordingQuality]; ok {
+		// Presets record HEVC: the same picture as H.264 in about half the
+		// space. Without a hardware HEVC encoder they fall back to H.264 at
+		// a bitrate that keeps the quality.
+		cfg.FPS = min(cfg.FPS, 60)
+		if hevcAvailable() {
+			cfg.Codec, cfg.BitrateKbps = capture.ReplayCodecHEVC, preset.hevcKbps
+		} else {
+			cfg.Codec, cfg.BitrateKbps = capture.ReplayCodecH264, preset.h264Kbps
+		}
+	} else {
 		cfg.FPS, cfg.BitrateKbps = st.RecordingFPS, st.RecordingBitrateMbps*1000
 	}
 	// No age limit: sessions are kept whole until the storage limit needs
 	// their space, then the oldest goes (manual recordings are protected).
 	cfg.KeepSeconds = 0
 	cfg.WholeSessions = true
-	cfg.Tag = encodeTag(st.Mode, game)
+	cfg.Tag = encodeTag(st.Mode, game, cfg.Codec)
 	return cfg
+}
+
+func withMaxBytes(c capture.ReplayConfig, n int64) capture.ReplayConfig {
+	c.MaxBytes = n
+	return c
+}
+
+// qualityPresets are the recording-quality presets' bitrates (kbps).
+var qualityPresets = map[string]struct{ hevcKbps, h264Kbps int }{
+	QualitySaver:    {5000, 8000},
+	QualityStandard: {8000, 12000},
+	QualityHigh:     {15000, 24000},
+}
+
+// hevcAvailable reports whether a hardware HEVC encoder works (cached probe).
+// A var so tests don't depend on the machine's GPU.
+var hevcAvailable = func() bool { return capture.ReplayEncoderAvailable(capture.ReplayCodecHEVC) }
+
+// RecordingPresets returns each recording-quality preset's real frame rate,
+// codec and bitrate on this PC (HEVC when the GPU can encode it), for the
+// Settings estimates.
+func (s *ReplayService) RecordingPresets() []RecordingPreset {
+	st := s.GetSettings()
+	out := []RecordingPreset{}
+	for _, q := range QualityOptions {
+		tmp := st
+		tmp.Mode, tmp.RecordingQuality = ModeBackground, q
+		cfg := toConfigFor(tmp, "")
+		out = append(out, RecordingPreset{Quality: q, FPS: cfg.FPS, Codec: cfg.Codec, Mbps: cfg.BitrateKbps / 1000})
+	}
+	return out
+}
+
+// RecordingPreset is one recording-quality option as it will actually record.
+type RecordingPreset struct {
+	Quality string `json:"quality"`
+	FPS     int    `json:"fps"`
+	Codec   string `json:"codec"`
+	Mbps    int    `json:"mbps"`
 }
 
 func baseConfig(st Settings) capture.ReplayConfig {

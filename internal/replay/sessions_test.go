@@ -32,6 +32,11 @@ func makeRun(t *testing.T, dir string, run int, startMs int64, secs int, tag str
 	}
 	raw, _ := json.Marshal(capture.RunInfo{Run: run, StartMs: startMs, Tag: tag})
 	_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("r%04d.json", run)), raw, 0o644)
+	// Like the recorder: each segment file's mtime is when that segment ended.
+	for name, t := range capture.SegmentTimes(dir, run) {
+		end := time.UnixMilli(startMs + int64(t[1]*1000))
+		_ = os.Chtimes(filepath.Join(dir, name), end, end)
+	}
 }
 
 func TestSessionsTimelineClipKeepDelete(t *testing.T) {
@@ -48,9 +53,9 @@ func TestSessionsTimelineClipKeepDelete(t *testing.T) {
 
 	base := time.Now().Add(-time.Hour).UnixMilli()
 	// Two runs of the same game 2s apart = one session; a manual run later = another.
-	makeRun(t, rec, 1000, base, 6, encodeTag(ModeBackground, "VALORANT"))
-	makeRun(t, rec, 1008, base+8000, 4, encodeTag(ModeBackground, "VALORANT"))
-	makeRun(t, rec, 2000, base+600_000, 4, encodeTag(ModeManual, ""))
+	makeRun(t, rec, 1000, base, 6, encodeTag(ModeBackground, "VALORANT", "h264"))
+	makeRun(t, rec, 1008, base+8000, 4, encodeTag(ModeBackground, "VALORANT", "h264"))
+	makeRun(t, rec, 2000, base+600_000, 4, encodeTag(ModeManual, "", "h264"))
 	s.addMarkerAt(base+9000, MarkerUser, "")        // 1s into the second run
 	s.addMarkerAt(base+10*3600_000, MarkerUser, "") // outside every session
 
@@ -114,6 +119,8 @@ func TestSessionsTimelineClipKeepDelete(t *testing.T) {
 }
 
 func TestModesNormalizeAndConfig(t *testing.T) {
+	hevcAvailable = func() bool { return true }
+	defer func() { hevcAvailable = func() bool { return capture.ReplayEncoderAvailable(capture.ReplayCodecHEVC) } }()
 	st := Settings{Mode: ModeBackground, Codec: "av1", MaxDiskGB: 3, FPS: 144, BitrateMbps: 65}.Normalize()
 	if st.Codec != "h264" || st.MaxDiskGB != 25 || st.RecordingQuality != QualityStandard {
 		t.Errorf("normalize: %+v", st)
@@ -126,10 +133,15 @@ func TestModesNormalizeAndConfig(t *testing.T) {
 		t.Errorf("background keeps whole sessions until the limit: %+v", whole)
 	}
 	bg := toConfigFor(st, "VALORANT")
-	if !bg.Persist || bg.Dir != `D:\Rec` || bg.KeepSeconds != 0 || !bg.WholeSessions || bg.MaxBytes != 25<<30 || bg.Tag != "background|VALORANT" ||
-		bg.BitrateKbps != 12000 || bg.MinFreeBytes != minFreeBytes {
+	if !bg.Persist || bg.Dir != `D:\Rec` || bg.KeepSeconds != 0 || !bg.WholeSessions || bg.MaxBytes != 25<<30 || bg.Tag != "background|VALORANT|hevc" ||
+		bg.BitrateKbps != 8000 || bg.Codec != "hevc" || bg.MinFreeBytes != minFreeBytes {
 		t.Errorf("background cfg: %+v", bg)
 	}
+	hevcAvailable = func() bool { return false }
+	if fb := toConfigFor(st, "VALORANT"); fb.Codec != "h264" || fb.BitrateKbps != 12000 {
+		t.Errorf("without HEVC, Standard falls back to H.264 at 12 Mbps: %+v", fb)
+	}
+	hevcAvailable = func() bool { return true }
 	if toConfigFor(st, "VALORANT") == toConfigFor(st, "Apex Legends") {
 		t.Error("a different game must restart the buffer (new session)")
 	}
@@ -141,7 +153,7 @@ func TestModesNormalizeAndConfig(t *testing.T) {
 		t.Errorf("custom recording quality uses its own fps/bitrate: %+v", c)
 	}
 	st.Mode = ModeManual
-	if m := toConfigFor(st, ""); m.KeepSeconds != 0 || m.Tag != "manual|" {
+	if m := toConfigFor(st, ""); m.KeepSeconds != 0 || m.Tag != "manual||h264" {
 		t.Errorf("manual cfg: %+v", m)
 	}
 	if r := toConfig(Settings{Mode: ModeReplay, FPS: 144, BitrateMbps: 65}.Normalize()); r.FPS != 144 || r.BitrateKbps != 65000 {

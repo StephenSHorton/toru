@@ -57,6 +57,7 @@ import {
   Session as RecordingSession,
   SessionMarker as RecordingMarker,
   RecorderState,
+  RecordingPreset,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/replay/models.js";
 
 export {
@@ -82,6 +83,7 @@ export {
   RecordingSession,
   RecordingMarker,
   RecorderState,
+  RecordingPreset,
   ReplayStatus,
 };
 export type { CaptureItem };
