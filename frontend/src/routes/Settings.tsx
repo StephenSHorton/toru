@@ -568,7 +568,7 @@ function EmptySessions() {
         <p className="font-medium">No recordings yet</p>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">
           In Settings → Game recording, choose Background recording to keep your whole play
-          sessions (like Steam), or Manual recording to record with a hotkey.
+          sessions, or Manual recording to record with a hotkey.
         </p>
       </div>
     </div>

@@ -30,7 +30,7 @@ const MODES: { value: string; label: string; icon: React.ReactNode; summary: str
     value: "background",
     label: "Background recording",
     icon: <Film className="size-4" />,
-    summary: "Records your whole play session, like Steam. Scrub back and cut clips later.",
+    summary: "Records your whole play session. Scrub back and cut clips later.",
     detail: "Old footage is deleted automatically after the time you choose.",
   },
   {
@@ -472,7 +472,7 @@ export function ReplayPanel() {
               </Field>
               <ToggleRow
                 label="Only record while playing a game"
-                hint="Starts when a game is in focus (fullscreen, or anything from Steam, Epic, Xbox, Riot, …) and stops when it closes, like Steam. Turn off to record your screen all the time."
+                hint="Starts when a game is in focus (fullscreen, or anything from Steam, Epic, Xbox, Riot, …) and stops when it closes. Turn off to record your screen all the time."
                 checked={settings.gamesOnly}
                 disabled={busy}
                 onChange={(v) => void update({ gamesOnly: v })}
