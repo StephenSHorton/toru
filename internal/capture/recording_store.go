@@ -215,7 +215,7 @@ func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 	b.mu.Unlock()
 	full := cfg.MaxBytes > 0 && total > cfg.MaxBytes
 	b.setStatus(func(s *ReplayStatus) {
-		const capMsg = "Recording storage is full of kept recordings; delete some or raise the limit"
+		const capMsg = "Recording storage is full of manual recordings; delete some or raise the limit"
 		const driveMsg = "Your drive is almost full, so recording is paused. Free up space or delete recordings"
 		switch {
 		case driveFull:

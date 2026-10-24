@@ -129,13 +129,6 @@ export function GetStatus(): $CancellablePromise<capture$0.ReplayStatus> {
 }
 
 /**
- * KeepSession exempts a background recording from auto-delete (or undoes it).
- */
-export function KeepSession(id: number, keep: boolean): $CancellablePromise<void> {
-    return $Call.ByID(703547700, id, keep);
-}
-
-/**
  * ListClips returns the saved clips in the save folder and its game folders
  * (one level deep), newest first.
  */

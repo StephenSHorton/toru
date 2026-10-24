@@ -28,9 +28,8 @@ type Session struct {
 	EndMs       int64           `json:"endMs"`
 	DurationSec float64         `json:"durationSec"`
 	SizeBytes   int64           `json:"sizeBytes"`
-	Kept        bool            `json:"kept"`       // exempt from auto-delete
 	Live        bool            `json:"live"`       // still recording
-	DeleteAtMs  int64           `json:"deleteAtMs"` // background, not kept: when its oldest footage expires
+	DeleteAtMs  int64           `json:"deleteAtMs"` // background (last-few-hours retention): when its oldest footage expires
 	ThumbURL    string          `json:"thumbUrl"`
 	PlaylistURL string          `json:"playlistUrl"`
 	Markers     []SessionMarker `json:"markers"`
@@ -99,7 +98,6 @@ func (s *ReplayService) buildSessions() []builtSession {
 	if liveCfg.Persist && s.buf.Running() && filepath.Clean(liveCfg.Dir) == filepath.Clean(dir) {
 		liveRun = runs[len(runs)-1]
 	}
-	kept := loadKept(dir)
 	markers := loadMarkers(dir)
 
 	var out []builtSession
@@ -152,9 +150,6 @@ func (s *ReplayService) buildSessions() []builtSession {
 		if run == liveRun {
 			cur.Live = true
 		}
-		if kept[run] {
-			cur.Kept = true
-		}
 	}
 
 	keepMs := int64(st.BackgroundMinutes) * 60_000
@@ -162,7 +157,7 @@ func (s *ReplayService) buildSessions() []builtSession {
 		b := &out[i]
 		b.ThumbURL = fmt.Sprintf("%sthumb/%d", recPrefix, b.ID)
 		b.PlaylistURL = fmt.Sprintf("%s%d.m3u8", recPrefix, b.ID)
-		if b.Mode == ModeBackground && !b.Kept && keepMs > 0 && st.Retention == RetentionTime {
+		if b.Mode == ModeBackground && keepMs > 0 && st.Retention == RetentionTime {
 			b.DeleteAtMs = b.segs[0].seg.ModTime.UnixMilli() + keepMs
 		}
 		b.Markers = []SessionMarker{}
@@ -264,29 +259,6 @@ func (s *ReplayService) CreateClip(id int, startSec, endSec float64) (string, er
 	return out, nil
 }
 
-// KeepSession exempts a background recording from auto-delete (or undoes it).
-func (s *ReplayService) KeepSession(id int, keep bool) error {
-	b, err := s.findSession(id)
-	if err != nil {
-		return err
-	}
-	dir := recordingsDirFor(s.GetSettings())
-	kept := loadKept(dir)
-	for _, r := range b.Runs {
-		if keep {
-			kept[r] = true
-		} else {
-			delete(kept, r)
-		}
-	}
-	if err := saveKept(dir, kept); err != nil {
-		return err
-	}
-	s.invalidateProtect()
-	emit(EventRecordings, nil)
-	return nil
-}
-
 // DeleteSession deletes a recording (not one that is still recording).
 func (s *ReplayService) DeleteSession(id int) error {
 	b, err := s.findSession(id)
@@ -297,14 +269,11 @@ func (s *ReplayService) DeleteSession(id int) error {
 		return errors.New("this recording is still running; stop it first")
 	}
 	dir := recordingsDirFor(s.GetSettings())
-	kept := loadKept(dir)
 	for _, r := range b.Runs {
 		if err := capture.DeleteRun(dir, r); err != nil {
 			return err
 		}
-		delete(kept, r)
 	}
-	_ = saveKept(dir, kept)
 	s.invalidateProtect()
 	emit(EventRecordings, nil)
 	return nil

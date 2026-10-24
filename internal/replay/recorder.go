@@ -14,7 +14,7 @@ import (
 )
 
 // EventRecordings fires when the list of session recordings changes (a
-// recording started or stopped, a clip/marker was added, kept or deleted).
+// recording started or stopped, a clip/marker was added, or one was deleted).
 const EventRecordings = "recording:changed"
 
 // Marker kinds on a session timeline.
@@ -270,13 +270,13 @@ func (s *ReplayService) watchGames(stop chan struct{}) {
 // --- protection: runs pruning must keep -------------------------------------
 
 // protectCache answers "is this run protected?" for the pruner, which asks
-// once per segment: manual runs (from the sidecar) and runs of sessions the
-// user chose to keep (kept.json).
+// once per segment. Only manual recordings are protected (the user started
+// them on purpose); background footage the user wants to keep must be saved
+// as a clip.
 type protectCache struct {
 	mu     sync.Mutex
 	dir    string
 	manual map[int]bool
-	kept   map[int]bool
 }
 
 func (s *ReplayService) isProtected(run int) bool {
@@ -285,10 +285,7 @@ func (s *ReplayService) isProtected(run int) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.dir != dir || c.manual == nil {
-		c.dir, c.manual, c.kept = dir, map[int]bool{}, loadKept(dir)
-	}
-	if c.kept[run] {
-		return true
+		c.dir, c.manual = dir, map[int]bool{}
 	}
 	manual, seen := c.manual[run]
 	if !seen {
@@ -304,30 +301,4 @@ func (s *ReplayService) invalidateProtect() {
 	s.protect.mu.Lock()
 	s.protect.manual = nil
 	s.protect.mu.Unlock()
-}
-
-func loadKept(dir string) map[int]bool {
-	out := map[int]bool{}
-	raw, err := os.ReadFile(filepath.Join(dir, "kept.json"))
-	if err != nil {
-		return out
-	}
-	var runs []int
-	_ = json.Unmarshal(raw, &runs)
-	for _, r := range runs {
-		out[r] = true
-	}
-	return out
-}
-
-func saveKept(dir string, kept map[int]bool) error {
-	runs := make([]int, 0, len(kept))
-	for r := range kept {
-		runs = append(runs, r)
-	}
-	raw, err := json.Marshal(runs)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, "kept.json"), raw, 0o644)
 }

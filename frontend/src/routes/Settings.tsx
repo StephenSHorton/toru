@@ -5,7 +5,6 @@ import {
   Circle,
   Clapperboard,
   Film,
-  Lock,
   FolderOpen,
   Image as ImageIcon,
   Settings2,
@@ -454,7 +453,6 @@ function LibraryPage() {
                 key={s.id}
                 session={s}
                 onOpen={() => void ReplayService.OpenSession(s.id).catch(report)}
-                onKeep={() => void ReplayService.KeepSession(s.id, !s.kept).then(refreshSessions).catch(report)}
                 onDelete={() => setPendingSession(s)}
               />
             ))}
@@ -602,12 +600,10 @@ function formatDuration(sec: number): string {
 function SessionCard({
   session,
   onOpen,
-  onKeep,
   onDelete,
 }: {
   session: RecordingSession;
   onOpen: () => void;
-  onKeep: () => void;
   onDelete: () => void;
 }) {
   const [thumbFailed, setThumbFailed] = useState(false);
@@ -656,20 +652,9 @@ function SessionCard({
           </div>
           <div className="truncate text-[10px] text-muted-foreground">
             {formatWhen(new Date(session.startMs).toISOString())} · {formatSize(session.sizeBytes)}
-            {session.kept ? " · kept" : session.deleteAtMs ? ` · auto-deletes in ${minsLeft >= 60 ? `${Math.floor(minsLeft / 60)}h` : `${minsLeft}m`}` : ""}
+            {session.deleteAtMs ? ` · auto-deletes in ${minsLeft >= 60 ? `${Math.floor(minsLeft / 60)}h` : `${minsLeft}m`}` : ""}
           </div>
         </div>
-        {session.mode !== "manual" ? (
-          <Button
-            size="icon"
-            variant="ghost"
-            className={cn("size-7 shrink-0 hover:opacity-100", session.kept ? "text-primary opacity-100" : "opacity-60")}
-            title={session.kept ? "Kept: won't be auto-deleted (click to undo)" : "Keep: don't auto-delete this recording"}
-            onClick={onKeep}
-          >
-            <Lock className="size-3.5" />
-          </Button>
-        ) : null}
         <Button
           size="icon"
           variant="ghost"

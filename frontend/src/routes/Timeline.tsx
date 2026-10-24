@@ -9,8 +9,7 @@ import {
   Circle,
   FolderOpen,
   Loader2,
-  Lock,
-  LockOpen,
+  Download,
   Pause,
   Play,
   Scissors,
@@ -313,14 +312,19 @@ export default function Timeline() {
     }
   };
 
-  const toggleKeep = async () => {
+  // The only way to keep background footage for good: save it as a clip
+  // (a normal video in the clips folder, which the user manages).
+  const saveFull = async () => {
     if (!session) return;
+    setBusy(true);
     try {
-      await ReplayService.KeepSession(id, !session.kept);
-      setNote(session.kept ? "Will be auto-deleted like other background footage" : "Kept: won't be auto-deleted");
-      refresh();
+      const path = await ReplayService.CreateClip(id, 0, session.durationSec);
+      setNote("Saved to your clips, opening the editor…");
+      await ReplayService.OpenClip(path);
     } catch (e) {
-      setNote(String(e));
+      setNote(`Couldn't save: ${String(e).replace(/^Error:\s*/, "")}`);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -462,9 +466,11 @@ export default function Timeline() {
             </span>
           ) : null}
           {session?.mode === "manual" ? (
-            <span className="bg-primary/15 px-1.5 py-0.5 text-primary">Manual · kept until you delete it</span>
-          ) : session?.kept ? (
-            <span className="bg-primary/15 px-1.5 py-0.5 text-primary">Kept</span>
+            <span className="bg-primary/15 px-1.5 py-0.5 text-primary">Manual · stays until you delete it</span>
+          ) : session && !session.live && !session.deleteAtMs ? (
+            <span className="bg-muted px-1.5 py-0.5 text-muted-foreground">
+              Background · deleted when storage runs out. Save a clip to keep it
+            </span>
           ) : session?.deleteAtMs ? (
             <span className="bg-muted px-1.5 py-0.5 text-muted-foreground">
               Background · oldest footage auto-deletes in {fmtUntil(session.deleteAtMs)}
@@ -595,11 +601,15 @@ export default function Timeline() {
             <Button size="sm" disabled={!sel || busy || sel.b - sel.a < 0.5} onClick={() => void createClip()}>
               <Scissors /> {busy ? "Saving…" : "Create clip"}
             </Button>
-            {session?.mode !== "manual" ? (
-              <Button size="sm" variant="ghost" onClick={() => void toggleKeep()} title="Keep this recording so it isn't auto-deleted">
-                {session?.kept ? <LockOpen /> : <Lock />} {session?.kept ? "Unkeep" : "Keep"}
-              </Button>
-            ) : null}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy || !session || session.live}
+              onClick={() => void saveFull()}
+              title={session?.live ? "Available once the recording ends" : "Save the whole recording to your clips folder"}
+            >
+              <Download /> Save full recording
+            </Button>
             <Button size="sm" variant="ghost" onClick={() => void ReplayService.OpenRecordingsDir()} title="Open the recordings folder">
               <FolderOpen />
             </Button>

@@ -645,8 +645,8 @@ export function ReplayPanel() {
                 <InfoTip>
                   {settings.mode === "background"
                     ? settings.retention === "time"
-                      ? "When full, the oldest background footage is trimmed first. Manual and kept recordings are never deleted automatically."
-                      : "When full, the oldest whole session is deleted to make room. Manual and kept recordings are never deleted automatically."
+                      ? "When full, the oldest background footage is trimmed first. Manual recordings are never deleted automatically. To keep something for good, save it as a clip."
+                      : "When full, the oldest whole session is deleted to make room. Manual recordings are never deleted automatically. To keep something for good, save it as a clip."
                     : "Manual recordings are never deleted automatically. Delete old ones from the Library's Recordings tab."}
                 </InfoTip>
               </>

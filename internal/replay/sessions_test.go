@@ -90,7 +90,7 @@ func TestSessionsTimelineClipKeepDelete(t *testing.T) {
 		t.Errorf("segment: %d %q", res.Code, res.Header().Get("Content-Type"))
 	}
 	res = httptest.NewRecorder()
-	h.ServeHTTP(res, httptest.NewRequest("GET", "/__rec/seg/..%2Fkept.json", nil))
+	h.ServeHTTP(res, httptest.NewRequest("GET", "/__rec/seg/..%2Fmarkers.jsonl", nil))
 	if res.Code != 404 {
 		t.Errorf("traversal: %d", res.Code)
 	}
@@ -108,20 +108,11 @@ func TestSessionsTimelineClipKeepDelete(t *testing.T) {
 		t.Errorf("clip duration %dms (segments 2-3 = 4s): %v", ms, err)
 	}
 
-	if err := s.KeepSession(val.ID, true); err != nil {
-		t.Fatal(err)
-	}
-	if !s.isProtected(1008) || !s.ListSessions()[1].Kept || s.ListSessions()[1].DeleteAtMs != 0 {
-		t.Error("kept session should be protected and not expire")
-	}
 	if err := s.DeleteSession(val.ID); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.ListSessions(); len(got) != 1 || got[0].ID != 2000 {
 		t.Errorf("after delete: %+v", got)
-	}
-	if s.isProtected(1008) {
-		t.Error("deleted runs drop out of kept")
 	}
 }
 

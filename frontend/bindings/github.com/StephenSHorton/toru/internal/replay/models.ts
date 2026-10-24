@@ -203,17 +203,12 @@ export class Session {
     "sizeBytes": number;
 
     /**
-     * exempt from auto-delete
-     */
-    "kept": boolean;
-
-    /**
      * still recording
      */
     "live": boolean;
 
     /**
-     * background, not kept: when its oldest footage expires
+     * background (last-few-hours retention): when its oldest footage expires
      */
     "deleteAtMs": number;
     "thumbUrl": string;
@@ -246,9 +241,6 @@ export class Session {
         if (!("sizeBytes" in $$source)) {
             this["sizeBytes"] = 0;
         }
-        if (!("kept" in $$source)) {
-            this["kept"] = false;
-        }
         if (!("live" in $$source)) {
             this["live"] = false;
         }
@@ -273,13 +265,13 @@ export class Session {
      */
     static createFrom($$source: any = {}): Session {
         const $$createField1_0 = $$createType0;
-        const $$createField13_0 = $$createType2;
+        const $$createField12_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("runs" in $$parsedSource) {
             $$parsedSource["runs"] = $$createField1_0($$parsedSource["runs"]);
         }
         if ("markers" in $$parsedSource) {
-            $$parsedSource["markers"] = $$createField13_0($$parsedSource["markers"]);
+            $$parsedSource["markers"] = $$createField12_0($$parsedSource["markers"]);
         }
         return new Session($$parsedSource as Partial<Session>);
     }
