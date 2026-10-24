@@ -140,12 +140,25 @@ func toConfig(st Settings) capture.ReplayConfig {
 		IncludeCursor: st.IncludeCursor,
 		KeepSeconds:   st.DurationSec,
 		Dir:           dir,
+		// A source at 0% volume is simply off.
 		Audio: capture.ReplayAudio{
-			Desktop:   st.DesktopAudio,
-			Discord:   st.DiscordAudio,
-			MicDevice: st.MicDevice,
+			Desktop:        st.DesktopAudio && st.DesktopVolume > 0,
+			Discord:        st.DiscordAudio && st.DiscordVolume > 0,
+			MicDevice:      micIf(st.MicVolume > 0, st.MicDevice),
+			DesktopVolume:  st.DesktopVolume,
+			DiscordVolume:  st.DiscordVolume,
+			MicVolume:      st.MicVolume,
+			SeparateTracks: st.SeparateTracks,
+			BitrateKbps:    st.AudioBitrateKbps,
 		},
 	}
+}
+
+func micIf(on bool, device string) string {
+	if on {
+		return device
+	}
+	return ""
 }
 
 // GetStatus returns the buffer's live status.

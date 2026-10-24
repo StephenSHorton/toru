@@ -106,6 +106,23 @@ export class Settings {
     "micDevice": string;
 
     /**
+     * Per-source volume in percent (0 mutes, 100 = as captured, max 200).
+     */
+    "desktopVolume": number;
+    "discordVolume": number;
+    "micVolume": number;
+
+    /**
+     * SeparateTracks adds each source as its own audio track after the mix.
+     */
+    "separateTracks": boolean;
+
+    /**
+     * AAC per track
+     */
+    "audioBitrateKbps": number;
+
+    /**
      * "" = DefaultSaveDir()
      */
     "saveDir": string;
@@ -149,6 +166,21 @@ export class Settings {
         }
         if (!("micDevice" in $$source)) {
             this["micDevice"] = "";
+        }
+        if (!("desktopVolume" in $$source)) {
+            this["desktopVolume"] = 0;
+        }
+        if (!("discordVolume" in $$source)) {
+            this["discordVolume"] = 0;
+        }
+        if (!("micVolume" in $$source)) {
+            this["micVolume"] = 0;
+        }
+        if (!("separateTracks" in $$source)) {
+            this["separateTracks"] = false;
+        }
+        if (!("audioBitrateKbps" in $$source)) {
+            this["audioBitrateKbps"] = 0;
         }
         if (!("saveDir" in $$source)) {
             this["saveDir"] = "";

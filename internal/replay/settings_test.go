@@ -14,6 +14,10 @@ func TestNormalizeClampsEverything(t *testing.T) {
 		got.BitrateMbps != minBitrateMbps || got.Codec != capture.ReplayCodecH264 || got.MicDevice != "Mic" {
 		t.Errorf("Normalize = %+v", got)
 	}
+	loud := Settings{DesktopVolume: 900, MicVolume: -5, AudioBitrateKbps: 17}.Normalize()
+	if loud.DesktopVolume != maxVolume || loud.MicVolume != 0 || loud.AudioBitrateKbps != 160 {
+		t.Errorf("audio Normalize = %+v", loud)
+	}
 	if d := DefaultSettings(); d.Normalize() != d {
 		t.Errorf("defaults must already be normal: %+v", d)
 	}
@@ -71,6 +75,11 @@ func TestRestartOnlyForCaptureFields(t *testing.T) {
 	b.BitrateMbps = 40
 	if toConfig(a) == toConfig(b) {
 		t.Error("a bitrate change must restart the buffer")
+	}
+	c := a
+	c.MicDevice, c.MicVolume, c.DiscordVolume = "Mic", 0, 0
+	if cfg := toConfig(c); cfg.Audio.MicDevice != "" || cfg.Audio.Discord || !cfg.Audio.Desktop {
+		t.Errorf("0%% volume must switch that source off: %+v", cfg.Audio)
 	}
 }
 

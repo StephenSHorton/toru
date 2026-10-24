@@ -30,17 +30,25 @@ type Settings struct {
 	DesktopAudio  bool   `json:"desktopAudio"`  // system mix (minus Discord unless DiscordAudio)
 	DiscordAudio  bool   `json:"discordAudio"`  // Discord's process tree
 	MicDevice     string `json:"micDevice"`     // dshow mic name; "" = off
-	SaveDir       string `json:"saveDir"`       // "" = DefaultSaveDir()
-	SoundOnSave   bool   `json:"soundOnSave"`   // short system sound when a clip lands
+	// Per-source volume in percent (0 mutes, 100 = as captured, max 200).
+	DesktopVolume int `json:"desktopVolume"`
+	DiscordVolume int `json:"discordVolume"`
+	MicVolume     int `json:"micVolume"`
+	// SeparateTracks adds each source as its own audio track after the mix.
+	SeparateTracks   bool   `json:"separateTracks"`
+	AudioBitrateKbps int    `json:"audioBitrateKbps"` // AAC per track
+	SaveDir          string `json:"saveDir"`          // "" = DefaultSaveDir()
+	SoundOnSave      bool   `json:"soundOnSave"`      // short system sound when a clip lands
 }
 
 // Option lists the UI offers. Normalize snaps anything else to the nearest
 // sane value so a hand-edited replay.json can't wedge the buffer.
 var (
-	DurationOptions = []int{15, 30, 60, 120, 300, 600, 1200}
-	FPSOptions      = []int{30, 60, 120, 144}
-	HeightOptions   = []int{0, 2160, 1440, 1080, 720}
-	CodecOptions    = []string{capture.ReplayCodecH264, capture.ReplayCodecHEVC, capture.ReplayCodecAV1}
+	DurationOptions  = []int{15, 30, 60, 120, 300, 600, 1200}
+	FPSOptions       = []int{30, 60, 120, 144}
+	HeightOptions    = []int{0, 2160, 1440, 1080, 720}
+	CodecOptions     = []string{capture.ReplayCodecH264, capture.ReplayCodecHEVC, capture.ReplayCodecAV1}
+	AudioKbpsOptions = []int{96, 128, 160, 192, 256, 320}
 )
 
 const (
@@ -48,6 +56,7 @@ const (
 	maxDurationSec = 1200 // 20 minutes
 	minBitrateMbps = 2
 	maxBitrateMbps = 150
+	maxVolume      = 200
 )
 
 // DefaultSettings is the out-of-box configuration: off until the user opts in,
@@ -55,17 +64,21 @@ const (
 // Discord), desktop + Discord audio, no mic.
 func DefaultSettings() Settings {
 	return Settings{
-		Enabled:       false,
-		DurationSec:   60,
-		MonitorID:     -1,
-		FPS:           60,
-		Height:        0,
-		BitrateMbps:   20,
-		Codec:         capture.ReplayCodecH264,
-		IncludeCursor: true,
-		DesktopAudio:  true,
-		DiscordAudio:  true,
-		SoundOnSave:   true,
+		Enabled:          false,
+		DurationSec:      60,
+		MonitorID:        -1,
+		FPS:              60,
+		Height:           0,
+		BitrateMbps:      20,
+		Codec:            capture.ReplayCodecH264,
+		IncludeCursor:    true,
+		DesktopAudio:     true,
+		DiscordAudio:     true,
+		DesktopVolume:    100,
+		DiscordVolume:    100,
+		MicVolume:        100,
+		AudioBitrateKbps: 160,
+		SoundOnSave:      true,
 	}
 }
 
@@ -84,6 +97,12 @@ func (s Settings) Normalize() Settings {
 		s.Codec = d.Codec
 	}
 	s.MicDevice = strings.TrimSpace(s.MicDevice)
+	s.DesktopVolume = min(max(s.DesktopVolume, 0), maxVolume)
+	s.DiscordVolume = min(max(s.DiscordVolume, 0), maxVolume)
+	s.MicVolume = min(max(s.MicVolume, 0), maxVolume)
+	if !slices.Contains(AudioKbpsOptions, s.AudioBitrateKbps) {
+		s.AudioBitrateKbps = d.AudioBitrateKbps
+	}
 	s.SaveDir = strings.TrimSpace(s.SaveDir)
 	return s
 }

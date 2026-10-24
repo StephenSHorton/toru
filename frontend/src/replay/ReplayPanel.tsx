@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clapperboard, FolderOpen, Save } from "lucide-react";
+import { Clapperboard, FolderOpen, Headphones, Mic, Save, Volume2 } from "lucide-react";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -56,6 +56,15 @@ const CODECS: {
     size: "Smallest files; needs an RTX 40/50, Radeon RX 7000+ or Intel Arc",
   },
 ];
+const AUDIO_QUALITY: { value: number; label: string }[] = [
+  { value: 96, label: "96 kbps (smallest)" },
+  { value: 128, label: "128 kbps" },
+  { value: 160, label: "160 kbps (recommended)" },
+  { value: 192, label: "192 kbps" },
+  { value: 256, label: "256 kbps" },
+  { value: 320, label: "320 kbps (best)" },
+];
+type VolumeKey = "desktopVolume" | "discordVolume" | "micVolume";
 const MIN_MBPS = 2;
 const MAX_MBPS = 150;
 
@@ -99,6 +108,12 @@ export function ReplayPanel() {
   const [saving, setSaving] = useState(false);
   const [bitrateDraft, setBitrateDraft] = useState<number | null>(null);
   const bitrateTimer = useRef<number | undefined>(undefined);
+  const [volumeDrafts, setVolumeDrafts] = useState<Partial<Record<VolumeKey, number>>>({});
+  const volumeTimers = useRef<Partial<Record<VolumeKey, number>>>({});
+  const [lastMic, setLastMic] = useState("");
+  // Debounced slider commits run after later renders; read the newest settings.
+  const settingsRef = useRef<ReplaySettings | null>(null);
+  settingsRef.current = settings;
   const shortcuts = useShortcuts();
   const saveShortcut = shortcuts.shortcuts.find((sc) => sc.action === "replaySave");
 
@@ -156,8 +171,10 @@ export function ReplayPanel() {
 
   const update = useCallback(
     async (patch: Partial<ReplaySettings>) => {
-      if (!settings) return;
-      const next = ReplaySettings.createFrom({ ...settings, ...patch });
+      const current = settingsRef.current;
+      if (!current) return;
+      const next = ReplaySettings.createFrom({ ...current, ...patch });
+      settingsRef.current = next;
       setSettings(next);
       setBusy(true);
       setApplyError("");
@@ -173,7 +190,7 @@ export function ReplayPanel() {
           .catch(() => {});
       }
     },
-    [settings, refreshStatus],
+    [refreshStatus],
   );
 
   // The bitrate slider fires on every pixel of drag; restart the buffer once
@@ -185,6 +202,29 @@ export function ReplayPanel() {
       setBitrateDraft(null);
       void update({ bitrateMbps: mbps });
     }, 600);
+  };
+
+  const onVolume = (key: VolumeKey, value: number) => {
+    setVolumeDrafts((d) => ({ ...d, [key]: value }));
+    window.clearTimeout(volumeTimers.current[key]);
+    volumeTimers.current[key] = window.setTimeout(() => {
+      setVolumeDrafts((d) => {
+        const rest = { ...d };
+        delete rest[key];
+        return rest;
+      });
+      void update({ [key]: value });
+    }, 600);
+  };
+
+  const setMicOn = (on: boolean) => {
+    if (on) {
+      const device = lastMic || mics[0] || "";
+      if (device) void update({ micDevice: device });
+    } else {
+      setLastMic(settings?.micDevice ?? "");
+      void update({ micDevice: "" });
+    }
   };
 
   const saveNow = async () => {
@@ -426,42 +466,95 @@ export function ReplayPanel() {
         </div>
       </Section>
 
-      <Section title="Audio">
-        <ToggleRow
-          label="Desktop audio"
-          hint="Game and everything else you hear"
+      <Section
+        title="Audio"
+        hint="Choose what ends up in your clips. Each source has its own volume."
+      >
+        <AudioSourceRow
+          icon={<Volume2 />}
+          label="Game & desktop"
+          hint="Your game, music, browser: everything you hear except Discord"
           checked={settings.desktopAudio}
+          volume={volumeDrafts.desktopVolume ?? settings.desktopVolume}
           disabled={busy}
-          onChange={(v) => void update({ desktopAudio: v })}
+          onToggle={(v) => void update({ desktopAudio: v })}
+          onVolume={(v) => onVolume("desktopVolume", v)}
         />
-        <ToggleRow
-          label="Discord audio"
+        <AudioSourceRow
+          icon={<Headphones />}
+          label="Discord voice chat"
           hint={
             discordRunning
-              ? "Voice chat and Discord sounds"
-              : "Discord isn't running — picked up automatically when it starts"
+              ? "Your friends in the call, plus Discord's sounds"
+              : "Discord isn't running. It's picked up automatically when it starts"
           }
           checked={settings.discordAudio}
+          volume={volumeDrafts.discordVolume ?? settings.discordVolume}
           disabled={busy}
-          onChange={(v) => void update({ discordAudio: v })}
+          onToggle={(v) => void update({ discordAudio: v })}
+          onVolume={(v) => onVolume("discordVolume", v)}
         />
-        <Field label="Microphone">
+        <AudioSourceRow
+          icon={<Mic />}
+          label="Your microphone"
+          hint={
+            mics.length === 0
+              ? "No microphone found"
+              : "Your own voice. Turn it off to keep yourself out of clips"
+          }
+          checked={settings.micDevice !== ""}
+          volume={volumeDrafts.micVolume ?? settings.micVolume}
+          disabled={busy || mics.length === 0}
+          onToggle={setMicOn}
+          onVolume={(v) => onVolume("micVolume", v)}
+        >
+          {settings.micDevice !== "" && (
+            <select
+              className={selectClass}
+              value={settings.micDevice}
+              disabled={busy}
+              onChange={(e) => void update({ micDevice: e.target.value })}
+              aria-label="Microphone device"
+            >
+              {!mics.includes(settings.micDevice) && (
+                <option value={settings.micDevice} className={optionClass}>
+                  {settings.micDevice} (not connected)
+                </option>
+              )}
+              {mics.map((m) => (
+                <option key={m} value={m} className={optionClass}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          )}
+        </AudioSourceRow>
+
+        <ToggleRow
+          label="Separate audio tracks"
+          hint="Also saves game, Discord and mic as their own tracks, so you can mute or level each one later in an editor like Premiere or DaVinci Resolve. Players still play the full mix."
+          checked={settings.separateTracks}
+          disabled={busy}
+          onChange={(v) => void update({ separateTracks: v })}
+        />
+        <Field label="Audio quality">
           <select
             className={selectClass}
-            value={settings.micDevice}
+            value={settings.audioBitrateKbps}
             disabled={busy}
-            onChange={(e) => void update({ micDevice: e.target.value })}
+            onChange={(e) => void update({ audioBitrateKbps: Number(e.target.value) })}
           >
-            <option value="" className={optionClass}>
-              Off
-            </option>
-            {mics.map((m) => (
-              <option key={m} value={m} className={optionClass}>
-                {m}
+            {AUDIO_QUALITY.map((q) => (
+              <option key={q.value} value={q.value} className={optionClass}>
+                {q.label}
               </option>
             ))}
           </select>
         </Field>
+        <span className="text-xs text-muted-foreground">
+          Changing audio settings restarts the buffer, so anything recorded before the change is
+          cleared.
+        </span>
       </Section>
 
       <Section title="Saving">
@@ -572,6 +665,76 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="text-xs text-muted-foreground">{label}</span>
       {children}
     </label>
+  );
+}
+
+function AudioSourceRow({
+  icon,
+  label,
+  hint,
+  checked,
+  volume,
+  disabled,
+  onToggle,
+  onVolume,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  checked: boolean;
+  volume: number;
+  disabled?: boolean;
+  onToggle: (v: boolean) => void;
+  onVolume: (v: number) => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-2 border p-3 transition-colors",
+        checked ? "border-border" : "border-border/50",
+      )}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-start gap-2.5">
+          <span
+            className={cn(
+              "mt-0.5 [&>svg]:size-4",
+              checked ? "text-primary" : "text-muted-foreground",
+            )}
+          >
+            {icon}
+          </span>
+          <div className="flex flex-col">
+            <span className="text-sm">{label}</span>
+            <span className="text-xs text-muted-foreground">{hint}</span>
+          </div>
+        </div>
+        <Switch checked={checked} disabled={disabled} onCheckedChange={onToggle} aria-label={label} />
+      </div>
+      {checked && (
+        <>
+          {children}
+          <div className="flex items-center gap-3">
+            <span className="w-14 shrink-0 text-xs text-muted-foreground">Volume</span>
+            <input
+              type="range"
+              min={0}
+              max={200}
+              step={5}
+              value={volume}
+              onChange={(e) => onVolume(Number(e.target.value))}
+              className="w-full accent-primary"
+              aria-label={`${label} volume`}
+            />
+            <span className="w-11 shrink-0 text-right text-xs tabular-nums">
+              {volume === 0 ? "Muted" : `${volume}%`}
+            </span>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

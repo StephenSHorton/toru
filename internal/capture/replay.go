@@ -44,8 +44,8 @@ const (
 	// for the in-progress segment to close.
 	replaySegmentSec = 2
 
-	// replayAudioBitrate is the AAC bitrate for the mixed replay track.
-	replayAudioBitrate = "160k"
+	// replayAudioKbps is the default AAC bitrate per audio track.
+	replayAudioKbps = 160
 )
 
 // Replay codec ids (ReplayConfig.Codec).
@@ -62,14 +62,77 @@ var replayEncoders = map[string][]string{
 	ReplayCodecAV1:  {"av1_nvenc", "av1_amf", "av1_qsv"},
 }
 
-// ReplayAudio selects the replay track's sources. Desktop is the system mix;
-// Discord is split out of it so it can be kept or dropped independently
-// (Desktop without Discord uses process-loopback EXCLUDE mode on Discord's
-// process tree). The zero value records no audio.
+// ReplayAudio selects the replay's audio sources and how they're mixed.
+// Desktop is the system mix with Discord split out (process-loopback EXCLUDE
+// mode on Discord's tree) so Discord can be kept, dropped or levelled on its
+// own. The zero value records no audio.
 type ReplayAudio struct {
 	Desktop   bool   `json:"desktop"`
 	Discord   bool   `json:"discord"`
 	MicDevice string `json:"micDevice"` // dshow device name; "" = no mic
+
+	// Per-source volume in percent (100 = unchanged); <= 0 means 100.
+	DesktopVolume int `json:"desktopVolume"`
+	DiscordVolume int `json:"discordVolume"`
+	MicVolume     int `json:"micVolume"`
+
+	// SeparateTracks also writes each source as its own audio track after the
+	// mixed one, so an editor can mute or level them later.
+	SeparateTracks bool `json:"separateTracks"`
+	BitrateKbps    int  `json:"bitrateKbps"` // AAC per track; <= 0 = replayAudioKbps
+}
+
+// Audio track titles, in track order after the mix.
+const (
+	replayTrackMix     = "All audio"
+	replayTrackDesktop = "Game & desktop"
+	replayTrackDiscord = "Discord"
+	replayTrackMic     = "Microphone"
+)
+
+// replayAudioSrc is one source in the replay's audio graph: a loopback pipe,
+// the mic (dshow), or silence standing in for a source that isn't available
+// right now (Discord not running). The placeholder keeps the track layout
+// identical across runs so segments from before and after still concatenate.
+type replayAudioSrc struct {
+	title  string
+	volume int
+	in     *AudioInput // loopback pipe; nil with mic == "" = silence
+	mic    string      // dshow device name
+}
+
+// replayAudioSources lists the configured sources in track order. It is the
+// single source of truth for the track layout (see replayTrackTitles).
+func replayAudioSources(a ReplayAudio) []replayAudioSrc {
+	var out []replayAudioSrc
+	if a.Desktop {
+		out = append(out, replayAudioSrc{title: replayTrackDesktop, volume: a.DesktopVolume})
+	}
+	if a.Discord {
+		out = append(out, replayAudioSrc{title: replayTrackDiscord, volume: a.DiscordVolume})
+	}
+	if a.MicDevice != "" {
+		out = append(out, replayAudioSrc{title: replayTrackMic, volume: a.MicVolume, mic: a.MicDevice})
+	}
+	return out
+}
+
+// replayTrackTitles returns the saved clip's audio track titles in order.
+func replayTrackTitles(a ReplayAudio) []string {
+	srcs := replayAudioSources(a)
+	switch {
+	case len(srcs) == 0:
+		return nil
+	case len(srcs) == 1:
+		return []string{srcs[0].title}
+	case !a.SeparateTracks:
+		return []string{replayTrackMix}
+	}
+	titles := []string{replayTrackMix}
+	for _, src := range srcs {
+		titles = append(titles, src.title)
+	}
+	return titles
 }
 
 // ReplayConfig is everything the buffer needs to run.
@@ -229,13 +292,9 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 		if watchDiscord {
 			discordPID = DiscordPID()
 		}
-		sources := openReplayAudio(cfg.Audio, discordPID)
-		inputs := make([]AudioInput, len(sources))
-		for i, s := range sources {
-			inputs[i] = s.Input()
-		}
+		sources, tracks := openReplayAudio(cfg.Audio, discordPID)
 
-		rec, zeroCopy, err := b.spawnReplay(bin, enc, ddaIdx, cfg, run, inputs)
+		rec, zeroCopy, err := b.spawnReplay(bin, enc, ddaIdx, cfg, run, tracks)
 		if err != nil {
 			stopAudioSources(sources)
 			b.setStatus(func(s *ReplayStatus) { s.Recording = false; s.Error = err.Error() })
@@ -295,14 +354,11 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 // eligible) and the hwdownload graph second. ddagrab occasionally fails its
 // first duplication right after another one closed, so each graph gets a
 // second attempt.
-func (b *ReplayBuffer) spawnReplay(bin, enc string, ddaIdx int, cfg ReplayConfig, run int, audio []AudioInput) (*recording, bool, error) {
+func (b *ReplayBuffer) spawnReplay(bin, enc string, ddaIdx int, cfg ReplayConfig, run int, audio []replayAudioSrc) (*recording, bool, error) {
 	pattern := filepath.Join(cfg.Dir, fmt.Sprintf("r%04d-%%08d%s", run, replaySegmentExt(cfg.Codec)))
 	var errs []error
 	for _, zeroCopy := range replayGraphCandidates(cfg, enc) {
-		args := BuildReplayArgs(ddaIdx, cfg, enc, zeroCopy, pattern)
-		if len(audio) > 0 || cfg.Audio.MicDevice != "" {
-			args = injectAudioMixCodec(args, audio, cfg.Audio.MicDevice, "aac", replayAudioBitrate)
-		}
+		args := BuildReplayArgs(ddaIdx, cfg, enc, zeroCopy, pattern, audio)
 		for attempt := 0; attempt < 2; attempt++ {
 			rec, err := spawnReplayFFmpeg(bin, args)
 			if err == nil {
@@ -348,10 +404,10 @@ func replayGraphCandidates(cfg ReplayConfig, enc string) []bool {
 	return []bool{false}
 }
 
-// BuildReplayArgs builds the segmenting ffmpeg args (video only; audio is
-// spliced in by injectAudioMixCodec). The output pattern is the LAST arg, as
-// injectAudioMixCodec requires. Kept pure for golden tests.
-func BuildReplayArgs(ddaIdx int, cfg ReplayConfig, enc string, zeroCopy bool, pattern string) []string {
+// BuildReplayArgs builds the segmenting ffmpeg args: the ddagrab video graph
+// plus the audio graph for audio (see replayAudioArgs). The output pattern is
+// the last arg. Kept pure for golden tests.
+func BuildReplayArgs(ddaIdx int, cfg ReplayConfig, enc string, zeroCopy bool, pattern string, audio []replayAudioSrc) []string {
 	graph := fmt.Sprintf("ddagrab=output_idx=%d:framerate=%d:draw_mouse=%s",
 		ddaIdx, cfg.FPS, boolToInt(cfg.IncludeCursor))
 	if !zeroCopy {
@@ -363,8 +419,22 @@ func BuildReplayArgs(ddaIdx int, cfg ReplayConfig, enc string, zeroCopy bool, pa
 			graph += ",format=nv12" // QSV won't take BGRA system frames
 		}
 	}
-	args := []string{"-y", "-filter_complex", graph}
+	audioIn, audioGraph, audioMaps := replayAudioArgs(audio, cfg.Audio)
+	args := append([]string{"-y"}, audioIn...)
+	if len(audio) > 0 {
+		args = append(args, "-filter_complex", graph+"[v];"+audioGraph, "-map", "[v]")
+		args = append(args, audioMaps...)
+	} else {
+		args = append(args, "-filter_complex", graph)
+	}
 	args = append(args, replayEncoderArgs(enc, cfg.BitrateKbps, cfg.FPS)...)
+	if len(audio) > 0 {
+		kbps := cfg.Audio.BitrateKbps
+		if kbps <= 0 {
+			kbps = replayAudioKbps
+		}
+		args = append(args, "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", kbps))
+	}
 	args = append(args, "-f", "segment", "-segment_time", strconv.Itoa(replaySegmentSec))
 	if cfg.Codec == ReplayCodecAV1 {
 		args = append(args, "-segment_format", "matroska", "-reset_timestamps", "1")
@@ -372,6 +442,62 @@ func BuildReplayArgs(ddaIdx int, cfg ReplayConfig, enc string, zeroCopy bool, pa
 		args = append(args, "-segment_format", "mpegts")
 	}
 	return append(args, pattern)
+}
+
+// replayAudioArgs builds the audio inputs, the filter graph (joined to the
+// video graph with ";") and the -map args. Every source is levelled and
+// normalized to 48 kHz stereo; several sources are summed into one mixed track
+// (normalize=0 keeps each at its own level), and with SeparateTracks each is
+// also mapped as its own track after the mix. Silence placeholders are rate
+// limited (-re) so they don't race ahead of the live sources.
+func replayAudioArgs(srcs []replayAudioSrc, a ReplayAudio) (inputs []string, graph string, maps []string) {
+	if len(srcs) == 0 {
+		return nil, "", nil
+	}
+	for _, src := range srcs {
+		switch {
+		case src.in != nil:
+			inputs = append(inputs,
+				"-f", src.in.SampleFmt,
+				"-ar", strconv.Itoa(src.in.SampleRate),
+				"-ac", strconv.Itoa(src.in.Channels),
+				"-i", src.in.PipePath)
+		case src.mic != "":
+			inputs = append(inputs, "-f", "dshow", "-i", "audio="+src.mic)
+		default:
+			inputs = append(inputs, "-re", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo")
+		}
+	}
+
+	separate := a.SeparateTracks && len(srcs) > 1
+	chains := make([]string, 0, len(srcs)+1)
+	var mixIn strings.Builder
+	for i, src := range srcs {
+		chain := fmt.Sprintf("[%d:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo", i)
+		if v := src.volume; v > 0 && v != 100 {
+			chain += fmt.Sprintf(",volume=%.2f", float64(v)/100)
+		}
+		switch {
+		case len(srcs) == 1:
+			chain += "[aout]"
+		case separate:
+			chain += fmt.Sprintf(",asplit=2[m%d][s%d]", i, i)
+		default:
+			chain += fmt.Sprintf("[m%d]", i)
+		}
+		chains = append(chains, chain)
+		fmt.Fprintf(&mixIn, "[m%d]", i)
+	}
+	if len(srcs) > 1 {
+		chains = append(chains, fmt.Sprintf("%samix=inputs=%d:duration=longest:normalize=0[aout]", mixIn.String(), len(srcs)))
+	}
+	maps = []string{"-map", "[aout]"}
+	if separate {
+		for i := range srcs {
+			maps = append(maps, "-map", fmt.Sprintf("[s%d]", i))
+		}
+	}
+	return inputs, strings.Join(chains, ";"), maps
 }
 
 // replayEncoderArgs returns constant-bitrate, segment-aligned-keyframe args
@@ -447,27 +573,35 @@ func replayScreen(screens []ScreenInfo, id int) (ScreenInfo, int, error) {
 }
 
 // openReplayAudio starts the loopback sources for a, given Discord's root PID
-// (0 = not running). A source that fails to open is skipped, never
-// substituted: Desktop-without-Discord never falls back to the full mix, so a
-// user who opted out of Discord audio can't end up recording their call.
-func openReplayAudio(a ReplayAudio, discordPID uint32) []audioSource {
+// (0 = not running), and returns them with the graph's sources in track order.
+// Desktop excludes Discord whenever it's running, so Discord is its own source
+// with its own volume and track. A source that is unavailable or fails to
+// open becomes silence, never a substitute: Desktop never falls back to the
+// full mix while Discord runs, so a user who opted out of Discord audio can't
+// end up recording their call.
+func openReplayAudio(a ReplayAudio, discordPID uint32) ([]audioSource, []replayAudioSrc) {
 	name := func(tag string) string { return fmt.Sprintf("toru-replay-%s-%d", tag, time.Now().UnixNano()) }
-	var src audioSource
-	var err error
-	switch {
-	case a.Desktop && (a.Discord || discordPID == 0):
-		src, err = startLoopbackAudio(name("sys"))
-	case a.Desktop:
-		src, err = startExcludeProcessLoopbackAudio(discordPID, name("sys-nodiscord"))
-	case a.Discord && discordPID != 0:
-		src, err = startProcessLoopbackAudio(discordPID, name("discord"))
-	default:
-		return nil
+	srcs := replayAudioSources(a)
+	var live []audioSource
+	for i := range srcs {
+		var src audioSource
+		var err error
+		switch {
+		case srcs[i].title == replayTrackDesktop && discordPID != 0:
+			src, err = startExcludeProcessLoopbackAudio(discordPID, name("sys-nodiscord"))
+		case srcs[i].title == replayTrackDesktop:
+			src, err = startLoopbackAudio(name("sys"))
+		case srcs[i].title == replayTrackDiscord && discordPID != 0:
+			src, err = startProcessLoopbackAudio(discordPID, name("discord"))
+		}
+		if err != nil || src == nil {
+			continue
+		}
+		in := src.Input()
+		srcs[i].in = &in
+		live = append(live, src)
 	}
-	if err != nil || src == nil {
-		return nil
-	}
-	return []audioSource{src}
+	return live, srcs
 }
 
 // prune deletes the oldest segments beyond the configured window (+1 spare and
@@ -535,14 +669,14 @@ func (b *ReplayBuffer) Save(seconds int, outPath string) error {
 	}
 	want := (seconds + replaySegmentSec - 1) / replaySegmentSec
 	start := max(end+1-want, 0)
-	return stitchReplay(bin, segs[start:end+1], outPath)
+	return stitchReplay(bin, segs[start:end+1], outPath, replayTrackTitles(cfg.Audio))
 }
 
 // stitchReplay stream-copies segs into one MP4 at outPath. MPEG-TS segments of
 // one ffmpeg run are byte-concatenated straight into ffmpeg's stdin (seamless);
 // multiple runs, or Matroska (AV1) segments, go through the concat demuxer.
 // Writes to a temp name first so outPath only ever appears complete.
-func stitchReplay(bin string, segs []replaySegment, outPath string) error {
+func stitchReplay(bin string, segs []replaySegment, outPath string, trackTitles []string) error {
 	if len(segs) == 0 {
 		return fmt.Errorf("nothing buffered yet")
 	}
@@ -553,7 +687,23 @@ func stitchReplay(bin string, segs []replaySegment, outPath string) error {
 	defer cancel()
 
 	tmpOut := outPath + ".part"
-	tail := []string{"-c", "copy", "-movflags", "+faststart", "-f", "mp4", tmpOut}
+	// -map 0 keeps every audio track (the default picks one). Segments don't
+	// carry track titles (MPEG-TS has none), so they're set here; the mix
+	// is the default track players pick.
+	tail := []string{"-map", "0", "-c", "copy"}
+	for i, title := range trackTitles {
+		disp := "0"
+		if i == 0 {
+			disp = "default"
+		}
+		// MP4 keeps "title" as the track name; editors (Premiere, Resolve,
+		// VLC) show handler_name.
+		tail = append(tail,
+			fmt.Sprintf("-metadata:s:a:%d", i), "title="+title,
+			fmt.Sprintf("-metadata:s:a:%d", i), "handler_name="+title,
+			fmt.Sprintf("-disposition:a:%d", i), disp)
+	}
+	tail = append(tail, "-movflags", "+faststart", "-f", "mp4", tmpOut)
 	var groups [][]replaySegment
 	for _, s := range segs {
 		if n := len(groups); n > 0 && groups[n-1][0].run == s.run {
