@@ -21,6 +21,14 @@ import * as capture$0 from "../capture/models.js";
 import * as $models from "./models.js";
 
 /**
+ * DeleteClip deletes a clip (and its cached thumbnail). An emptied game
+ * folder is removed too.
+ */
+export function DeleteClip(path: string): $CancellablePromise<void> {
+    return $Call.ByID(2506549596, path);
+}
+
+/**
  * DiscordRunning reports whether a Discord client is running right now.
  */
 export function DiscordRunning(): $CancellablePromise<boolean> {
@@ -63,11 +71,21 @@ export function GetStatus(): $CancellablePromise<capture$0.ReplayStatus> {
 }
 
 /**
+ * ListClips returns the saved clips in the save folder and its game folders
+ * (one level deep), newest first.
+ */
+export function ListClips(): $CancellablePromise<$models.Clip[]> {
+    return $Call.ByID(2125441220).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
  * ListMicrophones returns the microphone device names.
  */
 export function ListMicrophones(): $CancellablePromise<string[]> {
     return $Call.ByID(3405609706).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType5($result);
     });
 }
 
@@ -76,8 +94,15 @@ export function ListMicrophones(): $CancellablePromise<string[]> {
  */
 export function ListMonitors(): $CancellablePromise<$models.Monitor[]> {
     return $Call.ByID(3176348690).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType7($result);
     });
+}
+
+/**
+ * OpenClip opens a clip in the default video player.
+ */
+export function OpenClip(path: string): $CancellablePromise<void> {
+    return $Call.ByID(4174676775, path);
 }
 
 /**
@@ -100,6 +125,13 @@ export function PickSaveDir(): $CancellablePromise<string> {
  */
 export function ResetSaveDir(): $CancellablePromise<void> {
     return $Call.ByID(3449797388);
+}
+
+/**
+ * RevealClip shows a clip selected in Explorer.
+ */
+export function RevealClip(path: string): $CancellablePromise<void> {
+    return $Call.ByID(750164726, path);
 }
 
 /**
@@ -127,6 +159,8 @@ export function SetSettings(next: $models.Settings): $CancellablePromise<capture
 const $$createType0 = $Create.Map($Create.Any, $Create.Any);
 const $$createType1 = $models.Settings.createFrom;
 const $$createType2 = capture$0.ReplayStatus.createFrom;
-const $$createType3 = $Create.Array($Create.Any);
-const $$createType4 = $models.Monitor.createFrom;
-const $$createType5 = $Create.Array($$createType4);
+const $$createType3 = $models.Clip.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = $Create.Array($Create.Any);
+const $$createType6 = $models.Monitor.createFrom;
+const $$createType7 = $Create.Array($$createType6);

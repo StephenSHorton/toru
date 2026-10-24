@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Camera,
   Check,
+  Clapperboard,
   FolderOpen,
   Image as ImageIcon,
   Settings2,
@@ -18,10 +19,11 @@ import { ReplayPanel } from "@/replay/ReplayPanel";
 import {
   HistoryService,
   OverlayService,
+  ReplayService,
   SettingsService,
   WindowsService,
 } from "@/lib/api";
-import type { CaptureItem } from "@/lib/api";
+import type { CaptureItem, ReplayClip } from "@/lib/api";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { cn } from "@/lib/utils";
 
@@ -116,9 +118,54 @@ function NavBtn({
 // Library
 // ---------------------------------------------------------------------------
 
+type LibraryView = "all" | "shots" | "recordings" | "clips";
+
+const LIBRARY_VIEW_KEY = "toru.library.view";
+
+function readLibraryView(): LibraryView {
+  try {
+    const v = window.localStorage.getItem(LIBRARY_VIEW_KEY);
+    if (v === "all" || v === "shots" || v === "recordings" || v === "clips") return v;
+  } catch {
+    // storage unavailable: default view
+  }
+  return "all";
+}
+
 function LibraryPage() {
   const [items, setItems] = useState<CaptureItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [view, setViewState] = useState<LibraryView>(readLibraryView);
+  const [clips, setClips] = useState<ReplayClip[]>([]);
+  const [game, setGame] = useState("");
+  const [pendingClip, setPendingClip] = useState<ReplayClip | null>(null);
+
+  const setView = (v: LibraryView) => {
+    setViewState(v);
+    try {
+      window.localStorage.setItem(LIBRARY_VIEW_KEY, v);
+    } catch {
+      // per-viewer convenience only
+    }
+  };
+
+  const refreshClips = useCallback(() => {
+    void ReplayService.ListClips()
+      .then((list) => setClips(Array.isArray(list) ? list : []))
+      .catch(() => setClips([]));
+  }, []);
+
+  useEffect(() => {
+    refreshClips();
+    const off = WailsEvents.On("replay:saved", () => refreshClips());
+    // Clips can also be added/removed in Explorer; re-list when the window
+    // comes back into focus.
+    window.addEventListener("focus", refreshClips);
+    return () => {
+      off();
+      window.removeEventListener("focus", refreshClips);
+    };
+  }, [refreshClips]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [pendingDelete, setPendingDelete] = useState<CaptureItem[] | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -153,8 +200,22 @@ function LibraryPage() {
     });
   }, [items]);
 
+  const shots = items.filter((it) => it.kind !== "video");
+  const recordings = items.filter((it) => it.kind === "video");
+  const games = Array.from(new Set(clips.map((c) => c.game).filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b),
+  );
+  const gameClips = game ? clips.filter((c) => c.game === game) : clips;
+  const visibleItems = view === "shots" ? shots : view === "recordings" ? recordings : view === "all" ? items : [];
+  const visibleClips = view === "clips" ? gameClips : view === "all" ? clips : [];
+  // "All" interleaves captures and clips by time, newest first.
+  const entries: ({ type: "item"; item: CaptureItem; at: number } | { type: "clip"; clip: ReplayClip; at: number })[] = [
+    ...visibleItems.map((item) => ({ type: "item" as const, item, at: new Date(item.takenAt).getTime() })),
+    ...visibleClips.map((clip) => ({ type: "clip" as const, clip, at: new Date(clip.savedAt).getTime() })),
+  ].sort((a, b) => b.at - a.at);
+
   const selectedItems = items.filter((it) => selected.has(it.id));
-  const allSelected = items.length > 0 && selected.size === items.length;
+  const allSelected = visibleItems.length > 0 && visibleItems.every((it) => selected.has(it.id));
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -165,7 +226,7 @@ function LibraryPage() {
     });
   };
 
-  const selectAll = () => setSelected(new Set(items.map((it) => it.id)));
+  const selectAll = () => setSelected(new Set(visibleItems.map((it) => it.id)));
   const clearSelection = () => setSelected(new Set());
 
   useEffect(() => {
@@ -175,11 +236,26 @@ function LibraryPage() {
         if (!deleting) setPendingDelete(null);
         return;
       }
+      if (pendingClip) {
+        setPendingClip(null);
+        return;
+      }
       if (selected.size > 0) clearSelection();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pendingDelete, deleting, selected.size]);
+  }, [pendingDelete, pendingClip, deleting, selected.size]);
+
+  const confirmClipDelete = async () => {
+    if (!pendingClip) return;
+    try {
+      await ReplayService.DeleteClip(pendingClip.path);
+    } catch {
+      // the re-list below shows whether it went
+    }
+    setPendingClip(null);
+    refreshClips();
+  };
 
   const confirmDelete = async () => {
     if (!pendingDelete || pendingDelete.length === 0 || deleting) return;
@@ -210,11 +286,13 @@ function LibraryPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Library</h1>
           <p className="text-sm text-muted-foreground">
-            Screenshots save here when you hit Done; recordings save when they finish
+            {view === "clips"
+              ? "Instant replays you saved with the hotkey, sorted by game"
+              : "Screenshots save here when you hit Done; recordings save when they finish"}
           </p>
         </div>
         <div className="flex gap-2">
-          {items.length > 0 ? (
+          {visibleItems.length > 0 ? (
             <Button
               size="sm"
               variant="ghost"
@@ -226,7 +304,9 @@ function LibraryPage() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => void HistoryService.OpenFolder()}
+            onClick={() =>
+              void (view === "clips" ? ReplayService.OpenSaveDir() : HistoryService.OpenFolder())
+            }
           >
             <FolderOpen /> Folder
           </Button>
@@ -260,24 +340,101 @@ function LibraryPage() {
         </div>
       ) : null}
 
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : items.length === 0 ? (
-        <EmptyLibrary />
-      ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-          {items.map((it) => (
-            <CaptureCard
-              key={it.id}
-              item={it}
-              selected={selected.has(it.id)}
-              onToggleSelect={() => toggleSelect(it.id)}
-              onOpen={() => void HistoryService.Open(it.id)}
-              onDelete={() => setPendingDelete([it])}
-            />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1" role="tablist" aria-label="Show">
+          {(
+            [
+              ["all", "All", items.length + clips.length],
+              ["shots", "Screenshots", shots.length],
+              ["recordings", "Recordings", recordings.length],
+              ["clips", "Clips", clips.length],
+            ] as const
+          ).map(([id, label, count]) => (
+            <Button
+              key={id}
+              size="sm"
+              role="tab"
+              aria-selected={view === id}
+              variant={view === id ? "default" : "ghost"}
+              onClick={() => setView(id)}
+            >
+              {label}
+              <span className={cn("text-xs", view === id ? "opacity-80" : "text-muted-foreground")}>
+                {count}
+              </span>
+            </Button>
           ))}
         </div>
+        {view === "clips" && games.length > 0 ? (
+          <select
+            className="frost ml-auto border border-border bg-transparent px-2 py-1 text-sm"
+            value={game}
+            onChange={(e) => setGame(e.target.value)}
+            aria-label="Filter clips by game"
+          >
+            <option value="" className="bg-background text-foreground">
+              All games
+            </option>
+            {games.map((g) => (
+              <option key={g} value={g} className="bg-background text-foreground">
+                {g} ({clips.filter((c) => c.game === g).length})
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : entries.length === 0 ? (
+        view === "clips" ? (
+          <EmptyClips />
+        ) : view === "all" ? (
+          <EmptyLibrary />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No {view === "shots" ? "screenshots" : "recordings"} yet.
+          </p>
+        )
+      ) : (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+          {entries.map((e) =>
+            e.type === "item" ? (
+              <CaptureCard
+                key={e.item.id}
+                item={e.item}
+                selected={selected.has(e.item.id)}
+                onToggleSelect={() => toggleSelect(e.item.id)}
+                onOpen={() => void HistoryService.Open(e.item.id)}
+                onDelete={() => setPendingDelete([e.item])}
+              />
+            ) : (
+              <ClipCard
+                key={e.clip.path}
+                clip={e.clip}
+                onOpen={() => void ReplayService.OpenClip(e.clip.path)}
+                onReveal={() => void ReplayService.RevealClip(e.clip.path)}
+                onDelete={() => setPendingClip(e.clip)}
+              />
+            ),
+          )}
+        </div>
       )}
+
+      {pendingClip ? (
+        <ConfirmDialog
+          title="Delete this clip?"
+          body={
+            <>
+              <span className="font-medium text-foreground">{pendingClip.name}</span> (
+              {formatSize(pendingClip.sizeBytes)}) will be deleted from disk. This can’t be
+              undone.
+            </>
+          }
+          onCancel={() => setPendingClip(null)}
+          onConfirm={() => void confirmClipDelete()}
+        />
+      ) : null}
 
       {pendingDelete ? (
         <DeleteConfirmDialog
@@ -305,6 +462,142 @@ function EmptyLibrary() {
       <Button onClick={() => void WindowsService.OpenOverlay()}>
         <SquareDashed /> Capture now
       </Button>
+    </div>
+  );
+}
+
+function EmptyClips() {
+  return (
+    <div className="frost flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
+      <Clapperboard className="size-10 text-muted-foreground" />
+      <div>
+        <p className="font-medium">No clips yet</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Turn on Instant replay in Settings, then press its hotkey while you play to save the last
+          few minutes.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  return `${Math.max(1, Math.round(bytes / 1e6))} MB`;
+}
+
+// ClipCard is one saved instant replay (files in the replay folder, not the
+// capture library): click opens it in the default player.
+function ClipCard({
+  clip,
+  onOpen,
+  onReveal,
+  onDelete,
+}: {
+  clip: ReplayClip;
+  onOpen: () => void;
+  onReveal: () => void;
+  onDelete: () => void;
+}) {
+  const [thumbFailed, setThumbFailed] = useState(false);
+  return (
+    <div
+      className={cn(
+        "frost group flex flex-col overflow-hidden border border-transparent",
+        "transition-[border-color,box-shadow,transform] duration-150",
+        "hover:-translate-y-0.5 hover:border-primary/70 hover:shadow-[0_0_0_1px_var(--color-ring),0_12px_28px_oklch(0_0_0/0.45)]",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="relative aspect-video w-full overflow-hidden bg-black/40 text-left"
+        title="Open in your video player"
+      >
+        {thumbFailed ? (
+          <span className="flex h-full w-full items-center justify-center">
+            <Clapperboard className="size-8 text-muted-foreground" />
+          </span>
+        ) : (
+          <img
+            src={clip.thumbUrl}
+            alt=""
+            loading="lazy"
+            onError={() => setThumbFailed(true)}
+            className="h-full w-full object-contain transition-transform duration-150 group-hover:scale-[1.03]"
+          />
+        )}
+        <span className="pointer-events-none absolute inset-0 bg-primary/0 transition-colors duration-150 group-hover:bg-primary/10" />
+        <span className="absolute left-1.5 top-1.5 flex max-w-[85%] items-center gap-1 bg-black/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-white">
+          <Clapperboard className="size-3 shrink-0" />
+          <span className="truncate">{clip.game || "Clip"}</span>
+        </span>
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 translate-y-full bg-black/55 px-2 py-1 text-center text-[11px] text-white transition-transform duration-150 group-hover:translate-y-0">
+          Click to play
+        </span>
+      </button>
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-medium" title={clip.name}>
+            {clip.name}
+          </div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {formatWhen(clip.savedAt)} · {formatSize(clip.sizeBytes)}
+          </div>
+        </div>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 shrink-0 opacity-60 hover:opacity-100"
+          title="Show in folder"
+          onClick={onReveal}
+        >
+          <FolderOpen className="size-3.5" />
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 shrink-0 opacity-60 hover:opacity-100"
+          title="Delete"
+          onClick={onDelete}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDialog({
+  title,
+  body,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  body: React.ReactNode;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="absolute inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+      role="dialog"
+      aria-modal="true"
+      onClick={onCancel}
+    >
+      <div className="frost w-full max-w-sm p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-base font-semibold">{title}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{body}</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="destructive" onClick={onConfirm}>
+            <Trash2 /> Delete
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -5,6 +5,70 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as time$0 from "../../../../../time/models.js";
+
+/**
+ * Clip is one saved instant replay, for the Library's Clips view.
+ */
+export class Clip {
+    "path": string;
+
+    /**
+     * file name without .mp4
+     */
+    "name": string;
+
+    /**
+     * game folder, "" = save folder root
+     */
+    "game": string;
+    "sizeBytes": number;
+
+    /**
+     * file modification time
+     */
+    "savedAt": time$0.Time;
+
+    /**
+     * served JPEG thumbnail
+     */
+    "thumbUrl": string;
+
+    /** Creates a new Clip instance. */
+    constructor($$source: Partial<Clip> = {}) {
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("game" in $$source)) {
+            this["game"] = "";
+        }
+        if (!("sizeBytes" in $$source)) {
+            this["sizeBytes"] = 0;
+        }
+        if (!("savedAt" in $$source)) {
+            this["savedAt"] = null;
+        }
+        if (!("thumbUrl" in $$source)) {
+            this["thumbUrl"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Clip instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Clip {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Clip($$parsedSource as Partial<Clip>);
+    }
+}
+
 /**
  * Monitor is one row of the Settings page's monitor picker.
  */

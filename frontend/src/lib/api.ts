@@ -28,6 +28,7 @@
 //   ReplayService.GetSettings / SetSettings(s) -> ReplayStatus  (instant replay; SetSettings rejects if the buffer can't start)
 //   ReplayService.GetStatus / SaveReplay / ListMonitors / ListMicrophones / DiscordRunning / EncoderSupport
 //   ReplayService.GetSaveDir / PickSaveDir / ResetSaveDir / OpenSaveDir
+//   ReplayService.ListClips / OpenClip(path) / RevealClip(path) / DeleteClip(path)  (Library "Clips")
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
@@ -50,6 +51,7 @@ import * as ReplayService from "../../bindings/github.com/StephenSHorton/toru/in
 import {
   Settings as ReplaySettings,
   Monitor as ReplayMonitor,
+  Clip as ReplayClip,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/replay/models.js";
 
 export {
@@ -70,6 +72,7 @@ export {
   ReplayService,
   ReplaySettings,
   ReplayMonitor,
+  ReplayClip,
   ReplayStatus,
 };
 export type { CaptureItem };

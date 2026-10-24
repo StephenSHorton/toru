@@ -7,6 +7,7 @@ export {
 };
 
 export {
+    Clip,
     Monitor,
     Settings
 } from "./models.js";

@@ -12,6 +12,7 @@ package main
 import (
 	"embed"
 	"log"
+	"net/http"
 	"os"
 	"slices"
 
@@ -137,8 +138,11 @@ func main() {
 			application.NewService(replaySvc),
 		},
 		Assets: application.AssetOptions{
-			Handler:    application.AssetFileServerFS(assets),
-			Middleware: overlaySvc.ShotMiddleware(),
+			Handler: application.AssetFileServerFS(assets),
+			// Overlay backdrops + served captures, then instant-replay thumbnails.
+			Middleware: func(next http.Handler) http.Handler {
+				return overlaySvc.ShotMiddleware()(replaySvc.ClipMiddleware()(next))
+			},
 		},
 		// Closing every overlay window (Cancel/Esc/commit) drops the live window
 		// count to zero. On Windows that posts WM_QUIT the instant windowMap
