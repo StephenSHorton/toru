@@ -285,8 +285,8 @@ function LibraryPage() {
     if (!pendingSession) return;
     try {
       await ReplayService.DeleteSession(pendingSession.id);
-    } catch {
-      // the re-list shows whether it went
+    } catch (e) {
+      report(e);
     }
     setPendingSession(null);
     refreshSessions();
@@ -505,6 +505,9 @@ function LibraryPage() {
               </span>{" "}
               ({formatSize(pendingSession.sizeBytes)}) will be deleted from disk. Clips saved from it
               are kept. This can’t be undone.
+              {pendingSession.live
+                ? " Toru is still recording this one: recording pauses for a moment, this part is deleted, and it carries on as a new recording."
+                : null}
             </>
           }
           onCancel={() => setPendingSession(null)}
@@ -657,8 +660,7 @@ function SessionCard({
           size="icon"
           variant="ghost"
           className="size-7 shrink-0 opacity-60 hover:opacity-100"
-          title={session.live ? "Still recording" : "Delete"}
-          disabled={session.live}
+          title={session.live ? "Delete (pauses the recording for a moment)" : "Delete"}
           onClick={onDelete}
         >
           <Trash2 className="size-3.5" />
