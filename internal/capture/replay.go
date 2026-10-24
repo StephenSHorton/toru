@@ -143,9 +143,18 @@ type ReplayConfig struct {
 	BitrateKbps   int    // constant video bitrate
 	Codec         string // ReplayCodecH264 | ReplayCodecHEVC | ReplayCodecAV1
 	IncludeCursor bool
-	KeepSeconds   int    // window kept on disk == the longest clip Save can produce
-	Dir           string // segment directory; wiped on Start and Stop
+	KeepSeconds   int    // window kept on disk == the longest clip Save can produce; 0 = unlimited (Persist only)
+	Dir           string // segment directory; wiped on Start and Stop unless Persist
 	Audio         ReplayAudio
+
+	// Persist keeps segments across Start/Stop (session recording): runs are
+	// numbered by start time, each gets a sidecar (r<run>.json: start time,
+	// tag) and a segment timing list (r<run>.csv), and pruning is by age
+	// (KeepSeconds) and total size (MaxBytes) instead of a fixed count.
+	// Runs the protect callback (SetProtect) claims are never pruned.
+	Persist  bool
+	MaxBytes int64  // Persist: total segment bytes kept; 0 = unlimited
+	Tag      string // Persist: free-form label stored in each run's sidecar
 }
 
 // ReplayStatus is the buffer's live state for the UI.
@@ -156,6 +165,7 @@ type ReplayStatus struct {
 	ZeroCopy    bool   `json:"zeroCopy"`    // frames stay on the GPU end to end
 	BufferedSec int    `json:"bufferedSec"` // seconds currently available to save
 	Error       string `json:"error"`       // last failure, "" when healthy
+	DiskBytes   int64  `json:"diskBytes"`   // Persist: bytes of segments on disk
 }
 
 // ReplayBuffer owns the replay ffmpeg and its segment directory. Zero value is
@@ -168,6 +178,8 @@ type ReplayBuffer struct {
 	status   ReplayStatus
 	run      int
 	onStatus func(ReplayStatus)
+	protect  func(run int) bool // Persist: runs that must never be pruned
+	diskUsed int64              // Persist: last measured segment bytes
 
 	// segMu is held while pruning and while Save reads segments, so the pruner
 	// never deletes a file a stitch is about to read.
@@ -185,6 +197,14 @@ func (b *ReplayBuffer) SetOnStatus(fn func(ReplayStatus)) {
 	b.mu.Unlock()
 }
 
+// SetProtect registers which runs pruning must keep (manual recordings,
+// sessions the user chose to keep). Persist mode only.
+func (b *ReplayBuffer) SetProtect(fn func(run int) bool) {
+	b.mu.Lock()
+	b.protect = fn
+	b.mu.Unlock()
+}
+
 // Status returns the current status with BufferedSec computed from disk.
 func (b *ReplayBuffer) Status() ReplayStatus {
 	b.mu.Lock()
@@ -193,7 +213,15 @@ func (b *ReplayBuffer) Status() ReplayStatus {
 	b.mu.Unlock()
 	if st.Running && cfg.Dir != "" {
 		n := len(listReplaySegments(cfg.Dir)) - 1 // newest is still being written
-		st.BufferedSec = min(max(n, 0)*replaySegmentSec, cfg.KeepSeconds)
+		st.BufferedSec = max(n, 0) * replaySegmentSec
+		if cfg.KeepSeconds > 0 {
+			st.BufferedSec = min(st.BufferedSec, cfg.KeepSeconds)
+		}
+	}
+	if cfg.Persist {
+		b.mu.Lock()
+		st.DiskBytes = b.diskUsed
+		b.mu.Unlock()
 	}
 	return st
 }
@@ -216,7 +244,7 @@ func (b *ReplayBuffer) setStatus(update func(*ReplayStatus)) {
 func (b *ReplayBuffer) Start(cfg ReplayConfig) error {
 	b.Stop()
 
-	if cfg.FPS <= 0 || cfg.BitrateKbps <= 0 || cfg.KeepSeconds <= 0 || cfg.Dir == "" {
+	if cfg.FPS <= 0 || cfg.BitrateKbps <= 0 || (cfg.KeepSeconds <= 0 && !cfg.Persist) || cfg.Dir == "" {
 		return fmt.Errorf("replay: invalid config (fps=%d kbps=%d keep=%d dir=%q)", cfg.FPS, cfg.BitrateKbps, cfg.KeepSeconds, cfg.Dir)
 	}
 	bin, err := LocateFFmpeg()
@@ -236,7 +264,11 @@ func (b *ReplayBuffer) Start(cfg ReplayConfig) error {
 	if cfg.Height >= screen.H {
 		cfg.Height = 0 // never upscale; native is also the zero-copy path
 	}
-	if err := resetReplayDir(cfg.Dir); err != nil {
+	if cfg.Persist {
+		if err := os.MkdirAll(cfg.Dir, 0o755); err != nil {
+			return fmt.Errorf("replay: recordings dir: %w", err)
+		}
+	} else if err := resetReplayDir(cfg.Dir); err != nil {
 		return fmt.Errorf("replay: segment dir: %w", err)
 	}
 
@@ -255,7 +287,7 @@ func (b *ReplayBuffer) Start(cfg ReplayConfig) error {
 // Stop ends the buffer and deletes its segments. Idempotent.
 func (b *ReplayBuffer) Stop() {
 	b.mu.Lock()
-	stop, done, dir := b.stop, b.done, b.cfg.Dir
+	stop, done, dir, persist := b.stop, b.done, b.cfg.Dir, b.cfg.Persist
 	b.stop, b.done = nil, nil
 	b.mu.Unlock()
 	if stop == nil {
@@ -263,9 +295,11 @@ func (b *ReplayBuffer) Stop() {
 	}
 	close(stop)
 	<-done
-	b.segMu.Lock()
-	_ = resetReplayDir(dir)
-	b.segMu.Unlock()
+	if !persist {
+		b.segMu.Lock()
+		_ = resetReplayDir(dir)
+		b.segMu.Unlock()
+	}
 	b.setStatus(func(s *ReplayStatus) { *s = ReplayStatus{} })
 }
 
@@ -285,6 +319,10 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 	for {
 		b.mu.Lock()
 		b.run++
+		if cfg.Persist {
+			// Start-time run ids stay unique and ordered across restarts.
+			b.run = max(b.run, int(time.Now().Unix()))
+		}
 		run := b.run
 		b.mu.Unlock()
 
@@ -323,8 +361,10 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 				b.setStatus(func(s *ReplayStatus) { s.Recording = false; s.Error = "capture stopped: " + lastLine(tail) })
 				break watch
 			case <-tick.C:
-				b.prune(cfg)
 				ticks++
+				if !cfg.Persist || ticks%5 == 1 { // persistent dirs are big: prune every 10s
+					b.prune(cfg)
+				}
 				// Re-target the audio graph when Discord starts, quits or restarts.
 				if watchDiscord && ticks%5 == 0 && DiscordPID() != discordPID {
 					break watch
@@ -359,6 +399,13 @@ func (b *ReplayBuffer) spawnReplay(bin, enc string, ddaIdx int, cfg ReplayConfig
 	var errs []error
 	for _, zeroCopy := range replayGraphCandidates(cfg, enc) {
 		args := BuildReplayArgs(ddaIdx, cfg, enc, zeroCopy, pattern, audio)
+		if cfg.Persist {
+			// Per-segment start/end times, so the timeline knows exactly where
+			// each segment sits. The output pattern must stay the last arg.
+			list := filepath.Join(cfg.Dir, fmt.Sprintf("r%04d.csv", run))
+			args = append(args[:len(args)-1:len(args)-1], "-segment_list", list, "-segment_list_type", "csv", pattern)
+			writeRunInfo(cfg.Dir, RunInfo{Run: run, StartMs: time.Now().UnixMilli(), Tag: cfg.Tag})
+		}
 		for attempt := 0; attempt < 2; attempt++ {
 			rec, err := spawnReplayFFmpeg(bin, args)
 			if err == nil {
@@ -607,6 +654,10 @@ func openReplayAudio(a ReplayAudio, discordPID uint32) ([]audioSource, []replayA
 // prune deletes the oldest segments beyond the configured window (+1 spare and
 // the in-progress segment).
 func (b *ReplayBuffer) prune(cfg ReplayConfig) {
+	if cfg.Persist {
+		b.prunePersistent(cfg)
+		return
+	}
 	keep := (cfg.KeepSeconds+replaySegmentSec-1)/replaySegmentSec + 2
 	b.segMu.Lock()
 	defer b.segMu.Unlock()
@@ -802,7 +853,7 @@ type replaySegment struct {
 	run  int
 }
 
-var replaySegmentName = regexp.MustCompile(`^r(\d{4})-\d{8}\.(ts|mkv)$`)
+var replaySegmentName = regexp.MustCompile(`^r(\d{4,})-\d{8}\.(ts|mkv)$`)
 
 // listReplaySegments returns dir's segments oldest-first. Names are
 // zero-padded run+index, so lexical order is chronological order.
