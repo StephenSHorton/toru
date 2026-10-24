@@ -37,6 +37,11 @@ export default function Trim() {
 
   const params = new URLSearchParams(window.location.search);
   const [src, setSrc] = useState(params.get("vid") || "/sample.mp4");
+  // Instant-replay clips have a cached thumbnail: show it while the player
+  // spins up its decoder (a 1440p/144fps clip can take a moment).
+  const poster = src.startsWith("/__replayclip/") ? src.replace("/__replayclip/", "/__replaythumb/") : undefined;
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(false), [src]);
   const [absPath, setAbsPath] = useState(params.get("path") ?? "");
 
   // All times in SECONDS. duration=0 means metadata hasn't loaded yet.
@@ -292,10 +297,18 @@ export default function Trim() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex min-h-0 flex-1 items-center justify-center p-4">
+      <div className="relative flex min-h-0 flex-1 items-center justify-center p-4">
+        {!ready ? (
+          <div className="pointer-events-none absolute flex items-center gap-2 bg-black/60 px-3 py-1.5 text-xs text-white">
+            <Loader2 className="size-3.5 animate-spin" /> Loading clip…
+          </div>
+        ) : null}
         <video
           ref={vidRef}
           src={src}
+          poster={poster}
+          preload="auto"
+          onCanPlay={() => setReady(true)}
           className="max-h-full max-w-full cursor-pointer border"
           onLoadedMetadata={onLoadedMetadata}
           onTimeUpdate={onTimeUpdate}
@@ -374,7 +387,7 @@ export default function Trim() {
             className="w-20 accent-primary"
             title="Preview volume"
           />
-          <span className="text-xs tabular-nums text-muted-foreground">
+          <span className={cn("whitespace-nowrap text-xs tabular-nums text-muted-foreground", duration <= 0 && "invisible")}>
             {fmtSec(inSec)} – {fmtSec(outSec)}
             <span className="mx-1.5 opacity-50">·</span>
             keep {fmtSec(Math.max(0, outSec - inSec))} of {fmtSec(duration)}

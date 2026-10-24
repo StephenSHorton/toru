@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/overlay"
@@ -218,14 +221,46 @@ func (w *WindowsService) openTrimWindow(title, videoPath, servedURL string) {
 	if w.app == nil {
 		return
 	}
-	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+	// Open at the size the editor would resize itself to once the video's
+	// metadata loads (a big clip can take a moment), so the window doesn't
+	// jump. A quick ffprobe gives the dimensions up front.
+	width, height := 900, 620
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	if vw, vh, err := capture.ProbeVideoSize(ctx, videoPath); err == nil {
+		width, height = trimWindowSize(vw, vh, w.app.Screen.GetPrimary())
+	}
+	cancel()
+	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title: title,
 		URL: "/?view=trim&vid=" + url.QueryEscape(servedURL) +
 			"&path=" + url.QueryEscape(videoPath),
-		Width:            900,
-		Height:           620,
+		Width:            width,
+		Height:           height,
 		BackgroundColour: dark,
 	})
+	win.Center()
+}
+
+// trimWindowSize mirrors Trim.tsx fitWindowToVideo: the video at up to its
+// native size inside 95% x 92% of the work area (max 1280 x 960), plus the
+// editor chrome below it.
+func trimWindowSize(vw, vh int, screen *application.Screen) (int, int) {
+	const chromeH, sidePad, minW = 196, 32, 520
+	screenW, screenH := 1600.0, 1000.0
+	if screen != nil && screen.WorkArea.Width > 0 {
+		screenW, screenH = float64(screen.WorkArea.Width), float64(screen.WorkArea.Height)
+	}
+	maxW := math.Min(1280, math.Round(screenW*0.95))
+	maxH := math.Min(960, math.Round(screenH*0.92))
+	aspect := float64(vw) / float64(vh)
+	dispW := math.Min(float64(vw), maxW-sidePad)
+	dispH := dispW / aspect
+	if dispH > maxH-chromeH {
+		dispH = maxH - chromeH
+		dispW = dispH * aspect
+	}
+	return int(math.Round(math.Max(minW, math.Min(maxW, dispW+sidePad)))),
+		int(math.Round(math.Min(maxH, dispH+chromeH)))
 }
 
 // OpenRecordingControls opens the small frameless always-on-top "recording
