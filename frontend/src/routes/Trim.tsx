@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Browser, Clipboard, Events as WailsEvents, Window } from "@wailsio/runtime";
+import { Browser, Events as WailsEvents, Window } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Dialog } from "@/components/ui/dialog";
@@ -70,6 +70,7 @@ export default function Trim() {
     | null
   >(null);
   const [existingLink, setExistingLink] = useState("");
+  const [linkFlash, setLinkFlash] = useState(false);
   useEffect(() => {
     if (!absPath) return;
     void UploadService.LinkFor(absPath)
@@ -266,7 +267,7 @@ export default function Trim() {
       );
       let copied = true;
       try {
-        await Clipboard.SetText(url);
+        await ExportService.CopyText(url);
       } catch {
         copied = false;
       }
@@ -528,10 +529,16 @@ export default function Trim() {
                 size="sm"
                 variant="ghost"
                 onClick={() => {
-                  void Clipboard.SetText(share.url).then(() => setShare({ ...share, copied: true }));
+                  void ExportService.CopyText(share.url)
+                    .then(() => {
+                      setShare({ ...share, copied: true });
+                      setLinkFlash(true);
+                      window.setTimeout(() => setLinkFlash(false), 1500);
+                    })
+                    .catch((err) => setNote(`Copy failed: ${err}`));
                 }}
               >
-                <Copy /> Copy link
+                {linkFlash ? <CheckCircle2 /> : <Copy />} {linkFlash ? "Copied" : "Copy link"}
               </Button>
               <Button size="sm" onClick={() => setShare(null)}>
                 Done

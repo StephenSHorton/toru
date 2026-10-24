@@ -11,6 +11,14 @@
 import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
 /**
+ * CopyText puts text (e.g. a share link) on the clipboard. Done in Go:
+ * the webview's clipboard API is unreliable in Wails windows.
+ */
+export function CopyText(text: string): $CancellablePromise<void> {
+    return $Call.ByID(3825476505, text);
+}
+
+/**
  * CopyToClipboard copies the file at path to the system clipboard.
  * 
  *   - mediaType "image": publishes the PNG as a multi-format image bitmap so it

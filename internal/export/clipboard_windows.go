@@ -390,6 +390,27 @@ func copyFileToClipboard(path string) error {
 	return nil
 }
 
+// copyTextToClipboard puts text on the clipboard as CF_UNICODETEXT.
+func copyTextToClipboard(text string) error {
+	const cfUnicodeText = 13
+	w, err := windows.UTF16FromString(text) // NUL-terminated
+	if err != nil {
+		return fmt.Errorf("copyText: encode: %w", err)
+	}
+	payload := make([]byte, len(w)*2)
+	for i, u := range w {
+		binary.LittleEndian.PutUint16(payload[i*2:], u)
+	}
+	if err := openClipboard(); err != nil {
+		return fmt.Errorf("copyText: %w", err)
+	}
+	defer closeClipboard()
+	if r, _, callErr := procEmptyClipboard.Call(); r == 0 {
+		return fmt.Errorf("copyText: EmptyClipboard: %w", callErr)
+	}
+	return writeFormat(cfUnicodeText, payload)
+}
+
 // ---------------------------------------------------------------------------
 // readClipboardImage: pull an image off the clipboard as a base64 data URL.
 // ---------------------------------------------------------------------------
