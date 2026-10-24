@@ -127,3 +127,47 @@ func TestPrunePersistentKeepsFreeSpaceAndPauses(t *testing.T) {
 		t.Errorf("should resume when space frees: full=%v err=%q", b.isDiskFull(), b.Status().Error)
 	}
 }
+
+func TestPruneWholeSessions(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Now().Add(-5 * time.Hour)
+	// Three sessions: A (two runs 5s apart = one session), B (kept), C (live).
+	mk := func(run int, start time.Time, n int) {
+		writeRunInfo(dir, RunInfo{Run: run, StartMs: start.UnixMilli(), Tag: "background|Game"})
+		for i := 0; i < n; i++ {
+			fakeSeg(t, dir, run, i, 100, time.Since(start.Add(time.Duration(i+1)*2*time.Second)))
+		}
+	}
+	mk(1000, base, 3)                     // A, part 1: ends base+6s
+	mk(1011, base.Add(11*time.Second), 2) // A, part 2: 5s gap -> same session
+	mk(2000, base.Add(time.Hour), 3)      // B (protected)
+	mk(3000, base.Add(2*time.Hour), 4)    // C (live)
+
+	b := NewReplayBuffer()
+	b.run = 3000
+	b.SetProtect(func(run int) bool { return run == 2000 })
+
+	// 1200 bytes on disk, cap 1100: the oldest whole session (A, 500 bytes) goes.
+	b.prunePersistent(ReplayConfig{Dir: dir, Persist: true, WholeSessions: true, MaxBytes: 1100})
+	runs := map[int]int{}
+	for _, s := range ListRecSegments(dir) {
+		runs[s.Run]++
+	}
+	if runs[1000] != 0 || runs[1011] != 0 || runs[2000] != 3 || runs[3000] != 4 {
+		t.Fatalf("whole oldest session should go, kept + live stay: %v", runs)
+	}
+	if _, ok := ReadRunInfo(dir, 1011); ok {
+		t.Error("pruned session's sidecars should be removed")
+	}
+
+	// Cap below protected + live: only the live session's oldest footage is trimmed
+	// (never its segment in progress); the kept session is untouched.
+	b.prunePersistent(ReplayConfig{Dir: dir, Persist: true, WholeSessions: true, MaxBytes: 450})
+	runs = map[int]int{}
+	for _, s := range ListRecSegments(dir) {
+		runs[s.Run]++
+	}
+	if runs[2000] != 3 || runs[3000] != 1 {
+		t.Errorf("live session trimmed to its in-progress segment, kept intact: %v", runs)
+	}
+}

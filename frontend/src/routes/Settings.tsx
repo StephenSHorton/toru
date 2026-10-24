@@ -144,6 +144,14 @@ function LibraryPage() {
   const [pendingClip, setPendingClip] = useState<ReplayClip | null>(null);
   const [sessions, setSessions] = useState<RecordingSession[]>([]);
   const [pendingSession, setPendingSession] = useState<RecordingSession | null>(null);
+  // Errors from opening/acting on clips and recordings (never fail silently).
+  const [libNote, setLibNote] = useState("");
+  useEffect(() => {
+    if (!libNote) return;
+    const t = window.setTimeout(() => setLibNote(""), 6000);
+    return () => window.clearTimeout(t);
+  }, [libNote]);
+  const report = (e: unknown) => setLibNote(String(e).replace(/^Error:\s*/, ""));
 
   const refreshSessions = useCallback(() => {
     void ReplayService.ListSessions()
@@ -385,6 +393,12 @@ function LibraryPage() {
         </div>
       ) : null}
 
+      {libNote ? (
+        <div className="frost border border-destructive/50 px-3 py-2 text-sm text-destructive" role="alert">
+          {libNote}
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap gap-1" role="tablist" aria-label="Show">
           {(
@@ -439,8 +453,8 @@ function LibraryPage() {
               <SessionCard
                 key={s.id}
                 session={s}
-                onOpen={() => void ReplayService.OpenSession(s.id)}
-                onKeep={() => void ReplayService.KeepSession(s.id, !s.kept).then(refreshSessions)}
+                onOpen={() => void ReplayService.OpenSession(s.id).catch(report)}
+                onKeep={() => void ReplayService.KeepSession(s.id, !s.kept).then(refreshSessions).catch(report)}
                 onDelete={() => setPendingSession(s)}
               />
             ))}
@@ -474,8 +488,8 @@ function LibraryPage() {
               <ClipCard
                 key={e.clip.path}
                 clip={e.clip}
-                onOpen={() => void ReplayService.OpenClip(e.clip.path)}
-                onReveal={() => void ReplayService.RevealClip(e.clip.path)}
+                onOpen={() => void ReplayService.OpenClip(e.clip.path).catch(report)}
+                onReveal={() => void ReplayService.RevealClip(e.clip.path).catch(report)}
                 onDelete={() => setPendingClip(e.clip)}
               />
             ),

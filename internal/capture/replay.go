@@ -158,7 +158,12 @@ type ReplayConfig struct {
 	// its drive: older unprotected footage is pruned to keep it, and if only
 	// protected footage is left, recording pauses until space frees up.
 	MinFreeBytes int64
-	Tag          string // Persist: free-form label stored in each run's sidecar
+	// WholeSessions (Persist) prunes whole sessions, oldest first, instead
+	// of trimming the oldest footage: a session is kept intact until the
+	// size cap / free-space floor needs its space. The session being
+	// recorded is only trimmed if it alone exceeds the cap.
+	WholeSessions bool
+	Tag           string // Persist: free-form label stored in each run's sidecar
 }
 
 // ReplayStatus is the buffer's live state for the UI.

@@ -29,10 +29,14 @@ type Settings struct {
 	//                  until deleted
 	// The save-clip hotkey works in every mode.
 	Mode              string `json:"mode"`
-	BackgroundMinutes int    `json:"backgroundMinutes"` // background footage kept
-	MaxDiskGB         int    `json:"maxDiskGB"`         // cap for all recordings
-	GamesOnly         bool   `json:"gamesOnly"`         // background: only while a game runs
-	RecordingsDir     string `json:"recordingsDir"`     // "" = DefaultRecordingsDir()
+	BackgroundMinutes int    `json:"backgroundMinutes"` // RetentionTime: background footage kept
+	// Retention picks what background recording deletes to stay within
+	// MaxDiskGB: whole sessions, oldest first (RetentionSessions), or
+	// footage older than BackgroundMinutes (RetentionTime).
+	Retention     string `json:"retention"`
+	MaxDiskGB     int    `json:"maxDiskGB"`     // cap for all recordings
+	GamesOnly     bool   `json:"gamesOnly"`     // background: only while a game runs
+	RecordingsDir string `json:"recordingsDir"` // "" = DefaultRecordingsDir()
 	// RecordingQuality is the video quality for background/manual recording,
 	// separate from instant replay's: whole sessions need a much lower
 	// bitrate to fit on disk. QualityCustom uses the Video settings.
@@ -80,6 +84,7 @@ var (
 	BackgroundMinuteOptions = []int{30, 60, 120, 240, 480, 720, 1440}
 	DiskGBOptions           = []int{10, 25, 50, 100, 200, 500}
 	QualityOptions          = []string{QualityStandard, QualityHigh, QualityCustom}
+	RetentionOptions        = []string{RetentionSessions, RetentionTime}
 )
 
 // Recording qualities for background/manual recording (Settings.RecordingQuality).
@@ -87,6 +92,12 @@ const (
 	QualityStandard = "standard" // 60 fps, 12 Mbps: ~5.4 GB per hour
 	QualityHigh     = "high"     // 60 fps, 25 Mbps: ~11 GB per hour
 	QualityCustom   = "custom"   // the Video settings
+)
+
+// Background-recording retention (Settings.Retention).
+const (
+	RetentionSessions = "sessions" // keep whole sessions until the storage limit, then drop the oldest
+	RetentionTime     = "time"     // keep only the last BackgroundMinutes
 )
 
 // minFreeBytes is the free space recordings never eat into on their drive.
@@ -117,6 +128,7 @@ func DefaultSettings() Settings {
 		BackgroundMinutes: 120,
 		MaxDiskGB:         25,
 		RecordingQuality:  QualityStandard,
+		Retention:         RetentionSessions,
 		GamesOnly:         true,
 		RecordingNotices:  true,
 		DurationSec:       60,
@@ -163,6 +175,9 @@ func (s Settings) Normalize() Settings {
 	}
 	if !slices.Contains(QualityOptions, s.RecordingQuality) {
 		s.RecordingQuality = d.RecordingQuality
+	}
+	if !slices.Contains(RetentionOptions, s.Retention) {
+		s.Retention = d.Retention
 	}
 	// Session recordings stream into the timeline as HLS, which can't carry
 	// AV1 in MPEG-TS segments.

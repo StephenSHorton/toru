@@ -46,7 +46,8 @@ type SessionMarker struct {
 
 // sessionGap is the longest pause between runs that still counts as one
 // session (the supervisor restarts ffmpeg on audio device changes etc.).
-const sessionGap = 15 * time.Second
+// Shared with the engine's whole-session pruning so both agree.
+const sessionGap = capture.SessionGap
 
 const recPrefix = "/__rec/"
 
@@ -161,7 +162,7 @@ func (s *ReplayService) buildSessions() []builtSession {
 		b := &out[i]
 		b.ThumbURL = fmt.Sprintf("%sthumb/%d", recPrefix, b.ID)
 		b.PlaylistURL = fmt.Sprintf("%s%d.m3u8", recPrefix, b.ID)
-		if b.Mode == ModeBackground && !b.Kept && keepMs > 0 {
+		if b.Mode == ModeBackground && !b.Kept && keepMs > 0 && st.Retention == RetentionTime {
 			b.DeleteAtMs = b.segs[0].seg.ModTime.UnixMilli() + keepMs
 		}
 		b.Markers = []SessionMarker{}

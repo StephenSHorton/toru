@@ -43,7 +43,7 @@ func TestSessionsTimelineClipKeepDelete(t *testing.T) {
 	t.Setenv("LocalAppData", cfg)
 	rec, clips := t.TempDir(), t.TempDir()
 	s := &ReplayService{buf: capture.NewReplayBuffer(), settings: Settings{
-		Mode: ModeBackground, BackgroundMinutes: 120, RecordingsDir: rec, SaveDir: clips, GameFolders: true,
+		Mode: ModeBackground, BackgroundMinutes: 120, Retention: RetentionTime, RecordingsDir: rec, SaveDir: clips, GameFolders: true,
 	}}
 
 	base := time.Now().Add(-time.Hour).UnixMilli()
@@ -134,6 +134,10 @@ func TestModesNormalizeAndConfig(t *testing.T) {
 		t.Error("unknown mode falls back to instant replay")
 	}
 	st.RecordingsDir = `D:\Rec`
+	if whole := toConfigFor(st, "VALORANT"); !whole.WholeSessions || whole.KeepSeconds != 0 {
+		t.Errorf("default retention keeps whole sessions until the limit: %+v", whole)
+	}
+	st.Retention = RetentionTime
 	bg := toConfigFor(st, "VALORANT")
 	if !bg.Persist || bg.Dir != `D:\Rec` || bg.KeepSeconds != 7200 || bg.MaxBytes != 25<<30 || bg.Tag != "background|VALORANT" ||
 		bg.BitrateKbps != 12000 || bg.MinFreeBytes != minFreeBytes {

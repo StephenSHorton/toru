@@ -175,6 +175,10 @@ func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 		cutoff = time.Now().Add(-time.Duration(cfg.KeepSeconds) * time.Second)
 	}
 	live := map[int]bool{current: true}
+	if cfg.WholeSessions {
+		total, shortfall = b.pruneWholeSessions(cfg, segs, total, shortfall, protect, current, live)
+		segs = nil // handled
+	}
 	for i, s := range segs {
 		if i == len(segs)-1 || (protect != nil && protect(s.Run)) {
 			live[s.Run] = true
@@ -223,6 +227,84 @@ func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 			s.Error = ""
 		}
 	})
+}
+
+// SessionGap is the longest pause between two runs of the same tag that
+// still counts as one session (ffmpeg restarts on audio-device changes etc.).
+const SessionGap = 15 * time.Second
+
+// GroupRuns groups segments into sessions: consecutive runs with the same
+// tag and less than SessionGap between them. Groups are oldest first.
+func GroupRuns(dir string, segs []RecSegment) [][]RecSegment {
+	var groups [][]RecSegment
+	var lastTag string
+	var lastEnd time.Time
+	lastRun := -1
+	for _, s := range segs {
+		if s.Run != lastRun {
+			info, _ := ReadRunInfo(dir, s.Run)
+			start := time.UnixMilli(info.StartMs)
+			if info.StartMs == 0 {
+				start = time.Unix(int64(s.Run), 0)
+			}
+			if len(groups) == 0 || info.Tag != lastTag || start.Sub(lastEnd) >= SessionGap {
+				groups = append(groups, nil)
+			}
+			lastTag, lastRun = info.Tag, s.Run
+		}
+		groups[len(groups)-1] = append(groups[len(groups)-1], s)
+		lastEnd = s.ModTime
+	}
+	return groups
+}
+
+// pruneWholeSessions frees space a whole session at a time (oldest first,
+// skipping protected sessions and the one being recorded). If that isn't
+// enough, it trims the oldest footage of the live session, never its
+// segment in progress. It returns the new total and remaining shortfall and
+// marks runs that still have footage in live.
+func (b *ReplayBuffer) pruneWholeSessions(cfg ReplayConfig, segs []RecSegment, total, shortfall int64,
+	protect func(int) bool, current int, live map[int]bool) (int64, int64) {
+	need := func() bool {
+		return (cfg.MaxBytes > 0 && total > cfg.MaxBytes) || shortfall > 0
+	}
+	remove := func(s RecSegment) bool {
+		if os.Remove(s.Path) != nil {
+			return false
+		}
+		total -= s.Size
+		shortfall -= s.Size
+		return true
+	}
+	groups := GroupRuns(cfg.Dir, segs)
+	var liveGroup []RecSegment
+	for _, g := range groups {
+		isLive, isProtected := false, false
+		for _, s := range g {
+			isLive = isLive || s.Run == current
+			isProtected = isProtected || (protect != nil && protect(s.Run))
+		}
+		if isLive {
+			liveGroup = g
+		}
+		if !need() || isLive || isProtected {
+			for _, s := range g {
+				live[s.Run] = true
+			}
+			continue
+		}
+		for _, s := range g {
+			if !remove(s) {
+				live[s.Run] = true
+			}
+		}
+	}
+	// The session being recorded is bigger than the cap on its own: trim its
+	// oldest footage (rolling) rather than exceed the limit.
+	for i := 0; need() && i < len(liveGroup)-1; i++ {
+		remove(liveGroup[i])
+	}
+	return total, shortfall
 }
 
 func (b *ReplayBuffer) isDiskFull() bool {

@@ -344,9 +344,16 @@ export class Settings {
     "mode": string;
 
     /**
-     * background footage kept
+     * RetentionTime: background footage kept
      */
     "backgroundMinutes": number;
+
+    /**
+     * Retention picks what background recording deletes to stay within
+     * MaxDiskGB: whole sessions, oldest first (RetentionSessions), or
+     * footage older than BackgroundMinutes (RetentionTime).
+     */
+    "retention": string;
 
     /**
      * cap for all recordings
@@ -474,6 +481,9 @@ export class Settings {
         }
         if (!("backgroundMinutes" in $$source)) {
             this["backgroundMinutes"] = 0;
+        }
+        if (!("retention" in $$source)) {
+            this["retention"] = "";
         }
         if (!("maxDiskGB" in $$source)) {
             this["maxDiskGB"] = 0;

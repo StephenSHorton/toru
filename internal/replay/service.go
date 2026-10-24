@@ -202,8 +202,10 @@ func toConfigFor(st Settings, game string) capture.ReplayConfig {
 		cfg.FPS, cfg.BitrateKbps = min(cfg.FPS, 60), 25000
 	}
 	cfg.KeepSeconds = 0 // manual recordings are kept until deleted
-	if st.Mode == ModeBackground {
+	cfg.WholeSessions = true
+	if st.Mode == ModeBackground && st.Retention == RetentionTime {
 		cfg.KeepSeconds = st.BackgroundMinutes * 60
+		cfg.WholeSessions = false
 	}
 	cfg.Tag = encodeTag(st.Mode, game)
 	return cfg

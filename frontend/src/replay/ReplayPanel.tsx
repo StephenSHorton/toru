@@ -507,7 +507,11 @@ export function ReplayPanel() {
           title={settings.mode === "background" ? "Background recording" : "Recording storage"}
           summary={
             `${QUALITY.find((q) => q.value === settings.recordingQuality)?.label ?? "Custom"} quality · ` +
-            (settings.mode === "background" ? `keeps ${formatMinutes(settings.backgroundMinutes)} · ` : "") +
+            (settings.mode === "background"
+              ? settings.retention === "time"
+                ? `keeps ${formatMinutes(settings.backgroundMinutes)} · `
+                : "keeps whole sessions · "
+              : "") +
             (recorder ? `${formatGB(recorder.diskBytes)} of ${settings.maxDiskGB} GB used` : `${settings.maxDiskGB} GB limit`)
           }
           defaultOpen
@@ -552,15 +556,56 @@ export function ReplayPanel() {
           </Field>
           {settings.mode === "background" && (
             <>
-              <Field label="Keep the last">
-                <Chips
-                  options={KEEP_OPTIONS}
-                  value={settings.backgroundMinutes}
-                  format={formatMinutes}
-                  disabled={busy}
-                  onPick={(m) => void update({ backgroundMinutes: m })}
-                />
+              <Field
+                label={
+                  <>
+                    What to keep
+                    <InfoTip>
+                      Whole sessions: every play session is kept in full until the storage limit is
+                      reached, then the oldest session is deleted. Last few hours: only recent footage
+                      is kept and anything older is trimmed as you play.
+                    </InfoTip>
+                  </>
+                }
+              >
+                <div role="radiogroup" aria-label="What to keep" className="grid grid-cols-2 border border-border">
+                  {[
+                    { value: "sessions", label: "Whole sessions", sub: "Delete the oldest when full" },
+                    { value: "time", label: "Last few hours", sub: "Trim older footage" },
+                  ].map((o, i) => {
+                    const selected = settings.retention === o.value;
+                    return (
+                      <button
+                        key={o.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        disabled={busy}
+                        onClick={() => void update({ retention: o.value })}
+                        className={cn(
+                          "flex flex-col items-center px-2 py-1.5 text-xs transition-colors disabled:opacity-60",
+                          i > 0 && "border-l border-border",
+                          selected ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                        )}
+                      >
+                        <span className="font-medium">{o.label}</span>
+                        <span className={cn("text-[10px]", selected ? "opacity-90" : "opacity-70")}>{o.sub}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </Field>
+              {settings.retention === "time" && (
+                <Field label="Keep the last">
+                  <Chips
+                    options={KEEP_OPTIONS}
+                    value={settings.backgroundMinutes}
+                    format={formatMinutes}
+                    disabled={busy}
+                    onPick={(m) => void update({ backgroundMinutes: m })}
+                  />
+                </Field>
+              )}
               <ToggleRow
                 label="Only while playing a game"
                 info="Starts when a game is in focus (fullscreen, or anything installed from Steam, Epic, Xbox, Riot, …) and stops when it closes. Off: records your screen all the time."
@@ -576,7 +621,9 @@ export function ReplayPanel() {
                 Storage limit
                 <InfoTip>
                   {settings.mode === "background"
-                    ? "When full, the oldest background footage is deleted first. Manual and kept recordings are never deleted automatically."
+                    ? settings.retention === "time"
+                      ? "When full, the oldest background footage is trimmed first. Manual and kept recordings are never deleted automatically."
+                      : "When full, the oldest whole session is deleted to make room. Manual and kept recordings are never deleted automatically."
                     : "Manual recordings are never deleted automatically. Delete old ones from the Library's Recordings tab."}
                 </InfoTip>
               </>
