@@ -134,7 +134,7 @@ func (s *ReplayService) reconcile() error {
 
 	s.mu.Lock()
 	game, manual := s.game, s.manualOn
-	if !(st.Enabled && st.Mode == ModeBackground && st.GamesOnly) {
+	if !st.Enabled || st.Mode != ModeBackground || !st.GamesOnly {
 		game = ""
 	}
 	want := st.Enabled && (st.Mode == ModeReplay ||
@@ -282,6 +282,7 @@ func baseConfig(st Settings) capture.ReplayConfig {
 			MicVolume:      st.MicVolume,
 			SeparateTracks: st.SeparateTracks,
 			BitrateKbps:    st.AudioBitrateKbps,
+			MicNoise:       st.MicNoise,
 		},
 	}
 }

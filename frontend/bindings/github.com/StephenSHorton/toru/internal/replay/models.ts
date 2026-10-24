@@ -450,6 +450,11 @@ export class Settings {
     "micDevice": string;
 
     /**
+     * capture.MicNoise*: noise suppression
+     */
+    "micNoise": string;
+
+    /**
      * Per-source volume in percent (0 mutes, 100 = as captured, max 200).
      */
     "desktopVolume": number;
@@ -545,6 +550,9 @@ export class Settings {
         }
         if (!("micDevice" in $$source)) {
             this["micDevice"] = "";
+        }
+        if (!("micNoise" in $$source)) {
+            this["micNoise"] = "";
         }
         if (!("desktopVolume" in $$source)) {
             this["desktopVolume"] = 0;

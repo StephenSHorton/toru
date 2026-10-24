@@ -118,6 +118,24 @@ func TestReplayAudioSeparateTracks(t *testing.T) {
 	}
 }
 
+func TestReplayMicNoiseSuppression(t *testing.T) {
+	a := ReplayAudio{MicDevice: "Mic", MicNoise: MicNoiseStrong, MicVolume: 150}
+	_, graph, _ := replayAudioArgs(replayAudioSources(a), a)
+	want := "[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,highpass=f=100,afftdn=nr=24:nf=-45:tn=1,agate="
+	if !strings.Contains(graph, want) || !strings.Contains(graph, ",volume=1.50[aout]") {
+		t.Errorf("strong suppression should run before the volume:\n%s", graph)
+	}
+	a.MicNoise = MicNoiseOff
+	if _, graph, _ := replayAudioArgs(replayAudioSources(a), a); strings.Contains(graph, "afftdn") {
+		t.Errorf("off means untouched: %s", graph)
+	}
+	// Only the mic is filtered, never the game or Discord.
+	b := ReplayAudio{Desktop: true, MicDevice: "Mic", MicNoise: MicNoiseLight}
+	if _, graph, _ := replayAudioArgs(replayAudioSources(b), b); strings.Count(graph, "afftdn") != 1 || !strings.Contains(graph, "[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,highpass=f=80,afftdn") {
+		t.Errorf("light suppression on the mic only:\n%s", graph)
+	}
+}
+
 func TestReplayAudioSingleSource(t *testing.T) {
 	a := ReplayAudio{Discord: true, SeparateTracks: true}
 	_, graph, maps := replayAudioArgs(replayAudioSources(a), a)
