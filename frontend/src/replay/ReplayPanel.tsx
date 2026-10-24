@@ -23,10 +23,38 @@ const RESOLUTIONS: { value: number; label: string }[] = [
   { value: 1080, label: "1080p" },
   { value: 720, label: "720p" },
 ];
-const CODECS: { value: string; label: string; hint: string }[] = [
-  { value: "h264", label: "H.264", hint: "Plays everywhere, including inline in Discord" },
-  { value: "hevc", label: "HEVC", hint: "Smaller files at the same quality; some players can't open it" },
-  { value: "av1", label: "AV1", hint: "Best quality per MB; needs an RTX 40/50, Radeon RX 7000+ or Intel Arc" },
+// All three run on the GPU's video encoder chip, so the choice doesn't change
+// game performance — only how big the files are and where they play.
+const CODECS: {
+  value: string;
+  label: string;
+  tag?: string;
+  summary: string;
+  plays: string;
+  size: string;
+}[] = [
+  {
+    value: "h264",
+    label: "H.264",
+    tag: "Best for sharing",
+    summary: "The safe choice. Clips play anywhere you drop them.",
+    plays: "Plays inline in Discord, on phones, in every editor and site",
+    size: "Biggest files at a given quality",
+  },
+  {
+    value: "hevc",
+    label: "HEVC (H.265)",
+    summary: "Same quality as H.264 in about a third less space.",
+    plays: "Fine in editors, iPhones and YouTube; Discord often can't play it inline",
+    size: "Smaller files, or sharper at the same bitrate",
+  },
+  {
+    value: "av1",
+    label: "AV1",
+    summary: "The newest and most efficient. Sharpest at low bitrates.",
+    plays: "Plays in Discord, browsers and YouTube; older phones and editors may not",
+    size: "Smallest files; needs an RTX 40/50, Radeon RX 7000+ or Intel Arc",
+  },
 ];
 const MIN_MBPS = 2;
 const MAX_MBPS = 150;
@@ -199,7 +227,6 @@ export function ReplayPanel() {
   }
 
   const mbps = bitrateDraft ?? settings.bitrateMbps;
-  const codec = CODECS.find((c) => c.value === settings.codec) ?? CODECS[0];
   const error = applyError || status?.error || "";
 
   return (
@@ -350,25 +377,53 @@ export function ReplayPanel() {
           </span>
         </Field>
 
-        <Field label="Encoder">
-          <select
-            className={selectClass}
-            value={settings.codec}
-            disabled={busy}
-            onChange={(e) => void update({ codec: e.target.value })}
-          >
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs text-muted-foreground">
+            Encoder — all three run on your graphics card's video chip, so none of them
+            costs game performance. They differ in file size and where clips play.
+          </span>
+          <div role="radiogroup" aria-label="Encoder" className="grid gap-2 sm:grid-cols-3">
             {CODECS.map((c) => {
               const unsupported = encoders !== null && encoders[c.value] === false;
+              const selected = settings.codec === c.value;
               return (
-                <option key={c.value} value={c.value} disabled={unsupported} className={optionClass}>
-                  {c.label}
-                  {unsupported ? " — not supported by your GPU" : ""}
-                </option>
+                <button
+                  key={c.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  disabled={busy || unsupported}
+                  onClick={() => void update({ codec: c.value })}
+                  className={cn(
+                    "flex flex-col gap-1.5 border p-3 text-left transition-colors",
+                    "disabled:cursor-not-allowed disabled:opacity-50",
+                    selected
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:border-primary/60",
+                  )}
+                >
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-sm font-medium">{c.label}</span>
+                    {c.tag && (
+                      <span className="bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                        {c.tag}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-xs">{c.summary}</span>
+                  <span className="text-xs text-muted-foreground">{c.plays}</span>
+                  <span className="text-xs text-muted-foreground">{c.size}</span>
+                  {unsupported && (
+                    <span className="text-xs text-destructive">Your graphics card can't encode this</span>
+                  )}
+                </button>
               );
             })}
-          </select>
-          <span className="text-xs text-muted-foreground">{codec.hint}</span>
-        </Field>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            Not sure? Keep H.264 if you post clips to Discord. Pick AV1 to save disk space.
+          </span>
+        </div>
       </Section>
 
       <Section title="Audio">
