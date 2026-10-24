@@ -674,6 +674,11 @@ function baseName(p: string): string {
 }
 
 // Handle is a draggable in/out marker on the timeline, positioned in seconds.
+// The drag lives entirely on the handle via pointer capture (no window
+// listeners that could outlive a lost pointerup and fight the next drag),
+// ends cleanly on lostpointercapture, and always calls the latest onChange so
+// clamping uses the other handle's current position. The grab area is wider
+// than the visible bar.
 function Handle({
   sec,
   duration,
@@ -683,31 +688,41 @@ function Handle({
   duration: number;
   onChange: (s: number) => void;
 }) {
-  const onDown = (e: React.PointerEvent) => {
-    if (duration <= 0) return;
-    e.stopPropagation(); // don't trigger the track's click-to-seek
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-    const track = (e.currentTarget as HTMLElement).parentElement!;
-    const rect = track.getBoundingClientRect();
-    const move = (ev: PointerEvent) => {
-      const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-      // Snap to 10ms so the readout's 2 decimals are exact, not 0.4999….
-      onChange(Math.round(frac * duration * 100) / 100);
-    };
-    const up = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      (e.target as Element).releasePointerCapture?.(ev.pointerId);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+  const drag = useRef<DOMRect | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const apply = (clientX: number) => {
+    const rect = drag.current;
+    if (!rect || duration <= 0) return;
+    const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    // Snap to 10ms so the readout's 2 decimals are exact, not 0.4999….
+    onChangeRef.current(Math.round(frac * duration * 100) / 100);
   };
+
   const left = duration > 0 ? (sec / duration) * 100 : 0;
   return (
     <div
-      onPointerDown={onDown}
-      className="absolute top-0 z-10 h-full w-3 -translate-x-1/2 cursor-ew-resize bg-primary"
+      onPointerDown={(e) => {
+        if (duration <= 0) return;
+        e.preventDefault(); // no text selection / native drag
+        e.stopPropagation(); // don't trigger the track's click-to-seek
+        e.currentTarget.setPointerCapture(e.pointerId);
+        drag.current = e.currentTarget.parentElement!.getBoundingClientRect();
+      }}
+      onPointerMove={(e) => apply(e.clientX)}
+      onPointerUp={(e) => {
+        apply(e.clientX);
+        drag.current = null;
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+      }}
+      onLostPointerCapture={() => {
+        drag.current = null;
+      }}
+      className="group/handle absolute top-0 z-10 flex h-full w-5 -translate-x-1/2 cursor-ew-resize touch-none justify-center"
       style={{ left: `${left}%` }}
-    />
+    >
+      <div className="h-full w-3 bg-primary transition-[width] group-hover/handle:w-3.5" />
+    </div>
   );
 }
