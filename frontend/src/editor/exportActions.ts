@@ -136,6 +136,34 @@ export async function saveToLibrary(stage: Konva.Stage, libraryId?: string): Pro
  * and the user is never stuck. `onCopied` runs only after a successful copy
  * (Toolbar uses it for the Copied flash + brief beat before dismiss).
  */
+// The finish currently running in this window, if any. See finishAndClose.
+let finishing: Promise<void> | null = null;
+
+/**
+ * finishAndArchive, then close (dismiss the overlay / close the window), at
+ * most once at a time. Done, empty-selection Esc and Esc key-repeat can all
+ * fire while a finish is still copying/archiving; without this each one
+ * archived another copy of the same capture. Later calls join the running
+ * finish instead of starting a new one. The guard resets once close resolves,
+ * so the reused overlay window can finish its next capture.
+ */
+export function finishAndClose(
+  stage: Konva.Stage | null,
+  close: () => void | Promise<void>,
+  opts?: Parameters<typeof finishAndArchive>[1],
+): Promise<void> {
+  if (finishing) return finishing;
+  finishing = (async () => {
+    try {
+      if (stage) await finishAndArchive(stage, opts);
+      await close();
+    } finally {
+      finishing = null;
+    }
+  })();
+  return finishing;
+}
+
 export async function finishAndArchive(
   stage: Konva.Stage,
   opts?: { onCopied?: () => void | Promise<void>; libraryId?: string },

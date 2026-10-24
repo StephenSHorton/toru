@@ -23,7 +23,7 @@ import { useClipboardPaste } from "@/editor/useClipboardPaste";
 import { TextEditingOverlay } from "@/editor/tools/text";
 import { CropOverlay } from "@/editor/tools/crop";
 import { setStageSize } from "@/editor/viewStore";
-import { finishAndArchive } from "@/editor/exportActions";
+import { finishAndClose } from "@/editor/exportActions";
 import { WindowsService } from "@/lib/api";
 
 /** Padding between window edge ↔ capture, capture ↔ toolbar, toolbar ↔ edge. */
@@ -60,13 +60,10 @@ export default function Editor() {
   }, []);
 
   // Empty-selection Esc: same finish as Done (copy-on-Done + library), then close.
-  const finish = useCallback(async () => {
-    const stage = stageRef.current;
-    if (stage) {
-      await finishAndArchive(stage, { libraryId });
-    }
-    await dismiss();
-  }, [dismiss, libraryId]);
+  const finish = useCallback(
+    () => finishAndClose(stageRef.current, dismiss, { libraryId }),
+    [dismiss, libraryId],
+  );
 
   useEditorKeyboard(true, () => void finish());
   useClipboardPaste();

@@ -32,7 +32,7 @@ import type { ToolId } from './types';
 import { ColorPalette } from './ColorPalette';
 import { StrokeWidthControl } from './StrokeWidthControl';
 import { EmojiPicker } from './tools/emoji';
-import { copyToClipboard, finishAndArchive } from './exportActions';
+import { copyToClipboard, finishAndClose } from './exportActions';
 import { WindowsService } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -131,7 +131,7 @@ export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef, flashC
     if (!stage) return;
     setDoneBusy(true);
     try {
-      await finishAndArchive(stage, {
+      await finishAndClose(stage, onDone, {
         libraryId,
         onCopied: async () => {
           showCopied();
@@ -139,7 +139,6 @@ export function Toolbar({ stageRef, onNewCapture, onDone, docked, barRef, flashC
           await new Promise((r) => window.setTimeout(r, 400));
         },
       });
-      await onDone();
     } finally {
       setDoneBusy(false);
     }
