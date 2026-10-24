@@ -153,8 +153,12 @@ type ReplayConfig struct {
 	// (KeepSeconds) and total size (MaxBytes) instead of a fixed count.
 	// Runs the protect callback (SetProtect) claims are never pruned.
 	Persist  bool
-	MaxBytes int64  // Persist: total segment bytes kept; 0 = unlimited
-	Tag      string // Persist: free-form label stored in each run's sidecar
+	MaxBytes int64 // Persist: total segment bytes kept; 0 = unlimited
+	// MinFreeBytes (Persist) is free space the recording never eats into on
+	// its drive: older unprotected footage is pruned to keep it, and if only
+	// protected footage is left, recording pauses until space frees up.
+	MinFreeBytes int64
+	Tag          string // Persist: free-form label stored in each run's sidecar
 }
 
 // ReplayStatus is the buffer's live state for the UI.
@@ -180,6 +184,7 @@ type ReplayBuffer struct {
 	onStatus func(ReplayStatus)
 	protect  func(run int) bool // Persist: runs that must never be pruned
 	diskUsed int64              // Persist: last measured segment bytes
+	diskFull bool               // Persist: paused for lack of free space
 
 	// segMu is held while pruning and while Save reads segments, so the pruner
 	// never deletes a file a stitch is about to read.
@@ -317,6 +322,20 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 	backoff := time.Second
 	watchDiscord := cfg.Audio.Desktop || cfg.Audio.Discord
 	for {
+		// Out of free space: stay stopped (re-checking every 10s) instead of
+		// filling the user's drive.
+		for cfg.Persist {
+			b.prunePersistent(cfg)
+			if !b.isDiskFull() {
+				break
+			}
+			select {
+			case <-stop:
+				return
+			case <-time.After(10 * time.Second):
+			}
+		}
+
 		b.mu.Lock()
 		b.run++
 		if cfg.Persist {
@@ -364,6 +383,9 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 				ticks++
 				if !cfg.Persist || ticks%5 == 1 { // persistent dirs are big: prune every 10s
 					b.prune(cfg)
+					if cfg.Persist && b.isDiskFull() {
+						break watch
+					}
 				}
 				// Re-target the audio graph when Discord starts, quits or restarts.
 				if watchDiscord && ticks%5 == 0 && DiscordPID() != discordPID {

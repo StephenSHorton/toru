@@ -126,8 +126,8 @@ func TestSessionsTimelineClipKeepDelete(t *testing.T) {
 }
 
 func TestModesNormalizeAndConfig(t *testing.T) {
-	st := Settings{Mode: ModeBackground, Codec: "av1", BackgroundMinutes: 7, MaxDiskGB: 3}.Normalize()
-	if st.Codec != "h264" || st.BackgroundMinutes != 120 || st.MaxDiskGB != 50 {
+	st := Settings{Mode: ModeBackground, Codec: "av1", BackgroundMinutes: 7, MaxDiskGB: 3, FPS: 144, BitrateMbps: 65}.Normalize()
+	if st.Codec != "h264" || st.BackgroundMinutes != 120 || st.MaxDiskGB != 25 || st.RecordingQuality != QualityStandard {
 		t.Errorf("normalize: %+v", st)
 	}
 	if (Settings{Mode: "steam"}).Normalize().Mode != ModeReplay {
@@ -135,15 +135,26 @@ func TestModesNormalizeAndConfig(t *testing.T) {
 	}
 	st.RecordingsDir = `D:\Rec`
 	bg := toConfigFor(st, "VALORANT")
-	if !bg.Persist || bg.Dir != `D:\Rec` || bg.KeepSeconds != 7200 || bg.MaxBytes != 50<<30 || bg.Tag != "background|VALORANT" {
+	if !bg.Persist || bg.Dir != `D:\Rec` || bg.KeepSeconds != 7200 || bg.MaxBytes != 25<<30 || bg.Tag != "background|VALORANT" ||
+		bg.BitrateKbps != 12000 || bg.MinFreeBytes != minFreeBytes {
 		t.Errorf("background cfg: %+v", bg)
 	}
 	if toConfigFor(st, "VALORANT") == toConfigFor(st, "Apex Legends") {
 		t.Error("a different game must restart the buffer (new session)")
 	}
+	if bg.FPS != 60 {
+		t.Errorf("standard quality caps fps at 60, got %d", bg.FPS)
+	}
+	st.RecordingQuality = QualityCustom
+	if c := toConfigFor(st, ""); c.FPS != 144 || c.BitrateKbps != 65000 {
+		t.Errorf("custom quality uses the Video settings: %+v", c)
+	}
 	st.Mode = ModeManual
 	if m := toConfigFor(st, ""); m.KeepSeconds != 0 || m.Tag != "manual|" {
 		t.Errorf("manual cfg: %+v", m)
+	}
+	if r := toConfig(Settings{Mode: ModeReplay, FPS: 144, BitrateMbps: 65}.Normalize()); r.FPS != 144 || r.BitrateKbps != 65000 {
+		t.Errorf("instant replay keeps its own quality: %+v", r)
 	}
 	if r := toConfig(DefaultSettings()); r.Persist {
 		t.Error("instant replay must not persist")

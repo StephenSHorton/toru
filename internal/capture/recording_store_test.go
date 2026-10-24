@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -85,5 +86,44 @@ func TestSegmentTimesAndDeleteRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "r0042.csv")); !os.IsNotExist(err) {
 		t.Error("csv should be deleted with its run")
+	}
+}
+
+func TestPrunePersistentKeepsFreeSpaceAndPauses(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 4; i++ {
+		fakeSeg(t, dir, 500, i, 100, time.Duration(4-i)*time.Minute)
+	}
+	fakeSeg(t, dir, 400, 0, 100, time.Hour) // protected
+	free := int64(1000)
+	diskFreeBytes = func(string) (int64, bool) { return free, true }
+	defer func() { diskFreeBytes = diskFreeBytesOS }()
+
+	b := NewReplayBuffer()
+	b.run = 500
+	b.SetProtect(func(run int) bool { return run == 400 })
+	cfg := ReplayConfig{Dir: dir, Persist: true, MinFreeBytes: 1150}
+
+	// 150 bytes short: two unprotected segments go, recording continues.
+	b.prunePersistent(cfg)
+	if n := len(ListRecSegments(dir)); n != 3 || b.isDiskFull() {
+		t.Fatalf("after shortfall prune: %d segments, full=%v", n, b.isDiskFull())
+	}
+
+	// Far short with only protected + in-progress left: pause, with a reason.
+	free = 0
+	b.prunePersistent(cfg)
+	if !b.isDiskFull() || !strings.Contains(b.Status().Error, "almost full") {
+		t.Fatalf("should pause on a full drive: full=%v err=%q", b.isDiskFull(), b.Status().Error)
+	}
+	if segs := ListRecSegments(dir); len(segs) != 2 || segs[0].Run != 400 {
+		t.Errorf("protected footage must survive: %+v", segs)
+	}
+
+	// Space comes back: resume.
+	free = 1 << 40
+	b.prunePersistent(cfg)
+	if b.isDiskFull() || b.Status().Error != "" {
+		t.Errorf("should resume when space frees: full=%v err=%q", b.isDiskFull(), b.Status().Error)
 	}
 }

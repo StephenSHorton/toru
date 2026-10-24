@@ -162,6 +162,14 @@ func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 	for _, s := range segs {
 		total += s.Size
 	}
+	// Free-space floor: if the drive has less than MinFreeBytes free, prune
+	// the shortfall too (on top of the size cap).
+	var shortfall int64
+	if cfg.MinFreeBytes > 0 {
+		if free, ok := diskFreeBytes(cfg.Dir); ok && free < cfg.MinFreeBytes {
+			shortfall = cfg.MinFreeBytes - free
+		}
+	}
 	cutoff := time.Time{}
 	if cfg.KeepSeconds > 0 {
 		cutoff = time.Now().Add(-time.Duration(cfg.KeepSeconds) * time.Second)
@@ -174,12 +182,13 @@ func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 		}
 		tooOld := !cutoff.IsZero() && s.ModTime.Before(cutoff)
 		overCap := cfg.MaxBytes > 0 && total > cfg.MaxBytes
-		if !tooOld && !overCap {
+		if !tooOld && !overCap && shortfall <= 0 {
 			live[s.Run] = true
 			continue
 		}
 		if os.Remove(s.Path) == nil {
 			total -= s.Size
+			shortfall -= s.Size
 		} else {
 			live[s.Run] = true
 		}
@@ -195,17 +204,32 @@ func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 		}
 	}
 
+	driveFull := shortfall > 0
 	b.mu.Lock()
 	b.diskUsed = total
+	b.diskFull = driveFull
 	b.mu.Unlock()
 	full := cfg.MaxBytes > 0 && total > cfg.MaxBytes
 	b.setStatus(func(s *ReplayStatus) {
-		const msg = "Recording storage is full of kept recordings; delete some or raise the limit"
+		const capMsg = "Recording storage is full of kept recordings; delete some or raise the limit"
+		const driveMsg = "Your drive is almost full, so recording is paused. Free up space or delete recordings"
 		switch {
+		case driveFull:
+			s.Error = driveMsg
+			s.Recording = false
 		case full:
-			s.Error = msg
-		case s.Error == msg:
+			s.Error = capMsg
+		case s.Error == capMsg || s.Error == driveMsg:
 			s.Error = ""
 		}
 	})
 }
+
+func (b *ReplayBuffer) isDiskFull() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.diskFull
+}
+
+// diskFreeBytes is swappable so tests can simulate a nearly full drive.
+var diskFreeBytes = diskFreeBytesOS

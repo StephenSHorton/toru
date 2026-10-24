@@ -33,6 +33,10 @@ type Settings struct {
 	MaxDiskGB         int    `json:"maxDiskGB"`         // cap for all recordings
 	GamesOnly         bool   `json:"gamesOnly"`         // background: only while a game runs
 	RecordingsDir     string `json:"recordingsDir"`     // "" = DefaultRecordingsDir()
+	// RecordingQuality is the video quality for background/manual recording,
+	// separate from instant replay's: whole sessions need a much lower
+	// bitrate to fit on disk. QualityCustom uses the Video settings.
+	RecordingQuality string `json:"recordingQuality"`
 	// RecordingNotices toasts when a background/manual recording starts and
 	// stops and when a marker is added.
 	RecordingNotices bool `json:"recordingNotices"`
@@ -75,7 +79,18 @@ var (
 	// Steam offers 30 min - 24 h of background footage.
 	BackgroundMinuteOptions = []int{30, 60, 120, 240, 480, 720, 1440}
 	DiskGBOptions           = []int{10, 25, 50, 100, 200, 500}
+	QualityOptions          = []string{QualityStandard, QualityHigh, QualityCustom}
 )
+
+// Recording qualities for background/manual recording (Settings.RecordingQuality).
+const (
+	QualityStandard = "standard" // 60 fps, 12 Mbps: ~5.4 GB per hour
+	QualityHigh     = "high"     // 60 fps, 25 Mbps: ~11 GB per hour
+	QualityCustom   = "custom"   // the Video settings
+)
+
+// minFreeBytes is the free space recordings never eat into on their drive.
+const minFreeBytes = 10 << 30
 
 // Recording modes (Settings.Mode).
 const (
@@ -100,7 +115,8 @@ func DefaultSettings() Settings {
 		Enabled:           false,
 		Mode:              ModeReplay,
 		BackgroundMinutes: 120,
-		MaxDiskGB:         50,
+		MaxDiskGB:         25,
+		RecordingQuality:  QualityStandard,
 		GamesOnly:         true,
 		RecordingNotices:  true,
 		DurationSec:       60,
@@ -144,6 +160,9 @@ func (s Settings) Normalize() Settings {
 	}
 	if !slices.Contains(DiskGBOptions, s.MaxDiskGB) {
 		s.MaxDiskGB = d.MaxDiskGB
+	}
+	if !slices.Contains(QualityOptions, s.RecordingQuality) {
+		s.RecordingQuality = d.RecordingQuality
 	}
 	// Session recordings stream into the timeline as HLS, which can't carry
 	// AV1 in MPEG-TS segments.

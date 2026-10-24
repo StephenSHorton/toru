@@ -364,6 +364,13 @@ export class Settings {
     "recordingsDir": string;
 
     /**
+     * RecordingQuality is the video quality for background/manual recording,
+     * separate from instant replay's: whole sessions need a much lower
+     * bitrate to fit on disk. QualityCustom uses the Video settings.
+     */
+    "recordingQuality": string;
+
+    /**
      * RecordingNotices toasts when a background/manual recording starts and
      * stops and when a marker is added.
      */
@@ -476,6 +483,9 @@ export class Settings {
         }
         if (!("recordingsDir" in $$source)) {
             this["recordingsDir"] = "";
+        }
+        if (!("recordingQuality" in $$source)) {
+            this["recordingQuality"] = "";
         }
         if (!("recordingNotices" in $$source)) {
             this["recordingNotices"] = false;

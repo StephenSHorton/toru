@@ -194,6 +194,13 @@ func toConfigFor(st Settings, game string) capture.ReplayConfig {
 	cfg.Dir = recordingsDirFor(st)
 	cfg.Persist = true
 	cfg.MaxBytes = int64(st.MaxDiskGB) << 30
+	cfg.MinFreeBytes = minFreeBytes
+	switch st.RecordingQuality {
+	case QualityStandard:
+		cfg.FPS, cfg.BitrateKbps = min(cfg.FPS, 60), 12000
+	case QualityHigh:
+		cfg.FPS, cfg.BitrateKbps = min(cfg.FPS, 60), 25000
+	}
 	cfg.KeepSeconds = 0 // manual recordings are kept until deleted
 	if st.Mode == ModeBackground {
 		cfg.KeepSeconds = st.BackgroundMinutes * 60
