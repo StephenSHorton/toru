@@ -109,9 +109,19 @@ export async function saveAs(stage: Konva.Stage, name = 'Screenshot.png'): Promi
  * Flatten the annotated stage and archive it in the Toru library (user-configurable
  * folder under Settings). Called from finishAndArchive — there is no separate Save button.
  */
-export async function saveToLibrary(stage: Konva.Stage): Promise<void> {
+export async function saveToLibrary(stage: Konva.Stage, libraryId?: string): Promise<void> {
   const url = flattenStage(stage);
   const path = await ScreenshotService.SavePNG(url);
+  if (libraryId) {
+    // Re-opened from the library: update that item in place instead of adding
+    // a duplicate. Fall back to a new item if it was deleted meanwhile.
+    try {
+      await HistoryService.Replace(libraryId, path);
+      return;
+    } catch {
+      // fall through to Add
+    }
+  }
   await HistoryService.Add(path, 'image');
 }
 
@@ -126,9 +136,37 @@ export async function saveToLibrary(stage: Konva.Stage): Promise<void> {
  * and the user is never stuck. `onCopied` runs only after a successful copy
  * (Toolbar uses it for the Copied flash + brief beat before dismiss).
  */
+// The finish currently running in this window, if any. See finishAndClose.
+let finishing: Promise<void> | null = null;
+
+/**
+ * finishAndArchive, then close (dismiss the overlay / close the window), at
+ * most once at a time. Done, empty-selection Esc and Esc key-repeat can all
+ * fire while a finish is still copying/archiving; without this each one
+ * archived another copy of the same capture. Later calls join the running
+ * finish instead of starting a new one. The guard resets once close resolves,
+ * so the reused overlay window can finish its next capture.
+ */
+export function finishAndClose(
+  stage: Konva.Stage | null,
+  close: () => void | Promise<void>,
+  opts?: Parameters<typeof finishAndArchive>[1],
+): Promise<void> {
+  if (finishing) return finishing;
+  finishing = (async () => {
+    try {
+      if (stage) await finishAndArchive(stage, opts);
+      await close();
+    } finally {
+      finishing = null;
+    }
+  })();
+  return finishing;
+}
+
 export async function finishAndArchive(
   stage: Konva.Stage,
-  opts?: { onCopied?: () => void | Promise<void> },
+  opts?: { onCopied?: () => void | Promise<void>; libraryId?: string },
 ): Promise<void> {
   let shouldCopy = true;
   try {
@@ -145,7 +183,7 @@ export async function finishAndArchive(
     }
   }
   try {
-    await saveToLibrary(stage);
+    await saveToLibrary(stage, opts?.libraryId);
   } catch {
     // Caller still dismisses so the user is never stuck.
   }

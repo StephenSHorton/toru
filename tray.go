@@ -158,7 +158,7 @@ func (t *trayController) openRecent(it history.Item) {
 	case history.KindVideo:
 		t.windows.OpenTrim(it.Path)
 	default:
-		t.windows.OpenEditor(it.Path)
+		t.windows.OpenLibraryEditor(it.Path, it.ID)
 	}
 }
 

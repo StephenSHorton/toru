@@ -281,6 +281,49 @@ func (s *Store) Add(srcPath, kind string) (Item, error) {
 }
 
 // pruneMissingLocked drops items whose files no longer exist. Caller holds mu.
+// Replace swaps the file behind an existing item for srcPath (an edited
+// re-open from the library) while keeping its id, label, time and position,
+// so finishing the editor on a library capture updates it instead of adding
+// a duplicate. The file gets a fresh name so cached thumbnails refresh.
+func (s *Store) Replace(id, srcPath string) (Item, error) {
+	s.mu.Lock()
+	idx := -1
+	for i := range s.items {
+		if s.items[i].ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		s.mu.Unlock()
+		return Item{}, fmt.Errorf("history: unknown id %q", id)
+	}
+	if _, err := os.Stat(srcPath); err != nil {
+		s.mu.Unlock()
+		return Item{}, fmt.Errorf("history: source: %w", err)
+	}
+
+	old := s.items[idx]
+	ext := filepath.Ext(old.Path)
+	dst := filepath.Join(s.dir, fmt.Sprintf("%s-e%d%s", id, time.Now().UnixMilli(), ext))
+	if err := copyFile(srcPath, dst); err != nil {
+		s.mu.Unlock()
+		return Item{}, err
+	}
+	s.items[idx].Path = dst
+	item := s.items[idx]
+	_ = saveIndex(s.index, s.items)
+	cb := s.onChange
+	s.mu.Unlock()
+
+	_ = os.Remove(old.Path)
+	if cb != nil {
+		cb()
+	}
+	emitHistoryChanged()
+	return item, nil
+}
+
 func (s *Store) pruneMissingLocked() {
 	kept := s.items[:0]
 	for _, it := range s.items {
