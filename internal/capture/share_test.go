@@ -110,7 +110,7 @@ func TestShareHLSLifecycle(t *testing.T) {
 	if err != nil {
 		t.Skipf("libx264 HLS not available here: %v", err)
 	}
-	defer sess.Stop()
+	defer func() { _ = sess.Stop() }()
 	deadline := time.Now().Add(4 * time.Second)
 	for time.Now().Before(deadline) {
 		if fi, err := os.Stat(playlist); err == nil && fi.Size() > 0 {
@@ -133,7 +133,7 @@ func TestShareMJPEGLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sess.Stop()
+	defer func() { _ = sess.Stop() }()
 	deadline := time.Now().Add(4 * time.Second)
 	for time.Now().Before(deadline) {
 		gen, jpeg := sess.Frame()
