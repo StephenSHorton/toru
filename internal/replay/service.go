@@ -174,7 +174,13 @@ func (s *ReplayService) SaveReplay() (string, error) {
 	defer s.saving.Store(false)
 
 	st := s.GetSettings()
-	path, err := s.save(st)
+	// Look at what's focused now, at the key press: by the time the clip is
+	// stitched the user may have tabbed out.
+	game := ""
+	if app, ok := foreground(); ok {
+		game = gameFolderFor(app)
+	}
+	path, err := s.save(st, game)
 	if st.SoundOnSave {
 		playSaveSound(err == nil)
 	}
@@ -186,16 +192,34 @@ func (s *ReplayService) SaveReplay() (string, error) {
 	return path, nil
 }
 
-func (s *ReplayService) save(st Settings) (string, error) {
-	dir := saveDirFor(st)
+// save writes the clip. game is the focused game's folder name ("" = none):
+// it prefixes the file name, and with GameFolders on picks the sub-folder.
+func (s *ReplayService) save(st Settings, game string) (string, error) {
+	dir, prefix := clipLocation(st, game)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("replay folder: %w", err)
 	}
-	path := uniquePath(filepath.Join(dir, "Replay "+time.Now().Format("2006-01-02 15.04.05")), ".mp4")
+	path := uniquePath(filepath.Join(dir, prefix+" "+time.Now().Format("2006-01-02 15.04.05")), ".mp4")
 	if err := s.buf.Save(st.DurationSec, path); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+// clipLocation returns the folder and file-name prefix for a clip.
+func clipLocation(st Settings, game string) (dir, prefix string) {
+	dir, prefix = saveDirFor(st), "Replay"
+	if game != "" {
+		prefix = game
+	}
+	if st.GameFolders {
+		folder := game
+		if folder == "" {
+			folder = DesktopFolder
+		}
+		dir = filepath.Join(dir, folder)
+	}
+	return dir, prefix
 }
 
 // uniquePath returns base+ext, or base (2)+ext, … if that file exists.

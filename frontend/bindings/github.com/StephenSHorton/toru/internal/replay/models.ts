@@ -128,6 +128,12 @@ export class Settings {
     "saveDir": string;
 
     /**
+     * GameFolders files each clip under a folder named after the game in
+     * focus (DesktopFolder when none), like ShadowPlay.
+     */
+    "gameFolders": boolean;
+
+    /**
      * short system sound when a clip lands
      */
     "soundOnSave": boolean;
@@ -184,6 +190,9 @@ export class Settings {
         }
         if (!("saveDir" in $$source)) {
             this["saveDir"] = "";
+        }
+        if (!("gameFolders" in $$source)) {
+            this["gameFolders"] = false;
         }
         if (!("soundOnSave" in $$source)) {
             this["soundOnSave"] = false;

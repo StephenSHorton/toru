@@ -38,7 +38,10 @@ type Settings struct {
 	SeparateTracks   bool   `json:"separateTracks"`
 	AudioBitrateKbps int    `json:"audioBitrateKbps"` // AAC per track
 	SaveDir          string `json:"saveDir"`          // "" = DefaultSaveDir()
-	SoundOnSave      bool   `json:"soundOnSave"`      // short system sound when a clip lands
+	// GameFolders files each clip under a folder named after the game in
+	// focus (DesktopFolder when none), like ShadowPlay.
+	GameFolders bool `json:"gameFolders"`
+	SoundOnSave bool `json:"soundOnSave"` // short system sound when a clip lands
 }
 
 // Option lists the UI offers. Normalize snaps anything else to the nearest
@@ -78,6 +81,7 @@ func DefaultSettings() Settings {
 		DiscordVolume:    100,
 		MicVolume:        100,
 		AudioBitrateKbps: 160,
+		GameFolders:      true,
 		SoundOnSave:      true,
 	}
 }

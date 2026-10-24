@@ -581,6 +581,13 @@ export function ReplayPanel() {
           </Button>
         </div>
         <ToggleRow
+          label="Sort clips into game folders"
+          hint="Each clip goes into a folder named after the game you're playing when you press the hotkey (fullscreen games, and anything from Steam, Epic, Xbox, Riot, GOG, EA or Ubisoft). Everything else goes into Desktop."
+          checked={settings.gameFolders}
+          disabled={busy}
+          onChange={(v) => void update({ gameFolders: v })}
+        />
+        <ToggleRow
           label="Play a sound when a clip is saved"
           checked={settings.soundOnSave}
           disabled={busy}
