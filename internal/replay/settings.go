@@ -19,7 +19,24 @@ import (
 // Settings is the user's instant-replay configuration. JSON tags are the
 // stable on-disk + TS field names.
 type Settings struct {
-	Enabled       bool   `json:"enabled"`       // run the buffer in the background
+	Enabled bool `json:"enabled"` // recording is on (in the chosen Mode)
+	// Mode picks how Toru records (Steam's "Game Recording" modes plus
+	// ShadowPlay-style instant replay):
+	//   ModeReplay     keep only the last DurationSec; the hotkey saves it
+	//   ModeBackground record whole sessions (by default only while a game
+	//                  runs), keep BackgroundMinutes / MaxDiskGB, timeline
+	//   ModeManual     record between presses of the record hotkey; kept
+	//                  until deleted
+	// The save-clip hotkey works in every mode.
+	Mode              string `json:"mode"`
+	BackgroundMinutes int    `json:"backgroundMinutes"` // background footage kept
+	MaxDiskGB         int    `json:"maxDiskGB"`         // cap for all recordings
+	GamesOnly         bool   `json:"gamesOnly"`         // background: only while a game runs
+	RecordingsDir     string `json:"recordingsDir"`     // "" = DefaultRecordingsDir()
+	// RecordingNotices toasts when a background/manual recording starts and
+	// stops and when a marker is added.
+	RecordingNotices bool `json:"recordingNotices"`
+
 	DurationSec   int    `json:"durationSec"`   // clip length the hotkey saves (= the window kept)
 	MonitorID     int    `json:"monitorId"`     // capture.ScreenInfo.ID; -1 = primary
 	FPS           int    `json:"fps"`           // 30 | 60 | 120 | 144
@@ -54,6 +71,17 @@ var (
 	HeightOptions    = []int{0, 2160, 1440, 1080, 720}
 	CodecOptions     = []string{capture.ReplayCodecH264, capture.ReplayCodecHEVC, capture.ReplayCodecAV1}
 	AudioKbpsOptions = []int{96, 128, 160, 192, 256, 320}
+	ModeOptions      = []string{ModeReplay, ModeBackground, ModeManual}
+	// Steam offers 30 min - 24 h of background footage.
+	BackgroundMinuteOptions = []int{30, 60, 120, 240, 480, 720, 1440}
+	DiskGBOptions           = []int{10, 25, 50, 100, 200, 500}
+)
+
+// Recording modes (Settings.Mode).
+const (
+	ModeReplay     = "replay"
+	ModeBackground = "background"
+	ModeManual     = "manual"
 )
 
 const (
@@ -69,23 +97,28 @@ const (
 // Discord), desktop + Discord audio, no mic.
 func DefaultSettings() Settings {
 	return Settings{
-		Enabled:          false,
-		DurationSec:      60,
-		MonitorID:        -1,
-		FPS:              60,
-		Height:           0,
-		BitrateMbps:      20,
-		Codec:            capture.ReplayCodecH264,
-		IncludeCursor:    true,
-		DesktopAudio:     true,
-		DiscordAudio:     true,
-		DesktopVolume:    100,
-		DiscordVolume:    100,
-		MicVolume:        100,
-		AudioBitrateKbps: 160,
-		GameFolders:      true,
-		ToastOnSave:      true,
-		SoundOnSave:      true,
+		Enabled:           false,
+		Mode:              ModeReplay,
+		BackgroundMinutes: 120,
+		MaxDiskGB:         50,
+		GamesOnly:         true,
+		RecordingNotices:  true,
+		DurationSec:       60,
+		MonitorID:         -1,
+		FPS:               60,
+		Height:            0,
+		BitrateMbps:       20,
+		Codec:             capture.ReplayCodecH264,
+		IncludeCursor:     true,
+		DesktopAudio:      true,
+		DiscordAudio:      true,
+		DesktopVolume:     100,
+		DiscordVolume:     100,
+		MicVolume:         100,
+		AudioBitrateKbps:  160,
+		GameFolders:       true,
+		ToastOnSave:       true,
+		SoundOnSave:       true,
 	}
 }
 
@@ -103,6 +136,21 @@ func (s Settings) Normalize() Settings {
 	if !slices.Contains(CodecOptions, s.Codec) {
 		s.Codec = d.Codec
 	}
+	if !slices.Contains(ModeOptions, s.Mode) {
+		s.Mode = d.Mode
+	}
+	if !slices.Contains(BackgroundMinuteOptions, s.BackgroundMinutes) {
+		s.BackgroundMinutes = d.BackgroundMinutes
+	}
+	if !slices.Contains(DiskGBOptions, s.MaxDiskGB) {
+		s.MaxDiskGB = d.MaxDiskGB
+	}
+	// Session recordings stream into the timeline as HLS, which can't carry
+	// AV1 in MPEG-TS segments.
+	if s.Mode != ModeReplay && s.Codec == capture.ReplayCodecAV1 {
+		s.Codec = capture.ReplayCodecH264
+	}
+	s.RecordingsDir = strings.TrimSpace(s.RecordingsDir)
 	s.MicDevice = strings.TrimSpace(s.MicDevice)
 	s.DesktopVolume = min(max(s.DesktopVolume, 0), maxVolume)
 	s.DiscordVolume = min(max(s.DiscordVolume, 0), maxVolume)
@@ -192,6 +240,24 @@ func segmentDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(cache, "toru", "replay"), nil
+}
+
+// DefaultRecordingsDir is where background/manual recordings live:
+// %LOCALAPPDATA%\toru\recordings. Deliberately not under Videos, which is
+// often synced to OneDrive; background footage churns many GB.
+func DefaultRecordingsDir() string {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(cache, "toru", "recordings")
+}
+
+func recordingsDirFor(st Settings) string {
+	if st.RecordingsDir != "" {
+		return st.RecordingsDir
+	}
+	return DefaultRecordingsDir()
 }
 
 // DefaultSaveDir is where saved clips go unless the user picks a folder:

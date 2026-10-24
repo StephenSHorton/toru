@@ -3,6 +3,7 @@
 package replay
 
 import (
+	"errors"
 	"fmt"
 	"unsafe"
 
@@ -28,6 +29,7 @@ func foreground() (foregroundApp, bool) {
 
 	var pid uint32
 	if _, err := windows.GetWindowThreadProcessId(hwnd, &pid); err == nil && pid != 0 {
+		app.PID = pid
 		app.ExePath = processImagePath(pid)
 	}
 	if app.ExePath != "" {
@@ -37,6 +39,21 @@ func foreground() (foregroundApp, bool) {
 		}
 	}
 	return app, true
+}
+
+// processAlive reports whether pid is still running.
+func processAlive(pid uint32) bool {
+	if pid == 0 {
+		return false
+	}
+	h, err := windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		// Access denied means it exists (e.g. protected anti-cheat process).
+		return errors.Is(err, windows.ERROR_ACCESS_DENIED)
+	}
+	defer func() { _ = windows.CloseHandle(h) }()
+	ev, err := windows.WaitForSingleObject(h, 0)
+	return err == nil && ev == uint32(windows.WAIT_TIMEOUT)
 }
 
 // coversMonitor reports whether the window spans its whole monitor, which is

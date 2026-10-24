@@ -21,6 +21,14 @@ import * as capture$0 from "../capture/models.js";
 import * as $models from "./models.js";
 
 /**
+ * AddMarker drops a marker on the current recording's timeline (the marker
+ * hotkey).
+ */
+export function AddMarker(): $CancellablePromise<void> {
+    return $Call.ByID(3893620382);
+}
+
+/**
  * ClipURL returns the URL Toru's player streams a saved clip from, or "" if
  * path isn't in the save folder.
  */
@@ -29,11 +37,27 @@ export function ClipURL(path: string): $CancellablePromise<string> {
 }
 
 /**
+ * CreateClip saves [startSec, endSec] of a recording as a clip in the clips
+ * folder (in its game's folder) and returns its path. Cuts land on segment
+ * boundaries (2s); fine-tune in the clip editor.
+ */
+export function CreateClip(id: number, startSec: number, endSec: number): $CancellablePromise<string> {
+    return $Call.ByID(1797497587, id, startSec, endSec);
+}
+
+/**
  * DeleteClip deletes a clip (and its cached thumbnail). An emptied game
  * folder is removed too.
  */
 export function DeleteClip(path: string): $CancellablePromise<void> {
     return $Call.ByID(2506549596, path);
+}
+
+/**
+ * DeleteSession deletes a recording (not one that is still recording).
+ */
+export function DeleteSession(id: number): $CancellablePromise<void> {
+    return $Call.ByID(3840518766, id);
 }
 
 /**
@@ -54,6 +78,15 @@ export function EncoderSupport(): $CancellablePromise<{ [_ in string]?: boolean 
 }
 
 /**
+ * GetRecorderState returns the live recording state.
+ */
+export function GetRecorderState(): $CancellablePromise<$models.RecorderState> {
+    return $Call.ByID(3512996522).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+/**
  * GetSaveDir returns the folder clips are saved to.
  */
 export function GetSaveDir(): $CancellablePromise<string> {
@@ -65,7 +98,7 @@ export function GetSaveDir(): $CancellablePromise<string> {
  */
 export function GetSettings(): $CancellablePromise<$models.Settings> {
     return $Call.ByID(2939452490).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType2($result);
     });
 }
 
@@ -74,8 +107,15 @@ export function GetSettings(): $CancellablePromise<$models.Settings> {
  */
 export function GetStatus(): $CancellablePromise<capture$0.ReplayStatus> {
     return $Call.ByID(87893313).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
+}
+
+/**
+ * KeepSession exempts a background recording from auto-delete (or undoes it).
+ */
+export function KeepSession(id: number, keep: boolean): $CancellablePromise<void> {
+    return $Call.ByID(703547700, id, keep);
 }
 
 /**
@@ -84,7 +124,7 @@ export function GetStatus(): $CancellablePromise<capture$0.ReplayStatus> {
  */
 export function ListClips(): $CancellablePromise<$models.Clip[]> {
     return $Call.ByID(2125441220).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -93,7 +133,7 @@ export function ListClips(): $CancellablePromise<$models.Clip[]> {
  */
 export function ListMicrophones(): $CancellablePromise<string[]> {
     return $Call.ByID(3405609706).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -102,7 +142,16 @@ export function ListMicrophones(): $CancellablePromise<string[]> {
  */
 export function ListMonitors(): $CancellablePromise<$models.Monitor[]> {
     return $Call.ByID(3176348690).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType8($result);
+    });
+}
+
+/**
+ * ListSessions returns the recordings newest first.
+ */
+export function ListSessions(): $CancellablePromise<$models.Session[]> {
+    return $Call.ByID(2778879088).then(($result: any) => {
+        return $$createType10($result);
     });
 }
 
@@ -118,6 +167,13 @@ export function OpenClip(path: string): $CancellablePromise<void> {
  */
 export function OpenClipExternal(path: string): $CancellablePromise<void> {
     return $Call.ByID(865517468, path);
+}
+
+/**
+ * OpenRecordingsDir reveals the recordings folder.
+ */
+export function OpenRecordingsDir(): $CancellablePromise<void> {
+    return $Call.ByID(2495460136);
 }
 
 /**
@@ -166,16 +222,27 @@ export function SaveReplay(): $CancellablePromise<string> {
  */
 export function SetSettings(next: $models.Settings): $CancellablePromise<capture$0.ReplayStatus> {
     return $Call.ByID(2789060974, next).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
+}
+
+/**
+ * ToggleRecording starts or stops a manual recording (the record hotkey).
+ * Returns whether a recording is now on.
+ */
+export function ToggleRecording(): $CancellablePromise<boolean> {
+    return $Call.ByID(2874877004);
 }
 
 // Private type creation functions
 const $$createType0 = $Create.Map($Create.Any, $Create.Any);
-const $$createType1 = $models.Settings.createFrom;
-const $$createType2 = capture$0.ReplayStatus.createFrom;
-const $$createType3 = $models.Clip.createFrom;
-const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = $Create.Array($Create.Any);
-const $$createType6 = $models.Monitor.createFrom;
-const $$createType7 = $Create.Array($$createType6);
+const $$createType1 = $models.RecorderState.createFrom;
+const $$createType2 = $models.Settings.createFrom;
+const $$createType3 = capture$0.ReplayStatus.createFrom;
+const $$createType4 = $models.Clip.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = $Create.Array($Create.Any);
+const $$createType7 = $models.Monitor.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = $models.Session.createFrom;
+const $$createType10 = $Create.Array($$createType9);

@@ -16,6 +16,7 @@ type foregroundApp struct {
 	Title       string // window title
 	Description string // exe version-info FileDescription / ProductName
 	Fullscreen  bool   // window covers its whole monitor (exclusive or borderless)
+	PID         uint32 // owning process
 }
 
 // gameLibraries are install roots whose next path segment is the game's

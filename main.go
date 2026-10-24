@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/dpi"
@@ -99,9 +100,19 @@ func main() {
 	// Recent-captures store for the tray menu + dashboard Library. onChange is
 	// wired after the tray controller exists so the first Add doesn't fire a nil rebuild.
 	var tray *trayController
-	hist := history.New(func() {
+	var replaySvc *replay.ReplayService
+	var hist *history.Store
+	lastHistTop := ""
+	hist = history.New(func() {
 		if tray != nil {
 			tray.rebuildMenu()
+		}
+		// A new screenshot drops a marker on the session recording's timeline.
+		if items := hist.List(); len(items) > 0 && items[0].ID != lastHistTop {
+			lastHistTop = items[0].ID
+			if replaySvc != nil && items[0].Kind == history.KindImage && time.Since(items[0].TakenAt) < 5*time.Second {
+				replaySvc.NoteScreenshot()
+			}
 		}
 	})
 	overlaySvc.SetHistory(hist)
@@ -121,7 +132,7 @@ func main() {
 	// Instant replay: an opt-in background buffer (GPU capture -> hardware
 	// encoder -> rolling segments on disk) whose hotkey saves the last N
 	// seconds. Nothing runs until the user enables it in Settings.
-	replaySvc := replay.NewService()
+	replaySvc = replay.NewService()
 	uploadSvc := upload.New()
 
 	app := application.New(application.Options{
@@ -243,9 +254,26 @@ func main() {
 	_ = keys.Register("replaySave", replayBinding, func() {
 		go func() { _, _ = replaySvc.SaveReplay() }()
 	})
-	keys.SetActive("replaySave", replaySvc.GetSettings().Enabled)
-	replaySvc.SetOnChange(func(st replay.Settings) {
+	// Steam-style recording: start/stop a manual recording (Ctrl+F11) and
+	// drop a timeline marker (Ctrl+F12). Only intercepted in the modes that
+	// use them.
+	_ = keys.Register("recordToggle", hotkey.LoadBinding("recordToggle", hotkey.DefaultRecordToggle), func() {
+		go func() {
+			_, _ = replaySvc.ToggleRecording()
+			tray.rebuildMenu()
+		}()
+	})
+	_ = keys.Register("timelineMarker", hotkey.LoadBinding("timelineMarker", hotkey.DefaultTimelineMarker), func() {
+		go func() { _ = replaySvc.AddMarker() }()
+	})
+	armRecordingKeys := func(st replay.Settings) {
 		keys.SetActive("replaySave", st.Enabled)
+		keys.SetActive("recordToggle", st.Enabled && st.Mode == replay.ModeManual)
+		keys.SetActive("timelineMarker", st.Enabled && st.Mode != replay.ModeReplay)
+	}
+	armRecordingKeys(replaySvc.GetSettings())
+	replaySvc.SetOnChange(func(st replay.Settings) {
+		armRecordingKeys(st)
 		tray.rebuildMenu()
 	})
 

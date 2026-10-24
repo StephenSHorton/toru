@@ -108,6 +108,10 @@ var (
 	// DefaultReplaySave matches NVIDIA ShadowPlay's "save instant replay" so
 	// gamers' muscle memory carries over.
 	DefaultReplaySave = Binding{Alt: true, Key: FKey(10)}
+	// Steam Game Recording's defaults: start/stop a manual recording, and
+	// add a timeline marker.
+	DefaultRecordToggle   = Binding{Ctrl: true, Key: FKey(11)}
+	DefaultTimelineMarker = Binding{Ctrl: true, Key: FKey(12)}
 )
 
 // actionMeta maps a stable action id to its human label + default binding. It
@@ -118,8 +122,10 @@ var actionMeta = map[string]struct {
 	Label   string
 	Default Binding
 }{
-	"overlay":    {"Open capture overlay", DefaultOverlay},
-	"replaySave": {"Save instant replay", DefaultReplaySave},
+	"overlay":        {"Open capture overlay", DefaultOverlay},
+	"replaySave":     {"Save instant replay", DefaultReplaySave},
+	"recordToggle":   {"Start / stop recording", DefaultRecordToggle},
+	"timelineMarker": {"Add timeline marker", DefaultTimelineMarker},
 }
 
 // shortcutRow is the internal snapshot row used by service.go's GetShortcuts. It

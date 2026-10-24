@@ -110,14 +110,264 @@ export class Monitor {
 }
 
 /**
+ * RecorderState is the recording status the Settings page and tray show.
+ */
+export class RecorderState {
+    "mode": string;
+    "enabled": boolean;
+
+    /**
+     * a session/manual recording is capturing now
+     */
+    "recording": boolean;
+
+    /**
+     * game the background recording follows
+     */
+    "game": string;
+
+    /**
+     * a manual recording is on
+     */
+    "manual": boolean;
+
+    /**
+     * recordings on disk
+     */
+    "diskBytes": number;
+    "maxBytes": number;
+    "dir": string;
+
+    /** Creates a new RecorderState instance. */
+    constructor($$source: Partial<RecorderState> = {}) {
+        if (!("mode" in $$source)) {
+            this["mode"] = "";
+        }
+        if (!("enabled" in $$source)) {
+            this["enabled"] = false;
+        }
+        if (!("recording" in $$source)) {
+            this["recording"] = false;
+        }
+        if (!("game" in $$source)) {
+            this["game"] = "";
+        }
+        if (!("manual" in $$source)) {
+            this["manual"] = false;
+        }
+        if (!("diskBytes" in $$source)) {
+            this["diskBytes"] = 0;
+        }
+        if (!("maxBytes" in $$source)) {
+            this["maxBytes"] = 0;
+        }
+        if (!("dir" in $$source)) {
+            this["dir"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecorderState instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RecorderState {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecorderState($$parsedSource as Partial<RecorderState>);
+    }
+}
+
+/**
+ * Session is one recording on the Library's Recordings tab: consecutive runs
+ * of the same game/mode with no real gap, played back as one timeline.
+ */
+export class Session {
+    /**
+     * first run
+     */
+    "id": number;
+    "runs": number[];
+
+    /**
+     * "" = desktop / no game
+     */
+    "game": string;
+
+    /**
+     * ModeBackground | ModeManual
+     */
+    "mode": string;
+    "startMs": number;
+    "endMs": number;
+    "durationSec": number;
+    "sizeBytes": number;
+
+    /**
+     * exempt from auto-delete
+     */
+    "kept": boolean;
+
+    /**
+     * still recording
+     */
+    "live": boolean;
+
+    /**
+     * background, not kept: when its oldest footage expires
+     */
+    "deleteAtMs": number;
+    "thumbUrl": string;
+    "playlistUrl": string;
+    "markers": SessionMarker[];
+
+    /** Creates a new Session instance. */
+    constructor($$source: Partial<Session> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = 0;
+        }
+        if (!("runs" in $$source)) {
+            this["runs"] = [];
+        }
+        if (!("game" in $$source)) {
+            this["game"] = "";
+        }
+        if (!("mode" in $$source)) {
+            this["mode"] = "";
+        }
+        if (!("startMs" in $$source)) {
+            this["startMs"] = 0;
+        }
+        if (!("endMs" in $$source)) {
+            this["endMs"] = 0;
+        }
+        if (!("durationSec" in $$source)) {
+            this["durationSec"] = 0;
+        }
+        if (!("sizeBytes" in $$source)) {
+            this["sizeBytes"] = 0;
+        }
+        if (!("kept" in $$source)) {
+            this["kept"] = false;
+        }
+        if (!("live" in $$source)) {
+            this["live"] = false;
+        }
+        if (!("deleteAtMs" in $$source)) {
+            this["deleteAtMs"] = 0;
+        }
+        if (!("thumbUrl" in $$source)) {
+            this["thumbUrl"] = "";
+        }
+        if (!("playlistUrl" in $$source)) {
+            this["playlistUrl"] = "";
+        }
+        if (!("markers" in $$source)) {
+            this["markers"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Session instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Session {
+        const $$createField1_0 = $$createType0;
+        const $$createField13_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("runs" in $$parsedSource) {
+            $$parsedSource["runs"] = $$createField1_0($$parsedSource["runs"]);
+        }
+        if ("markers" in $$parsedSource) {
+            $$parsedSource["markers"] = $$createField13_0($$parsedSource["markers"]);
+        }
+        return new Session($$parsedSource as Partial<Session>);
+    }
+}
+
+/**
+ * SessionMarker is a marker placed on a session's timeline.
+ */
+export class SessionMarker {
+    "kind": string;
+    "label": string;
+    "t": number;
+    "offsetSec": number;
+
+    /** Creates a new SessionMarker instance. */
+    constructor($$source: Partial<SessionMarker> = {}) {
+        if (!("kind" in $$source)) {
+            this["kind"] = "";
+        }
+        if (!("label" in $$source)) {
+            this["label"] = "";
+        }
+        if (!("t" in $$source)) {
+            this["t"] = 0;
+        }
+        if (!("offsetSec" in $$source)) {
+            this["offsetSec"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SessionMarker instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SessionMarker {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SessionMarker($$parsedSource as Partial<SessionMarker>);
+    }
+}
+
+/**
  * Settings is the user's instant-replay configuration. JSON tags are the
  * stable on-disk + TS field names.
  */
 export class Settings {
     /**
-     * run the buffer in the background
+     * recording is on (in the chosen Mode)
      */
     "enabled": boolean;
+
+    /**
+     * Mode picks how Toru records (Steam's "Game Recording" modes plus
+     * ShadowPlay-style instant replay):
+     *   ModeReplay     keep only the last DurationSec; the hotkey saves it
+     *   ModeBackground record whole sessions (by default only while a game
+     *                  runs), keep BackgroundMinutes / MaxDiskGB, timeline
+     *   ModeManual     record between presses of the record hotkey; kept
+     *                  until deleted
+     * The save-clip hotkey works in every mode.
+     */
+    "mode": string;
+
+    /**
+     * background footage kept
+     */
+    "backgroundMinutes": number;
+
+    /**
+     * cap for all recordings
+     */
+    "maxDiskGB": number;
+
+    /**
+     * background: only while a game runs
+     */
+    "gamesOnly": boolean;
+
+    /**
+     * "" = DefaultRecordingsDir()
+     */
+    "recordingsDir": string;
+
+    /**
+     * RecordingNotices toasts when a background/manual recording starts and
+     * stops and when a marker is added.
+     */
+    "recordingNotices": boolean;
 
     /**
      * clip length the hotkey saves (= the window kept)
@@ -212,6 +462,24 @@ export class Settings {
         if (!("enabled" in $$source)) {
             this["enabled"] = false;
         }
+        if (!("mode" in $$source)) {
+            this["mode"] = "";
+        }
+        if (!("backgroundMinutes" in $$source)) {
+            this["backgroundMinutes"] = 0;
+        }
+        if (!("maxDiskGB" in $$source)) {
+            this["maxDiskGB"] = 0;
+        }
+        if (!("gamesOnly" in $$source)) {
+            this["gamesOnly"] = false;
+        }
+        if (!("recordingsDir" in $$source)) {
+            this["recordingsDir"] = "";
+        }
+        if (!("recordingNotices" in $$source)) {
+            this["recordingNotices"] = false;
+        }
         if (!("durationSec" in $$source)) {
             this["durationSec"] = 0;
         }
@@ -281,3 +549,8 @@ export class Settings {
         return new Settings($$parsedSource as Partial<Settings>);
     }
 }
+
+// Private type creation functions
+const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = SessionMarker.createFrom;
+const $$createType2 = $Create.Array($$createType1);

@@ -205,7 +205,7 @@ func (m *Manager) installHook() {
 // RegisterHotKey binds to the calling thread, so registrations are only ever
 // changed on the hook thread (wmSyncHotkeys), whose message loop also
 // receives WM_HOTKEY.
-var systemHotkeyActions = map[string]bool{"replaySave": true}
+var systemHotkeyActions = map[string]bool{"replaySave": true, "recordToggle": true, "timelineMarker": true}
 
 const (
 	wmHotkey      = 0x0312 // WM_HOTKEY

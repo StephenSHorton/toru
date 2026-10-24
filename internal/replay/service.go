@@ -43,12 +43,23 @@ type ReplayService struct {
 	clipOpener func(path, servedURL string)
 
 	saving atomic.Bool
+
+	// Recorder state (guarded by mu): the game a background recording is
+	// following, whether a manual recording is on, and the config the buffer
+	// was last started with.
+	game       string
+	gamePID    uint32
+	manualOn   bool
+	runningCfg capture.ReplayConfig
+	watchStop  chan struct{}
+	protect    protectCache
 }
 
 // NewService loads the persisted settings. Nothing runs until Init.
 func NewService() *ReplayService {
 	s := &ReplayService{buf: capture.NewReplayBuffer(), settings: loadSettings()}
 	s.buf.SetOnStatus(func(st capture.ReplayStatus) { emit(EventStatus, st) })
+	s.buf.SetProtect(s.isProtected)
 	return s
 }
 
@@ -67,17 +78,18 @@ func (s *ReplayService) SetOnChange(fn func(Settings)) {
 //
 //wails:ignore
 func (s *ReplayService) Init() {
-	st := s.GetSettings()
-	if st.Enabled {
-		_ = s.apply(st)
-	}
-	s.notify(st)
+	_ = s.reconcile()
+	s.notify(s.GetSettings())
 }
 
-// Shutdown stops the buffer and deletes its segments.
+// Shutdown stops the buffer (instant-replay segments are deleted; session
+// recordings stay).
 //
 //wails:ignore
-func (s *ReplayService) Shutdown() { s.buf.Stop() }
+func (s *ReplayService) Shutdown() {
+	s.stopGameWatch()
+	s.buf.Stop()
+}
 
 // GetSettings returns the current settings.
 func (s *ReplayService) GetSettings() Settings {
@@ -95,28 +107,65 @@ func (s *ReplayService) SetSettings(next Settings) (capture.ReplayStatus, error)
 	s.mu.Lock()
 	prev := s.settings
 	s.settings = next
+	if next.Mode != prev.Mode || !next.Enabled {
+		s.manualOn = false // a manual recording ends when its mode does
+	}
 	s.mu.Unlock()
 	if err := saveSettings(next); err != nil {
 		return s.buf.Status(), fmt.Errorf("save settings: %w", err)
 	}
-
-	var err error
-	switch {
-	case !next.Enabled:
-		s.buf.Stop()
-	case !prev.Enabled || !s.buf.Running() || toConfig(prev) != toConfig(next):
-		err = s.apply(next)
-	}
+	err := s.reconcile()
 	s.notify(next)
 	return s.buf.Status(), err
 }
 
-func (s *ReplayService) apply(st Settings) error {
-	cfg := toConfig(st)
-	if cfg.Dir == "" {
-		return fmt.Errorf("replay: no cache directory")
+// reconcile starts, restarts or stops the buffer to match the settings and
+// recorder state, and runs the game watcher when background recording
+// follows games. Restarts only happen when the capture config changed.
+func (s *ReplayService) reconcile() error {
+	st := s.GetSettings()
+	if st.Enabled && st.Mode == ModeBackground && st.GamesOnly {
+		s.startGameWatch()
+	} else {
+		s.stopGameWatch()
 	}
-	return s.buf.Start(cfg)
+
+	s.mu.Lock()
+	game, manual := s.game, s.manualOn
+	if !(st.Enabled && st.Mode == ModeBackground && st.GamesOnly) {
+		game = ""
+	}
+	want := st.Enabled && (st.Mode == ModeReplay ||
+		(st.Mode == ModeBackground && (!st.GamesOnly || game != "")) ||
+		(st.Mode == ModeManual && manual))
+	cfg := toConfigFor(st, game)
+	same := cfg == s.runningCfg
+	s.mu.Unlock()
+
+	if !want {
+		s.buf.Stop()
+		s.mu.Lock()
+		s.runningCfg = capture.ReplayConfig{}
+		s.mu.Unlock()
+		return nil
+	}
+	if same && s.buf.Running() {
+		return nil
+	}
+	if cfg.Dir == "" {
+		return fmt.Errorf("replay: no storage directory")
+	}
+	err := s.buf.Start(cfg)
+	s.mu.Lock()
+	s.runningCfg = cfg
+	if err != nil {
+		s.runningCfg = capture.ReplayConfig{}
+	}
+	s.mu.Unlock()
+	if err == nil && cfg.Persist {
+		s.addMarker(MarkerStart, game)
+	}
+	return err
 }
 
 func (s *ReplayService) notify(st Settings) {
@@ -131,7 +180,27 @@ func (s *ReplayService) notify(st Settings) {
 // toConfig maps settings onto the buffer config. Fields that don't affect
 // capture (save folder, sound) are deliberately absent so comparing two
 // configs answers "does the buffer need a restart?".
-func toConfig(st Settings) capture.ReplayConfig {
+func toConfig(st Settings) capture.ReplayConfig { return toConfigFor(st, "") }
+
+// toConfigFor is toConfig for a recording that follows game (background
+// mode); a different game means a new run, i.e. a new session.
+func toConfigFor(st Settings, game string) capture.ReplayConfig {
+	cfg := baseConfig(st)
+	if st.Mode == ModeReplay {
+		return cfg
+	}
+	cfg.Dir = recordingsDirFor(st)
+	cfg.Persist = true
+	cfg.MaxBytes = int64(st.MaxDiskGB) << 30
+	cfg.KeepSeconds = 0 // manual recordings are kept until deleted
+	if st.Mode == ModeBackground {
+		cfg.KeepSeconds = st.BackgroundMinutes * 60
+	}
+	cfg.Tag = encodeTag(st.Mode, game)
+	return cfg
+}
+
+func baseConfig(st Settings) capture.ReplayConfig {
 	dir, _ := segmentDir()
 	return capture.ReplayConfig{
 		MonitorID:     st.MonitorID,
@@ -205,6 +274,9 @@ func (s *ReplayService) SaveReplay() (string, error) {
 		return "", err
 	}
 	emit(EventSaved, path)
+	if s.recordingSession() {
+		s.addMarker(MarkerClip, filepath.Base(path))
+	}
 	return path, nil
 }
 
@@ -348,6 +420,10 @@ func (s *ReplayService) OpenSaveDir() error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	return openFolder(dir)
+}
+
+func openFolder(dir string) error {
 	if runtime.GOOS == "windows" {
 		return exec.Command("explorer.exe", dir).Start()
 	}

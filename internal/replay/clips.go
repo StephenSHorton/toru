@@ -257,6 +257,10 @@ func ensureThumb(clip string) (string, error) {
 func (s *ReplayService) ClipMiddleware() application.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, recPrefix) {
+				s.serveRecording(w, r)
+				return
+			}
 			if rel, ok := strings.CutPrefix(r.URL.Path, clipPrefix); ok {
 				clip, err := s.clipInSaveDir(filepath.Join(s.GetSaveDir(), filepath.FromSlash(rel)))
 				if err != nil {

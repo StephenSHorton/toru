@@ -9,5 +9,8 @@ export {
 export {
     Clip,
     Monitor,
+    RecorderState,
+    Session,
+    SessionMarker,
     Settings
 } from "./models.js";
