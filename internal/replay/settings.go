@@ -41,6 +41,10 @@ type Settings struct {
 	// separate from instant replay's: whole sessions need a much lower
 	// bitrate to fit on disk. QualityCustom uses the Video settings.
 	RecordingQuality string `json:"recordingQuality"`
+	// Custom recording quality (QualityCustom), separate from instant
+	// replay's FPS/BitrateMbps.
+	RecordingFPS         int `json:"recordingFps"`
+	RecordingBitrateMbps int `json:"recordingBitrateMbps"`
 	// RecordingNotices toasts when a background/manual recording starts and
 	// stops and when a marker is added.
 	RecordingNotices bool `json:"recordingNotices"`
@@ -91,7 +95,7 @@ var (
 const (
 	QualityStandard = "standard" // 60 fps, 12 Mbps: ~5.4 GB per hour
 	QualityHigh     = "high"     // 60 fps, 25 Mbps: ~11 GB per hour
-	QualityCustom   = "custom"   // the Video settings
+	QualityCustom   = "custom"   // RecordingFPS / RecordingBitrateMbps
 )
 
 // Background-recording retention (Settings.Retention).
@@ -123,30 +127,32 @@ const (
 // Discord), desktop + Discord audio, no mic.
 func DefaultSettings() Settings {
 	return Settings{
-		Enabled:           false,
-		Mode:              ModeReplay,
-		BackgroundMinutes: 120,
-		MaxDiskGB:         25,
-		RecordingQuality:  QualityStandard,
-		Retention:         RetentionSessions,
-		GamesOnly:         true,
-		RecordingNotices:  true,
-		DurationSec:       60,
-		MonitorID:         -1,
-		FPS:               60,
-		Height:            0,
-		BitrateMbps:       20,
-		Codec:             capture.ReplayCodecH264,
-		IncludeCursor:     true,
-		DesktopAudio:      true,
-		DiscordAudio:      true,
-		DesktopVolume:     100,
-		DiscordVolume:     100,
-		MicVolume:         100,
-		AudioBitrateKbps:  160,
-		GameFolders:       true,
-		ToastOnSave:       true,
-		SoundOnSave:       true,
+		Enabled:              false,
+		Mode:                 ModeReplay,
+		BackgroundMinutes:    120,
+		MaxDiskGB:            25,
+		RecordingQuality:     QualityStandard,
+		RecordingFPS:         60,
+		RecordingBitrateMbps: 20,
+		Retention:            RetentionSessions,
+		GamesOnly:            true,
+		RecordingNotices:     true,
+		DurationSec:          60,
+		MonitorID:            -1,
+		FPS:                  60,
+		Height:               0,
+		BitrateMbps:          20,
+		Codec:                capture.ReplayCodecH264,
+		IncludeCursor:        true,
+		DesktopAudio:         true,
+		DiscordAudio:         true,
+		DesktopVolume:        100,
+		DiscordVolume:        100,
+		MicVolume:            100,
+		AudioBitrateKbps:     160,
+		GameFolders:          true,
+		ToastOnSave:          true,
+		SoundOnSave:          true,
 	}
 }
 
@@ -176,6 +182,13 @@ func (s Settings) Normalize() Settings {
 	if !slices.Contains(QualityOptions, s.RecordingQuality) {
 		s.RecordingQuality = d.RecordingQuality
 	}
+	if !slices.Contains(FPSOptions, s.RecordingFPS) {
+		s.RecordingFPS = d.RecordingFPS
+	}
+	if s.RecordingBitrateMbps == 0 {
+		s.RecordingBitrateMbps = d.RecordingBitrateMbps
+	}
+	s.RecordingBitrateMbps = min(max(s.RecordingBitrateMbps, minBitrateMbps), maxBitrateMbps)
 	if !slices.Contains(RetentionOptions, s.Retention) {
 		s.Retention = d.Retention
 	}

@@ -291,6 +291,17 @@ export function ReplayPanel() {
     }, 600);
   };
 
+  const [recBitrateDraft, setRecBitrateDraft] = useState<number | null>(null);
+  const recBitrateTimer = useRef<number | undefined>(undefined);
+  const onRecBitrate = (m: number) => {
+    setRecBitrateDraft(m);
+    window.clearTimeout(recBitrateTimer.current);
+    recBitrateTimer.current = window.setTimeout(() => {
+      setRecBitrateDraft(null);
+      void update({ recordingBitrateMbps: m });
+    }, 600);
+  };
+
   const onVolume = (key: VolumeKey, value: number) => {
     setVolumeDrafts((d) => ({ ...d, [key]: value }));
     window.clearTimeout(volumeTimers.current[key]);
@@ -363,10 +374,21 @@ export function ReplayPanel() {
     settings.monitorId < 0
       ? "Primary display"
       : (monitors.find((m) => m.id === settings.monitorId)?.label.split(" · ")[0] ?? "Display");
-  // Background/manual recording has its own (lighter) quality unless Custom.
-  const recMbps =
-    settings.recordingQuality === "standard" ? 12 : settings.recordingQuality === "high" ? 25 : mbps;
+  // Background/manual recording has its own quality, separate from instant replay.
+  const customRecMbps = recBitrateDraft ?? settings.recordingBitrateMbps;
+  const qualitySpec = (q: string) =>
+    q === "standard"
+      ? { fps: Math.min(settings.fps, 60), mbps: 12 }
+      : q === "high"
+        ? { fps: Math.min(settings.fps, 60), mbps: 25 }
+        : { fps: settings.recordingFps, mbps: customRecMbps };
+  const recSpec = qualitySpec(settings.recordingQuality);
+  const recMbps = recSpec.mbps;
   const gbPerHour = (m: number) => (m * 3600) / 8 / 1000;
+  const fmtGBh = (m: number) => {
+    const g = gbPerHour(m);
+    return `${g.toFixed(g < 10 ? 1 : 0)} GB/hour`;
+  };
   const audioParts = [
     settings.desktopAudio && "Game",
     settings.discordAudio && "Discord",
@@ -529,7 +551,7 @@ export function ReplayPanel() {
           id="storage"
           title={settings.mode === "background" ? "Background recording" : "Recording storage"}
           summary={
-            `${QUALITY.find((q) => q.value === settings.recordingQuality)?.label ?? "Custom"} quality · ` +
+            `${QUALITY.find((q) => q.value === settings.recordingQuality)?.label ?? "Custom"} (${recSpec.fps} fps, ${recSpec.mbps} Mbps) · ` +
             (settings.mode === "background"
               ? settings.retention === "time"
                 ? `keeps ${formatMinutes(settings.backgroundMinutes)} · `
@@ -545,7 +567,8 @@ export function ReplayPanel() {
                 Recording quality
                 <InfoTip>
                   Whole sessions need a much lower bitrate than instant replay to fit on disk. Standard
-                  looks good for watching back and cutting clips; Custom uses your Video settings.
+                  looks good for watching back and cutting clips. Custom lets you pick the frame rate and
+                  bitrate yourself. Instant replay keeps its own quality (Video section).
                 </InfoTip>
               </>
             }
@@ -553,7 +576,7 @@ export function ReplayPanel() {
             <div role="radiogroup" aria-label="Recording quality" className="grid grid-cols-3 border border-border">
               {QUALITY.map((q, i) => {
                 const selected = settings.recordingQuality === q.value;
-                const qm = q.mbps ?? mbps;
+                const spec = qualitySpec(q.value);
                 return (
                   <button
                     key={q.value}
@@ -570,13 +593,58 @@ export function ReplayPanel() {
                   >
                     <span className="font-medium">{q.label}</span>
                     <span className={cn("text-[10px]", selected ? "opacity-90" : "opacity-70")}>
-                      ~{gbPerHour(qm).toFixed(gbPerHour(qm) < 10 ? 1 : 0)} GB/hour
+                      {spec.fps} fps · {spec.mbps} Mbps
+                    </span>
+                    <span className={cn("text-[10px]", selected ? "opacity-90" : "opacity-70")}>
+                      ~{fmtGBh(spec.mbps)}
                     </span>
                   </button>
                 );
               })}
             </div>
           </Field>
+          {settings.recordingQuality === "custom" && (
+            <div className="grid grid-cols-[8rem_1fr] items-end gap-3">
+              <Field
+                label={
+                  <>
+                    Frame rate
+                    <InfoTip>
+                      Higher frame rates look smoother but don't change the file size: the bitrate is a
+                      fixed amount of data per second, spread over more frames. Raise the bitrate too if
+                      fast motion looks blocky.
+                    </InfoTip>
+                  </>
+                }
+              >
+                <select
+                  className={selectClass}
+                  value={settings.recordingFps}
+                  disabled={busy}
+                  onChange={(e) => void update({ recordingFps: Number(e.target.value) })}
+                >
+                  {FPS_OPTIONS.map((f) => (
+                    <option key={f} value={f} className={optionClass}>
+                      {f} fps
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={`Bitrate · ${customRecMbps} Mbps · ~${fmtGBh(customRecMbps)}`}>
+                <input
+                  type="range"
+                  min={MIN_MBPS}
+                  max={MAX_MBPS}
+                  step={1}
+                  value={customRecMbps}
+                  disabled={busy && recBitrateDraft === null}
+                  onChange={(e) => onRecBitrate(Number(e.target.value))}
+                  className="w-full accent-primary"
+                  aria-label="Recording bitrate in megabits per second"
+                />
+              </Field>
+            </div>
+          )}
           {settings.mode === "background" && (
             <>
               <Field
@@ -660,21 +728,22 @@ export function ReplayPanel() {
               onPick={(g) => void update({ maxDiskGB: g })}
             />
           </Field>
-          {recorder && (
-            <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1">
+            {recorder ? (
               <div className="h-1 w-full overflow-hidden bg-muted">
                 <div
                   className={cn("h-full", recorder.diskBytes > recorder.maxBytes * 0.9 ? "bg-destructive" : "bg-primary")}
                   style={{ width: `${Math.min(100, (recorder.diskBytes / Math.max(1, recorder.maxBytes)) * 100)}%` }}
                 />
               </div>
-              <span className="text-xs text-muted-foreground">
-                {formatGB(recorder.diskBytes)} used · fits about{" "}
-                {formatHours((settings.maxDiskGB * 8000) / Math.max(1, recMbps) / 3600)} · Toru always leaves
-                10 GB free on the drive
-              </span>
-            </div>
-          )}
+            ) : null}
+            <span className="text-xs text-muted-foreground">
+              {recorder ? `${formatGB(recorder.diskBytes)} used · ` : ""}
+              {settings.maxDiskGB} GB holds about{" "}
+              <span className="text-foreground">{formatHours((settings.maxDiskGB * 8000) / Math.max(1, recMbps) / 3600)}</span>{" "}
+              at {recMbps} Mbps · Toru always leaves 10 GB free on the drive
+            </span>
+          </div>
           <FolderRow
             label="Recordings folder"
             path={recordingsDir}
@@ -695,12 +764,15 @@ export function ReplayPanel() {
       <Collapsible
         id="video"
         title="Video"
-        summary={`${monitorLabel} · ${RESOLUTIONS.find((r) => r.value === settings.height)?.label.replace(" (recommended)", "") ?? "Native"} · ${settings.fps} fps · ${mbps} Mbps · ${codec.label}`}
+        summary={
+          `${monitorLabel} · ${RESOLUTIONS.find((r) => r.value === settings.height)?.label.replace(" (recommended)", "") ?? "Native"}` +
+          (session ? "" : ` · ${settings.fps} fps · ${mbps} Mbps`) +
+          ` · ${codec.label}`
+        }
       >
-        {session && settings.recordingQuality !== "custom" ? (
+        {session ? (
           <p className="text-xs text-muted-foreground">
-            Recording uses {QUALITY.find((q) => q.value === settings.recordingQuality)?.label} quality (60 fps,{" "}
-            {recMbps} Mbps). Frame rate and bitrate below apply in Instant replay mode or with Custom quality.
+            Frame rate and bitrate for recording are under Recording quality above.
           </p>
         ) : null}
         <div className="grid grid-cols-2 gap-3">
@@ -721,20 +793,22 @@ export function ReplayPanel() {
               ))}
             </select>
           </Field>
-          <Field label="Frame rate">
-            <select
-              className={selectClass}
-              value={settings.fps}
-              disabled={busy}
-              onChange={(e) => void update({ fps: Number(e.target.value) })}
-            >
-              {FPS_OPTIONS.map((f) => (
-                <option key={f} value={f} className={optionClass}>
-                  {f} fps
-                </option>
-              ))}
-            </select>
-          </Field>
+          {!session ? (
+            <Field label="Frame rate">
+              <select
+                className={selectClass}
+                value={settings.fps}
+                disabled={busy}
+                onChange={(e) => void update({ fps: Number(e.target.value) })}
+              >
+                {FPS_OPTIONS.map((f) => (
+                  <option key={f} value={f} className={optionClass}>
+                    {f} fps
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
           <Field
             label={
               <>
@@ -769,22 +843,24 @@ export function ReplayPanel() {
           </div>
         </div>
 
-        <Field label={`Bitrate · ${mbps} Mbps`}>
-          <input
-            type="range"
-            min={MIN_MBPS}
-            max={MAX_MBPS}
-            step={1}
-            value={mbps}
-            disabled={busy && bitrateDraft === null}
-            onChange={(e) => onBitrate(Number(e.target.value))}
-            className="w-full accent-primary"
-            aria-label="Video bitrate in megabits per second"
-          />
-          <span className="text-xs text-muted-foreground">
-            A {formatLength(settings.durationSec)} clip ≈ {formatMB(clipMB(mbps, settings.durationSec))}
-          </span>
-        </Field>
+        {!session ? (
+          <Field label={`Bitrate · ${mbps} Mbps`}>
+            <input
+              type="range"
+              min={MIN_MBPS}
+              max={MAX_MBPS}
+              step={1}
+              value={mbps}
+              disabled={busy && bitrateDraft === null}
+              onChange={(e) => onBitrate(Number(e.target.value))}
+              className="w-full accent-primary"
+              aria-label="Video bitrate in megabits per second"
+            />
+            <span className="text-xs text-muted-foreground">
+              A {formatLength(settings.durationSec)} clip ≈ {formatMB(clipMB(mbps, settings.durationSec))}
+            </span>
+          </Field>
+        ) : null}
 
         <Field
           label={

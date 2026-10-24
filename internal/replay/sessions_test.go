@@ -140,9 +140,9 @@ func TestModesNormalizeAndConfig(t *testing.T) {
 	if bg.FPS != 60 {
 		t.Errorf("standard quality caps fps at 60, got %d", bg.FPS)
 	}
-	st.RecordingQuality = QualityCustom
-	if c := toConfigFor(st, ""); c.FPS != 144 || c.BitrateKbps != 65000 {
-		t.Errorf("custom quality uses the Video settings: %+v", c)
+	st.RecordingQuality, st.RecordingFPS, st.RecordingBitrateMbps = QualityCustom, 120, 30
+	if c := toConfigFor(st, ""); c.FPS != 120 || c.BitrateKbps != 30000 {
+		t.Errorf("custom recording quality uses its own fps/bitrate: %+v", c)
 	}
 	st.Mode = ModeManual
 	if m := toConfigFor(st, ""); m.KeepSeconds != 0 || m.Tag != "manual|" {

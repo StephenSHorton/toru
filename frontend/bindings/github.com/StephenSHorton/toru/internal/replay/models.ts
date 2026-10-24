@@ -370,6 +370,13 @@ export class Settings {
     "recordingQuality": string;
 
     /**
+     * Custom recording quality (QualityCustom), separate from instant
+     * replay's FPS/BitrateMbps.
+     */
+    "recordingFps": number;
+    "recordingBitrateMbps": number;
+
+    /**
      * RecordingNotices toasts when a background/manual recording starts and
      * stops and when a marker is added.
      */
@@ -488,6 +495,12 @@ export class Settings {
         }
         if (!("recordingQuality" in $$source)) {
             this["recordingQuality"] = "";
+        }
+        if (!("recordingFps" in $$source)) {
+            this["recordingFps"] = 0;
+        }
+        if (!("recordingBitrateMbps" in $$source)) {
+            this["recordingBitrateMbps"] = 0;
         }
         if (!("recordingNotices" in $$source)) {
             this["recordingNotices"] = false;

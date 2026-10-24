@@ -200,6 +200,8 @@ func toConfigFor(st Settings, game string) capture.ReplayConfig {
 		cfg.FPS, cfg.BitrateKbps = min(cfg.FPS, 60), 12000
 	case QualityHigh:
 		cfg.FPS, cfg.BitrateKbps = min(cfg.FPS, 60), 25000
+	case QualityCustom:
+		cfg.FPS, cfg.BitrateKbps = st.RecordingFPS, st.RecordingBitrateMbps*1000
 	}
 	cfg.KeepSeconds = 0 // manual recordings are kept until deleted
 	cfg.WholeSessions = true
