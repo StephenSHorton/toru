@@ -96,8 +96,16 @@ func (w *WindowsService) OpenSettings() {
 	if w.app == nil {
 		return
 	}
+	// Summoned from the editor's ⚙ while the always-on-top capture/edit overlay
+	// is up, Settings must be topmost too or Show().Focus() lands it behind the
+	// overlay. Otherwise it's a normal window: other apps can cover it. The
+	// topmost bit is dropped as soon as it loses focus (see below).
+	overlayUp := w.overlayVisible()
 	if w.settingsWin != nil {
 		w.settingsWin.Restore() // no-op if normal; un-minimises if minimised
+		if overlayUp {
+			w.settingsWin.SetAlwaysOnTop(true)
+		}
 		w.settingsWin.Show().Focus()
 		return
 	}
@@ -107,18 +115,28 @@ func (w *WindowsService) OpenSettings() {
 		Width:            920,
 		Height:           640,
 		BackgroundColour: dark,
-		// AlwaysOnTop so summoning Settings from the editor's ⚙ raises it ABOVE the
-		// always-on-top capture/edit overlay — otherwise Show().Focus() lands it
-		// behind the overlay and the user (mid-edit) never sees it appear.
-		AlwaysOnTop: true,
+		AlwaysOnTop:      overlayUp,
 	})
 	w.settingsWin = win
+	win.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) {
+		dropTopmostBehindForeground(win)
+	})
 	// Drop the handle when this window closes so the next OpenSettings creates a
 	// fresh one (a closed WebviewWindow's Show/Focus are no-ops, which would
 	// otherwise leave the tray's "open home" silently dead).
 	win.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
 		w.settingsWin = nil
 	})
+}
+
+// overlayVisible reports whether a capture/edit overlay window is showing.
+func (w *WindowsService) overlayVisible() bool {
+	for _, win := range w.app.Window.GetAll() {
+		if win != nil && win.IsVisible() && strings.HasPrefix(win.Name(), "toru-overlay-") {
+			return true
+		}
+	}
+	return false
 }
 
 // OpenEditor opens Developer 1's screenshot annotation editor for imagePath.
