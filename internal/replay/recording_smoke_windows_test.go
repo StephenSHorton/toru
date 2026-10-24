@@ -66,7 +66,7 @@ func TestRealBackgroundRecordingSmoke(t *testing.T) {
 	probe, _ := capture.LocateFFprobe()
 	out, err := exec.Command(probe, "-v", "error", "-show_entries", "format=duration:stream=codec_name,width,height",
 		"-of", "compact", srv.URL+list[0].PlaylistURL).CombinedOutput()
-	if err != nil || !(strings.Contains(string(out), "hevc") || strings.Contains(string(out), "h264")) {
+	if err != nil || (!strings.Contains(string(out), "hevc") && !strings.Contains(string(out), "h264")) {
 		t.Fatalf("HLS playlist unplayable: %v\n%s", err, out)
 	}
 	t.Logf("ffprobe over HLS: %s", strings.ReplaceAll(strings.TrimSpace(string(out)), "\n", " | "))

@@ -80,6 +80,31 @@ type ReplayAudio struct {
 	// mixed one, so an editor can mute or level them later.
 	SeparateTracks bool `json:"separateTracks"`
 	BitrateKbps    int  `json:"bitrateKbps"` // AAC per track; <= 0 = replayAudioKbps
+	// MicNoise cleans up the microphone: MicNoiseLight removes steady
+	// background noise (fans, hum, hiss); MicNoiseStrong also gates out
+	// keyboard and room sound between words. "" / MicNoiseOff = untouched.
+	MicNoise string `json:"micNoise"`
+}
+
+// Microphone noise suppression levels (ReplayAudio.MicNoise).
+const (
+	MicNoiseOff    = "off"
+	MicNoiseLight  = "light"
+	MicNoiseStrong = "strong"
+)
+
+// micNoiseChain is the ffmpeg filter chain for a noise-suppression level
+// (no leading comma; "" for none). highpass drops desk rumble below speech;
+// afftdn tracks the noise floor adaptively (tn=1) and subtracts it; agate
+// mutes what's left between words when Strong.
+func micNoiseChain(level string) string {
+	switch level {
+	case MicNoiseLight:
+		return "highpass=f=80,afftdn=nr=12:nf=-50:tn=1"
+	case MicNoiseStrong:
+		return "highpass=f=100,afftdn=nr=24:nf=-45:tn=1,agate=threshold=0.01:ratio=4:attack=5:release=300:range=0.08"
+	}
+	return ""
 }
 
 // Audio track titles, in track order after the mix.
@@ -96,6 +121,7 @@ const (
 // identical across runs so segments from before and after still concatenate.
 type replayAudioSrc struct {
 	title  string
+	filter string // extra filter chain (mic noise suppression)
 	volume int
 	in     *AudioInput // loopback pipe; nil with mic == "" = silence
 	mic    string      // dshow device name
@@ -112,7 +138,7 @@ func replayAudioSources(a ReplayAudio) []replayAudioSrc {
 		out = append(out, replayAudioSrc{title: replayTrackDiscord, volume: a.DiscordVolume})
 	}
 	if a.MicDevice != "" {
-		out = append(out, replayAudioSrc{title: replayTrackMic, volume: a.MicVolume, mic: a.MicDevice})
+		out = append(out, replayAudioSrc{title: replayTrackMic, volume: a.MicVolume, mic: a.MicDevice, filter: micNoiseChain(a.MicNoise)})
 	}
 	return out
 }
@@ -550,6 +576,9 @@ func replayAudioArgs(srcs []replayAudioSrc, a ReplayAudio) (inputs []string, gra
 	var mixIn strings.Builder
 	for i, src := range srcs {
 		chain := fmt.Sprintf("[%d:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo", i)
+		if src.filter != "" {
+			chain += "," + src.filter
+		}
 		if v := src.volume; v > 0 && v != 100 {
 			chain += fmt.Sprintf(",volume=%.2f", float64(v)/100)
 		}

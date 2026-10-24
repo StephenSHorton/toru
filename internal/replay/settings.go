@@ -55,6 +55,7 @@ type Settings struct {
 	DesktopAudio  bool   `json:"desktopAudio"`  // system mix (minus Discord unless DiscordAudio)
 	DiscordAudio  bool   `json:"discordAudio"`  // Discord's process tree
 	MicDevice     string `json:"micDevice"`     // dshow mic name; "" = off
+	MicNoise      string `json:"micNoise"`      // capture.MicNoise*: noise suppression
 	// Per-source volume in percent (0 mutes, 100 = as captured, max 200).
 	DesktopVolume int `json:"desktopVolume"`
 	DiscordVolume int `json:"discordVolume"`
@@ -137,6 +138,7 @@ func DefaultSettings() Settings {
 		MicVolume:            100,
 		AudioBitrateKbps:     160,
 		GameFolders:          true,
+		MicNoise:             capture.MicNoiseLight,
 		ToastOnSave:          true,
 		SoundOnSave:          true,
 	}
@@ -179,6 +181,9 @@ func (s Settings) Normalize() Settings {
 	}
 	s.RecordingsDir = strings.TrimSpace(s.RecordingsDir)
 	s.MicDevice = strings.TrimSpace(s.MicDevice)
+	if s.MicNoise != capture.MicNoiseOff && s.MicNoise != capture.MicNoiseLight && s.MicNoise != capture.MicNoiseStrong {
+		s.MicNoise = d.MicNoise
+	}
 	s.DesktopVolume = min(max(s.DesktopVolume, 0), maxVolume)
 	s.DiscordVolume = min(max(s.DiscordVolume, 0), maxVolume)
 	s.MicVolume = min(max(s.MicVolume, 0), maxVolume)

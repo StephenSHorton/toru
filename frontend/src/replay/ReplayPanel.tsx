@@ -878,7 +878,7 @@ export function ReplayPanel() {
       <Collapsible
         id="audio"
         title="Audio"
-        summary={`${audioParts.length ? audioParts.join(", ") : "No audio"} · ${settings.audioBitrateKbps} kbps${settings.separateTracks ? " · separate tracks" : ""}`}
+        summary={`${audioParts.length ? audioParts.join(", ") : "No audio"}${settings.micDevice && settings.micNoise !== "off" ? ` (mic: ${settings.micNoise} noise suppression)` : ""} · ${settings.audioBitrateKbps} kbps${settings.separateTracks ? " · separate tracks" : ""}`}
       >
         <AudioSourceRow
           icon={<Volume2 />}
@@ -910,6 +910,43 @@ export function ReplayPanel() {
           onToggle={setMicOn}
           onVolume={(v) => onVolume("micVolume", v)}
         >
+          {settings.micDevice !== "" && (
+            <div className="flex items-center gap-2">
+              <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                Noise suppression
+                <InfoTip>
+                  Light removes steady background noise like fans, hum and hiss. Strong also mutes
+                  keyboard clicks and room sound between your words; very quiet speech can get cut,
+                  so try Light first. Only your mic is affected.
+                </InfoTip>
+              </span>
+              <div role="radiogroup" aria-label="Noise suppression" className="grid flex-1 grid-cols-3 border border-border">
+                {[
+                  { value: "off", label: "Off" },
+                  { value: "light", label: "Light" },
+                  { value: "strong", label: "Strong" },
+                ].map((o, i) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={settings.micNoise === o.value}
+                    disabled={busy}
+                    onClick={() => void update({ micNoise: o.value })}
+                    className={cn(
+                      "px-2 py-1 text-xs transition-colors disabled:opacity-60",
+                      i > 0 && "border-l border-border",
+                      settings.micNoise === o.value
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {settings.micDevice !== "" && (
             <select
               className={selectClass}
