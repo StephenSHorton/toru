@@ -42,12 +42,6 @@ function fmt(sec: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}` : `${m}:${String(r).padStart(2, "0")}`;
 }
 
-function fmtUntil(ms: number): string {
-  const min = Math.max(0, Math.round((ms - Date.now()) / 60000));
-  if (min >= 60) return `${Math.floor(min / 60)}h ${min % 60}m`;
-  return `${min}m`;
-}
-
 function markerIcon(kind: string) {
   switch (kind) {
     case "clip":
@@ -467,13 +461,9 @@ export default function Timeline() {
           ) : null}
           {session?.mode === "manual" ? (
             <span className="bg-primary/15 px-1.5 py-0.5 text-primary">Manual · stays until you delete it</span>
-          ) : session && !session.live && !session.deleteAtMs ? (
+          ) : session && !session.live ? (
             <span className="bg-muted px-1.5 py-0.5 text-muted-foreground">
               Background · deleted when storage runs out. Save a clip to keep it
-            </span>
-          ) : session?.deleteAtMs ? (
-            <span className="bg-muted px-1.5 py-0.5 text-muted-foreground">
-              Background · oldest footage auto-deletes in {fmtUntil(session.deleteAtMs)}
             </span>
           ) : null}
           {note ? <span className="ml-auto text-primary">{note}</span> : null}

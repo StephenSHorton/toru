@@ -608,7 +608,6 @@ function SessionCard({
 }) {
   const [thumbFailed, setThumbFailed] = useState(false);
   const title = session.game || (session.mode === "manual" ? "Manual recording" : "Desktop");
-  const minsLeft = session.deleteAtMs ? Math.max(0, Math.round((session.deleteAtMs - Date.now()) / 60000)) : 0;
   return (
     <div
       className={cn(
@@ -652,7 +651,6 @@ function SessionCard({
           </div>
           <div className="truncate text-[10px] text-muted-foreground">
             {formatWhen(new Date(session.startMs).toISOString())} · {formatSize(session.sizeBytes)}
-            {session.deleteAtMs ? ` · auto-deletes in ${minsLeft >= 60 ? `${Math.floor(minsLeft / 60)}h` : `${minsLeft}m`}` : ""}
           </div>
         </div>
         <Button

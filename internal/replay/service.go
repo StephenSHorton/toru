@@ -203,12 +203,10 @@ func toConfigFor(st Settings, game string) capture.ReplayConfig {
 	case QualityCustom:
 		cfg.FPS, cfg.BitrateKbps = st.RecordingFPS, st.RecordingBitrateMbps*1000
 	}
-	cfg.KeepSeconds = 0 // manual recordings are kept until deleted
+	// No age limit: sessions are kept whole until the storage limit needs
+	// their space, then the oldest goes (manual recordings are protected).
+	cfg.KeepSeconds = 0
 	cfg.WholeSessions = true
-	if st.Mode == ModeBackground && st.Retention == RetentionTime {
-		cfg.KeepSeconds = st.BackgroundMinutes * 60
-		cfg.WholeSessions = false
-	}
 	cfg.Tag = encodeTag(st.Mode, game)
 	return cfg
 }

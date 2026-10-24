@@ -28,8 +28,7 @@ type Session struct {
 	EndMs       int64           `json:"endMs"`
 	DurationSec float64         `json:"durationSec"`
 	SizeBytes   int64           `json:"sizeBytes"`
-	Live        bool            `json:"live"`       // still recording
-	DeleteAtMs  int64           `json:"deleteAtMs"` // background (last-few-hours retention): when its oldest footage expires
+	Live        bool            `json:"live"` // still recording
 	ThumbURL    string          `json:"thumbUrl"`
 	PlaylistURL string          `json:"playlistUrl"`
 	Markers     []SessionMarker `json:"markers"`
@@ -152,14 +151,10 @@ func (s *ReplayService) buildSessions() []builtSession {
 		}
 	}
 
-	keepMs := int64(st.BackgroundMinutes) * 60_000
 	for i := range out {
 		b := &out[i]
 		b.ThumbURL = fmt.Sprintf("%sthumb/%d", recPrefix, b.ID)
 		b.PlaylistURL = fmt.Sprintf("%s%d.m3u8", recPrefix, b.ID)
-		if b.Mode == ModeBackground && keepMs > 0 && st.Retention == RetentionTime {
-			b.DeleteAtMs = b.segs[0].seg.ModTime.UnixMilli() + keepMs
-		}
 		b.Markers = []SessionMarker{}
 		for _, m := range markers {
 			if off, ok := b.offsetOf(m.T); ok {

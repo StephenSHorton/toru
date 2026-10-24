@@ -206,11 +206,6 @@ export class Session {
      * still recording
      */
     "live": boolean;
-
-    /**
-     * background (last-few-hours retention): when its oldest footage expires
-     */
-    "deleteAtMs": number;
     "thumbUrl": string;
     "playlistUrl": string;
     "markers": SessionMarker[];
@@ -244,9 +239,6 @@ export class Session {
         if (!("live" in $$source)) {
             this["live"] = false;
         }
-        if (!("deleteAtMs" in $$source)) {
-            this["deleteAtMs"] = 0;
-        }
         if (!("thumbUrl" in $$source)) {
             this["thumbUrl"] = "";
         }
@@ -265,13 +257,13 @@ export class Session {
      */
     static createFrom($$source: any = {}): Session {
         const $$createField1_0 = $$createType0;
-        const $$createField12_0 = $$createType2;
+        const $$createField11_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("runs" in $$parsedSource) {
             $$parsedSource["runs"] = $$createField1_0($$parsedSource["runs"]);
         }
         if ("markers" in $$parsedSource) {
-            $$parsedSource["markers"] = $$createField12_0($$parsedSource["markers"]);
+            $$parsedSource["markers"] = $$createField11_0($$parsedSource["markers"]);
         }
         return new Session($$parsedSource as Partial<Session>);
     }
@@ -328,24 +320,13 @@ export class Settings {
      * ShadowPlay-style instant replay):
      *   ModeReplay     keep only the last DurationSec; the hotkey saves it
      *   ModeBackground record whole sessions (by default only while a game
-     *                  runs), keep BackgroundMinutes / MaxDiskGB, timeline
+     *                  runs); when MaxDiskGB is reached the oldest whole
+     *                  session is deleted; timeline
      *   ModeManual     record between presses of the record hotkey; kept
      *                  until deleted
      * The save-clip hotkey works in every mode.
      */
     "mode": string;
-
-    /**
-     * RetentionTime: background footage kept
-     */
-    "backgroundMinutes": number;
-
-    /**
-     * Retention picks what background recording deletes to stay within
-     * MaxDiskGB: whole sessions, oldest first (RetentionSessions), or
-     * footage older than BackgroundMinutes (RetentionTime).
-     */
-    "retention": string;
 
     /**
      * cap for all recordings
@@ -477,12 +458,6 @@ export class Settings {
         }
         if (!("mode" in $$source)) {
             this["mode"] = "";
-        }
-        if (!("backgroundMinutes" in $$source)) {
-            this["backgroundMinutes"] = 0;
-        }
-        if (!("retention" in $$source)) {
-            this["retention"] = "";
         }
         if (!("maxDiskGB" in $$source)) {
             this["maxDiskGB"] = 0;

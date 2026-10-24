@@ -43,7 +43,7 @@ func TestSessionsTimelineClipKeepDelete(t *testing.T) {
 	t.Setenv("LocalAppData", cfg)
 	rec, clips := t.TempDir(), t.TempDir()
 	s := &ReplayService{buf: capture.NewReplayBuffer(), settings: Settings{
-		Mode: ModeBackground, BackgroundMinutes: 120, Retention: RetentionTime, RecordingsDir: rec, SaveDir: clips, GameFolders: true,
+		Mode: ModeBackground, RecordingsDir: rec, SaveDir: clips, GameFolders: true,
 	}}
 
 	base := time.Now().Add(-time.Hour).UnixMilli()
@@ -67,9 +67,6 @@ func TestSessionsTimelineClipKeepDelete(t *testing.T) {
 	}
 	if len(val.Markers) != 1 || val.Markers[0].OffsetSec < 6.5 || val.Markers[0].OffsetSec > 7.5 {
 		t.Errorf("marker should sit ~7s in (6s first run + 1s): %+v", val.Markers)
-	}
-	if val.DeleteAtMs == 0 || manual.DeleteAtMs != 0 {
-		t.Errorf("background sessions expire, manual ones don't: %d / %d", val.DeleteAtMs, manual.DeleteAtMs)
 	}
 	if !s.isProtected(2000) || s.isProtected(1000) {
 		t.Error("manual runs are protected from pruning, background runs are not")
@@ -117,8 +114,8 @@ func TestSessionsTimelineClipKeepDelete(t *testing.T) {
 }
 
 func TestModesNormalizeAndConfig(t *testing.T) {
-	st := Settings{Mode: ModeBackground, Codec: "av1", BackgroundMinutes: 7, MaxDiskGB: 3, FPS: 144, BitrateMbps: 65}.Normalize()
-	if st.Codec != "h264" || st.BackgroundMinutes != 120 || st.MaxDiskGB != 25 || st.RecordingQuality != QualityStandard {
+	st := Settings{Mode: ModeBackground, Codec: "av1", MaxDiskGB: 3, FPS: 144, BitrateMbps: 65}.Normalize()
+	if st.Codec != "h264" || st.MaxDiskGB != 25 || st.RecordingQuality != QualityStandard {
 		t.Errorf("normalize: %+v", st)
 	}
 	if (Settings{Mode: "steam"}).Normalize().Mode != ModeReplay {
@@ -126,11 +123,10 @@ func TestModesNormalizeAndConfig(t *testing.T) {
 	}
 	st.RecordingsDir = `D:\Rec`
 	if whole := toConfigFor(st, "VALORANT"); !whole.WholeSessions || whole.KeepSeconds != 0 {
-		t.Errorf("default retention keeps whole sessions until the limit: %+v", whole)
+		t.Errorf("background keeps whole sessions until the limit: %+v", whole)
 	}
-	st.Retention = RetentionTime
 	bg := toConfigFor(st, "VALORANT")
-	if !bg.Persist || bg.Dir != `D:\Rec` || bg.KeepSeconds != 7200 || bg.MaxBytes != 25<<30 || bg.Tag != "background|VALORANT" ||
+	if !bg.Persist || bg.Dir != `D:\Rec` || bg.KeepSeconds != 0 || !bg.WholeSessions || bg.MaxBytes != 25<<30 || bg.Tag != "background|VALORANT" ||
 		bg.BitrateKbps != 12000 || bg.MinFreeBytes != minFreeBytes {
 		t.Errorf("background cfg: %+v", bg)
 	}
