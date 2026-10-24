@@ -28,9 +28,14 @@ export class Shortcut {
     "win": boolean;
 
     /**
-     * "A".."Z", "0".."9" or "F1".."F24"
+     * "A".."Z", "0".."9", "F1".."F24" or a named key ("PageUp", "Num5", "[")
      */
     "key": string;
+
+    /**
+     * IsDefault is true when the combo is the action's default (output only).
+     */
+    "isDefault": boolean;
 
     /** Creates a new Shortcut instance. */
     constructor($$source: Partial<Shortcut> = {}) {
@@ -54,6 +59,9 @@ export class Shortcut {
         }
         if (!("key" in $$source)) {
             this["key"] = "";
+        }
+        if (!("isDefault" in $$source)) {
+            this["isDefault"] = false;
         }
 
         Object.assign(this, $$source);

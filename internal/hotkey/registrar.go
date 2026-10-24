@@ -13,14 +13,10 @@
 // installHook/stopHook behind build tags keeps ONE Manager definition that
 // compiles everywhere.
 //
-// Known v1 limitations (documented, not bugs):
-//   - Trigger keys are A-Z, 0-9 and F1-F24 only; punctuation etc. are future.
-//   - Modifier matching is a SUPERSET test: a binding matches (and swallows) any
-//     chord where every modifier it sets is down, even if EXTRA modifiers are also
-//     down (e.g. {Ctrl,'S'} also fires on Ctrl+Shift+S). This is conventional,
-//     forgiving global-hotkey behavior and is harmless for the single-action v1; if
-//     future actions need to distinguish e.g. Ctrl+Shift+1 from Ctrl+Shift+Alt+1,
-//     add an exact-match check (require unset modifiers to be UP) in the proc.
+// Trigger keys are A-Z, 0-9, F1-F24 and the named keys in keys.go
+// (navigation, numpad, punctuation). Modifier matching is EXACT: a binding
+// fires only when its modifiers, and no others, are down, so e.g. Alt+F10 and
+// Ctrl+Alt+F10 can be different actions.
 package hotkey
 
 import (
@@ -28,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode"
 )
 
@@ -38,7 +35,8 @@ import (
 const escapeAction = "__overlay_escape"
 
 // Binding is a parsed hotkey combo, e.g. {Win:true, Shift:true, Key:'S'}. Key is
-// the ASCII-uppercase rune of the trigger key (A-Z, 0-9), or FKey(n) for F1-F24.
+// the ASCII-uppercase rune of the trigger key (A-Z, 0-9), FKey(n) for F1-F24,
+// or namedKeyBase+vk for a named key (keys.go).
 type Binding struct {
 	Ctrl, Shift, Alt, Win bool
 	Key                   rune
@@ -60,10 +58,14 @@ func fKeyNumber(r rune) int {
 	return 0
 }
 
-// KeyName is the wire/persisted spelling of a trigger key: "S", "7", "F10".
+// KeyName is the wire/persisted spelling of a trigger key: "S", "7", "F10",
+// "PageUp", "Num5", "[".
 func KeyName(r rune) string {
 	if n := fKeyNumber(r); n > 0 {
 		return "F" + strconv.Itoa(n)
+	}
+	if k, ok := namedKeyFor(r); ok {
+		return k.name
 	}
 	if r == 0 {
 		return ""
@@ -71,10 +73,13 @@ func KeyName(r rune) string {
 	return string(unicode.ToUpper(r))
 }
 
-// ParseKeyName is the inverse of KeyName. ok=false for anything outside
-// A-Z, 0-9, F1-F24.
+// ParseKeyName is the inverse of KeyName (case-insensitive). ok=false for
+// anything outside A-Z, 0-9, F1-F24 and the named keys.
 func ParseKeyName(s string) (rune, bool) {
 	s = strings.ToUpper(strings.TrimSpace(s))
+	if k, ok := namedByName[s]; ok {
+		return namedKeyBase + rune(k.vk), true
+	}
 	if len(s) >= 2 && s[0] == 'F' {
 		if n, err := strconv.Atoi(s[1:]); err == nil && n >= 1 && n <= 24 {
 			return FKey(n), true
@@ -244,6 +249,34 @@ func (m *Manager) snapshot() []shortcutRow {
 	}
 	return rows
 }
+
+// recordResult is what a shortcut recording ends with: the combo pressed, or
+// ok=false when it was cancelled (Esc, CancelRecord, timeout).
+type recordResult struct {
+	b  Binding
+	ok bool
+}
+
+// Record waits up to timeout for the next key combo pressed anywhere and
+// returns it (see HotkeyService.RecordShortcut). While recording, the hook
+// swallows every key and fires no actions. ok=false when cancelled or timed
+// out; err when the hook isn't running.
+func (m *Manager) Record(timeout time.Duration) (Binding, bool, error) {
+	ch, err := m.beginRecord()
+	if err != nil {
+		return Binding{}, false, err
+	}
+	select {
+	case r := <-ch:
+		return r.b, r.ok, nil
+	case <-time.After(timeout):
+		endRecord()
+		return Binding{}, false, nil
+	}
+}
+
+// CancelRecord ends a pending Record (it returns ok=false).
+func (m *Manager) CancelRecord() { endRecord() }
 
 // defaultFor returns the registered default binding for id (ok=false if absent).
 func (m *Manager) defaultFor(id string) (Binding, bool) {

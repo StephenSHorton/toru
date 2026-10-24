@@ -14,6 +14,8 @@
 //   HotkeyService.GetShortcuts(): Promise<Shortcut[]>
 //   HotkeyService.SetShortcut(action: string, sc: Shortcut): Promise<void>  (rejects on validation error)
 //   HotkeyService.ResetShortcut(action: string): Promise<void>
+//   HotkeyService.RecordShortcut(): Promise<Shortcut>  (next combo pressed; key "" = cancelled)
+//   HotkeyService.CancelRecording(): Promise<void>
 //   WindowsService.OpenOverlay(): Promise<void>   (capture overlay session)
 //   WindowsService.OpenSettings(): Promise<void>  (Settings/home window)
 //   WindowsService.OpenTrim(videoPath): Promise<void>  (Dev 2 trim editor)

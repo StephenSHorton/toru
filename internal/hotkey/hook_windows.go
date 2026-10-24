@@ -3,6 +3,7 @@
 package hotkey
 
 import (
+	"errors"
 	"runtime"
 	"sync"
 	"syscall"
@@ -121,6 +122,9 @@ func triggerVK(key rune) uint32 {
 	if n := fKeyNumber(key); n > 0 {
 		return vkF1 + uint32(n-1)
 	}
+	if k, ok := namedKeyFor(key); ok {
+		return k.vk
+	}
 	return uint32(unicode.ToUpper(key))
 }
 
@@ -210,6 +214,77 @@ func (m *Manager) stopHook() {
 // and must NOT call into Wails (Windows silently drops a slow LL hook). On a
 // matching key-down it does a non-blocking buffered send and RETURNS 1 to swallow
 // the key (so Snipping Tool never sees Win+Shift+S); everything else chains on.
+// Shortcut recording state (guarded by actMu). recCh is non-nil while a
+// Record is waiting. Every key pressed during a recording is swallowed, and
+// its key-up too (recSwallow), even if that arrives after the recording ended,
+// so the OS never sees half a chord (a lone Win key-up would open Start).
+var (
+	recCh      chan recordResult
+	recMods    Binding
+	recSwallow = map[uint32]bool{}
+)
+
+func (m *Manager) beginRecord() (<-chan recordResult, error) {
+	m.mu.Lock()
+	installed := m.hook != 0
+	m.mu.Unlock()
+	if !installed {
+		return nil, errors.New("the keyboard hook isn't running")
+	}
+	actMu.Lock()
+	defer actMu.Unlock()
+	endRecordLocked(recordResult{}) // a second Record replaces the first
+	recCh = make(chan recordResult, 1)
+	recMods = Binding{}
+	return recCh, nil
+}
+
+func endRecord() {
+	actMu.Lock()
+	endRecordLocked(recordResult{})
+	actMu.Unlock()
+}
+
+func endRecordLocked(r recordResult) {
+	if recCh != nil {
+		recCh <- r
+		recCh = nil
+	}
+}
+
+// recordKey feeds one key event to an active recording. It reports whether
+// the event was consumed (and must be swallowed).
+func recordKey(vk uint32, down bool) bool {
+	actMu.Lock()
+	defer actMu.Unlock()
+	if !down {
+		if !recSwallow[vk] {
+			return false
+		}
+		delete(recSwallow, vk)
+		applyModifierVK(&recMods, vk, false)
+		return true
+	}
+	if recCh == nil {
+		return false
+	}
+	recSwallow[vk] = true
+	switch {
+	case isModifierVK(vk):
+		applyModifierVK(&recMods, vk, true)
+	case vk == vkEscape:
+		endRecordLocked(recordResult{})
+	default:
+		if key, ok := keyForVK(vk); ok {
+			b := recMods
+			b.Key = key
+			endRecordLocked(recordResult{b: b, ok: true})
+		}
+		// Unsupported keys (Tab, Enter, CapsLock, …) are ignored; keep waiting.
+	}
+	return true
+}
+
 func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 	isDown := wParam == wmKeyDown || wParam == wmSysKeyDown
 	isUp := wParam == wmKeyUp || wParam == wmSysKeyUp
@@ -226,6 +301,10 @@ func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 			unsafe.Sizeof(ks),
 		)
 		vk := ks.VkCode
+
+		if recordKey(vk, isDown) {
+			return 1
+		}
 
 		// Key-up of the latched trigger key clears the held latch so the next
 		// real press fires again. Fall through (do NOT swallow) — the up event is
@@ -303,19 +382,13 @@ func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 			matched := ""
 			for _, c := range cands {
 				b := c.b
-				// Every modifier the binding sets must currently be down.
+				// Exact match: the binding's modifiers are down and no others.
 				// Shift/Ctrl/Alt use the merged L+R virtual keys; only Win needs
 				// the explicit L/R check.
-				if b.Win && !keyDown(vkLWin) && !keyDown(vkRWin) {
-					continue
-				}
-				if b.Shift && !keyDown(vkShift) {
-					continue
-				}
-				if b.Ctrl && !keyDown(vkControl) {
-					continue
-				}
-				if b.Alt && !keyDown(vkMenu) {
+				if b.Win != (keyDown(vkLWin) || keyDown(vkRWin)) ||
+					b.Shift != keyDown(vkShift) ||
+					b.Ctrl != keyDown(vkControl) ||
+					b.Alt != keyDown(vkMenu) {
 					continue
 				}
 				matched = c.action

@@ -1,6 +1,10 @@
 package hotkey
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // Shortcut is the binding-friendly wire shape for the frontend. Key is a STRING
 // ("S") so the TS side stays clean; it converts to/from the internal rune Binding
@@ -14,7 +18,9 @@ type Shortcut struct {
 	Shift  bool   `json:"shift"`
 	Alt    bool   `json:"alt"`
 	Win    bool   `json:"win"`
-	Key    string `json:"key"` // "A".."Z", "0".."9" or "F1".."F24"
+	Key    string `json:"key"` // "A".."Z", "0".."9", "F1".."F24" or a named key ("PageUp", "Num5", "[")
+	// IsDefault is true when the combo is the action's default (output only).
+	IsDefault bool `json:"isDefault"`
 }
 
 // HotkeyService is the Wails-bound API the React Shortcuts panel calls. It is a
@@ -36,7 +42,9 @@ func (s *HotkeyService) GetShortcuts() []Shortcut {
 	rows := s.mgr.snapshot()
 	out := make([]Shortcut, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, bindingToShortcut(r.Action, r.Label, r.B))
+		sc := bindingToShortcut(r.Action, r.Label, r.B)
+		sc.IsDefault = r.B == r.Def
+		out = append(out, sc)
 	}
 	return out
 }
@@ -48,6 +56,11 @@ func (s *HotkeyService) SetShortcut(action string, sc Shortcut) error {
 	b, err := shortcutToBinding(sc)
 	if err != nil {
 		return err
+	}
+	for _, r := range s.mgr.snapshot() {
+		if r.Action != action && r.B == b {
+			return fmt.Errorf("%s is already used for %q", comboLabel(b), r.Label)
+		}
 	}
 	if err := persistBinding(action, b); err != nil {
 		return fmt.Errorf("save shortcut: %w", err)
@@ -68,6 +81,41 @@ func (s *HotkeyService) ResetShortcut(action string) error {
 	}
 	s.mgr.SetBinding(action, def)
 	return nil
+}
+
+// RecordShortcut waits for the user to press a key combo anywhere (up to 30s)
+// and returns it WITHOUT saving it; the frontend then calls SetShortcut. It
+// listens in the keyboard hook itself, so combos Windows or Toru would
+// otherwise consume (Win+…, PrintScreen, Toru's own hotkeys) are captured
+// too, and nothing fires while recording. Esc, CancelRecording or the timeout
+// return an empty Key.
+func (s *HotkeyService) RecordShortcut() (Shortcut, error) {
+	b, ok, err := s.mgr.Record(30 * time.Second)
+	if err != nil || !ok {
+		return Shortcut{}, err
+	}
+	return bindingToShortcut("", "", b), nil
+}
+
+// CancelRecording ends a pending RecordShortcut (it returns an empty Key).
+func (s *HotkeyService) CancelRecording() { s.mgr.CancelRecord() }
+
+// comboLabel renders b like the UI does: "Ctrl + Alt + F10".
+func comboLabel(b Binding) string {
+	var parts []string
+	if b.Win {
+		parts = append(parts, "Win")
+	}
+	if b.Ctrl {
+		parts = append(parts, "Ctrl")
+	}
+	if b.Alt {
+		parts = append(parts, "Alt")
+	}
+	if b.Shift {
+		parts = append(parts, "Shift")
+	}
+	return strings.Join(append(parts, KeyName(b.Key)), " + ")
 }
 
 // bindingToShortcut builds the wire Shortcut for an action + label.
@@ -98,16 +146,16 @@ func shortcutToBinding(sc Shortcut) (Binding, error) {
 	}, nil
 }
 
-// validateShortcut enforces the rules: a trigger key in A-Z, 0-9 or F1-F24, and
-// at least one modifier unless the key is a function key (a bare letter would
-// fire while typing; a bare F-key is a normal gaming/macro-key bind).
+// validateShortcut enforces the rules: a supported trigger key, and at least
+// one modifier unless the key doesn't type text (F-keys, PrintScreen, numpad,
+// PageUp, …). A bare letter or Space would fire while typing.
 func validateShortcut(sc Shortcut) error {
 	key, ok := ParseKeyName(sc.Key)
 	if !ok {
-		return fmt.Errorf("shortcut key must be a letter A-Z, digit 0-9 or F1-F24")
+		return fmt.Errorf("that key can't be used for a shortcut")
 	}
-	if fKeyNumber(key) == 0 && !sc.Ctrl && !sc.Shift && !sc.Alt && !sc.Win {
-		return fmt.Errorf("shortcut needs at least one modifier")
+	if !bareAllowed(key) && !sc.Ctrl && !sc.Shift && !sc.Alt && !sc.Win {
+		return fmt.Errorf("%s on its own would fire while you type; add Ctrl, Alt, Shift or Win", KeyName(key))
 	}
 	return nil
 }
