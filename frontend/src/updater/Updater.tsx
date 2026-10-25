@@ -1,47 +1,84 @@
 import { Button } from "@/components/ui/button";
-import { RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react";
+import { RefreshCw, CheckCircle2, AlertTriangle, Download } from "lucide-react";
 import { useUpdater } from "./useUpdater";
 
-// Updater — the version line + auto-update status. Updates are MANDATORY: there
-// is no "Later" / opt-out. A found update (startup, manual check, or backend
-// goroutine) installs immediately, and Toru quits + relaunches on the new
-// version. While that happens we show a non-dismissible "Updating…" line.
+// Updater — the Settings › About version line. "Check for Updates" runs the
+// backend's CheckAndDownload (check + download + verify, never install) and
+// shows checking/downloading state. When an update is ready it offers
+// "Restart now" here too, so a user who clicked "Later" on the banner still has
+// a way in; otherwise it shows the green "Up to date" or the error state. The
+// backend never restarts Toru on its own — it installs when the user quits.
 export function Updater() {
-  const { status, version, updatingTo, error, check } = useUpdater();
+  const { status, version, checking, upToDate, restartError, check, restart } = useUpdater();
   const v = version || "dev";
+  const target = status.version ? `v${status.version}` : "";
+  const busy = checking || status.phase === "downloading";
 
-  if (status === "downloading") {
+  if (status.phase === "installing") {
     return (
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <RefreshCw className="size-3.5 animate-spin" />
-        {updatingTo ? `Updating to v${updatingTo}…` : "Updating…"} Toru will restart.
+      <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
+        <RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
+        Restarting to update{target ? ` to ${target}` : ""}…
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       <span>Toru v{v}</span>
       <span className="opacity-40">·</span>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-6 px-2 text-xs"
-        disabled={status === "checking"}
-        onClick={() => void check(true)}
-      >
-        <RefreshCw className={"size-3.5" + (status === "checking" ? " animate-spin" : "")} />
-        {status === "checking" ? "Checking…" : "Check for Updates"}
-      </Button>
-      {status === "uptodate" && (
-        <span className="flex items-center gap-1 text-green-500">
-          <CheckCircle2 className="size-3.5" /> Up to date
-        </span>
-      )}
-      {status === "error" && (
-        <span className="flex items-center gap-1 text-destructive" title={error}>
-          <AlertTriangle className="size-3.5" /> Check failed
-        </span>
+      {status.phase === "ready" ? (
+        <>
+          <span className="flex items-center gap-1 text-primary">
+            <Download className="size-3.5" aria-hidden="true" /> {target} is ready
+          </span>
+          <Button
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => void restart()}
+            aria-label={`Restart now to update to Toru ${target}`}
+            title={`Restart Toru and install ${target}`}
+          >
+            <RefreshCw className="size-3.5" aria-hidden="true" /> Restart now
+          </Button>
+          {restartError && (
+            <span className="flex items-center gap-1 text-destructive" title={restartError}>
+              <AlertTriangle className="size-3.5" aria-hidden="true" /> Restart failed
+            </span>
+          )}
+        </>
+      ) : (
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-xs"
+            disabled={busy}
+            onClick={() => void check()}
+            aria-label="Check for Toru updates"
+            title="Check GitHub Releases for a newer Toru"
+          >
+            <RefreshCw className={"size-3.5" + (busy ? " animate-spin" : "")} aria-hidden="true" />
+            {status.phase === "downloading"
+              ? `Downloading ${target}…`
+              : checking
+                ? "Checking…"
+                : "Check for Updates"}
+          </Button>
+          {upToDate && !busy && (
+            <span className="flex items-center gap-1 text-green-500">
+              <CheckCircle2 className="size-3.5" aria-hidden="true" /> Up to date
+            </span>
+          )}
+          {status.phase === "error" && (
+            // fail() keeps the version once the check has found one, so a set
+            // version means the download/verify step failed, not the check.
+            <span className="flex items-center gap-1 text-destructive" title={status.error}>
+              <AlertTriangle className="size-3.5" aria-hidden="true" />{" "}
+              {status.version ? `Download of ${target} failed` : "Check failed"}
+            </span>
+          )}
+        </>
       )}
     </div>
   );

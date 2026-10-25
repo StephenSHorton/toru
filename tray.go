@@ -11,6 +11,8 @@ import (
 	"github.com/StephenSHorton/toru/internal/history"
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/StephenSHorton/toru/internal/replay"
+	"github.com/StephenSHorton/toru/internal/toast"
+	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -27,6 +29,8 @@ type trayController struct {
 	keys        *hotkey.Manager
 	// openSendFiles opens the hub on the Send Files page.
 	openSendFiles func()
+	// update supplies the "Restart to update to vX" item while an update is ready.
+	update *update.UpdateService
 }
 
 // rebuildMenu constructs a fresh tray menu and installs it. Safe to call from
@@ -37,6 +41,23 @@ func (t *trayController) rebuildMenu() {
 		return
 	}
 	menu := application.NewMenu()
+
+	// A downloaded update sits at the top until the user restarts (or quits,
+	// which installs it without relaunching).
+	if t.update != nil {
+		if st := t.update.GetStatus(); st.Phase == update.PhaseReady {
+			menu.Add("Restart to update to v" + st.Version).OnClick(func(*application.Context) {
+				go func() {
+					// A tray-only user has no banner to read a failure from: the
+					// service logs and reverts to ready, so say why nothing happened.
+					if err := t.update.RestartToUpdate(); err != nil {
+						toast.Show("Couldn't start the update", err.Error(), false)
+					}
+				}()
+			})
+			menu.AddSeparator()
+		}
+	}
 
 	menu.Add("Capture (⊞ Shift S)").OnClick(func(*application.Context) {
 		if t.openOverlay != nil {

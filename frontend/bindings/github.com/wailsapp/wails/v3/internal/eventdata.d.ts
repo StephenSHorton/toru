@@ -14,6 +14,9 @@ import type * as overlay$0 from "../../../../StephenSHorton/toru/internal/overla
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import type * as transfer$0 from "../../../../StephenSHorton/toru/internal/transfer/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import type * as update$0 from "../../../../StephenSHorton/toru/internal/update/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
@@ -25,6 +28,7 @@ declare module "@wailsio/runtime" {
             "overlay:ui": overlay$0.OverlayUi;
             "transfer:receive": transfer$0.ReceiveState;
             "transfer:send": transfer$0.SendState;
+            "update:status": update$0.Status;
         }
     }
 }

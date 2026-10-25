@@ -1,89 +1,133 @@
 import { useCallback, useEffect, useState } from "react";
-import { UpdateService } from "@/lib/api";
-import { Events as WailsEvents } from "@wailsio/runtime";
+import { UpdateService, UpdateStatus } from "@/lib/api";
 import { Events } from "@/lib/contract";
+import { Events as WailsEvents } from "@wailsio/runtime";
 
-export type UpdaterStatus =
-  | "idle"
-  | "checking"
-  | "uptodate"
-  | "downloading"
-  | "error";
+// localStorage key for the per-viewer "Later" choice: the dismissed version.
+// The banner stays hidden for that version only; a newer release shows again.
+const DISMISS_KEY = "toru.update.dismissed";
+
+export type UpdatePhase = "idle" | "checking" | "downloading" | "ready" | "installing" | "error";
 
 export interface UpdaterState {
-  status: UpdaterStatus;
-  version: string; // running version ("dev" in non-release builds)
-  updatingTo: string; // version being installed, when status === "downloading"
-  error: string;
-  check: (manual?: boolean) => Promise<void>;
+  /** Backend update state (phase/version/notes/error). */
+  status: UpdateStatus;
+  /** Running version ("dev" in non-release builds; "" until read). */
+  version: string;
+  /** A check is in flight (manual or the backend's own). */
+  checking: boolean;
+  /** The last manual check finished and found nothing newer. */
+  upToDate: boolean;
+  /** The ready banner was dismissed for status.version ("Later"). */
+  dismissed: boolean;
+  /** Why the last "Restart now" failed ("" if it did not). */
+  restartError: string;
+  /** Manual "Check for Updates": checks + downloads, never installs. */
+  check: () => Promise<void>;
+  /** "Restart now": launches the installer and quits Toru. */
+  restart: () => Promise<void>;
+  /** "Later": hide the banner for this version (Settings keeps a Restart button). */
+  dismiss: () => void;
+}
+
+function readDismissed(): string {
+  try {
+    return window.localStorage.getItem(DISMISS_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function toStatus(raw: unknown): UpdateStatus {
+  // createFrom JSON-parses a string payload itself; anything else falls back to idle.
+  return UpdateStatus.createFrom(
+    typeof raw === "string" || (raw && typeof raw === "object") ? raw : {},
+  );
 }
 
 /**
- * useUpdater drives the in-app updater UI. Updates are MANDATORY: a found update
- * installs immediately with no opt-out (keeping Toru current is part of using
- * it). The backend AutoUpdate goroutine enforces the same on every startup —
- * even a launch-at-login boot with no window — so this hook is the UI reflection,
- * not the source of truth. It reads the running version, lets the user force a
- * manual check, and listens for the backend's "update:installing" event so an
- * open window shows "Updating…" before the app quits to relaunch on the new
- * version. Concurrent installs (this vs. the startup goroutine) are deduped in
- * the backend, so racing is harmless.
+ * useUpdater mirrors the backend update state machine for the UI. The backend
+ * (internal/update) owns the policy: on startup it checks, downloads and verifies
+ * a newer release in the background, then stops at phase "ready" and announces
+ * it — it never installs or quits on its own. The user restarts when they like
+ * (banner, Settings line, or tray), or the installer runs when Toru quits.
  *
- * In the browser preview (no Wails backend) the binding calls reject; an
- * auto/background failure is swallowed, while a manual check surfaces it.
+ * This hook reads GetStatus() on mount, follows "update:status" events, and
+ * exposes the manual check / restart / dismiss actions. It does NOT trigger a
+ * check on mount; the startup AutoUpdate goroutine already does.
+ *
+ * In the browser preview (no Wails backend) binding calls reject; mount-time
+ * reads are swallowed, while a manual check surfaces the failure.
  */
 export function useUpdater(): UpdaterState {
-  const [status, setStatus] = useState<UpdaterStatus>("idle");
+  const [status, setStatus] = useState<UpdateStatus>(() => new UpdateStatus({ phase: "idle" }));
   const [version, setVersion] = useState<string>("");
-  const [updatingTo, setUpdatingTo] = useState<string>("");
-  const [error, setError] = useState<string>("");
-
-  const check = useCallback(async (manual = false) => {
-    setStatus("checking");
-    setError("");
-    try {
-      const result = await UpdateService.CheckForUpdate();
-      if (result) {
-        // Mandatory update — install immediately, no prompt, no "Later".
-        setUpdatingTo(result.version);
-        setStatus("downloading");
-        // Resolves once the installer launches; the app then quits and the
-        // installer relaunches the updated Toru. Deduped backend-side, so this is
-        // safe even if the startup AutoUpdate is already installing.
-        await UpdateService.DownloadAndInstall(result);
-      } else {
-        setStatus("uptodate");
-      }
-    } catch (e) {
-      if (manual) {
-        setError(String(e));
-        setStatus("error");
-      } else {
-        setStatus("idle"); // backend unavailable (e.g. browser preview)
-      }
-    }
-  }, []);
+  const [inFlight, setInFlight] = useState(false);
+  const [upToDate, setUpToDate] = useState(false);
+  const [dismissedVersion, setDismissedVersion] = useState<string>(readDismissed);
+  const [restartError, setRestartError] = useState("");
 
   useEffect(() => {
     UpdateService.GetVersion()
       .then(setVersion)
       .catch(() => setVersion(""));
+    UpdateService.GetStatus()
+      .then((s) => setStatus(toStatus(s)))
+      .catch(() => {});
 
-    // The backend AutoUpdate goroutine can start an install on its own (notably a
-    // launch-at-login boot, where no window ran a check). Reflect it so an open
-    // window shows "Updating…" rather than abruptly closing.
-    const off = WailsEvents.On(Events.UpdateInstalling, (ev) => {
+    const off = WailsEvents.On(Events.UpdateStatus, (ev) => {
       const raw = Array.isArray(ev.data) ? ev.data[0] : ev.data;
-      setUpdatingTo(typeof raw === "string" ? raw : "");
-      setStatus("downloading");
+      const next = toStatus(raw);
+      setStatus(next);
+      // Any movement off idle (a new check, a download, a ready state) makes a
+      // stale "Up to date" badge wrong.
+      if (next.phase !== "idle") setUpToDate(false);
     });
-
-    // Also re-check when the window opens (covers a long-running instance whose
-    // startup check predates a newer release). Auto-installs on found; deduped.
-    void check(false);
-
     return () => off();
-  }, [check]);
+  }, []);
 
-  return { status, version, updatingTo, error, check };
+  const check = useCallback(async () => {
+    setInFlight(true);
+    setUpToDate(false);
+    try {
+      const result = toStatus(await UpdateService.CheckAndDownload());
+      setStatus(result);
+      // "Up to date" is not a backend phase: a finished check that found nothing
+      // newer lands on idle. A transitional phase (checking/downloading) means we
+      // raced the startup check and got its in-flight status; the next
+      // update:status event settles it.
+      if (result.phase === "idle") setUpToDate(true);
+    } catch (e) {
+      setStatus(new UpdateStatus({ phase: "error", error: String(e) }));
+    } finally {
+      setInFlight(false);
+    }
+  }, []);
+
+  // A failed restart is reported beside the Restart button; the backend keeps
+  // (and re-emits) the authoritative phase — it reverts to "ready" when the
+  // installer fails to launch, so the user can retry or use the tray.
+  const restart = useCallback(async () => {
+    setRestartError("");
+    try {
+      await UpdateService.RestartToUpdate();
+    } catch (e) {
+      setRestartError(String(e));
+    }
+  }, []);
+
+  const dismiss = useCallback(() => {
+    const v = status.version;
+    setDismissedVersion(v);
+    try {
+      window.localStorage.setItem(DISMISS_KEY, v);
+    } catch {
+      // per-viewer convenience only; in-memory state still hides the banner
+    }
+  }, [status.version]);
+
+  const checking = inFlight || status.phase === "checking";
+  const dismissed = status.version !== "" && dismissedVersion === status.version;
+
+  return { status, version, checking, upToDate, dismissed, restartError, check, restart, dismiss };
 }

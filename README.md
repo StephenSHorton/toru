@@ -24,7 +24,7 @@ Press <kbd>⊞</kbd> <kbd>Shift</kbd> <kbd>S</kbd> → pick a **region**, **wind
 - **Recording audio** — game, Discord voice chat and microphone as separate sources with per-source volume; mic noise suppression (Off / Light / Strong); optional separate tracks for editing
 - **Share your screen** to a browser on the same Wi-Fi (phone, tablet, TV) straight from the overlay
 - **Freeze or live** overlay while selecting
-- **Tray recents**, game-recording toggle, Send files…, auto-copy on capture, auto-update from Releases
+- **Tray recents**, game-recording toggle, Send files…, auto-copy on capture; updates download in the background and announce themselves — restart when you like, or they install when you quit Toru
 - **Send Files** — send any file, folder or capture peer-to-peer with a short spoken code like `7-guitarist-revenge`, end-to-end encrypted; the receiver uses Toru or `wormhole receive`, files land in Downloads by default, and the code doubles as a QR for phones
 
 ## Download
@@ -79,7 +79,7 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-Tag push runs [`.github/workflows/release.yml`](.github/workflows/release.yml): builds the app + NSIS installer, publishes assets + `SHA256SUMS`. The in-app updater installs newer releases automatically.
+Tag push runs [`.github/workflows/release.yml`](.github/workflows/release.yml): builds the app + NSIS installer, publishes assets + `SHA256SUMS`. The in-app updater downloads newer releases in the background and announces them; restart when you like, or it installs when Toru quits.
 
 ## License
 

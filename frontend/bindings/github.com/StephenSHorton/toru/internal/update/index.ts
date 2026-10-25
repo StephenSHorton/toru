@@ -7,5 +7,6 @@ export {
 };
 
 export {
+    Status,
     UpdateInfo
 } from "./models.js";

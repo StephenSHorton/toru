@@ -10,8 +10,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// TestToastSmoke shows the real toast + chime and checks focus never moves.
-// Opt-in (TORU_SMOKE=1): it draws on the desktop and makes a sound.
+// TestToastSmoke shows the save toast + chime and checks focus never moves.
+// Opt-in (TORU_SMOKE=1): it draws on the desktop and makes a sound. The toast
+// window's own show/fade assertions live in internal/toast.
 func TestToastSmoke(t *testing.T) {
 	if os.Getenv("TORU_SMOKE") != "1" {
 		t.Skip("set TORU_SMOKE=1")
@@ -26,18 +27,5 @@ func TestToastSmoke(t *testing.T) {
 		if fg := windows.GetForegroundWindow(); fg != before {
 			t.Fatalf("toast stole focus: foreground %x -> %x", before, fg)
 		}
-	}
-	toastMu.Lock()
-	shown := toastHwnd != 0
-	toastMu.Unlock()
-	if !shown {
-		t.Fatal("toast window not on screen")
-	}
-	time.Sleep(3500 * time.Millisecond) // hold + fade
-	toastMu.Lock()
-	gone := toastHwnd == 0
-	toastMu.Unlock()
-	if !gone {
-		t.Error("toast should have faded out and closed")
 	}
 }

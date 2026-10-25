@@ -6,6 +6,57 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * Status is the updater's state as the frontend and tray see it.
+ */
+export class Status {
+    /**
+     * idle|checking|downloading|ready|installing|error
+     */
+    "phase": string;
+
+    /**
+     * target version once known, e.g. "1.3.0"
+     */
+    "version": string;
+
+    /**
+     * release body (markdown)
+     */
+    "notes": string;
+
+    /**
+     * set while Phase is error
+     */
+    "error": string;
+
+    /** Creates a new Status instance. */
+    constructor($$source: Partial<Status> = {}) {
+        if (!("phase" in $$source)) {
+            this["phase"] = "";
+        }
+        if (!("version" in $$source)) {
+            this["version"] = "";
+        }
+        if (!("notes" in $$source)) {
+            this["notes"] = "";
+        }
+        if (!("error" in $$source)) {
+            this["error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Status instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Status {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Status($$parsedSource as Partial<Status>);
+    }
+}
+
+/**
  * UpdateInfo describes an available update (returned to the frontend).
  */
 export class UpdateInfo {

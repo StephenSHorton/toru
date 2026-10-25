@@ -73,6 +73,9 @@ func init() {
 	// transfer:open carries no payload and is deliberately NOT registered.
 	application.RegisterEvent[transfer.SendState](transfer.EventSend)
 	application.RegisterEvent[transfer.ReceiveState](transfer.EventReceive)
+	// update:status carries the updater's phase (downloading / ready / installing)
+	// so the hub can show the "Toru vX is ready" banner.
+	application.RegisterEvent[update.Status](update.EventUpdateStatus)
 }
 
 func main() {
@@ -292,6 +295,12 @@ func main() {
 		armRecordingKeys(st)
 		tray.rebuildMenu()
 	})
+	// An update becoming ready adds "Restart to update" to the top of the tray menu.
+	updateSvc.SetOnChange(func(update.Status) {
+		if tray != nil {
+			tray.rebuildMenu()
+		}
+	})
 
 	// LAUNCH -> TRAY + SETTINGS. Toru is a tray ("menu-bar style") app: on launch
 	// it installs the system-tray icon and opens the Settings/home window ONCE so
@@ -323,6 +332,7 @@ func main() {
 			replay:        replaySvc,
 			keys:          keys,
 			openSendFiles: windowsSvc.OpenSendFiles,
+			update:        updateSvc,
 		}
 		tray.rebuildMenu()                                         // initial menu (includes any persisted recents)
 		systray.OnClick(func() { windowsSvc.OpenSettings() })      // left-click = open home (menu-bar feel)
@@ -344,13 +354,14 @@ func main() {
 		// populated here (we are inside app.Run()), so DPI bounds are correct.
 		overlaySvc.PrewarmWindows()
 
-		// Forced auto-update: keeping Toru current is part of using it, so we check
-		// + silently install on every startup — INCLUDING a silent launch-at-login
-		// boot (no window), which is the case the frontend updater can't cover. The
-		// app is idle at startup, so this never interrupts a capture/recording. If
-		// an update exists the app downloads it, quits, and the installer relaunches
-		// the new version (project.nsi). Fire-and-forget; errors are logged, not
-		// fatal. dev builds short-circuit (CheckForUpdate returns nil).
+		// Background update: check + download on every startup — INCLUDING a silent
+		// launch-at-login boot (no window), which the frontend updater can't cover.
+		// Once the installer is verified the updater announces it (native toast,
+		// update:status event, "Restart to update" in the tray) and waits: the user
+		// restarts when they like (RestartToUpdate), or it installs when Toru quits
+		// (InstallOnExit in OnShutdown below). It never quits or installs on its own.
+		// Fire-and-forget; errors are logged, not fatal. dev builds short-circuit
+		// (CheckForUpdate returns nil).
 		go updateSvc.AutoUpdate()
 
 		// Start the instant-replay buffer if the user enabled it. Off the main
@@ -364,10 +375,15 @@ func main() {
 	// receive a chance to delete its .part file; a receive parked on a stalled
 	// sender can still leave one behind, since the library only notices the
 	// cancel at its next read.
+	//
+	// InstallOnExit goes LAST: if an update was downloaded and the user chose to
+	// keep working, this launches the silent installer (/NORELAUNCH) as the process
+	// exits; it waits for toru.exe to unlock, installs, and does not relaunch.
 	app.OnShutdown(func() {
 		overlaySvc.Teardown()
 		replaySvc.Shutdown() // stop ffmpeg + delete the rolling segments
 		transferSvc.Shutdown()
+		updateSvc.InstallOnExit()
 	})
 
 	if err := app.Run(); err != nil {

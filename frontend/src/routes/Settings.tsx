@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Updater } from "@/updater/Updater";
+import { UpdateBanner } from "@/updater/UpdateBanner";
 import { Shortcuts } from "@/shortcuts/Shortcuts";
 import { ReplayPanel } from "@/replay/ReplayPanel";
 import SendFiles from "@/transfer/SendFiles";
@@ -119,6 +120,8 @@ export default function Settings() {
       </nav>
 
       <main className="min-w-0 flex-1 overflow-auto p-6">
+        {/* Update announcement (ready / downloading / restarting) on every page. */}
+        <UpdateBanner />
         {page === "library" ? (
           <LibraryPage onSendItem={sendItem} />
         ) : page === "send" ? (
