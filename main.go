@@ -198,6 +198,9 @@ func main() {
 	windowsSvc.overlay = overlaySvc
 	updateSvc.SetApp(app)
 	settingsSvc.app = app // for app.Autostart (launch-at-login)
+	// Re-point a stale "Start with Windows" entry at this exe so the switch
+	// reflects reality (see autostart_repair_windows.go).
+	repairLaunchAtLogin()
 	replaySvc.SetClipOpener(windowsSvc.OpenClipEditor)
 	replaySvc.SetSessionOpener(windowsSvc.OpenTimeline)
 	histSvc.SetOpeners(windowsSvc.OpenLibraryEditor, windowsSvc.OpenTrim)
