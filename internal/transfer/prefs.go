@@ -1,4 +1,4 @@
-package hato
+package transfer
 
 import (
 	"encoding/json"
@@ -8,17 +8,17 @@ import (
 	"sync"
 )
 
-// prefsMu serializes hato.json load-modify-save, mirroring internal/history.
+// prefsMu serializes transfer.json load-modify-save, mirroring internal/history.
 var prefsMu sync.Mutex
 
-// hatoPrefs is the on-disk shape of %AppData%\toru\hato.json. ReceiveDir is an
+// transferPrefs is the on-disk shape of %AppData%\toru\transfer.json. ReceiveDir is an
 // absolute path; empty means "use the default" so a fresh install and a reset
 // install look identical on disk.
-type hatoPrefs struct {
+type transferPrefs struct {
 	ReceiveDir string `json:"receiveDir"`
 }
 
-// prefsPath returns %AppData%\toru\hato.json, creating the toru folder. On
+// prefsPath returns %AppData%\toru\transfer.json, creating the toru folder. On
 // Windows os.UserConfigDir reads %AppData%, which is what the tests redirect.
 func prefsPath() (string, error) {
 	cfg, err := os.UserConfigDir()
@@ -29,7 +29,7 @@ func prefsPath() (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "hato.json"), nil
+	return filepath.Join(dir, "transfer.json"), nil
 }
 
 // DefaultReceiveDir is where received files land unless the user picks a
@@ -63,7 +63,7 @@ func loadReceiveDir() string {
 	if err != nil {
 		return def
 	}
-	var p hatoPrefs
+	var p transferPrefs
 	if json.Unmarshal(raw, &p) != nil || strings.TrimSpace(p.ReceiveDir) == "" {
 		return def
 	}
@@ -84,7 +84,7 @@ func saveReceiveDir(dir string) error {
 	if err != nil {
 		return err
 	}
-	p := hatoPrefs{ReceiveDir: strings.TrimSpace(dir)}
+	p := transferPrefs{ReceiveDir: strings.TrimSpace(dir)}
 	if samePath(p.ReceiveDir, DefaultReceiveDir()) {
 		p.ReceiveDir = ""
 	}

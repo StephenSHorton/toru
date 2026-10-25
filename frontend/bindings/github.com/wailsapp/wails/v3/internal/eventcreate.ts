@@ -11,30 +11,30 @@ import { Create as $Create } from "@wailsio/runtime";
 import * as capture$0 from "../../../../StephenSHorton/toru/internal/capture/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as hato$0 from "../../../../StephenSHorton/toru/internal/hato/models.js";
+import * as overlay$0 from "../../../../StephenSHorton/toru/internal/overlay/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as overlay$0 from "../../../../StephenSHorton/toru/internal/overlay/models.js";
+import * as transfer$0 from "../../../../StephenSHorton/toru/internal/transfer/models.js";
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
         "capture:done": $$createType0,
-        "hato:receive": $$createType1,
-        "hato:send": $$createType2,
-        "overlay:cropRect": $$createType3,
-        "overlay:edit": $$createType4,
-        "overlay:engage": $$createType5,
-        "overlay:ui": $$createType6,
+        "overlay:cropRect": $$createType1,
+        "overlay:edit": $$createType2,
+        "overlay:engage": $$createType3,
+        "overlay:ui": $$createType4,
+        "transfer:receive": $$createType5,
+        "transfer:send": $$createType6,
     }));
 }
 
 // Private type creation functions
 const $$createType0 = capture$0.CaptureResult.createFrom;
-const $$createType1 = hato$0.ReceiveState.createFrom;
-const $$createType2 = hato$0.SendState.createFrom;
-const $$createType3 = capture$0.Rect.createFrom;
-const $$createType4 = overlay$0.OverlayEditPayload.createFrom;
-const $$createType5 = overlay$0.MonitorSession.createFrom;
-const $$createType6 = overlay$0.OverlayUi.createFrom;
+const $$createType1 = capture$0.Rect.createFrom;
+const $$createType2 = overlay$0.OverlayEditPayload.createFrom;
+const $$createType3 = overlay$0.MonitorSession.createFrom;
+const $$createType4 = overlay$0.OverlayUi.createFrom;
+const $$createType5 = transfer$0.ReceiveState.createFrom;
+const $$createType6 = transfer$0.SendState.createFrom;
 
 configure();

@@ -1,4 +1,4 @@
-package hato
+package transfer
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func (m *Manager) runReceive(ctx context.Context, cancel context.CancelFunc, gen
 	}()
 
 	fail := func(err error) {
-		log.Printf("hato: receive %s: %v", code, err)
+		log.Printf("transfer: receive %s: %v", code, err)
 		msg := friendlyError(err).Error()
 		m.updateRecv(gen, true, func(s *ReceiveState) {
 			s.Active = false
@@ -88,8 +88,8 @@ func (m *Manager) runReceive(ctx context.Context, cancel context.CancelFunc, gen
 	case wormhole.TransferDirectory:
 		kind = KindFolder
 	default:
-		// A text message: the library has already acked and consumed it. Hato is a
-		// file pigeon, so say so instead of writing a stray file.
+		// A text message: the library has already acked and consumed it. This is a
+		// file transfer, so say so instead of writing a stray file.
 		fail(errors.New("the sender offered a text message, not a file"))
 		return
 	}
@@ -190,14 +190,14 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// spoolPath returns a fresh hidden-ish temp path in dir: ".hato-<rand><suffix>".
+// spoolPath returns a fresh hidden-ish temp path in dir: ".transfer-<rand><suffix>".
 // It lives IN the destination folder (not %TEMP%) so the final rename is a
 // same-volume move — atomic and instant even for multi-GB downloads, where a
 // cross-volume rename would silently become a second full copy.
 func spoolPath(dir, suffix string) string {
 	var b [6]byte
 	_, _ = rand.Read(b[:])
-	return filepath.Join(dir, ".hato-"+hex.EncodeToString(b[:])+suffix)
+	return filepath.Join(dir, ".transfer-"+hex.EncodeToString(b[:])+suffix)
 }
 
 // receiveFile claims a non-colliding final name FIRST (an empty placeholder,

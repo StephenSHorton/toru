@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Events as WailsEvents } from "@wailsio/runtime";
-import { HatoService, ReceiveState, SendState } from "@/lib/api";
+import { TransferService, ReceiveState, SendState } from "@/lib/api";
 
 // useSendState / useReceiveState mirror the ONE outgoing and ONE incoming
-// transfer the Go side tracks. Each hook subscribes to its hato:* event FIRST,
+// transfer the Go side tracks. Each hook subscribes to its transfer:* event FIRST,
 // then fetches the current status once, so a transfer started from the tray or
 // a Library card (which emits before this page mounts) is on screen immediately
 // and a late-resolving fetch can never clobber a newer event.
@@ -11,7 +11,7 @@ import { HatoService, ReceiveState, SendState } from "@/lib/api";
 // The backend has no "clear the finished transfer" call: SendStatus() keeps
 // reporting phase "done" until the next send. "Send another" / "Receive
 // another" are therefore a local dismissal keyed on the finished state. The key
-// lives at module scope so switching Library → Hato (which remounts this page
+// lives at module scope so switching Library → Send Files (which remounts this page
 // and refetches the same "done" state) does not bring the result card back.
 
 export const IDLE_SEND: SendState = new SendState({ phase: "idle" });
@@ -22,7 +22,7 @@ let dismissedReceive = "";
 
 // A StartSend kicked off from OUTSIDE this page (the Library card) can be
 // rejected synchronously — the capture file was deleted behind Toru's back —
-// after the caller has already switched to the Hato page. The rejection has
+// after the caller has already switched to the Send Files page. The rejection has
 // nowhere to render there, so it is parked here and handed to the Send card
 // when it subscribes (or immediately, if it already has).
 let pendingSendError = "";
@@ -76,7 +76,7 @@ export function useSendState(): [SendState, () => void] {
   useEffect(() => {
     let gone = false;
     let gotEvent = false;
-    const off = WailsEvents.On("hato:send", (ev) => {
+    const off = WailsEvents.On("transfer:send", (ev) => {
       const d = payload<SendState>(ev.data);
       if (!d) return;
       gotEvent = true;
@@ -85,7 +85,7 @@ export function useSendState(): [SendState, () => void] {
       if (d.active || d.phase === "error") dismissedSend = "";
       setRaw(d);
     });
-    void HatoService.SendStatus()
+    void TransferService.SendStatus()
       .then((s) => {
         if (!gone && !gotEvent && s) setRaw(s);
       })
@@ -114,14 +114,14 @@ export function useReceiveState(): [ReceiveState, () => void] {
   useEffect(() => {
     let gone = false;
     let gotEvent = false;
-    const off = WailsEvents.On("hato:receive", (ev) => {
+    const off = WailsEvents.On("transfer:receive", (ev) => {
       const d = payload<ReceiveState>(ev.data);
       if (!d) return;
       gotEvent = true;
       if (d.active) dismissedReceive = "";
       setRaw(d);
     });
-    void HatoService.ReceiveStatus()
+    void TransferService.ReceiveStatus()
       .then((s) => {
         if (!gone && !gotEvent && s) setRaw(s);
       })

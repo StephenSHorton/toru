@@ -40,18 +40,6 @@ export function OpenEditor(imagePath: string): $CancellablePromise<void> {
 }
 
 /**
- * OpenHato surfaces the Hato (file transfer) page of the hub. Reached from the
- * tray's "Send a file…" item. If the hub window already exists it is raised and
- * told to switch pages via the payload-less hato:open event (the page can't be
- * changed through the URL of a live window without a reload, which would drop
- * any in-flight transfer UI); otherwise the window is opened straight onto the
- * page via ?page=hato.
- */
-export function OpenHato(): $CancellablePromise<void> {
-    return $Call.ByID(2018745586);
-}
-
-/**
  * OpenOverlay opens the shared dim/crop capture overlay session: one frameless,
  * always-on-top, opaque window per monitor showing a FROZEN still dimmed with a
  * crop hole. Delegates to OverlayService.BeginSession, which freezes every
@@ -110,6 +98,18 @@ export function OpenRecordingError(message: string, monitorID: number): $Cancell
  */
 export function OpenRecordingFrame(dipX: number, dipY: number, dipW: number, dipH: number, monitorID: number): $CancellablePromise<void> {
     return $Call.ByID(3001338060, dipX, dipY, dipW, dipH, monitorID);
+}
+
+/**
+ * OpenSendFiles surfaces the Send Files page of the hub. Reached from the
+ * tray's "Send files…" item. If the hub window already exists it is raised and
+ * told to switch pages via the payload-less transfer:open event (the page can't be
+ * changed through the URL of a live window without a reload, which would drop
+ * any in-flight transfer UI); otherwise the window is opened straight onto the
+ * page via ?page=send.
+ */
+export function OpenSendFiles(): $CancellablePromise<void> {
+    return $Call.ByID(400209493);
 }
 
 /**

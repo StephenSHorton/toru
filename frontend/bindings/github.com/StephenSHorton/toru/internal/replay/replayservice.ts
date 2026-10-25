@@ -62,7 +62,12 @@ export function DeleteClip(path: string): $CancellablePromise<void> {
 }
 
 /**
- * DeleteSession deletes a recording (not one that is still recording).
+ * DeleteSession deletes a recording. When it is the one being recorded right
+ * now (a desktop background recording is live for as long as Toru runs, so it
+ * could otherwise never be deleted), the recorder is paused first: ffmpeg
+ * stops so Windows releases the segment files, the runs are removed, and
+ * reconcile restarts the recorder with the same settings, game and manual
+ * state as a fresh run. The pause lasts a moment, not the recording.
  */
 export function DeleteSession(id: number): $CancellablePromise<void> {
     return $Call.ByID(3840518766, id);

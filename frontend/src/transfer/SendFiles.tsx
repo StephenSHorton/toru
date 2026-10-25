@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { HatoService } from "@/lib/api";
+import { TransferService } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { humanBytes, percent } from "./format";
 import {
@@ -20,19 +20,19 @@ import {
   onLocalSendError,
   useReceiveState,
   useSendState,
-} from "./useHato";
+} from "./useTransfer";
 
-// Hato — "a carrier pigeon for your files". One page, two cards: send a file
-// or folder and read out the short code; or type a code and receive. The
-// transport is magic-wormhole (Go side, internal/hato), so the other end can be
-// another Toru or the `wormhole` CLI. State comes from hato:send / hato:receive
-// events via useHato; this file is only rendering + button handlers.
+// Send Files — one page, two cards: send a file or folder and read out the
+// short code; or type a code and receive. The transport is magic-wormhole (Go
+// side, internal/transfer), so the other end can be another Toru or the
+// `wormhole` CLI. State comes from transfer:send / transfer:receive events via
+// useTransfer; this file is only rendering + button handlers.
 
-export default function Hato() {
+export default function SendFiles() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Hato</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Send Files</h1>
         <p className="text-sm text-muted-foreground">
           Send a file to anyone with a short code. Works with the wormhole CLI too.
         </p>
@@ -103,7 +103,7 @@ function SendCard() {
   const start = useCallback(async (path: string) => {
     setLocalErr("");
     try {
-      await HatoService.StartSend(path);
+      await TransferService.StartSend(path);
     } catch (e) {
       setLocalErr(errText(e));
     }
@@ -117,8 +117,8 @@ function SendCard() {
       try {
         const path =
           kind === "file"
-            ? await HatoService.PickSendFile()
-            : await HatoService.PickSendFolder();
+            ? await TransferService.PickSendFile()
+            : await TransferService.PickSendFolder();
         if (path) await start(path);
       } catch (e) {
         setLocalErr(errText(e));
@@ -133,7 +133,7 @@ function SendCard() {
     if (stopping) return;
     setStopping(true);
     try {
-      await HatoService.StopSend();
+      await TransferService.StopSend();
     } catch (e) {
       setLocalErr(errText(e));
     } finally {
@@ -163,7 +163,7 @@ function SendCard() {
     if (qr?.code === code) return;
     setQrErr("");
     try {
-      const png = await HatoService.CodeQR(code);
+      const png = await TransferService.CodeQR(code);
       setQr({ code, png });
     } catch (e) {
       setQrErr(errText(e));
@@ -302,7 +302,7 @@ function SendCard() {
         </div>
 
         <p className="text-xs leading-relaxed text-muted-foreground">
-          They open Toru → Hato → Receive and type the code, or run{" "}
+          They open Toru → Send Files → Receive and type the code, or run{" "}
           <code className="font-mono text-foreground/80">
             {`wormhole receive ${code || "<code>"}`}
           </code>
@@ -367,10 +367,10 @@ function ReceiveCard() {
   const [dirBusy, setDirBusy] = useState(false);
 
   const refreshDir = useCallback(() => {
-    void HatoService.GetReceiveDir()
+    void TransferService.GetReceiveDir()
       .then((d) => setDir(typeof d === "string" ? d : ""))
       .catch(() => setDir(""));
-    void HatoService.IsDefaultReceiveDir()
+    void TransferService.IsDefaultReceiveDir()
       .then((v) => setDirDefault(!!v))
       .catch(() => setDirDefault(true));
   }, []);
@@ -383,7 +383,7 @@ function ReceiveCard() {
     if (dirBusy) return;
     setDirBusy(true);
     try {
-      const chosen = await HatoService.PickReceiveDir();
+      const chosen = await TransferService.PickReceiveDir();
       if (chosen) {
         setDir(chosen);
         setDirDefault(false);
@@ -401,7 +401,7 @@ function ReceiveCard() {
     if (dirBusy) return;
     setDirBusy(true);
     try {
-      await HatoService.ResetReceiveDir();
+      await TransferService.ResetReceiveDir();
     } catch {
       // refresh below shows whatever the backend settled on
     } finally {
@@ -419,7 +419,7 @@ function ReceiveCard() {
     setSubmitting(true);
     setLocalErr("");
     try {
-      await HatoService.StartReceive(c);
+      await TransferService.StartReceive(c);
     } catch (e) {
       setLocalErr(errText(e));
     } finally {
@@ -437,7 +437,7 @@ function ReceiveCard() {
     if (cancelling) return;
     setCancelling(true);
     try {
-      await HatoService.CancelReceive();
+      await TransferService.CancelReceive();
     } catch (e) {
       setLocalErr(errText(e));
     } finally {
@@ -448,7 +448,7 @@ function ReceiveCard() {
   const reveal = useCallback(async () => {
     setLocalErr("");
     try {
-      await HatoService.RevealReceived();
+      await TransferService.RevealReceived();
     } catch (e) {
       setLocalErr(errText(e));
     }
@@ -560,12 +560,12 @@ function ReceiveCard() {
       <CardTitle caption="Type the code the sender reads out">Receive</CardTitle>
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="hato-code" className="text-xs text-muted-foreground">
+        <label htmlFor="transfer-code" className="text-xs text-muted-foreground">
           Code
         </label>
         <div className="flex gap-2">
           <input
-            id="hato-code"
+            id="transfer-code"
             value={code}
             disabled={recv.active}
             placeholder="7-guitarist-revenge"
@@ -624,7 +624,7 @@ function ReceiveCard() {
             size="sm"
             variant="ghost"
             disabled={!dir}
-            onClick={() => void HatoService.OpenReceiveDir()}
+            onClick={() => void TransferService.OpenReceiveDir()}
           >
             Open folder
           </Button>

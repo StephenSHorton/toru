@@ -1,4 +1,4 @@
-package hato
+package transfer
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 )
 
 // isolatePrefs points every home/config env the Go stdlib consults at a temp
-// dir so the test never touches the real %AppData%\toru\hato.json. Returns the
+// dir so the test never touches the real %AppData%\toru\transfer.json. Returns the
 // fake profile dir.
 func isolatePrefs(t *testing.T) string {
 	t.Helper()
@@ -58,8 +58,8 @@ func TestReceiveDirPrefsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Base(prefs) != "hato.json" || filepath.Base(filepath.Dir(prefs)) != "toru" {
-		t.Fatalf("prefs path = %q, want …\\toru\\hato.json", prefs)
+	if filepath.Base(prefs) != "transfer.json" || filepath.Base(filepath.Dir(prefs)) != "toru" {
+		t.Fatalf("prefs path = %q, want …\\toru\\transfer.json", prefs)
 	}
 	raw, err := os.ReadFile(prefs)
 	if err != nil {

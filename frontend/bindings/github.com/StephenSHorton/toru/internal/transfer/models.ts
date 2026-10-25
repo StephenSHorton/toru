@@ -108,7 +108,7 @@ export class ReceiveState {
 
 /**
  * SendState is the whole UI model of the ONE outgoing transfer. It is the
- * hato:send event payload and the SendStatus() return value, so a page that
+ * transfer:send event payload and the SendStatus() return value, so a page that
  * mounts mid-transfer can render from a single fetch.
  */
 export class SendState {

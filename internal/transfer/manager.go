@@ -1,4 +1,4 @@
-package hato
+package transfer
 
 import (
 	"context"
@@ -162,24 +162,24 @@ func (m *Manager) ReceiveStatus() ReceiveState {
 // any send already in flight — the UI has one send slot and a fresh drop means
 // the user changed their mind. Validation errors (missing path, drive root,
 // empty folder) return synchronously so the caller can show them; everything
-// after that flows through the hato:send phases.
+// after that flows through the transfer:send phases.
 func (m *Manager) StartSend(path string) error {
 	if strings.TrimSpace(path) == "" {
-		return errors.New("hato: no path to send")
+		return errors.New("transfer: no path to send")
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return fmt.Errorf("hato: %w", err)
+		return fmt.Errorf("transfer: %w", err)
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return fmt.Errorf("hato: %w", err)
+		return fmt.Errorf("transfer: %w", err)
 	}
 	name := filepath.Base(abs)
 	// A drive root ("C:\") has no base name, and the library refuses a directory
 	// name containing a separator. Nobody means to send their whole disk anyway.
 	if name == "" || strings.ContainsAny(name, `\/`) || filepath.VolumeName(abs) == abs || abs == filepath.Dir(abs) {
-		return errors.New("hato: cannot send a drive root")
+		return errors.New("transfer: cannot send a drive root")
 	}
 	kind := KindFile
 	if info.IsDir() {
@@ -225,14 +225,14 @@ func (m *Manager) FailIdleSend(path string, err error) {
 	m.mu.Lock()
 	if m.send.Active {
 		m.mu.Unlock()
-		log.Printf("hato: ignored failed start of %q while a send is active: %v", path, err)
+		log.Printf("transfer: ignored failed start of %q while a send is active: %v", path, err)
 		return
 	}
 	name := filepath.Base(path)
 	if name == "." || name == string(filepath.Separator) {
 		name = path
 	}
-	msg := strings.TrimPrefix(err.Error(), "hato: ")
+	msg := strings.TrimPrefix(err.Error(), "transfer: ")
 	m.sendGen.Add(1)
 	m.send = SendState{
 		Phase:   SendError,
@@ -283,14 +283,14 @@ func (m *Manager) StopSend() error {
 func (m *Manager) StartReceive(code, dir string) error {
 	code = NormalizeCode(code)
 	if code == "" {
-		return errors.New("hato: enter the code the sender gave you")
+		return errors.New("transfer: enter the code the sender gave you")
 	}
 	nameplate, _, _ := strings.Cut(code, "-")
 	if _, err := strconv.Atoi(nameplate); err != nil {
-		return errors.New("hato: a code looks like 7-guitarist-revenge (number, dash, words)")
+		return errors.New("transfer: a code looks like 7-guitarist-revenge (number, dash, words)")
 	}
 	if strings.TrimSpace(dir) == "" {
-		return errors.New("hato: no receive folder configured")
+		return errors.New("transfer: no receive folder configured")
 	}
 
 	m.mu.Lock()

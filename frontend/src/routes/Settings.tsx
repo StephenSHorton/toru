@@ -19,10 +19,10 @@ import { Switch } from "@/components/ui/switch";
 import { Updater } from "@/updater/Updater";
 import { Shortcuts } from "@/shortcuts/Shortcuts";
 import { ReplayPanel } from "@/replay/ReplayPanel";
-import Hato from "@/hato/Hato";
-import { errText, reportLocalSendError } from "@/hato/useHato";
+import SendFiles from "@/transfer/SendFiles";
+import { errText, reportLocalSendError } from "@/transfer/useTransfer";
 import {
-  HatoService,
+  TransferService,
   HistoryService,
   OverlayService,
   ReplayService,
@@ -37,11 +37,11 @@ import { cn } from "@/lib/utils";
 // recent screenshots & recordings; Settings is a navigable panel (shortcuts,
 // launch-at-login, freeze, updater).
 
-type Page = "library" | "hato" | "settings";
-const PAGES: readonly Page[] = ["library", "hato", "settings"];
+type Page = "library" | "send" | "settings";
+const PAGES: readonly Page[] = ["library", "send", "settings"];
 
-// initialPage honours `?page=` so the tray's "Send a file…" can open the hub
-// straight onto Hato (windows.go OpenHato); anything else lands on Library.
+// initialPage honours `?page=` so the tray's "Send files…" can open the hub
+// straight onto Send Files (windows.go OpenSendFiles); anything else lands on Library.
 function initialPage(): Page {
   const p = new URLSearchParams(window.location.search).get("page") ?? "";
   return (PAGES as readonly string[]).includes(p) ? (p as Page) : "library";
@@ -50,23 +50,23 @@ function initialPage(): Page {
 export default function Settings() {
   const [page, setPage] = useState<Page>(initialPage);
 
-  // Go raises an already-open hub and asks it to switch pages via hato:open
+  // Go raises an already-open hub and asks it to switch pages via transfer:open
   // (no payload) instead of reloading the window, which would drop the live
   // transfer UI.
   useEffect(() => {
-    const off = WailsEvents.On("hato:open", () => setPage("hato"));
+    const off = WailsEvents.On("transfer:open", () => setPage("send"));
     return () => {
       off();
     };
   }, []);
 
-  // Library card → Hato: kick off the send, then show the page. Transfer
-  // errors arrive as the "error" phase on hato:send and render on the Hato
+  // Library card → Send Files: kick off the send, then show the page. Transfer
+  // errors arrive as the "error" phase on transfer:send and render on the Send Files
   // page itself; a synchronous rejection (the capture file is gone) is routed
   // to the Send card the same way, since by then this page has switched.
   const sendItem = useCallback((item: CaptureItem) => {
-    void HatoService.StartSend(item.path).catch((e: unknown) => reportLocalSendError(errText(e)));
-    setPage("hato");
+    void TransferService.StartSend(item.path).catch((e: unknown) => reportLocalSendError(errText(e)));
+    setPage("send");
   }, []);
 
   return (
@@ -87,10 +87,10 @@ export default function Settings() {
           onClick={() => setPage("library")}
         />
         <NavBtn
-          active={page === "hato"}
+          active={page === "send"}
           icon={Send}
-          label="Hato"
-          onClick={() => setPage("hato")}
+          label="Send Files"
+          onClick={() => setPage("send")}
         />
 
         <div
@@ -121,8 +121,8 @@ export default function Settings() {
       <main className="min-w-0 flex-1 overflow-auto p-6">
         {page === "library" ? (
           <LibraryPage onSendItem={sendItem} />
-        ) : page === "hato" ? (
-          <Hato />
+        ) : page === "send" ? (
+          <SendFiles />
         ) : (
           <SettingsPage />
         )}
@@ -923,8 +923,8 @@ function CaptureCard({
           size="icon"
           variant="ghost"
           className="size-7 shrink-0 opacity-60 hover:opacity-100"
-          title="Send with Hato"
-          aria-label="Send with Hato"
+          title="Send"
+          aria-label="Send file"
           onClick={(e) => {
             e.stopPropagation();
             onSend();
