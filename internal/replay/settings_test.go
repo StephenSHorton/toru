@@ -19,6 +19,15 @@ func TestNormalizeClampsEverything(t *testing.T) {
 	if loud.DesktopVolume != maxVolume || loud.MicVolume != 0 || loud.AudioBitrateKbps != 160 {
 		t.Errorf("audio Normalize = %+v", loud)
 	}
+	if r := (Settings{RetentionSec: 1234}).Normalize(); r.RetentionSec != 0 {
+		t.Errorf("RetentionSec not in RetentionOptions must snap to 0, got %d", r.RetentionSec)
+	}
+	if r := (Settings{RetentionSec: 3600}).Normalize(); r.RetentionSec != 3600 {
+		t.Errorf("RetentionSec 3600 is an option and must survive, got %d", r.RetentionSec)
+	}
+	if DefaultSettings().RetentionSec != 0 {
+		t.Error("retention must default to 0 (until storage is full)")
+	}
 	if d := DefaultSettings(); d.Normalize() != d {
 		t.Errorf("defaults must already be normal: %+v", d)
 	}
@@ -38,6 +47,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 	want := DefaultSettings()
 	want.Enabled, want.DurationSec, want.Codec, want.MicDevice = true, 300, capture.ReplayCodecAV1, "Mic (USB)"
+	want.RetentionSec = 3600
 	if err := saveSettings(want); err != nil {
 		t.Fatal(err)
 	}
@@ -81,6 +91,34 @@ func TestRestartOnlyForCaptureFields(t *testing.T) {
 	c.MicDevice, c.MicVolume, c.DiscordVolume = "Mic", 0, 0
 	if cfg := toConfig(c); cfg.Audio.MicDevice != "" || cfg.Audio.Discord || !cfg.Audio.Desktop {
 		t.Errorf("0%% volume must switch that source off: %+v", cfg.Audio)
+	}
+
+	// Background limits (disk cap, footage retention) reach the running
+	// recorder live: the config changes, but not outside withoutLimits, which
+	// is what reconcile's limitsOnly path compares.
+	old := hevcAvailable
+	hevcAvailable = func() bool { return true }
+	t.Cleanup(func() { hevcAvailable = old })
+	bg := a
+	bg.Mode = ModeBackground
+	bg2 := bg
+	bg2.RetentionSec, bg2.MaxDiskGB = 3600, 100
+	if got := toConfig(bg).MaxFootageSec; got != 0 {
+		t.Errorf("RetentionSec 0 must mean no footage budget, got %d", got)
+	}
+	if got := toConfig(bg2).MaxFootageSec; got != 3600 {
+		t.Errorf("background RetentionSec must map to MaxFootageSec, got %d", got)
+	}
+	if toConfig(bg) == toConfig(bg2) {
+		t.Error("a retention / disk cap change must reach the recorder")
+	}
+	if withoutLimits(toConfig(bg)) != withoutLimits(toConfig(bg2)) {
+		t.Error("a retention / disk cap change must not restart the recorder")
+	}
+	man := bg2
+	man.Mode = ModeManual
+	if got := toConfig(man).MaxFootageSec; got != 0 {
+		t.Errorf("manual recordings are protected and must never get a footage budget, got %d", got)
 	}
 }
 

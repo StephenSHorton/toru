@@ -25,12 +25,18 @@ type Settings struct {
 	//   ModeReplay     keep only the last DurationSec; the hotkey saves it
 	//   ModeBackground record whole sessions (by default only while a game
 	//                  runs); when MaxDiskGB is reached the oldest whole
-	//                  session is deleted; timeline
+	//                  session is deleted, and RetentionSec can keep only
+	//                  the last N seconds of footage; timeline
 	//   ModeManual     record between presses of the record hotkey; kept
 	//                  until deleted
 	// The save-clip hotkey works in every mode.
-	Mode          string `json:"mode"`
-	MaxDiskGB     int    `json:"maxDiskGB"`     // cap for all recordings
+	Mode      string `json:"mode"`
+	MaxDiskGB int    `json:"maxDiskGB"` // cap for all recordings
+	// RetentionSec (background) is the footage kept across all sessions, in
+	// seconds: footage duration, not wall-clock age, so last night's play still
+	// counts this morning. Older footage is deleted, trimming inside a session
+	// if needed; manual recordings are protected. 0 = until the storage limit.
+	RetentionSec  int    `json:"retentionSec"`
 	GamesOnly     bool   `json:"gamesOnly"`     // background: only while a game runs
 	RecordingsDir string `json:"recordingsDir"` // "" = DefaultRecordingsDir()
 	// RecordingQuality is the video quality for background/manual recording,
@@ -82,6 +88,7 @@ var (
 	AudioKbpsOptions = []int{96, 128, 160, 192, 256, 320}
 	ModeOptions      = []string{ModeReplay, ModeBackground, ModeManual}
 	DiskGBOptions    = []int{10, 25, 50, 100, 200, 500}
+	RetentionOptions = []int{0, 1800, 3600, 7200, 14400, 28800, 86400} // seconds; 0 = until storage is full
 	QualityOptions   = []string{QualitySaver, QualityStandard, QualityHigh, QualityCustom}
 )
 
@@ -163,6 +170,9 @@ func (s Settings) Normalize() Settings {
 	}
 	if !slices.Contains(DiskGBOptions, s.MaxDiskGB) {
 		s.MaxDiskGB = d.MaxDiskGB
+	}
+	if !slices.Contains(RetentionOptions, s.RetentionSec) {
+		s.RetentionSec = d.RetentionSec
 	}
 	if !slices.Contains(QualityOptions, s.RecordingQuality) {
 		s.RecordingQuality = d.RecordingQuality

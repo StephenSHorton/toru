@@ -149,8 +149,9 @@ func (s *ReplayService) reconcile() error {
 		(st.Mode == ModeManual && manual))
 	cfg := toConfigFor(st, game)
 	same := cfg == s.runningCfg
-	// A new storage limit applies to the running recorder without a restart.
-	limitsOnly := !same && cfg.Persist && withMaxBytes(cfg, 0) == withMaxBytes(s.runningCfg, 0)
+	// A new storage or footage limit applies to the running recorder without
+	// a restart.
+	limitsOnly := !same && cfg.Persist && withoutLimits(cfg) == withoutLimits(s.runningCfg)
 	s.mu.Unlock()
 
 	if !want {
@@ -165,6 +166,7 @@ func (s *ReplayService) reconcile() error {
 	}
 	if limitsOnly && s.buf.Running() {
 		s.buf.SetMaxBytes(cfg.MaxBytes)
+		s.buf.SetMaxFootageSec(cfg.MaxFootageSec)
 		s.mu.Lock()
 		s.runningCfg = cfg
 		s.mu.Unlock()
@@ -221,16 +223,28 @@ func toConfigFor(st Settings, game string) capture.ReplayConfig {
 	} else {
 		cfg.FPS, cfg.BitrateKbps = st.RecordingFPS, st.RecordingBitrateMbps*1000
 	}
-	// No age limit: sessions are kept whole until the storage limit needs
-	// their space, then the oldest goes (manual recordings are protected).
+	// No age limit: sessions are kept until the storage limit needs their
+	// space, then the oldest goes. Background recording can also keep only
+	// the last RetentionSec of footage across every session: that is footage
+	// duration (sum of segment lengths), not wall-clock age, so in games-only
+	// mode last night's play still counts this morning. Manual recordings are
+	// protected, so they are neither counted nor trimmed, and manual mode
+	// itself never sets a footage budget.
 	cfg.KeepSeconds = 0
+	if st.Mode == ModeBackground {
+		cfg.MaxFootageSec = st.RetentionSec
+	}
 	cfg.WholeSessions = true
 	cfg.Tag = encodeTag(st.Mode, game, cfg.Codec)
 	return cfg
 }
 
-func withMaxBytes(c capture.ReplayConfig, n int64) capture.ReplayConfig {
-	c.MaxBytes = n
+// withoutLimits is c with the limits a running recorder can take live
+// (SetMaxBytes / SetMaxFootageSec) zeroed, so comparing two configs answers
+// "does only a limit differ?".
+func withoutLimits(c capture.ReplayConfig) capture.ReplayConfig {
+	c.MaxBytes = 0
+	c.MaxFootageSec = 0
 	return c
 }
 

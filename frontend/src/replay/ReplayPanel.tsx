@@ -9,6 +9,7 @@ import { useShortcuts } from "@/shortcuts/useShortcuts";
 import { FFmpegState, ReplayService, ReplaySettings, ReplayStatus, Shortcut } from "@/lib/api";
 import type { RecorderState, RecordingPreset, ReplayMonitor } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { RETENTION_CHIPS, fmtRetention } from "@/replay/format";
 
 // Instant replay panel — ShadowPlay-style "save the last N minutes". Every
 // control applies immediately through ReplayService.SetSettings; the Go side
@@ -629,7 +630,8 @@ export function ReplayPanel() {
           summary={
             `${QUALITY.find((q) => q.value === settings.recordingQuality)?.label ?? "Custom"} (${recSpec.fps} fps, ${recSpec.mbps} Mbps) · ` +
 
-            (recorder ? `${formatGB(recorder.diskBytes)} of ${settings.maxDiskGB} GB used` : `${settings.maxDiskGB} GB limit`)
+            (recorder ? `${formatGB(recorder.diskBytes)} of ${settings.maxDiskGB} GB used` : `${settings.maxDiskGB} GB limit`) +
+            (settings.mode === "background" && settings.retentionSec > 0 ? ` · keeps the last ${fmtRetention(settings.retentionSec)}` : "")
           }
           defaultOpen
         >
@@ -731,6 +733,40 @@ export function ReplayPanel() {
                 disabled={busy}
                 onChange={(v) => void update({ gamesOnly: v })}
               />
+              <Field
+                label={
+                  <>
+                    Keep the last
+                    <InfoTip>
+                      Keeps this much recorded footage in total, counted across every game and session; the
+                      oldest is deleted first, trimming inside a session when it runs long. It counts
+                      recording time, not how long ago: 20 minutes a night fills an hour in three nights.
+                      Older footage goes the next time recording runs, so lowering this while nothing is
+                      recording takes effect at the next session. Until storage is full: sessions stay until
+                      the storage limit below needs the space. Manual recordings are never counted or
+                      deleted. To keep something for good, save it as a clip.
+                    </InfoTip>
+                  </>
+                }
+              >
+                <Chips
+                  options={RETENTION_CHIPS}
+                  value={settings.retentionSec}
+                  format={fmtRetention}
+                  disabled={busy}
+                  onPick={(v) => void update({ retentionSec: v })}
+                />
+              </Field>
+              {settings.retentionSec > 0 && recMbps > 0 ? (
+                <span className="text-xs text-muted-foreground">
+                  {fmtRetention(settings.retentionSec)} at {recMbps} Mbps is about{" "}
+                  <span className="text-foreground">{formatGB((settings.retentionSec * recMbps * 1e6) / 8)}</span>
+                  {/* The recorder's cap is MaxDiskGB GiB (1 << 30 per GB). */}
+                  {(settings.retentionSec * recMbps * 1e6) / 8 > settings.maxDiskGB * 2 ** 30
+                    ? ` · more than the ${settings.maxDiskGB} GB limit, so the limit wins`
+                    : ""}
+                </span>
+              ) : null}
             </>
           )}
           <Field

@@ -260,6 +260,9 @@ export class RecordingPreset {
  */
 export class Session {
     /**
+     * ID is the first run. A session also answers to any of its other runs
+     * (findSession), so a viewer keeps its handle when the footage budget
+     * trims the first run away and the next run becomes the ID.
      * first run
      */
     "id": number;
@@ -398,7 +401,8 @@ export class Settings {
      *   ModeReplay     keep only the last DurationSec; the hotkey saves it
      *   ModeBackground record whole sessions (by default only while a game
      *                  runs); when MaxDiskGB is reached the oldest whole
-     *                  session is deleted; timeline
+     *                  session is deleted, and RetentionSec can keep only
+     *                  the last N seconds of footage; timeline
      *   ModeManual     record between presses of the record hotkey; kept
      *                  until deleted
      * The save-clip hotkey works in every mode.
@@ -409,6 +413,14 @@ export class Settings {
      * cap for all recordings
      */
     "maxDiskGB": number;
+
+    /**
+     * RetentionSec (background) is the footage kept across all sessions, in
+     * seconds: footage duration, not wall-clock age, so last night's play still
+     * counts this morning. Older footage is deleted, trimming inside a session
+     * if needed; manual recordings are protected. 0 = until the storage limit.
+     */
+    "retentionSec": number;
 
     /**
      * background: only while a game runs
@@ -543,6 +555,9 @@ export class Settings {
         }
         if (!("maxDiskGB" in $$source)) {
             this["maxDiskGB"] = 0;
+        }
+        if (!("retentionSec" in $$source)) {
+            this["retentionSec"] = 0;
         }
         if (!("gamesOnly" in $$source)) {
             this["gamesOnly"] = false;

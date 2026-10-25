@@ -23,8 +23,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ReplayService } from "@/lib/api";
-import type { RecordingMarker, RecordingSession } from "@/lib/api";
+import type { RecordingMarker, RecordingSession, ReplaySettings } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { fmtRetention } from "@/replay/format";
 
 // Timeline viewer for a background/manual recording (Steam's "Recordings"
 // view): the whole session plays as HLS straight from its 2s segments, with
@@ -69,7 +70,10 @@ function markerLabel(m: RecordingMarker): string {
 }
 
 export default function Timeline() {
-  const id = Number(new URLSearchParams(window.location.search).get("id") ?? "0");
+  // The recording's ID is its first run. When the footage budget deletes that
+  // whole run out of a multi-run session, the next run becomes the ID; refresh
+  // then adopts it from the runs this view last saw.
+  const [id, setId] = useState(() => Number(new URLSearchParams(window.location.search).get("id") ?? "0"));
   const vidRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const [session, setSession] = useState<RecordingSession | null>(null);
@@ -86,14 +90,60 @@ export default function Timeline() {
   const [note, setNote] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [playError, setPlayError] = useState("");
+  // Recording settings, read once: only the retention chip depends on them,
+  // so a failed read falls back to the generic text instead of an error.
+  const [replaySettings, setReplaySettings] = useState<ReplaySettings | null>(null);
+  useEffect(() => {
+    void ReplayService.GetSettings()
+      .then(setReplaySettings)
+      .catch(() => {});
+  }, []);
+
+  // Two clocks. The player's time is anchored to the playlist it attached:
+  // hls.js aligns reloads by sequence number and keeps fragment starts
+  // continuous, so trimming the oldest segments off a live session (the
+  // "Keep the last" budget, or the storage limit) does not move player time.
+  // The session's offsets, markers and CreateClip count from the first
+  // segment that still exists, so they move down by whatever was trimmed.
+  // `head` is that gap: offset = player time - head. Everything in this view
+  // (cur, sel, markers, the track) is in session offsets; only the two player
+  // boundaries (seek, timeupdate) convert.
+  //   hlsHead: where hls.js now places the first listed fragment (live
+  //            playlists slide; 0 for a VOD playlist, which is fetched once).
+  //   vodDelta: footage trimmed from a finished session since attach. Its
+  //            playlist never reloads, so the duration shrinking is the only
+  //            sign; finished sessions never grow, so any shrink is a trim.
+  const [hlsHead, setHlsHead] = useState(0);
+  const [vodDelta, setVodDelta] = useState(0);
+  const head = hlsHead + vodDelta;
+  const sessionRef = useRef<RecordingSession | null>(null);
 
   const refresh = useCallback(() => {
     void ReplayService.GetSession(id)
       .then((s) => {
+        const prev = sessionRef.current;
+        if (prev && prev.id === s.id && !prev.live && !s.live) {
+          if (s.durationSec > prev.durationSec + 0.001) return; // a stale response (finished sessions only shrink)
+          if (s.durationSec < prev.durationSec) setVodDelta((d) => d + (prev.durationSec - s.durationSec));
+        }
+        sessionRef.current = s;
         setSession(s);
         void Window.SetTitle(`Toru — ${s.game || (s.mode === "manual" ? "Recording" : "Desktop")} · ${new Date(s.startMs).toLocaleString()}`).catch(() => {});
       })
-      .catch((e) => setLoadError(String(e).replace(/^Error:\s*/, "")));
+      .catch(async (e) => {
+        // Gone under this ID: the session may live on under a later run.
+        const others = (sessionRef.current?.runs ?? []).filter((r) => r !== id);
+        for (const r of others) {
+          try {
+            await ReplayService.GetSession(r);
+            setId(r); // a new refresh follows from the id change
+            return;
+          } catch {
+            // that run is gone too; try the next
+          }
+        }
+        setLoadError(String(e).replace(/^Error:\s*/, ""));
+      });
   }, [id]);
 
   useEffect(() => {
@@ -102,21 +152,59 @@ export default function Timeline() {
     return () => off();
   }, [refresh]);
 
-  // Live recordings grow: re-read the session (duration, markers) regularly.
+  // Live recordings grow, and background recordings shrink while anything
+  // records (the oldest footage goes first, trimming inside a session): re-read
+  // the session (duration, markers) regularly. Every prune also publishes a
+  // recorder status, so a trim is picked up without waiting for the poll.
+  const watch = session?.live || session?.mode === "background";
   useEffect(() => {
-    if (!session?.live) return;
+    if (!watch) return;
     const t = window.setInterval(refresh, 5000);
-    return () => window.clearInterval(t);
-  }, [session?.live, refresh]);
+    const off = WailsEvents.On("replay:status", () => refresh());
+    return () => {
+      window.clearInterval(t);
+      off();
+    };
+  }, [watch, refresh]);
 
-  // Attach the HLS playlist once.
+  // When the head moves, what was at offset t is now at t - shift: move the
+  // selection, the view and the playhead with it so they stay on their footage.
+  const prevHeadRef = useRef(0);
+  useEffect(() => {
+    const shift = head - prevHeadRef.current;
+    prevHeadRef.current = head;
+    if (shift === 0) return;
+    setCur((c) => Math.max(0, c - shift));
+    setViewStart((v) => v - shift);
+    if (!sel) return;
+    if (sel.b - shift < 0.5) {
+      setSel(null);
+      setNote("The selected footage was deleted (it was the oldest kept)");
+    } else {
+      setSel({ a: Math.max(0, sel.a - shift), b: sel.b - shift });
+    }
+  }, [head, sel]);
+
+  // Attach the HLS playlist once per session ID. The ID changes when pruning
+  // deleted the whole first run of a multi-run session; the numbering then
+  // restarts from the next run, so re-attach and start the clocks over.
   const playlist = session?.playlistUrl ?? "";
+  const attachedRef = useRef(""); // the playlist attached last (StrictMode re-runs this effect for the same one)
   useEffect(() => {
     const v = vidRef.current;
     if (!v || !playlist) return;
     setPlayError("");
+    if (attachedRef.current && attachedRef.current !== playlist) {
+      setSel(null);
+      setNote("The oldest footage was deleted; the selection was cleared");
+    }
+    attachedRef.current = playlist;
+    prevHeadRef.current = 0;
+    setHlsHead(0);
+    setVodDelta(0);
     if (Hls.isSupported()) {
       const hls = new Hls({ startPosition: 0, maxBufferLength: 20 });
+      hls.on(Hls.Events.LEVEL_UPDATED, (_e, data) => setHlsHead(data.details.fragmentStart));
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) setPlayError(data.details || data.type || "playback error");
       });
@@ -188,11 +276,13 @@ export default function Timeline() {
     return () => el.removeEventListener("wheel", onWheel);
   }, [session !== null]);
 
+  // seek and onTimeUpdate are the two places session offsets meet player
+  // time (offset = player time - head).
   const seek = (t: number) => {
     const v = vidRef.current;
     if (!v) return;
-    v.currentTime = Math.max(0, Math.min(t, duration));
-    setCur(v.currentTime);
+    v.currentTime = Math.max(0, Math.min(t, duration)) + head;
+    setCur(Math.max(0, v.currentTime - head));
   };
 
   const toggle = () => {
@@ -297,7 +387,21 @@ export default function Timeline() {
     if (!sel || sel.b - sel.a < 0.5) return;
     setBusy(true);
     try {
-      const path = await ReplayService.CreateClip(id, sel.a, sel.b);
+      // The front may have been trimmed since the last refresh: re-read the
+      // session and move the cut with it. A finished session only shrinks,
+      // so the whole change is trimmed footage; a live one is tracked by the
+      // player's own playlist reloads (within one segment).
+      const fresh = await ReplayService.GetSession(id);
+      let { a, b } = sel;
+      if (session && fresh.id === session.id && !session.live && !fresh.live && fresh.durationSec < session.durationSec) {
+        const d = session.durationSec - fresh.durationSec;
+        a -= d;
+        b -= d;
+      }
+      if (b < 0.5 || (session && fresh.id !== session.id)) {
+        throw new Error("that footage was deleted (it was the oldest kept)");
+      }
+      const path = await ReplayService.CreateClip(id, Math.max(0, a), b);
       setNote("Clip saved, opening the editor…");
       await ReplayService.OpenClip(path);
     } catch (e) {
@@ -439,7 +543,7 @@ export default function Timeline() {
           className="max-h-full max-w-full cursor-pointer"
           onClick={toggle}
           onCanPlay={() => setReady(true)}
-          onTimeUpdate={(e) => setCur(e.currentTarget.currentTime)}
+          onTimeUpdate={(e) => setCur(Math.max(0, e.currentTarget.currentTime - head))}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
         />
@@ -465,7 +569,9 @@ export default function Timeline() {
             <span className="bg-primary/15 px-1.5 py-0.5 text-primary">Manual · stays until you delete it</span>
           ) : session && !session.live ? (
             <span className="bg-muted px-1.5 py-0.5 text-muted-foreground">
-              Background · deleted when storage runs out. Save a clip to keep it
+              {replaySettings?.mode === "background" && replaySettings.retentionSec > 0
+                ? `Background · keeps the last ${fmtRetention(replaySettings.retentionSec)} of footage. Save a clip to keep it`
+                : "Background · deleted when storage runs out. Save a clip to keep it"}
             </span>
           ) : null}
           {note ? <span className="ml-auto text-primary">{note}</span> : null}
