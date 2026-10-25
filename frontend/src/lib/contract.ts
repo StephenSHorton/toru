@@ -145,9 +145,9 @@ export const Events = {
   // rectangle across the seam. Every window applies it and re-renders its slice.
   OverlayCropRect: "overlay:cropRect",
   OverlayUi: "overlay:ui",
-  // update:installing (string version) — the backend is about to install a forced
-  // update and quit to relaunch; an open window flips to its "Updating…" state.
-  UpdateInstalling: "update:installing",
+  // update:status (update.Status) — the updater's phase changed: downloading,
+  // ready (restart or install-on-quit), installing, error. See useUpdater.
+  UpdateStatus: "update:status",
 } as const;
 
 /**

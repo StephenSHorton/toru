@@ -10,7 +10,9 @@
 //   OverlayService.* (capture/recording coordination — exposed for completeness)
 //   UpdateService.GetVersion(): Promise<string>
 //   UpdateService.CheckForUpdate(): Promise<UpdateInfo | null>  (null === up to date)
-//   UpdateService.DownloadAndInstall(info: UpdateInfo): Promise<void>
+//   UpdateService.GetStatus(): Promise<UpdateStatus>  (phase idle|checking|downloading|ready|installing|error; "update:status" events)
+//   UpdateService.CheckAndDownload(): Promise<UpdateStatus>  (manual check: downloads + verifies, never installs)
+//   UpdateService.RestartToUpdate(): Promise<void>  (phase ready only: launches the installer and quits)
 //   HotkeyService.GetShortcuts(): Promise<Shortcut[]>
 //   HotkeyService.SetShortcut(action: string, sc: Shortcut): Promise<void>  (rejects on validation error)
 //   HotkeyService.ResetShortcut(action: string): Promise<void>
@@ -39,7 +41,10 @@ import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/in
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
 import * as UpdateService from "../../bindings/github.com/StephenSHorton/toru/internal/update/updateservice.js";
-import { UpdateInfo } from "../../bindings/github.com/StephenSHorton/toru/internal/update/models.js";
+import {
+  UpdateInfo,
+  Status as UpdateStatus,
+} from "../../bindings/github.com/StephenSHorton/toru/internal/update/models.js";
 import * as HotkeyService from "../../bindings/github.com/StephenSHorton/toru/internal/hotkey/hotkeyservice.js";
 import { Shortcut } from "../../bindings/github.com/StephenSHorton/toru/internal/hotkey/models.js";
 import * as WindowsService from "../../bindings/github.com/StephenSHorton/toru/windowsservice.js";
@@ -76,6 +81,7 @@ export {
   OverlayService,
   UpdateService,
   UpdateInfo,
+  UpdateStatus,
   HotkeyService,
   Shortcut,
   WindowsService,

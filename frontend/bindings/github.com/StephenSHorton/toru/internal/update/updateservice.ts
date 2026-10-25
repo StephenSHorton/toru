@@ -19,20 +19,29 @@ import * as application$0 from "../../../../wailsapp/wails/v3/pkg/application/mo
 import * as $models from "./models.js";
 
 /**
- * AutoUpdate is Toru's "always up to date" policy: it checks for a newer release
- * and, if one exists, downloads, verifies, and silently installs it — no prompt,
- * no opt-out. Keeping Toru current is part of using it. The silent installer
- * overwrites toru.exe and relaunches it (see build/windows/nsis/project.nsi), so
- * from the user's view the app briefly closes and reopens on the new version.
+ * AutoUpdate runs on startup: it checks for a newer release and, if one exists,
+ * downloads and verifies it in the background, then announces that it is ready
+ * (toast + status event + tray item). It never installs or quits on its own —
+ * the user restarts when they like, or the installer runs when Toru quits.
  * 
- * It runs as a fire-and-forget goroutine on startup (the app is idle then, so no
- * capture/recording is interrupted). All errors are logged and swallowed — a
- * failed or offline update check must never block startup. Concurrent callers
- * (e.g. a manual "Check for Updates" click racing this) are deduped by the
- * install guard in DownloadAndInstall.
+ * It runs as a fire-and-forget goroutine on startup. All errors are logged and
+ * swallowed — a failed or offline update check must never block startup.
  */
 export function AutoUpdate(): $CancellablePromise<void> {
     return $Call.ByID(23314439);
+}
+
+/**
+ * CheckAndDownload is the manual "Check for Updates" path: check, download and
+ * verify synchronously, and return the final status. One run is in flight at a
+ * time; a concurrent caller (startup AutoUpdate racing a click) gets the current
+ * status back. Once an update is ready or installing there is nothing to do, so
+ * that status is returned as is.
+ */
+export function CheckAndDownload(): $CancellablePromise<$models.Status> {
+    return $Call.ByID(1126087368).then(($result: any) => {
+        return $$createType0($result);
+    });
 }
 
 /**
@@ -41,21 +50,17 @@ export function AutoUpdate(): $CancellablePromise<void> {
  */
 export function CheckForUpdate(): $CancellablePromise<$models.UpdateInfo | null> {
     return $Call.ByID(3232113843).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType2($result);
     });
 }
 
 /**
- * DownloadAndInstall downloads the installer, verifies its SHA256 (if known),
- * launches it silently, and quits the app so toru.exe is unlocked for overwrite.
- * The silent installer then relaunches the freshly-updated Toru (project.nsi).
- * 
- * A guard dedupes concurrent installs (startup AutoUpdate racing a manual check):
- * the first caller commits, later callers no-op. The guard is released on any
- * pre-launch failure so a subsequent retry can proceed.
+ * GetStatus returns the current updater status.
  */
-export function DownloadAndInstall(info: $models.UpdateInfo): $CancellablePromise<void> {
-    return $Call.ByID(2125856281, info);
+export function GetStatus(): $CancellablePromise<$models.Status> {
+    return $Call.ByID(1161214153).then(($result: any) => {
+        return $$createType0($result);
+    });
 }
 
 /**
@@ -66,12 +71,23 @@ export function GetVersion(): $CancellablePromise<string> {
 }
 
 /**
- * SetApp injects the running app (used to quit before the installer runs).
+ * RestartToUpdate launches the ready installer silently and quits Toru so the
+ * exe is unlocked for overwrite. The installer waits for the exit, installs,
+ * and relaunches Toru (project.nsi).
+ */
+export function RestartToUpdate(): $CancellablePromise<void> {
+    return $Call.ByID(2601091788);
+}
+
+/**
+ * SetApp injects the running app (used to emit status and to quit before the
+ * installer runs).
  */
 export function SetApp(app: application$0.App | null): $CancellablePromise<void> {
     return $Call.ByID(1999314030, app);
 }
 
 // Private type creation functions
-const $$createType0 = $models.UpdateInfo.createFrom;
-const $$createType1 = $Create.Nullable($$createType0);
+const $$createType0 = $models.Status.createFrom;
+const $$createType1 = $models.UpdateInfo.createFrom;
+const $$createType2 = $Create.Nullable($$createType1);

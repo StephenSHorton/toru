@@ -15,6 +15,9 @@ import * as overlay$0 from "../../../../StephenSHorton/toru/internal/overlay/mod
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as transfer$0 from "../../../../StephenSHorton/toru/internal/transfer/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as update$0 from "../../../../StephenSHorton/toru/internal/update/models.js";
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
@@ -25,6 +28,7 @@ function configure() {
         "overlay:ui": $$createType4,
         "transfer:receive": $$createType5,
         "transfer:send": $$createType6,
+        "update:status": $$createType7,
     }));
 }
 
@@ -36,5 +40,6 @@ const $$createType3 = overlay$0.MonitorSession.createFrom;
 const $$createType4 = overlay$0.OverlayUi.createFrom;
 const $$createType5 = transfer$0.ReceiveState.createFrom;
 const $$createType6 = transfer$0.SendState.createFrom;
+const $$createType7 = update$0.Status.createFrom;
 
 configure();

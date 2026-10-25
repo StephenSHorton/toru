@@ -162,11 +162,23 @@ Section
 
     !insertmacro wails.writeUninstaller
 
-    # AUTO-UPDATE: relaunch the freshly-installed Toru after a silent update so the
-    # app comes back on its own (the running instance quit to let us overwrite it).
+    # AUTO-UPDATE: after a silent update, relaunch the freshly-installed Toru so
+    # the app comes back on its own -- UNLESS the updater passed /NORELAUNCH.
+    # The running Toru launches us two ways (internal/update):
+    #   "Restart now"  -> toru.exe /S              (user wants Toru back: relaunch)
+    #   quit with an   -> toru.exe /S /NORELAUNCH  (user chose to quit; installing
+    #   update ready                                 silently must not bring it back)
     # Per-user / non-elevated installer, so Toru starts at the normal user level.
+    # ${GetParameters}/${GetOptions} come from FileFunc.nsh (wails_tools.nsh).
     ${If} ${Silent}
-        Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
+        ${GetParameters} $R0
+        ClearErrors
+        ${GetOptions} $R0 "/NORELAUNCH" $R1
+        ${If} ${Errors}
+            # Flag absent: a "Restart now" update, bring Toru back.
+            Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
+        ${EndIf}
+        # Flag present: install-on-exit, leave Toru closed.
     ${EndIf}
 SectionEnd
 
