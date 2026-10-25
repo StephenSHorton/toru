@@ -3,6 +3,7 @@ package replay
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"os"
@@ -264,14 +265,20 @@ func (s *ReplayService) CreateClip(id int, startSec, endSec float64) (string, er
 	return out, nil
 }
 
-// DeleteSession deletes a recording (not one that is still recording).
+// DeleteSession deletes a recording. When it is the one being recorded right
+// now (a desktop background recording is live for as long as Toru runs, so it
+// could otherwise never be deleted), the recorder is paused first: ffmpeg
+// stops so Windows releases the segment files, the runs are removed, and
+// reconcile restarts the recorder with the same settings, game and manual
+// state as a fresh run. The pause lasts a moment, not the recording.
 func (s *ReplayService) DeleteSession(id int) error {
 	b, err := s.findSession(id)
 	if err != nil {
 		return err
 	}
 	if b.Live {
-		return errors.New("this recording is still running; stop it first")
+		s.pauseRecorder()
+		defer s.resumeRecorder()
 	}
 	dir := recordingsDirFor(s.GetSettings())
 	for _, r := range b.Runs {
@@ -282,6 +289,27 @@ func (s *ReplayService) DeleteSession(id int) error {
 	s.invalidateProtect()
 	emit(EventRecordings, nil)
 	return nil
+}
+
+// pauseRecorder stops the buffer without touching the settings or the
+// recorder state (game, manualOn), so resumeRecorder brings it back exactly
+// as it was. Stop blocks until the supervisor and its ffmpeg have exited, so
+// the live run's files are closed when it returns.
+func (s *ReplayService) pauseRecorder() {
+	s.buf.Stop()
+	s.mu.Lock()
+	s.runningCfg = capture.ReplayConfig{}
+	s.mu.Unlock()
+}
+
+// resumeRecorder restarts the buffer if the settings and recorder state still
+// call for one; reconcile is the single source of truth for that. A start
+// failure surfaces in GetStatus().Error like any other.
+func (s *ReplayService) resumeRecorder() {
+	if err := s.reconcile(); err != nil {
+		log.Printf("replay: resume recording after delete: %v", err)
+	}
+	emit(EventRecordings, nil)
 }
 
 // GetSession returns one recording (fresh markers, live state).
