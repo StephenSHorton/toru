@@ -427,6 +427,13 @@ export class TrimRequest {
     "precise": boolean;
     "outPath": string;
 
+    /**
+     * Crop is an optional spatial crop in VIDEO pixels (origin = frame
+     * top-left), NOT the virtual-desktop convention Rect documents above.
+     * nil = full frame. A crop always re-encodes, whatever Precise says.
+     */
+    "crop"?: Rect | null;
+
     /** Creates a new TrimRequest instance. */
     constructor($$source: Partial<TrimRequest> = {}) {
         if (!("videoPath" in $$source)) {
@@ -452,7 +459,11 @@ export class TrimRequest {
      * Creates a new TrimRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): TrimRequest {
+        const $$createField5_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("crop" in $$parsedSource) {
+            $$parsedSource["crop"] = $$createField5_0($$parsedSource["crop"]);
+        }
         return new TrimRequest($$parsedSource as Partial<TrimRequest>);
     }
 }
@@ -505,3 +516,4 @@ export class WindowInfo {
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
 const $$createType1 = Rect.createFrom;
+const $$createType2 = $Create.Nullable($$createType1);

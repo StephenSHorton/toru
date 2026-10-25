@@ -66,6 +66,10 @@ type TrimRequest struct {
 	EndMs     int    `json:"endMs"`
 	Precise   bool   `json:"precise"` // true = re-encode (frame-accurate); false = -c copy
 	OutPath   string `json:"outPath"`
+	// Crop is an optional spatial crop in VIDEO pixels (origin = frame
+	// top-left), NOT the virtual-desktop convention Rect documents above.
+	// nil = full frame. A crop always re-encodes, whatever Precise says.
+	Crop *Rect `json:"crop,omitempty"`
 }
 
 // ScreenInfo describes one monitor. Overlay.ListScreens() is the SINGLE source

@@ -212,7 +212,8 @@ func BuildStillFallbackArgs(req CaptureRequest, outPath string) []string {
 
 // BuildTrimArgs builds ffmpeg args for Developer 2's trim. Precise=false uses
 // stream-copy (fast, snaps to nearest preceding keyframe); Precise=true
-// re-encodes for frame accuracy.
+// re-encodes for frame accuracy. A spatial Crop cannot be stream-copied, so
+// it forces the re-encode path regardless of Precise.
 //
 // The precise re-encode codec follows the OUTPUT container: WebM (the default
 // recording container, see encoders.go) can only carry VP8/VP9/AV1 + Opus/
@@ -220,8 +221,12 @@ func BuildStillFallbackArgs(req CaptureRequest, outPath string) []string {
 func BuildTrimArgs(req TrimRequest) []string {
 	ss := msToTimecode(req.StartMs)
 	to := msToTimecode(req.EndMs)
-	if req.Precise {
+	reencode := req.Precise || req.Crop != nil
+	if reencode {
 		args := []string{"-y", "-i", req.VideoPath, "-ss", ss, "-to", to}
+		if req.Crop != nil {
+			args = append(args, "-vf", cropFilter(*req.Crop))
+		}
 		if strings.EqualFold(filepath.Ext(req.OutPath), ".webm") {
 			args = append(args, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "30", "-c:a", "libopus")
 		} else {
@@ -234,6 +239,30 @@ func BuildTrimArgs(req TrimRequest) []string {
 	args := []string{"-y", "-ss", ss, "-to", to, "-i", req.VideoPath, "-c", "copy"}
 	args = append(args, containerFlags(req.OutPath)...)
 	return append(args, req.OutPath)
+}
+
+// cropFilter renders a video-pixel Rect as ffmpeg's crop filter. yuv420p
+// needs even output dimensions, so W/H round DOWN to even (never below 2).
+// X/Y clamp at 0 and also round DOWN to even: ffmpeg silently aligns odd
+// offsets to the chroma grid on yuv420p, so emitting the even value keeps
+// the args honest about what is actually cut (the UI aligns the same way).
+// The caller is responsible for keeping the Rect inside the frame (ffmpeg
+// rejects a crop larger than the source).
+func cropFilter(c Rect) string {
+	w := evenFloor(c.W)
+	h := evenFloor(c.H)
+	x := max(c.X, 0) &^ 1
+	y := max(c.Y, 0) &^ 1
+	return fmt.Sprintf("crop=%d:%d:%d:%d", w, h, x, y)
+}
+
+// evenFloor rounds n down to an even number, with a floor of 2.
+func evenFloor(n int) int {
+	n &^= 1
+	if n < 2 {
+		return 2
+	}
+	return n
 }
 
 func boolToInt(b bool) string {
