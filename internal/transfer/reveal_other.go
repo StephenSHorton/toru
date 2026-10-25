@@ -1,6 +1,6 @@
 //go:build !windows
 
-package hato
+package transfer
 
 import (
 	"os/exec"

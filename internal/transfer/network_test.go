@@ -1,4 +1,4 @@
-package hato
+package transfer
 
 import (
 	"crypto/rand"
@@ -14,10 +14,10 @@ import (
 // any nameplate and waits, so this takes the full connectTimeout; it is gated
 // like the loopback and excluded from the `-run Loopback` gate by name.
 //
-//	TORU_HATO_NETWORK_TEST=1 go test ./internal/hato/ -run ConnectTimeout -v -count=1
+//	TORU_TRANSFER_NETWORK_TEST=1 go test ./internal/transfer/ -run ConnectTimeout -v -count=1
 func TestConnectTimeoutPublicRendezvous(t *testing.T) {
-	if os.Getenv("TORU_HATO_NETWORK_TEST") != "1" {
-		t.Skip("set TORU_HATO_NETWORK_TEST=1 to run against the public rendezvous")
+	if os.Getenv("TORU_TRANSFER_NETWORK_TEST") != "1" {
+		t.Skip("set TORU_TRANSFER_NETWORK_TEST=1 to run against the public rendezvous")
 	}
 	m := NewManager()
 	rec := &recorder{}
@@ -48,8 +48,8 @@ func TestConnectTimeoutPublicRendezvous(t *testing.T) {
 // the cancel lands, the library dials the rendezvous (and fails fast on the
 // cancelled ctx).
 func TestStopSendDuringFolderPrepare(t *testing.T) {
-	if os.Getenv("TORU_HATO_NETWORK_TEST") != "1" {
-		t.Skip("set TORU_HATO_NETWORK_TEST=1 to run")
+	if os.Getenv("TORU_TRANSFER_NETWORK_TEST") != "1" {
+		t.Skip("set TORU_TRANSFER_NETWORK_TEST=1 to run")
 	}
 	src := filepath.Join(t.TempDir(), "bulk")
 	if err := os.MkdirAll(src, 0o755); err != nil {

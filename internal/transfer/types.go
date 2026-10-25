@@ -1,5 +1,5 @@
-// Package hato is Toru's built-in peer-to-peer file transfer: "a carrier pigeon
-// for your files". The sender gets a short spoken code (7-guitarist-revenge);
+// Package transfer is Toru's built-in peer-to-peer file transfer (the hub's
+// "Send Files" page). The sender gets a short spoken code (7-guitarist-revenge);
 // anyone with the code — another Toru, or the magic-wormhole CLI — receives the
 // file or folder directly, end-to-end encrypted, with the public rendezvous and
 // transit relays seeing only ciphertext.
@@ -8,18 +8,18 @@
 // in-process: no sidecar, no second binary, and the default AppID is kept so
 // `wormhole receive <code>` interoperates. The package is split into the
 // Manager (transfer state machine + events, no Wails dependency, so it is
-// testable with two instances in one process) and the HatoService (the Wails
+// testable with two instances in one process) and the TransferService (the Wails
 // binding: dialogs, prefs, Explorer, QR).
-package hato
+package transfer
 
 // Event names broadcast Go->JS via app.Event.Emit. The typed ones are
 // registered in main.go's init() so the binding generator emits their models;
 // EventOpen carries no payload (it just tells the hub to switch pages) and is
 // therefore NOT registered.
 const (
-	EventSend    = "hato:send"    // payload SendState
-	EventReceive = "hato:receive" // payload ReceiveState
-	EventOpen    = "hato:open"    // no payload
+	EventSend    = "transfer:send"    // payload SendState
+	EventReceive = "transfer:receive" // payload ReceiveState
+	EventOpen    = "transfer:open"    // no payload
 )
 
 // Send phases, in the order a healthy transfer passes through them.
@@ -50,7 +50,7 @@ const (
 )
 
 // SendState is the whole UI model of the ONE outgoing transfer. It is the
-// hato:send event payload and the SendStatus() return value, so a page that
+// transfer:send event payload and the SendStatus() return value, so a page that
 // mounts mid-transfer can render from a single fetch.
 type SendState struct {
 	Active  bool   `json:"active"`

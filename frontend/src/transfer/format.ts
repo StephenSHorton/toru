@@ -1,4 +1,4 @@
-// Small formatting helpers for the Hato page.
+// Small formatting helpers for the Send Files page.
 
 const UNITS = ["KB", "MB", "GB", "TB"];
 

@@ -1,4 +1,4 @@
-package hato
+package transfer
 
 import (
 	"errors"
@@ -54,7 +54,7 @@ func TestFailIdleSendDoesNotClobberActive(t *testing.T) {
 	rec := &recorder{}
 	m.SetEmitter(rec.emit)
 
-	m.FailIdleSend(`C:\nowhere\gone.png`, errors.New("hato: open C:\\nowhere\\gone.png: file does not exist"))
+	m.FailIdleSend(`C:\nowhere\gone.png`, errors.New("transfer: open C:\\nowhere\\gone.png: file does not exist"))
 	st := m.SendStatus()
 	if st.Active || st.Phase != SendError || st.Name != "gone.png" || st.Error == "" {
 		t.Fatalf("after FailIdleSend: %+v", st)
@@ -66,7 +66,7 @@ func TestFailIdleSendDoesNotClobberActive(t *testing.T) {
 	m.mu.Lock()
 	m.send = SendState{Active: true, Phase: SendWaiting, Name: "live.bin", Code: "7-a-b"}
 	m.mu.Unlock()
-	m.FailIdleSend(`C:\nowhere\other.png`, errors.New("hato: nope"))
+	m.FailIdleSend(`C:\nowhere\other.png`, errors.New("transfer: nope"))
 	if st := m.SendStatus(); !st.Active || st.Phase != SendWaiting || st.Code != "7-a-b" {
 		t.Fatalf("live send clobbered: %+v", st)
 	}

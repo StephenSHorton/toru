@@ -2,7 +2,7 @@
 
 # Toru (撮る)
 
-A macOS-style **screenshot & screen recording** tool for **Windows 11**.
+A macOS-style **screenshot, screen recording & game recording** tool for **Windows 11**.
 
 Press <kbd>⊞</kbd> <kbd>Shift</kbd> <kbd>S</kbd> → pick a **region**, **window**, or **full screen** → annotate (or record) → **Done** auto-saves to your library.
 
@@ -16,12 +16,16 @@ Press <kbd>⊞</kbd> <kbd>Shift</kbd> <kbd>S</kbd> → pick a **region**, **wind
 - **Global hotkey** capture (default Win+Shift+S; remappable)
 - **Region / window / full screen** — window mode highlights on hover, click captures
 - **Annotation editor** — overlay editor after a new shot; library items open in a window. Pen, shapes, arrows, text, emoji, crop, paste-as-layer
-- **Library** — Done saves automatically; choose the folder in Settings. Optional: skip the editor and auto-save + copy
+- **Library** — Done saves automatically; choose the folder in Settings. Views for All, Screenshots, Recordings and Clips (grouped by game); background and manual recordings open on a timeline to scrub and cut clips. Multi-select delete; a Send button on screenshot and recording cards. Optional: skip the editor and auto-save + copy
 - **Aspect lock** — freeform, 16:9, 9:16, 4:3, 3:2, 1:1, 21:9 while resizing the region
-- **Record & trim** — optional system / per-app / mic audio; Discord-friendly export
+- **Record & trim** — optional system / per-app / mic audio; Discord-friendly export; share as a link (catbox.moe, no account, links never expire, 200 MB cap)
+- **Game recording** — three modes: **Instant replay** (keeps the last few minutes, hotkey saves a clip), **Background recording** (whole sessions, optionally only while a game is in focus) and **Manual recording** (hotkey starts and stops). Needs a graphics card with a hardware encoder (NVIDIA, AMD or Intel). Saver / Standard / High / Custom quality presets, HEVC when the graphics card supports it, a storage limit that rolls the oldest sessions off. Clips land in `Videos\Toru Replays` sorted by game, with a chime and a corner toast
+- **Recording hotkeys** (remappable) — Alt+F10 save instant replay, Ctrl+F11 start / stop recording, Ctrl+F12 add timeline marker
+- **Recording audio** — game, Discord voice chat and microphone as separate sources with per-source volume; mic noise suppression (Off / Light / Strong); optional separate tracks for editing
+- **Share your screen** to a browser on the same Wi-Fi (phone, tablet, TV) straight from the overlay
 - **Freeze or live** overlay while selecting
-- **Tray recents**, auto-copy on capture, auto-update from Releases
-- **Hato** — send any file or capture peer-to-peer with a short spoken code; receiver uses Toru or `wormhole receive`
+- **Tray recents**, game-recording toggle, Send files…, auto-copy on capture, auto-update from Releases
+- **Send Files** — send any file, folder or capture peer-to-peer with a short spoken code like `7-guitarist-revenge`, end-to-end encrypted; the receiver uses Toru or `wormhole receive`, files land in Downloads by default, and the code doubles as a QR for phones
 
 ## Download
 
@@ -44,7 +48,7 @@ Grab the latest from **[Releases](https://github.com/StephenSHorton/toru/release
 | Transfer | magic-wormhole (`wormhole-william`) |
 | Package manager | **bun** |
 
-Design notes: [`docs/PLAN.md`](docs/PLAN.md). Hato (file transfer): [`docs/hato.md`](docs/hato.md). Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Design notes: [`docs/PLAN.md`](docs/PLAN.md). Send Files (file transfer): [`docs/send-files.md`](docs/send-files.md). Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Develop
 

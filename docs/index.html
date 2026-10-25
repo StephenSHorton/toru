@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Toru (撮る) — Screen capture for Windows</title>
+    <title>Toru (撮る) — Capture, record, and send files on Windows</title>
     <meta
       name="description"
-      content="Toru is a macOS-style screenshot and screen recording tool for Windows. Win+Shift+S, annotate, auto-save to your library."
+      content="Toru is a macOS-style screenshot and screen recording tool for Windows with game recording, instant replay, a clips library, and peer-to-peer file transfer with a short code. Win+Shift+S, annotate, auto-save to your library."
     />
-    <meta property="og:title" content="Toru (撮る) — Screen capture for Windows" />
+    <meta property="og:title" content="Toru (撮る) — Capture, record, and send files on Windows" />
     <meta
       property="og:description"
-      content="Hotkey capture, region / window / full screen, annotation editor, library, and auto-update."
+      content="Hotkey capture, annotation editor, game recording with instant replay, clips with share links, Send Files with a short code, and auto-update."
     />
     <meta property="og:image" content="toru-banner.png" />
     <meta name="theme-color" content="#121318" />
@@ -293,7 +293,8 @@
         font-size: 0.85rem;
         min-height: 1.25em;
       }
-      .version-line code {
+      .version-line code,
+      .card code {
         font-family: var(--mono);
         font-size: 0.82rem;
         color: var(--primary);
@@ -559,8 +560,9 @@
           />
           <h1>macOS-style capture for Windows</h1>
           <p class="lede">
-            Press a hotkey, crop a region or window, annotate, and you’re done. Screenshots
-            land in your library automatically. Recordings get a trim editor.
+            Press a hotkey, crop a region or window, annotate, and you’re done. Record your
+            games with instant replay and share clips as a link. Send any file to anyone with
+            a short code.
           </p>
           <div class="hero-cta">
             <a
@@ -600,8 +602,8 @@
         <div class="wrap">
           <h2>Built for the way you actually capture</h2>
           <p class="section-lead">
-            Fast overlay, clear window picking, a real annotation editor, and a library that
-            just works.
+            Fast overlay, a real annotation editor, game recording that stays out of your
+            way, and a library that holds your shots, recordings, and clips.
           </p>
           <div class="grid">
             <article class="card">
@@ -630,10 +632,12 @@
             </article>
             <article class="card">
               <div class="icon" aria-hidden="true">◎</div>
-              <h3>Record &amp; trim</h3>
+              <h3>Game recording</h3>
               <p>
-                Optional system / app / mic audio. Stop → trim editor with copy, save, and
-                Discord-friendly export.
+                Instant replay keeps the last few minutes — <kbd>Alt</kbd> <kbd>F10</kbd> saves a
+                clip. Or record the whole session in the background and cut clips later. System
+                and mic audio, H.264 or HEVC (AV1 for instant replay), and a share link for every
+                clip. Needs a graphics card with a hardware encoder (NVIDIA, AMD or Intel).
               </p>
             </article>
             <article class="card">
@@ -652,6 +656,24 @@
                 manual hunt.
               </p>
             </article>
+            <article class="card">
+              <div class="icon" aria-hidden="true">▤</div>
+              <h3>Clips library</h3>
+              <p>
+                Tabs for screenshots, recordings, and clips by game. Scrub a session on the
+                timeline, drop markers while you play with <kbd>Ctrl</kbd> <kbd>F12</kbd>, select a
+                range, and trim, copy, save, or share.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon" aria-hidden="true">⇄</div>
+              <h3>Send Files</h3>
+              <p>
+                Pick a file or folder and Toru gives you a short code like
+                <code>22-conformist-belfast</code>. The receiver types it into Toru or
+                <code>wormhole receive</code>. Peer-to-peer, end-to-end encrypted, no account.
+              </p>
+            </article>
           </div>
         </div>
       </section>
@@ -659,7 +681,7 @@
       <section id="how">
         <div class="wrap">
           <h2>How it works</h2>
-          <p class="section-lead">From hotkey to library in a few seconds.</p>
+          <p class="section-lead">From hotkey to library — and on to whoever needs it — in a few seconds.</p>
           <div class="steps">
             <div class="step">
               <div>
@@ -677,6 +699,12 @@
               <div>
                 <strong>Annotate</strong>
                 <span>Editor opens centered. Markup, copy, then Done — auto-saves to your library folder.</span>
+              </div>
+            </div>
+            <div class="step">
+              <div>
+                <strong>Share</strong>
+                <span>Copy to the clipboard, get a share link for a clip, or Send Files with a short code the other side types in.</span>
               </div>
             </div>
           </div>

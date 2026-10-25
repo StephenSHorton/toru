@@ -1,4 +1,4 @@
-package hato
+package transfer
 
 import (
 	"bytes"
@@ -121,12 +121,12 @@ func wormholeTempZips(t *testing.T) map[string]bool {
 // TestLoopbackPublicRendezvous drives two Managers in one process through the
 // REAL public rendezvous + transit relay: a 1 MiB file, a small nested folder,
 // and StopSend while waiting for a receiver. It needs the network, so it only
-// runs with TORU_HATO_NETWORK_TEST=1:
+// runs with TORU_TRANSFER_NETWORK_TEST=1:
 //
-//	TORU_HATO_NETWORK_TEST=1 go test ./internal/hato/ -run Loopback -v -count=1
+//	TORU_TRANSFER_NETWORK_TEST=1 go test ./internal/transfer/ -run Loopback -v -count=1
 func TestLoopbackPublicRendezvous(t *testing.T) {
-	if os.Getenv("TORU_HATO_NETWORK_TEST") != "1" {
-		t.Skip("set TORU_HATO_NETWORK_TEST=1 to run the public-rendezvous loopback")
+	if os.Getenv("TORU_TRANSFER_NETWORK_TEST") != "1" {
+		t.Skip("set TORU_TRANSFER_NETWORK_TEST=1 to run the public-rendezvous loopback")
 	}
 
 	sendRec, recvRec := &recorder{}, &recorder{}

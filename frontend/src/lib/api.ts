@@ -30,11 +30,11 @@
 //   ReplayService.GetSaveDir / PickSaveDir / ResetSaveDir / OpenSaveDir
 //   ReplayService.ListClips / OpenClip(path) / RevealClip(path) / DeleteClip(path)  (Library "Clips")
 //   UploadService.ShareLink(path, startMs, endMs) -> public catbox link; "upload:progress" events; CancelShare / LinkFor(path)
-//   HatoService.StartSend(path) / StopSend() / SendStatus(): Promise<SendState>   (progress on "hato:send")
-//   HatoService.StartReceive(code) / CancelReceive() / ReceiveStatus(): Promise<ReceiveState>  ("hato:receive")
-//   HatoService.PickSendFile / PickSendFolder(): Promise<string>  ("" === cancelled; does NOT start the send)
-//   HatoService.GetReceiveDir / IsDefaultReceiveDir / PickReceiveDir / ResetReceiveDir / OpenReceiveDir / RevealReceived
-//   HatoService.CodeQR(code): Promise<string>  (base64 PNG, no data: prefix)
+//   TransferService.StartSend(path) / StopSend() / SendStatus(): Promise<SendState>   (progress on "transfer:send")
+//   TransferService.StartReceive(code) / CancelReceive() / ReceiveStatus(): Promise<ReceiveState>  ("transfer:receive")
+//   TransferService.PickSendFile / PickSendFolder(): Promise<string>  ("" === cancelled; does NOT start the send)
+//   TransferService.GetReceiveDir / IsDefaultReceiveDir / PickReceiveDir / ResetReceiveDir / OpenReceiveDir / RevealReceived
+//   TransferService.CodeQR(code): Promise<string>  (base64 PNG, no data: prefix)
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
@@ -64,11 +64,11 @@ import {
   RecorderState,
   RecordingPreset,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/replay/models.js";
-import * as HatoService from "../../bindings/github.com/StephenSHorton/toru/internal/hato/hatoservice.js";
+import * as TransferService from "../../bindings/github.com/StephenSHorton/toru/internal/transfer/transferservice.js";
 import {
   SendState,
   ReceiveState,
-} from "../../bindings/github.com/StephenSHorton/toru/internal/hato/models.js";
+} from "../../bindings/github.com/StephenSHorton/toru/internal/transfer/models.js";
 
 export {
   ExportService,
@@ -95,7 +95,7 @@ export {
   RecorderState,
   RecordingPreset,
   ReplayStatus,
-  HatoService,
+  TransferService,
   SendState,
   ReceiveState,
 };

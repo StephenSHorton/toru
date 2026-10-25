@@ -10,21 +10,21 @@ import type { Events } from "@wailsio/runtime";
 import type * as capture$0 from "../../../../StephenSHorton/toru/internal/capture/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import type * as hato$0 from "../../../../StephenSHorton/toru/internal/hato/models.js";
+import type * as overlay$0 from "../../../../StephenSHorton/toru/internal/overlay/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import type * as overlay$0 from "../../../../StephenSHorton/toru/internal/overlay/models.js";
+import type * as transfer$0 from "../../../../StephenSHorton/toru/internal/transfer/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "capture:done": capture$0.CaptureResult;
-            "hato:receive": hato$0.ReceiveState;
-            "hato:send": hato$0.SendState;
             "overlay:cropRect": capture$0.Rect;
             "overlay:edit": overlay$0.OverlayEditPayload;
             "overlay:engage": overlay$0.MonitorSession;
             "overlay:ui": overlay$0.OverlayUi;
+            "transfer:receive": transfer$0.ReceiveState;
+            "transfer:send": transfer$0.SendState;
         }
     }
 }

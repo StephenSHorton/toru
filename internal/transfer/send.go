@@ -1,4 +1,4 @@
-package hato
+package transfer
 
 import (
 	"context"
@@ -28,7 +28,7 @@ func (m *Manager) runSend(ctx context.Context, cancel context.CancelFunc, gen ui
 	}()
 
 	fail := func(err error) {
-		log.Printf("hato: send %s: %v", name, err)
+		log.Printf("transfer: send %s: %v", name, err)
 		msg := friendlyError(err).Error()
 		m.updateSend(gen, true, func(s *SendState) {
 			s.Active = false

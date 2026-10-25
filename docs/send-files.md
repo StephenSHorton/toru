@@ -1,29 +1,29 @@
-# Hato — send a file with a short code
+# Send Files — send a file with a short code
 
-Hato (鳩, *pigeon*) is Toru's carrier pigeon for files: pick a file or folder,
-Toru gives you a short spoken code like `22-conformist-belfast`, the other
-person types that code, and the file flies straight to them. No account, no
-link that lives forever, nothing uploaded to a server you have to trust.
+Send Files is Toru's built-in peer-to-peer file transfer: pick a file or
+folder, Toru gives you a short spoken code like `22-conformist-belfast`, the
+other person types that code, and the file goes straight to them. No account,
+no link that lives forever, nothing uploaded to a server you have to trust.
 
-Hato started life as a standalone app, moved into suzuri, and now lives
-natively in Toru as a page of the hub. Transport is
+The feature grew out of Stephen's earlier Hato project and now lives natively
+in Toru as a page of the hub. Transport is
 [magic-wormhole](https://magic-wormhole.readthedocs.io/) via the pure-Go
 [`wormhole-william`](https://github.com/psanford/wormhole-william) library, so
 the other end can be another Toru or the standard `wormhole` command line.
 
 ## Send
 
-Open the hub (tray → **Open Toru…**) and click **Hato** in the left nav. Ways
-in, and ways to start a send:
+Open the hub (tray → **Open Toru…**) and click **Send Files** in the left nav.
+Ways in, and ways to start a send:
 
 - **Drop zone** — drag a file or folder onto *Drop a file or folder here*.
 - **Choose file…** / **Choose folder…** — the buttons under the drop zone open a
   native picker.
-- **Library card** — hover a capture in **Library** and click its **Send** icon
-  (*Send with Hato*). Toru starts sending that capture and switches to the
-  Hato page, where the code appears.
-- **Tray** — **Send a file… (Hato)** in the tray menu opens the hub straight on
-  the Hato page; pick or drop the file from there.
+- **Library card** — hover a capture in **Library** and click its **Send** icon.
+  Toru starts sending that capture and switches to the Send Files page, where
+  the code appears.
+- **Tray** — **Send files…** in the tray menu opens the hub straight on the
+  Send Files page; pick or drop the file from there.
 
 Once the code is issued it appears in large monospace text on the send card.
 **Copy code** puts it on the clipboard; **QR** shows the code as a QR image for
@@ -38,8 +38,8 @@ Only one send runs at a time. Starting another replaces the current one.
 
 ## Receive
 
-On the Hato page, type the code into the **Receive** card's input (spaces or
-mixed case are fine; Toru normalises them) and press Enter or click
+On the Send Files page, type the code into the **Receive** card's input (spaces
+or mixed case are fine; Toru normalises them) and press Enter or click
 **Receive**. The card shows the offered name and `received / total` with a
 progress bar; **Cancel** aborts and removes the partial file.
 
@@ -128,7 +128,7 @@ Both sides of a transfer must use the same rendezvous server; CLI users pass
 | What | Where |
 | --- | --- |
 | Received files | `%USERPROFILE%\Downloads` (or your home folder) unless changed |
-| Receive-folder preference | `%AppData%\toru\hato.json` → `{"receiveDir": ""}` (empty = default) |
+| Receive-folder preference | `%AppData%\toru\transfer.json` → `{"receiveDir": ""}` (empty = default) |
 | Temporary data (receive) | a `.part` file in the Save to folder while receiving; removed on finish, cancel or error |
 | Temporary data (send) | `%TEMP%\wormhole-william-dir*`, the staged zip of a folder being sent; removed when the send ends, stale ones (older than ten minutes) at a later launch |
 

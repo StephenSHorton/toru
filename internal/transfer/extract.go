@@ -1,4 +1,4 @@
-package hato
+package transfer
 
 import (
 	"archive/zip"
