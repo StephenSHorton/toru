@@ -102,25 +102,39 @@ Section
     !insertmacro wails.webview2runtime
 
     # AUTO-UPDATE: a SILENT install is launched by the running Toru, which then
-    # quits to release its lock on toru.exe. Wait (up to ~10s) for that exit so
-    # wails.files can overwrite the exe cleanly AND so the old instance's
-    # single-instance mutex is freed before we relaunch below. We probe the lock
-    # by renaming the exe (succeeds only once unlocked) and renaming it back. A
-    # normal interactive install is never locked, so this falls straight through.
+    # quits to release its lock on toru.exe. Wait for that exit so wails.files
+    # can overwrite the exe AND so the old instance's single-instance mutex is
+    # freed before we relaunch below. A normal interactive install is never
+    # locked, so this falls straight through.
+    #
+    # The probe opens the exe for writing (append, no truncation), which is the
+    # same thing File will do. It must NOT be a rename: Windows lets a running
+    # executable be renamed, so a rename probe passed while the old Toru was
+    # still shutting down, File then failed (silent mode ignores that), the
+    # uninstaller was written for a binary we never replaced, and the relaunch
+    # handed off to the dying instance and exited. Result: a stale Toru that
+    # re-ran the update on every launch and "closed every time it opened".
+    #
+    # Shutdown can take a few seconds (background recording stops ffmpeg), so
+    # allow up to 60 s. If the exe is still locked after that, abort and change
+    # nothing: the running Toru retries the update at its next start.
     ${If} ${Silent}
         StrCpy $0 0
         toru_wait_unlock:
             IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 toru_unlocked
             ClearErrors
-            Rename "$INSTDIR\${PRODUCT_EXECUTABLE}" "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
+            FileOpen $1 "$INSTDIR\${PRODUCT_EXECUTABLE}" a
             IfErrors toru_still_locked
-            Rename "$INSTDIR\${PRODUCT_EXECUTABLE}.old" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+            FileClose $1
             Goto toru_unlocked
             toru_still_locked:
             IntOp $0 $0 + 1
-            IntCmp $0 50 toru_unlocked 0 toru_unlocked
+            IntCmp $0 300 toru_gave_up 0 toru_gave_up
             Sleep 200
             Goto toru_wait_unlock
+        toru_gave_up:
+            SetErrorLevel 3
+            Abort "toru.exe is still in use; update skipped"
         toru_unlocked:
     ${EndIf}
 
