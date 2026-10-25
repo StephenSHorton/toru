@@ -8,6 +8,7 @@ export {
 
 export {
     Clip,
+    FFmpegState,
     Monitor,
     RecorderState,
     RecordingPreset,

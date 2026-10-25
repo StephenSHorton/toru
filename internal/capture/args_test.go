@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+// Trim tests pin libx264 so they don't depend on this machine's FFmpeg build.
+func init() { trimH264Encoder = func() string { return "libx264" } }
+
+func TestTrimH264ArgsFallbacks(t *testing.T) {
+	for enc, want := range map[string]string{
+		"libx264":    "-c:v libx264",
+		"h264_nvenc": "-c:v h264_nvenc -preset p5 -rc vbr -cq 23 -b:v 0",
+		"h264_mf":    "-c:v h264_mf -rate_control quality -quality 75",
+	} {
+		if got := strings.Join(trimH264Args(enc), " "); got != want {
+			t.Errorf("trimH264Args(%s) = %q, want %q", enc, got, want)
+		}
+	}
+}
+
 // twoMonitors: primary 1920x1080 at origin, secondary 2560x1440 to the LEFT
 // (negative X), so we exercise negative virtual-desktop coordinates.
 func twoMonitors() []ScreenInfo {

@@ -126,6 +126,9 @@ func encoderUsableWithin(name string, timeout time.Duration) bool {
 		"-f", "null", "-",
 	})
 	ok := err == nil
+	if IsFFmpegMissing(err) {
+		return false // not a verdict on the encoder; probe again once ffmpeg is in
+	}
 
 	probeMu.Lock()
 	defer probeMu.Unlock()

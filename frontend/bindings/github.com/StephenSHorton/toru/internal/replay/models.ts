@@ -70,6 +70,47 @@ export class Clip {
 }
 
 /**
+ * FFmpegState is the setup state of the FFmpeg every recording runs through.
+ * The installer doesn't ship it; when none is found the app downloads it once.
+ */
+export class FFmpegState {
+    "ready": boolean;
+    "downloading": boolean;
+    "percent": number;
+    "sizeMB": number;
+    "error": string;
+
+    /** Creates a new FFmpegState instance. */
+    constructor($$source: Partial<FFmpegState> = {}) {
+        if (!("ready" in $$source)) {
+            this["ready"] = false;
+        }
+        if (!("downloading" in $$source)) {
+            this["downloading"] = false;
+        }
+        if (!("percent" in $$source)) {
+            this["percent"] = 0;
+        }
+        if (!("sizeMB" in $$source)) {
+            this["sizeMB"] = 0;
+        }
+        if (!("error" in $$source)) {
+            this["error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FFmpegState instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FFmpegState {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FFmpegState($$parsedSource as Partial<FFmpegState>);
+    }
+}
+
+/**
  * Monitor is one row of the Settings page's monitor picker.
  */
 export class Monitor {

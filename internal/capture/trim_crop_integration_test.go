@@ -24,6 +24,9 @@ func TestTrimCropIntegration(t *testing.T) {
 	if err != nil {
 		t.Skipf("ffprobe not on PATH: %v", err)
 	}
+	// Encode with whatever this FFmpeg build really has (the unit tests pin libx264).
+	trimH264Encoder = pickTrimH264
+	defer func() { trimH264Encoder = func() string { return "libx264" } }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

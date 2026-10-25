@@ -632,6 +632,9 @@ func replayEncoderFor(codec string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("replay: unknown codec %q", codec)
 	}
+	if _, err := LocateFFmpeg(); err != nil {
+		return "", err
+	}
 	for _, n := range names {
 		if EncoderUsable(n) {
 			return n, nil

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ShortcutRow } from "@/shortcuts/Shortcuts";
 import { useShortcuts } from "@/shortcuts/useShortcuts";
-import { ReplayService, ReplaySettings, ReplayStatus, Shortcut } from "@/lib/api";
+import { FFmpegState, ReplayService, ReplaySettings, ReplayStatus, Shortcut } from "@/lib/api";
 import type { RecorderState, RecordingPreset, ReplayMonitor } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -137,6 +137,32 @@ function eventData<T>(data: unknown): T {
 const selectClass = "frost w-full border border-border bg-transparent px-2 py-1 text-sm";
 const optionClass = "bg-background text-foreground";
 
+// FFmpegSetup shows the one-time download of the video components.
+function FFmpegSetup({ state }: { state: FFmpegState }) {
+  if (state.downloading) {
+    return (
+      <div className="flex flex-col gap-1.5 border border-border bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
+        <span>
+          Setting up recording: downloading video components ({state.sizeMB} MB, one time only)… {state.percent}%
+        </span>
+        <div className="h-1 w-full bg-muted">
+          <div className="h-full bg-primary transition-[width]" style={{ width: `${state.percent}%` }} />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 border border-border bg-muted/40 px-2.5 py-2 text-xs">
+      <span className={state.error ? "text-destructive" : "text-muted-foreground"}>
+        {state.error || `Recording needs video components (${state.sizeMB} MB, one time only).`}
+      </span>
+      <Button size="sm" variant="secondary" onClick={() => void ReplayService.DownloadFFmpeg()}>
+        {state.error ? "Try again" : "Download"}
+      </Button>
+    </div>
+  );
+}
+
 export function ReplayPanel() {
   const [settings, setSettings] = useState<ReplaySettings | null>(null);
   const [status, setStatus] = useState<ReplayStatus | null>(null);
@@ -230,6 +256,38 @@ export function ReplayPanel() {
       offError();
     };
   }, [refreshStatus]);
+
+  // FFmpeg isn't installed with the app; the first launch downloads it.
+  // When it lands, everything probed without it is read again.
+  const [ffmpeg, setFFmpeg] = useState<FFmpegState | null>(null);
+  useEffect(() => {
+    void ReplayService.GetFFmpegState()
+      .then(setFFmpeg)
+      .catch(() => {});
+    const off = WailsEvents.On("ffmpeg:state", (ev) => {
+      setFFmpeg(FFmpegState.createFrom(eventData(ev.data)));
+    });
+    return () => off();
+  }, []);
+  const ffmpegReady = ffmpeg?.ready ?? true;
+  const ffmpegWasReady = useRef(true);
+  useEffect(() => {
+    if (ffmpegReady && !ffmpegWasReady.current) {
+      setApplyError("");
+      refreshStatus();
+      refreshRecorder();
+      void ReplayService.EncoderSupport()
+        .then((e) => setEncoders((e ?? {}) as Record<string, boolean>))
+        .catch(() => {});
+      void ReplayService.ListMicrophones()
+        .then((m) => setMics(m ?? []))
+        .catch(() => {});
+      void ReplayService.RecordingPresets()
+        .then((p) => setPresets(p ?? []))
+        .catch(() => {});
+    }
+    ffmpegWasReady.current = ffmpegReady;
+  }, [ffmpegReady, refreshStatus, refreshRecorder]);
 
   // Status events only fire on state changes; poll so the "ready" counter fills.
   const enabled = settings?.enabled ?? false;
@@ -371,7 +429,8 @@ export function ReplayPanel() {
   }
 
   const mbps = bitrateDraft ?? settings.bitrateMbps;
-  const error = applyError || status?.error || "";
+  // Without FFmpeg every error is "ffmpeg not found"; the setup line explains it.
+  const error = ffmpegReady ? applyError || status?.error || "" : "";
   const mode = MODES.find((m) => m.value === settings.mode) ?? MODES[0];
   const codec = CODECS.find((c) => c.value === settings.codec) ?? CODECS[0];
   const session = settings.mode !== "replay";
@@ -453,6 +512,7 @@ export function ReplayPanel() {
               : "Recording now. Changing video or audio settings restarts the buffer and clears what's been buffered so far. Other settings apply right away."}
           </p>
         ) : null}
+        {!ffmpegReady && ffmpeg ? <FFmpegSetup state={ffmpeg} /> : null}
         {settings.enabled ? (
           settings.mode === "replay" ? (
             <StatusLine status={status} busy={busy} error={error} keep={settings.durationSec} />
@@ -466,8 +526,8 @@ export function ReplayPanel() {
               recordKey={recordShortcut ? comboText(recordShortcut) : ""}
             />
           )
-        ) : applyError ? (
-          <p className="text-xs text-destructive">{applyError}</p>
+        ) : error ? (
+          <p className="text-xs text-destructive">{error}</p>
         ) : (
           <p className="text-xs text-muted-foreground">Off. Turn it on to start.</p>
         )}

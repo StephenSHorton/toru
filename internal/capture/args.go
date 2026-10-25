@@ -230,7 +230,8 @@ func BuildTrimArgs(req TrimRequest) []string {
 		if strings.EqualFold(filepath.Ext(req.OutPath), ".webm") {
 			args = append(args, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "30", "-c:a", "libopus")
 		} else {
-			args = append(args, "-c:v", "libx264", "-c:a", "aac")
+			args = append(args, trimH264Args(trimH264Encoder())...)
+			args = append(args, "-c:a", "aac")
 		}
 		args = append(args, containerFlags(req.OutPath)...)
 		return append(args, req.OutPath)
@@ -284,4 +285,37 @@ func msToTimecode(ms int) string {
 	s := ms / 1000
 	ms -= s * 1000
 	return fmt.Sprintf("%02d:%02d:%02d.%03d", h, m, s, ms)
+}
+
+// trimH264Encoder picks the encoder for a re-encoded MP4 trim. A var so tests
+// don't depend on the machine's FFmpeg build or GPU.
+var trimH264Encoder = pickTrimH264
+
+// pickTrimH264 prefers libx264 when the FFmpeg build has it, then the GPU's
+// H.264 encoder, then Windows' own (Media Foundation): the FFmpeg the app
+// downloads is an LGPL build without libx264.
+func pickTrimH264() string {
+	for _, n := range []string{"libx264", "h264_nvenc", "h264_amf", "h264_qsv"} {
+		if EncoderUsable(n) {
+			return n
+		}
+	}
+	return "h264_mf"
+}
+
+// trimH264Args is "-c:v enc" plus quality settings close to libx264's
+// default (CRF 23) for the other encoders.
+func trimH264Args(enc string) []string {
+	args := []string{"-c:v", enc}
+	switch enc {
+	case "h264_nvenc":
+		args = append(args, "-preset", "p5", "-rc", "vbr", "-cq", "23", "-b:v", "0")
+	case "h264_amf":
+		args = append(args, "-rc", "qvbr", "-qvbr_quality_level", "23")
+	case "h264_qsv":
+		args = append(args, "-global_quality", "23")
+	case "h264_mf":
+		args = append(args, "-rate_control", "quality", "-quality", "75")
+	}
+	return args
 }

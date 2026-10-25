@@ -68,6 +68,7 @@ import {
   SessionMarker as RecordingMarker,
   RecorderState,
   RecordingPreset,
+  FFmpegState,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/replay/models.js";
 import * as TransferService from "../../bindings/github.com/StephenSHorton/toru/internal/transfer/transferservice.js";
 import {
@@ -100,6 +101,7 @@ export {
   RecordingMarker,
   RecorderState,
   RecordingPreset,
+  FFmpegState,
   ReplayStatus,
   TransferService,
   SendState,

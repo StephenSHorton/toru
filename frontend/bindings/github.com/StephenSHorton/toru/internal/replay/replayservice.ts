@@ -81,6 +81,15 @@ export function DiscordRunning(): $CancellablePromise<boolean> {
 }
 
 /**
+ * DownloadFFmpeg starts the one-time FFmpeg download when none is installed
+ * (the Settings retry button). It returns at once; progress arrives as
+ * EventFFmpeg, and recording starts by itself when the download lands.
+ */
+export function DownloadFFmpeg(): $CancellablePromise<void> {
+    return $Call.ByID(1244135972);
+}
+
+/**
  * EncoderSupport reports which codecs have a usable hardware encoder. The
  * first call runs tiny probe encodes (~1s); results are cached after that.
  */
@@ -91,11 +100,20 @@ export function EncoderSupport(): $CancellablePromise<{ [_ in string]?: boolean 
 }
 
 /**
+ * GetFFmpegState returns the current FFmpeg setup state.
+ */
+export function GetFFmpegState(): $CancellablePromise<$models.FFmpegState> {
+    return $Call.ByID(1892346891).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+/**
  * GetRecorderState returns the live recording state.
  */
 export function GetRecorderState(): $CancellablePromise<$models.RecorderState> {
     return $Call.ByID(3512996522).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType2($result);
     });
 }
 
@@ -111,7 +129,7 @@ export function GetSaveDir(): $CancellablePromise<string> {
  */
 export function GetSession(id: number): $CancellablePromise<$models.Session> {
     return $Call.ByID(2252465921, id).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -120,7 +138,7 @@ export function GetSession(id: number): $CancellablePromise<$models.Session> {
  */
 export function GetSettings(): $CancellablePromise<$models.Settings> {
     return $Call.ByID(2939452490).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
@@ -129,7 +147,7 @@ export function GetSettings(): $CancellablePromise<$models.Settings> {
  */
 export function GetStatus(): $CancellablePromise<capture$0.ReplayStatus> {
     return $Call.ByID(87893313).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -139,7 +157,7 @@ export function GetStatus(): $CancellablePromise<capture$0.ReplayStatus> {
  */
 export function ListClips(): $CancellablePromise<$models.Clip[]> {
     return $Call.ByID(2125441220).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType7($result);
     });
 }
 
@@ -148,7 +166,7 @@ export function ListClips(): $CancellablePromise<$models.Clip[]> {
  */
 export function ListMicrophones(): $CancellablePromise<string[]> {
     return $Call.ByID(3405609706).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType8($result);
     });
 }
 
@@ -157,7 +175,7 @@ export function ListMicrophones(): $CancellablePromise<string[]> {
  */
 export function ListMonitors(): $CancellablePromise<$models.Monitor[]> {
     return $Call.ByID(3176348690).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType10($result);
     });
 }
 
@@ -166,7 +184,7 @@ export function ListMonitors(): $CancellablePromise<$models.Monitor[]> {
  */
 export function ListSessions(): $CancellablePromise<$models.Session[]> {
     return $Call.ByID(2778879088).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType11($result);
     });
 }
 
@@ -229,7 +247,7 @@ export function PickSaveDir(): $CancellablePromise<string> {
  */
 export function RecordingPresets(): $CancellablePromise<$models.RecordingPreset[]> {
     return $Call.ByID(2850801440).then(($result: any) => {
-        return $$createType12($result);
+        return $$createType13($result);
     });
 }
 
@@ -271,7 +289,7 @@ export function SaveReplay(): $CancellablePromise<string> {
  */
 export function SetSettings(next: $models.Settings): $CancellablePromise<capture$0.ReplayStatus> {
     return $Call.ByID(2789060974, next).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -285,15 +303,16 @@ export function ToggleRecording(): $CancellablePromise<boolean> {
 
 // Private type creation functions
 const $$createType0 = $Create.Map($Create.Any, $Create.Any);
-const $$createType1 = $models.RecorderState.createFrom;
-const $$createType2 = $models.Session.createFrom;
-const $$createType3 = $models.Settings.createFrom;
-const $$createType4 = capture$0.ReplayStatus.createFrom;
-const $$createType5 = $models.Clip.createFrom;
-const $$createType6 = $Create.Array($$createType5);
-const $$createType7 = $Create.Array($Create.Any);
-const $$createType8 = $models.Monitor.createFrom;
-const $$createType9 = $Create.Array($$createType8);
-const $$createType10 = $Create.Array($$createType2);
-const $$createType11 = $models.RecordingPreset.createFrom;
-const $$createType12 = $Create.Array($$createType11);
+const $$createType1 = $models.FFmpegState.createFrom;
+const $$createType2 = $models.RecorderState.createFrom;
+const $$createType3 = $models.Session.createFrom;
+const $$createType4 = $models.Settings.createFrom;
+const $$createType5 = capture$0.ReplayStatus.createFrom;
+const $$createType6 = $models.Clip.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = $Create.Array($Create.Any);
+const $$createType9 = $models.Monitor.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = $Create.Array($$createType3);
+const $$createType12 = $models.RecordingPreset.createFrom;
+const $$createType13 = $Create.Array($$createType12);

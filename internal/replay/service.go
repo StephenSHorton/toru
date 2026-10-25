@@ -46,6 +46,10 @@ type ReplayService struct {
 
 	saving atomic.Bool
 
+	// FFmpeg download state (see ffmpeg.go).
+	ffMu sync.Mutex
+	ff   FFmpegState
+
 	// Recorder state (guarded by mu): the game a background recording is
 	// following, whether a manual recording is on, and the config the buffer
 	// was last started with.
@@ -80,6 +84,9 @@ func (s *ReplayService) SetOnChange(fn func(Settings)) {
 //
 //wails:ignore
 func (s *ReplayService) Init() {
+	// No FFmpeg (the installer doesn't ship it): fetch it once in the
+	// background; recording starts when it lands.
+	s.DownloadFFmpeg()
 	_ = s.reconcile()
 	s.notify(s.GetSettings())
 }

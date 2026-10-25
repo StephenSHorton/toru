@@ -37,15 +37,15 @@ func planEncode(durMs int) encodePlan {
 	}
 }
 
-// pickEncoder prefers the GPU H.264 encoder (fast, no CPU load) and falls
-// back to x264.
+// pickEncoder prefers the GPU H.264 encoder (fast, no CPU load), then x264,
+// then Windows' own (Media Foundation) for FFmpeg builds without x264.
 func pickEncoder() string {
-	for _, enc := range []string{"h264_nvenc", "h264_amf", "h264_qsv"} {
+	for _, enc := range []string{"h264_nvenc", "h264_amf", "h264_qsv", "libx264"} {
 		if capture.EncoderUsable(enc) {
 			return enc
 		}
 	}
-	return "libx264"
+	return "h264_mf"
 }
 
 // compressArgs re-encodes [startMs, endMs] of in to an H.264/AAC MP4 that
@@ -68,6 +68,8 @@ func compressArgs(in, out string, startMs, endMs int, p encodePlan, enc string) 
 		args = append(args, "-quality", "quality", "-rc", "vbr_peak")
 	case "h264_qsv":
 		args = append(args, "-preset", "medium")
+	case "h264_mf":
+		args = append(args, "-rate_control", "pc_vbr")
 	default:
 		args = append(args, "-preset", "veryfast")
 	}

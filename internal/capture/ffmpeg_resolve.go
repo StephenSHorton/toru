@@ -2,6 +2,7 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,20 +13,30 @@ import (
 )
 
 // ffmpeg_resolve.go locates and runs the FFmpeg binary. FFmpeg is NOT embedded
-// (//go:embed of a ~100MB binary bloats the build); it is staged beside the app
-// by the installer, with a first-run download+SHA256-verify fallback handled
-// here later.
+// (//go:embed of a ~100MB binary bloats the build) or shipped in the
+// installer (every auto-update would re-download it); when none is found, the
+// app downloads a pinned build once (ffmpeg_fetch.go).
 //
 // Resolution order:
 //  1. $TORU_FFMPEG (explicit override; dev convenience)
-//  2. ffmpeg.exe next to the running executable (installer-staged)
-//  3. ffmpeg(.exe) on PATH
+//  2. ffmpeg.exe next to the running executable (portable layout)
+//  3. the downloaded copy (ManagedFFmpegDir)
+//  4. ffmpeg(.exe) on PATH
+//
+// Only a successful lookup is cached, so a download that lands while the app
+// runs is picked up without a restart.
 
 var (
-	ffmpegOnce sync.Once
+	ffmpegMu   sync.Mutex
 	ffmpegPath string
-	ffmpegErr  error
 )
+
+// errFFmpegMissing is LocateFFmpeg's error when no binary is found; callers
+// test for it with IsFFmpegMissing.
+var errFFmpegMissing = errors.New("ffmpeg not found (set TORU_FFMPEG, stage it beside the app, or put it on PATH)")
+
+// IsFFmpegMissing reports whether err means there is no ffmpeg to run.
+func IsFFmpegMissing(err error) bool { return errors.Is(err, errFFmpegMissing) }
 
 func ffmpegName() string {
 	if os.PathListSeparator == ';' { // Windows
@@ -34,30 +45,34 @@ func ffmpegName() string {
 	return "ffmpeg"
 }
 
-// LocateFFmpeg returns the path to a usable ffmpeg binary (cached).
+// LocateFFmpeg returns the path to a usable ffmpeg binary (cached once found).
 func LocateFFmpeg() (string, error) {
-	ffmpegOnce.Do(func() {
-		if p := os.Getenv("TORU_FFMPEG"); p != "" {
-			if _, err := os.Stat(p); err == nil {
-				ffmpegPath = p
-				return
-			}
-		}
-		if exe, err := os.Executable(); err == nil {
-			beside := filepath.Join(filepath.Dir(exe), ffmpegName())
-			if _, err := os.Stat(beside); err == nil {
-				ffmpegPath = beside
-				return
-			}
-		}
-		if p, err := exec.LookPath(ffmpegName()); err == nil {
+	ffmpegMu.Lock()
+	defer ffmpegMu.Unlock()
+	if ffmpegPath != "" {
+		return ffmpegPath, nil
+	}
+	var candidates []string
+	if p := os.Getenv("TORU_FFMPEG"); p != "" {
+		candidates = append(candidates, p)
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), ffmpegName()))
+	}
+	if dir := ManagedFFmpegDir(); dir != "" {
+		candidates = append(candidates, filepath.Join(dir, ffmpegName()))
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
 			ffmpegPath = p
-			return
+			return p, nil
 		}
-		// TODO(installer): first-run download from a pinned LGPL build + SHA256 verify.
-		ffmpegErr = fmt.Errorf("ffmpeg not found (set TORU_FFMPEG, stage it beside the app, or put it on PATH)")
-	})
-	return ffmpegPath, ffmpegErr
+	}
+	if p, err := exec.LookPath(ffmpegName()); err == nil {
+		ffmpegPath = p
+		return p, nil
+	}
+	return "", errFFmpegMissing
 }
 
 // ffprobeName returns the platform binary name for ffprobe.
@@ -68,31 +83,33 @@ func ffprobeName() string {
 	return "ffprobe"
 }
 
-// LocateFFprobe returns the path to a usable ffprobe binary (cached), using
-// the same resolution order as ffmpeg: next to the resolved ffmpeg (covers
-// both the TORU_FFMPEG override and the installer-staged layout), then PATH.
+// LocateFFprobe returns the path to a usable ffprobe binary (cached once
+// found), using the same resolution order as ffmpeg: next to the resolved
+// ffmpeg (covers the TORU_FFMPEG override, the portable layout and the
+// downloaded copy), then PATH.
 func LocateFFprobe() (string, error) {
-	ffprobeOnce.Do(func() {
-		if ff, err := LocateFFmpeg(); err == nil {
-			beside := filepath.Join(filepath.Dir(ff), ffprobeName())
-			if _, err := os.Stat(beside); err == nil {
-				ffprobePath = beside
-				return
-			}
+	ffprobeMu.Lock()
+	defer ffprobeMu.Unlock()
+	if ffprobePath != "" {
+		return ffprobePath, nil
+	}
+	if ff, err := LocateFFmpeg(); err == nil {
+		beside := filepath.Join(filepath.Dir(ff), ffprobeName())
+		if _, err := os.Stat(beside); err == nil {
+			ffprobePath = beside
+			return beside, nil
 		}
-		if p, err := exec.LookPath(ffprobeName()); err == nil {
-			ffprobePath = p
-			return
-		}
-		ffprobeErr = fmt.Errorf("ffprobe not found (expected beside ffmpeg or on PATH)")
-	})
-	return ffprobePath, ffprobeErr
+	}
+	if p, err := exec.LookPath(ffprobeName()); err == nil {
+		ffprobePath = p
+		return p, nil
+	}
+	return "", fmt.Errorf("ffprobe not found (expected beside ffmpeg or on PATH)")
 }
 
 var (
-	ffprobeOnce sync.Once
+	ffprobeMu   sync.Mutex
 	ffprobePath string
-	ffprobeErr  error
 )
 
 // ProbeDurationMs returns path's container duration in milliseconds.
