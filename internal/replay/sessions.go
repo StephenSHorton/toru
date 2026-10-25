@@ -21,6 +21,9 @@ import (
 // Session is one recording on the Library's Recordings tab: consecutive runs
 // of the same game/mode with no real gap, played back as one timeline.
 type Session struct {
+	// ID is the first run. A session also answers to any of its other runs
+	// (findSession), so a viewer keeps its handle when the footage budget
+	// trims the first run away and the next run becomes the ID.
 	ID          int             `json:"id"` // first run
 	Runs        []int           `json:"runs"`
 	Game        string          `json:"game"` // "" = desktop / no game
@@ -191,16 +194,36 @@ func (b *builtSession) offsetOf(t int64) (float64, bool) {
 	return 0, false
 }
 
+// findSession resolves id to the session containing that run: the first run
+// (Session.ID) or a later one, so an open viewer still finds its recording
+// after pruning deleted the first run of a multi-run session.
 func (s *ReplayService) findSession(id int) (builtSession, error) {
 	for _, b := range s.buildSessions() {
-		if b.ID == id {
+		if slices.Contains(b.Runs, id) {
 			return b, nil
 		}
 	}
 	return builtSession{}, fmt.Errorf("recording %d not found", id)
 }
 
-// playlist renders a session as an HLS playlist of its segments.
+// mediaSequence is the HLS sequence number of the session's first listed
+// segment. Pruning only ever removes a session's oldest footage, so numbering
+// from the first surviving segment's index keeps every segment's sequence
+// number stable across reloads: the player aligns reloaded playlists by
+// sequence number and keeps its timeline anchored while the front slides.
+// (Once the whole first run is gone the numbering restarts from the next run
+// and the session's ID changes with it; the viewer re-attaches then.)
+func (b *builtSession) mediaSequence() int {
+	if len(b.segs) == 0 {
+		return 0
+	}
+	return b.segs[0].seg.Index
+}
+
+// playlist renders a session as an HLS playlist of its segments. A live
+// session is a plain live playlist (no PLAYLIST-TYPE): EVENT would promise
+// that segments are only ever appended, but the footage budget trims the
+// oldest ones off while recording.
 func (b *builtSession) playlist() string {
 	var sb strings.Builder
 	// TARGETDURATION must be >= every segment's duration (rounded up).
@@ -208,10 +231,8 @@ func (b *builtSession) playlist() string {
 	for _, ts := range b.segs {
 		target = max(target, int(math.Ceil(ts.dur)))
 	}
-	fmt.Fprintf(&sb, "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:%d\n#EXT-X-MEDIA-SEQUENCE:0\n", target)
-	if b.Live {
-		sb.WriteString("#EXT-X-PLAYLIST-TYPE:EVENT\n")
-	} else {
+	fmt.Fprintf(&sb, "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:%d\n#EXT-X-MEDIA-SEQUENCE:%d\n", target, b.mediaSequence())
+	if !b.Live {
 		sb.WriteString("#EXT-X-PLAYLIST-TYPE:VOD\n")
 	}
 	for _, ts := range b.segs {
@@ -229,6 +250,12 @@ func (b *builtSession) playlist() string {
 // CreateClip saves [startSec, endSec] of a recording as a clip in the clips
 // folder (in its game's folder) and returns its path. Cuts land on segment
 // boundaries (2s); fine-tune in the clip editor.
+//
+// The offsets are measured from the session's current first segment. The
+// footage budget trims the oldest segments while something records, which
+// moves every offset down; the Timeline tracks that (its player stays
+// anchored to the playlist it attached, and it shifts its selection as the
+// front slides) and re-reads the session right before it cuts.
 func (s *ReplayService) CreateClip(id int, startSec, endSec float64) (string, error) {
 	b, err := s.findSession(id)
 	if err != nil {

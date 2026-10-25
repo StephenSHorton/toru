@@ -5,7 +5,7 @@ folder, Toru gives you a short spoken code like `22-conformist-belfast`, the
 other person types that code, and the file goes straight to them. No account,
 no link that lives forever, nothing uploaded to a server you have to trust.
 
-The feature grew out of Stephen's earlier Hato project and now lives natively
+The feature grew out of an earlier stand-alone file-transfer tool and now lives natively
 in Toru as a page of the hub. Transport is
 [magic-wormhole](https://magic-wormhole.readthedocs.io/) via the pure-Go
 [`wormhole-william`](https://github.com/psanford/wormhole-william) library, so

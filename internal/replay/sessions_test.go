@@ -110,7 +110,44 @@ func TestSessionsTimelineClipKeepDelete(t *testing.T) {
 		t.Errorf("clip duration %dms (segments 2-3 = 4s): %v", ms, err)
 	}
 
-	if err := s.DeleteSession(val.ID); err != nil {
+	// The footage budget trims a session from the front. The playlist's
+	// MEDIA-SEQUENCE follows the first surviving segment, so the player keeps
+	// its timeline anchored, and offsets move down by the removed footage.
+	if !strings.Contains(pl, "#EXT-X-MEDIA-SEQUENCE:0\n") {
+		t.Errorf("untrimmed playlist should start at sequence 0:\n%s", pl)
+	}
+	if err := os.Remove(filepath.Join(rec, "r1000-00000000.ts")); err != nil {
+		t.Fatal(err)
+	}
+	res = httptest.NewRecorder()
+	h.ServeHTTP(res, httptest.NewRequest("GET", val.PlaylistURL, nil))
+	if pl = res.Body.String(); !strings.Contains(pl, "#EXT-X-MEDIA-SEQUENCE:1\n") || strings.Count(pl, "/__rec/seg/r") != 4 {
+		t.Errorf("after trimming one segment, sequence 1 with 4 segments:\n%s", pl)
+	}
+	trimmed, err := s.GetSession(val.ID)
+	if err != nil || trimmed.DurationSec > val.DurationSec-1.5 || trimmed.StartMs <= val.StartMs {
+		t.Errorf("trimmed session: %+v (was %.2fs from %d): %v", trimmed, val.DurationSec, val.StartMs, err)
+	}
+
+	// A session answers to any of its runs, not only the first.
+	if byLater, err := s.GetSession(1008); err != nil || byLater.ID != 1000 || len(byLater.Runs) != 2 {
+		t.Errorf("session should resolve by a later run too: %+v, %v", byLater, err)
+	}
+	// Once the whole first run is gone, the next run is the session: the old
+	// ID is in no session any more (the viewer falls back to the runs it last
+	// saw), and the new one carries the remaining footage.
+	if err := capture.DeleteRun(rec, 1000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetSession(1000); err == nil {
+		t.Error("a fully deleted first run is no session")
+	}
+	rest, err := s.GetSession(1008)
+	if err != nil || rest.ID != 1008 || len(rest.Runs) != 1 || rest.DurationSec < 3.5 {
+		t.Fatalf("remaining run should be the session: %+v, %v", rest, err)
+	}
+
+	if err := s.DeleteSession(1008); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.ListSessions(); len(got) != 1 || got[0].ID != 2000 {

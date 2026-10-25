@@ -48,6 +48,12 @@ export function ClipURL(path: string): $CancellablePromise<string> {
  * CreateClip saves [startSec, endSec] of a recording as a clip in the clips
  * folder (in its game's folder) and returns its path. Cuts land on segment
  * boundaries (2s); fine-tune in the clip editor.
+ * 
+ * The offsets are measured from the session's current first segment. The
+ * footage budget trims the oldest segments while something records, which
+ * moves every offset down; the Timeline tracks that (its player stays
+ * anchored to the playlist it attached, and it shifts its selection as the
+ * front slides) and re-reads the session right before it cuts.
  */
 export function CreateClip(id: number, startSec: number, endSec: number): $CancellablePromise<string> {
     return $Call.ByID(1797497587, id, startSec, endSec);

@@ -171,3 +171,204 @@ func TestPruneWholeSessions(t *testing.T) {
 		t.Errorf("live session trimmed to its in-progress segment, kept intact: %v", runs)
 	}
 }
+
+type segTime struct {
+	name       string
+	start, end float64
+}
+
+// writeSegTimes writes run's segment list (r<run>.csv) in ffmpeg's
+// "<file>,<start>,<end>" format.
+func writeSegTimes(t *testing.T, dir string, run int, rows []segTime) {
+	t.Helper()
+	var sb strings.Builder
+	for _, r := range rows {
+		fmt.Fprintf(&sb, "%s,%f,%f\n", r.name, r.start, r.end)
+	}
+	if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("r%04d.csv", run)), []byte(sb.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// footageRun writes a background run of n segments of segSec seconds each, the
+// first `listed` of them in the run's csv; the rest look still in progress /
+// not yet listed. Segment i ends ageOfLast + (n-1-i)*segSec ago.
+func footageRun(t *testing.T, dir string, run, n, listed, size int, segSec float64, ageOfLast time.Duration) {
+	t.Helper()
+	writeRunInfo(dir, RunInfo{Run: run, StartMs: int64(run) * 1000, Tag: "background|Game"})
+	var rows []segTime
+	for i := 0; i < n; i++ {
+		age := ageOfLast + time.Duration(float64(n-1-i)*segSec*float64(time.Second))
+		fakeSeg(t, dir, run, i, size, age)
+		if i < listed {
+			rows = append(rows, segTime{fmt.Sprintf("r%04d-%08d.ts", run, i), float64(i) * segSec, float64(i+1) * segSec})
+		}
+	}
+	if listed > 0 {
+		writeSegTimes(t, dir, run, rows)
+	}
+}
+
+func runCounts(dir string) map[int][]int {
+	out := map[int][]int{}
+	for _, s := range ListRecSegments(dir) {
+		out[s.Run] = append(out[s.Run], s.Index)
+	}
+	return out
+}
+
+func TestPruneFootageTrimsAcrossSessions(t *testing.T) {
+	dir := t.TempDir()
+	footageRun(t, dir, 200, 3, 3, 10, 2, 2*time.Hour) // finished session: 6 s
+	footageRun(t, dir, 300, 5, 4, 10, 2, 0)           // live: 4 finished (8 s) + in progress
+
+	b := NewReplayBuffer()
+	b.run = 300
+	cfg := ReplayConfig{Dir: dir, Persist: true, WholeSessions: true, MaxFootageSec: 6}
+	b.prunePersistent(cfg)
+
+	got := runCounts(dir)
+	if len(got[200]) != 0 {
+		t.Errorf("run 200 should be gone: %v", got)
+	}
+	if want := []int{1, 2, 3, 4}; fmt.Sprint(got[300]) != fmt.Sprint(want) {
+		t.Errorf("run 300 should keep its newest 3 finished + in-progress, got %v", got[300])
+	}
+	if _, ok := ReadRunInfo(dir, 200); ok {
+		t.Error("sidecar of a fully pruned run should be removed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "r0200.csv")); !os.IsNotExist(err) {
+		t.Error("csv of a fully pruned run should be removed")
+	}
+	if _, ok := ReadRunInfo(dir, 300); !ok {
+		t.Error("live run's sidecar must stay")
+	}
+	if b.Status().Error != "" {
+		t.Errorf("footage trimming is not an error: %q", b.Status().Error)
+	}
+
+	cfg.MaxFootageSec = 100
+	b.prunePersistent(cfg)
+	if got := runCounts(dir); fmt.Sprint(got[300]) != fmt.Sprint([]int{1, 2, 3, 4}) {
+		t.Errorf("a roomy budget deletes nothing: %v", got)
+	}
+}
+
+func TestPruneFootageSkipsProtected(t *testing.T) {
+	dir := t.TempDir()
+	footageRun(t, dir, 100, 4, 4, 10, 2, 5*time.Hour) // manual, protected: 8 s
+	footageRun(t, dir, 300, 5, 4, 10, 2, 0)           // live
+
+	b := NewReplayBuffer()
+	b.run = 300
+	b.SetProtect(func(run int) bool { return run == 100 })
+	b.prunePersistent(ReplayConfig{Dir: dir, Persist: true, WholeSessions: true, MaxFootageSec: 6})
+
+	got := runCounts(dir)
+	if len(got[100]) != 4 {
+		t.Errorf("protected run must be untouched: %v", got)
+	}
+	// If the protected 8 s had counted, run 300 would keep no finished footage.
+	if fmt.Sprint(got[300]) != fmt.Sprint([]int{1, 2, 3, 4}) {
+		t.Errorf("protected footage must not eat the budget: %v", got[300])
+	}
+	if _, ok := ReadRunInfo(dir, 100); !ok {
+		t.Error("protected run's sidecar must stay")
+	}
+}
+
+func TestPruneFootageWithoutCsvFallsBackToSegmentLength(t *testing.T) {
+	dir := t.TempDir()
+	footageRun(t, dir, 200, 3, 0, 10, 2, 2*time.Hour) // no csv
+	footageRun(t, dir, 300, 5, 0, 10, 2, 0)           // no csv
+
+	b := NewReplayBuffer()
+	b.run = 300
+	b.prunePersistent(ReplayConfig{Dir: dir, Persist: true, WholeSessions: true, MaxFootageSec: 6})
+
+	got := runCounts(dir)
+	if len(got[200]) != 0 || fmt.Sprint(got[300]) != fmt.Sprint([]int{1, 2, 3, 4}) {
+		t.Errorf("without a csv each segment counts as %d s: %v", replaySegmentSec, got)
+	}
+}
+
+func TestPruneFootageThenSizeCap(t *testing.T) {
+	dir := t.TempDir()
+	footageRun(t, dir, 200, 3, 3, 5, 2, 2*time.Hour)
+	footageRun(t, dir, 300, 5, 4, 5, 2, 0)
+
+	b := NewReplayBuffer()
+	b.run = 300
+	// Footage leaves run 300's 4 segments = 20 bytes; the size cap then trims
+	// the live session's oldest footage down to 15 (whole-session rules).
+	b.prunePersistent(ReplayConfig{Dir: dir, Persist: true, WholeSessions: true, MaxFootageSec: 6, MaxBytes: 15})
+
+	got := runCounts(dir)
+	if len(got[200]) != 0 || fmt.Sprint(got[300]) != fmt.Sprint([]int{2, 3, 4}) {
+		t.Errorf("footage then size cap: %v", got)
+	}
+	b.mu.Lock()
+	used := b.diskUsed
+	b.mu.Unlock()
+	if err := b.Status().Error; used != 15 || err != "" {
+		t.Errorf("after prune: diskUsed=%d err=%q", used, err)
+	}
+}
+
+func TestSetMaxFootageSecLive(t *testing.T) {
+	dir := t.TempDir()
+	footageRun(t, dir, 300, 5, 4, 10, 2, 0)
+
+	b := NewReplayBuffer()
+	b.run = 300
+	cfg := ReplayConfig{Dir: dir, Persist: true, WholeSessions: true, MaxFootageSec: 6}
+
+	// The live override is tighter than the running config.
+	b.SetMaxFootageSec(2)
+	b.prunePersistent(cfg)
+	if got := runCounts(dir); fmt.Sprint(got[300]) != fmt.Sprint([]int{3, 4}) {
+		t.Fatalf("SetMaxFootageSec(2) should keep one finished segment: %v", got)
+	}
+
+	// Setting it back to 0 turns the limit off even though cfg still says 6.
+	b.SetMaxFootageSec(0)
+	footageRun(t, dir, 400, 6, 5, 10, 2, 0)
+	b.run = 400
+	b.prunePersistent(cfg)
+	got := runCounts(dir)
+	if len(got[300]) != 2 || len(got[400]) != 6 {
+		t.Errorf("SetMaxFootageSec(0) should disable the budget: %v", got)
+	}
+}
+
+func TestPruneFootageTrimsInsideFinishedSession(t *testing.T) {
+	dir := t.TempDir()
+	footageRun(t, dir, 200, 3, 3, 10, 2, 2*time.Hour) // finished: 6 s
+	footageRun(t, dir, 300, 5, 4, 10, 2, 0)           // live: 4 finished (8 s) + in progress
+
+	b := NewReplayBuffer()
+	b.run = 300
+	b.prunePersistent(ReplayConfig{Dir: dir, Persist: true, WholeSessions: true, MaxFootageSec: 10})
+
+	// 10 s: all of run 300's finished footage (8 s) plus run 200's newest
+	// segment (2 s); the finished run is trimmed from the front, not deleted.
+	got := runCounts(dir)
+	if fmt.Sprint(got[200]) != fmt.Sprint([]int{2}) || fmt.Sprint(got[300]) != fmt.Sprint([]int{0, 1, 2, 3, 4}) {
+		t.Fatalf("finished run should keep only its newest segment: %v", got)
+	}
+	if _, ok := ReadRunInfo(dir, 200); !ok {
+		t.Error("a trimmed run that still has footage keeps its sidecar")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "r0200.csv")); err != nil {
+		t.Error("a trimmed run that still has footage keeps its segment list")
+	}
+	b.mu.Lock()
+	used := b.diskUsed
+	b.mu.Unlock()
+	if used != 6*10 {
+		t.Errorf("diskUsed = %d, want the 6 survivors' bytes", used)
+	}
+	if b.Status().DiskBytes != 6*10 {
+		t.Errorf("status after a prune should carry the bytes on disk: %+v", b.Status())
+	}
+}

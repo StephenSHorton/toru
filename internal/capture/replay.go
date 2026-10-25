@@ -180,6 +180,10 @@ type ReplayConfig struct {
 	// Runs the protect callback (SetProtect) claims are never pruned.
 	Persist  bool
 	MaxBytes int64 // Persist: total segment bytes kept; 0 = unlimited
+	// MaxFootageSec (Persist) is the total finished footage (seconds) kept
+	// across unprotected runs, newest first; 0 = unlimited. Applied before
+	// the size cap and trims inside sessions.
+	MaxFootageSec int
 	// MinFreeBytes (Persist) is free space the recording never eats into on
 	// its drive: older unprotected footage is pruned to keep it, and if only
 	// protected footage is left, recording pauses until space frees up.
@@ -217,6 +221,10 @@ type ReplayBuffer struct {
 	diskUsed int64              // Persist: last measured segment bytes
 	diskFull bool               // Persist: paused for lack of free space
 	maxBytes int64              // Persist: live size cap (SetMaxBytes); 0 = cfg.MaxBytes
+	// maxFootageSet: SetMaxFootageSec was called, so prunes read the footage
+	// budget from cfg (which it and Start keep current) instead of their own
+	// copy; that way 0 turns the limit off live and a restart resets it.
+	maxFootageSet bool
 
 	// segMu is held while pruning and while Save reads segments, so the pruner
 	// never deletes a file a stitch is about to read.

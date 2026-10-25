@@ -146,12 +146,10 @@ func DeleteRun(dir string, run int) error {
 	return nil
 }
 
-// prunePersistent enforces the age and size limits on a persistent recording
-// dir: oldest unprotected segments go first; the newest segment (still being
-// written) and protected runs are never touched. Sidecars of runs with no
-// segments left are removed too.
 // SetMaxBytes changes a running persistent recorder's size cap in place
-// (no restart); the next prune applies it.
+// (no restart); the next prune applies it. Passing 0 falls back to the cap
+// the recorder was started with (Start resets the override), so it cannot
+// turn a configured cap off live; SetMaxFootageSec can.
 func (b *ReplayBuffer) SetMaxBytes(n int64) {
 	b.mu.Lock()
 	b.maxBytes = n
@@ -159,11 +157,35 @@ func (b *ReplayBuffer) SetMaxBytes(n int64) {
 	b.mu.Unlock()
 }
 
+// SetMaxFootageSec changes a running persistent recorder's footage budget in
+// place (no restart); the next prune applies it. 0 turns the limit off.
+func (b *ReplayBuffer) SetMaxFootageSec(n int) {
+	b.mu.Lock()
+	b.maxFootageSet = true
+	b.cfg.MaxFootageSec = n
+	b.mu.Unlock()
+}
+
+// prunePersistent enforces a persistent recording dir's three limits, in
+// this order:
+//
+//  1. Footage (MaxFootageSec): finished footage is counted newest-first
+//     across every unprotected run; once the budget is spent, that segment
+//     and everything older go, trimming inside a session if needed.
+//  2. Age (KeepSeconds; segment ModTime), when not WholeSessions.
+//  3. Size (MaxBytes) and the free-space floor (MinFreeBytes): oldest
+//     unprotected segments go first, or whole sessions when WholeSessions.
+//
+// The newest segment (still being written) and protected runs are never
+// touched or counted. Sidecars of runs with no segments left are removed.
 func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 	b.mu.Lock()
 	protect, current := b.protect, b.run
 	if b.maxBytes > 0 {
 		cfg.MaxBytes = b.maxBytes
+	}
+	if b.maxFootageSet {
+		cfg.MaxFootageSec = b.cfg.MaxFootageSec
 	}
 	b.mu.Unlock()
 	b.segMu.Lock()
@@ -173,6 +195,10 @@ func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 	var total int64
 	for _, s := range segs {
 		total += s.Size
+	}
+	live := map[int]bool{current: true}
+	if cfg.MaxFootageSec > 0 {
+		segs, total = pruneFootage(cfg, segs, total, protect, live)
 	}
 	// Free-space floor: if the drive has less than MinFreeBytes free, prune
 	// the shortfall too (on top of the size cap).
@@ -186,7 +212,6 @@ func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 	if cfg.KeepSeconds > 0 {
 		cutoff = time.Now().Add(-time.Duration(cfg.KeepSeconds) * time.Second)
 	}
-	live := map[int]bool{current: true}
 	if cfg.WholeSessions {
 		total, shortfall = b.pruneWholeSessions(cfg, segs, total, shortfall, protect, current, live)
 		segs = nil // handled
@@ -226,9 +251,13 @@ func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 	b.diskFull = driveFull
 	b.mu.Unlock()
 	full := cfg.MaxBytes > 0 && total > cfg.MaxBytes
+	// Every prune publishes a status (setStatus always notifies), with the
+	// bytes left on disk: that is how an open viewer learns that footage was
+	// trimmed from a finished session, which otherwise changes silently.
 	b.setStatus(func(s *ReplayStatus) {
 		const capMsg = "Recording storage is full of manual recordings; delete some or raise the limit"
 		const driveMsg = "Your drive is almost full, so recording is paused. Free up space or delete recordings"
+		s.DiskBytes = total
 		switch {
 		case driveFull:
 			s.Error = driveMsg
@@ -239,6 +268,65 @@ func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 			s.Error = ""
 		}
 	})
+}
+
+// pruneFootage keeps the newest cfg.MaxFootageSec seconds of finished
+// footage across all unprotected runs and deletes the rest, regardless of
+// session boundaries. The newest segment (in progress) and protected runs are
+// neither counted nor deleted. A segment's duration comes from its run's
+// segment list; one not listed yet counts as replaySegmentSec. It returns the
+// surviving segments (oldest first) and the new total; only runs whose
+// segment could not be removed are marked live.
+func pruneFootage(cfg ReplayConfig, segs []RecSegment, total int64, protect func(int) bool, live map[int]bool) ([]RecSegment, int64) {
+	if len(segs) < 2 {
+		return segs, total
+	}
+	times := map[int]map[string][2]float64{}
+	duration := func(s RecSegment) float64 {
+		t, ok := times[s.Run]
+		if !ok {
+			t = SegmentTimes(cfg.Dir, s.Run)
+			times[s.Run] = t
+		}
+		if span, ok := t[s.Name]; ok {
+			return span[1] - span[0]
+		}
+		return replaySegmentSec
+	}
+	budget := float64(cfg.MaxFootageSec)
+	var used float64
+	drop := map[int]bool{} // index into segs
+	over := false
+	for i := len(segs) - 2; i >= 0; i-- {
+		s := segs[i]
+		if protect != nil && protect(s.Run) {
+			continue
+		}
+		if !over {
+			d := duration(s)
+			if used+d <= budget {
+				used += d
+				continue
+			}
+			over = true
+		}
+		if os.Remove(s.Path) == nil {
+			total -= s.Size
+			drop[i] = true
+		} else {
+			live[s.Run] = true
+		}
+	}
+	if len(drop) == 0 {
+		return segs, total
+	}
+	kept := make([]RecSegment, 0, len(segs)-len(drop))
+	for i, s := range segs {
+		if !drop[i] {
+			kept = append(kept, s)
+		}
+	}
+	return kept, total
 }
 
 // SessionGap is the longest pause between two runs of the same tag that
