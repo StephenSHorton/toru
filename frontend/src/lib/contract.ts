@@ -43,6 +43,10 @@ export interface TrimRequest {
   endMs: number;
   precise: boolean;
   outPath: string;
+  // Optional spatial crop in VIDEO pixels (origin = frame top-left; NOT the
+  // virtual-desktop Rect convention). Absent/null = full frame. A crop always
+  // re-encodes, whatever `precise` says.
+  crop?: Rect | null;
 }
 
 export interface ScreenInfo {

@@ -26,11 +26,16 @@ func New() *VideoService { return &VideoService{} }
 
 // Trim cuts [StartMs, EndMs] from req.VideoPath into req.OutPath. Precise=false
 // is a fast stream-copy (snaps to nearest preceding keyframe); Precise=true
-// re-encodes for frame accuracy.
+// re-encodes for frame accuracy. A Crop always re-encodes and names the
+// output "-cropped" rather than "-trimmed": it is a different artifact.
 func (s *VideoService) Trim(req capture.TrimRequest) (string, error) {
 	if req.OutPath == "" {
 		ext := filepath.Ext(req.VideoPath)
-		req.OutPath = strings.TrimSuffix(req.VideoPath, ext) + "-trimmed" + ext
+		suffix := "-trimmed"
+		if req.Crop != nil {
+			suffix = "-cropped"
+		}
+		req.OutPath = strings.TrimSuffix(req.VideoPath, ext) + suffix + ext
 	}
 	args := capture.BuildTrimArgs(req)
 	if err := capture.RunFFmpeg(context.Background(), args); err != nil {

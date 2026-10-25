@@ -19,9 +19,16 @@ import {
   AlertCircle,
   Link2,
   ExternalLink,
+  SkipBack,
+  SkipForward,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  Crop,
+  RotateCcw,
 } from "lucide-react";
 import { ExportService, ReplayService, UploadService, VideoService, TrimRequest } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
 
 // DEVELOPER 2 — video trim editor. A player, a timeline with TWO draggable
 // in/out handles + a playhead, and Copy / Save As… / Trim actions. The region
@@ -53,6 +60,43 @@ export default function Trim() {
   const [precise, setPrecise] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+
+  // Spatial crop (video pixels; null = full frame). cropMode shows the CropBox
+  // overlay over the player; the crop itself stays applied after leaving crop
+  // mode and is sent with the next Trim. A crop always re-encodes.
+  const [cropMode, setCropMode] = useState(false);
+  const [crop, setCrop] = useState<CropRect | null>(null);
+  const [videoDims, setVideoDims] = useState({ w: 0, h: 0 });
+  // Where the <video> frame is rendered inside the player pane (CSS px,
+  // relative to the pane) so the overlay can sit exactly on top of it.
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [videoBox, setVideoBox] = useState<RenderedBox>({ left: 0, top: 0, width: 0, height: 0 });
+  useEffect(() => {
+    if (!cropMode) return;
+    const v = vidRef.current;
+    const pane = paneRef.current;
+    if (!v || !pane) return;
+    const measure = () => {
+      const r = v.getBoundingClientRect();
+      const p = pane.getBoundingClientRect();
+      // Content box only: the overlay must not cover the 1px border.
+      setVideoBox({
+        left: r.left - p.left + v.clientLeft,
+        top: r.top - p.top + v.clientTop,
+        width: v.clientWidth,
+        height: v.clientHeight,
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(v);
+    ro.observe(pane);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [cropMode, ready, src]);
   // Discord export runs in a modal (the two-pass re-encode can take a minute): a
   // "working" state with an indeterminate bar, then a success/error message.
   // null = modal closed.
@@ -108,7 +152,8 @@ export default function Trim() {
     if (!v) return;
     // Size the window to the clip's aspect ratio so the player isn't letterboxed
     // and (with the layout's min-h-0) never needs a vertical scrollbar.
-    fitWindowToVideo(v.videoWidth, v.videoHeight);
+    fitWindowToVideo(v.videoWidth, v.videoHeight, paneRef.current);
+    setVideoDims({ w: v.videoWidth, h: v.videoHeight });
     if (v.duration === Infinity) {
       // A WebM finalized without a duration header (e.g. a hard-killed mux)
       // reports Infinity; the standard fix is seeking far past the end, which
@@ -172,6 +217,63 @@ export default function Trim() {
       setPlaying(false);
     }
   };
+
+  // Jump the playhead to the in/out point; set the in/out point at the
+  // playhead. Times come from the element (cur is only as fresh as the last
+  // timeupdate) and snap to 10ms like the handles do.
+  const jumpTo = (sec: number) => {
+    const v = vidRef.current;
+    if (!v || duration <= 0) return;
+    v.currentTime = Math.max(0, Math.min(sec, duration));
+    setCur(v.currentTime);
+  };
+  const playheadSec = () => {
+    const v = vidRef.current;
+    return v ? Math.round(v.currentTime * 100) / 100 : cur;
+  };
+  const setInHere = () => {
+    if (duration <= 0) return;
+    setInSec(Math.max(0, Math.min(playheadSec(), outSec - MIN_GAP)));
+  };
+  const setOutHere = () => {
+    if (duration <= 0) return;
+    setOutSec(Math.min(duration, Math.max(playheadSec(), inSec + MIN_GAP)));
+  };
+
+  // Keyboard: Space play/pause, Home/End jump to the clip ends, I/O set them at
+  // the playhead. Ignored while typing in a field or while a dialog is open.
+  // No dependency array: the closure must always see the current in/out.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (share !== null || discord !== null) return;
+      switch (e.key) {
+        case " ":
+          e.preventDefault(); // also stops a focused button from clicking
+          toggle();
+          break;
+        case "Home":
+          e.preventDefault();
+          jumpTo(inSec);
+          break;
+        case "End":
+          e.preventDefault();
+          jumpTo(outSec);
+          break;
+        case "i":
+        case "I":
+          setInHere();
+          break;
+        case "o":
+        case "O":
+          setOutHere();
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   // Click-to-seek on the timeline track (handles stop propagation).
   const seekFromTrack = (e: React.PointerEvent) => {
@@ -245,23 +347,28 @@ export default function Trim() {
           endMs: Math.round(outSec * 1000),
           precise,
           outPath: "",
+          // A crop always re-encodes on the Go side (yuv420 even dims, clamped).
+          ...(crop ? { crop } : {}),
         }),
       );
       // Swap the player onto the trimmed artifact; metadata reload resets
       // duration and the in/out selection to the new clip. Instant-replay
       // clips are served from the replay folder, everything else via /__file.
+      // The crop was baked into the new file, so it is cleared with the swap.
       const clipURL = await ReplayService.ClipURL(out).catch(() => "");
       setAbsPath(out);
       setSrc(clipURL || "/__file/" + encodeURIComponent(baseName(out)));
+      setCrop(null);
+      setCropMode(false);
       setPlaying(false);
       setCur(0);
-      setNote(precise ? "Trimmed (frame-accurate) ✓" : "Trimmed ✓");
+      setNote(crop ? "Trimmed & cropped ✓" : precise ? "Trimmed (frame-accurate) ✓" : "Trimmed ✓");
     } catch (err) {
       setNote(`Trim failed: ${err}`);
     } finally {
       setBusy(false);
     }
-  }, [absPath, busy, duration, inSec, outSec, precise]);
+  }, [absPath, busy, duration, inSec, outSec, precise, crop]);
 
   const SHARE_CONSENT_KEY = "toru.share.consented";
 
@@ -313,10 +420,14 @@ export default function Trim() {
 
   const pct = (sec: number) => (duration > 0 ? (sec / duration) * 100 : 0);
   const noFile = !absPath;
+  const cropActive = crop !== null;
+  // Copy / Save As / For Discord / Share act on the CURRENT file; only Trim
+  // bakes the crop in. Say so on their tooltips while a crop is pending.
+  const cropNote = cropActive ? " The crop is applied only by Trim & crop." : "";
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="relative flex min-h-0 flex-1 items-center justify-center p-4">
+      <div ref={paneRef} className="relative flex min-h-0 flex-1 items-center justify-center p-4">
         {!ready ? (
           <div className="pointer-events-none absolute flex items-center gap-2 bg-black/60 px-3 py-1.5 text-xs text-white">
             <Loader2 className="size-3.5 animate-spin" /> Loading clip…
@@ -335,6 +446,19 @@ export default function Trim() {
           onClick={toggle}
           title={playing ? "Click to pause" : "Click to play"}
         />
+        {/* crop overlay — a sibling positioned over the measured video box so
+            the video keeps its max-h-full fit (a wrapper would break it) */}
+        {cropMode && ready ? (
+          <CropBox
+            videoW={videoDims.w}
+            videoH={videoDims.h}
+            box={videoBox}
+            crop={crop}
+            onChange={setCrop}
+            onBackdropClick={toggle}
+            backdropTitle={playing ? "Click outside the crop to pause" : "Click outside the crop to play"}
+          />
+        ) : null}
       </div>
 
       {/* frosted timeline */}
@@ -375,15 +499,58 @@ export default function Trim() {
           />
         </div>
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button
             size="icon"
             variant="secondary"
             onClick={toggle}
-            title={playing ? "Pause" : fromStart ? "Play from the trim start" : "Play selection"}
+            title={playing ? "Pause (Space)" : fromStart ? "Play from the trim start (Space)" : "Play selection (Space)"}
+            aria-label={playing ? "Pause" : "Play"}
           >
             {playing ? <Pause /> : <Play />}
           </Button>
+          <div className="flex items-center">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={duration <= 0}
+              onClick={() => jumpTo(inSec)}
+              title="Jump to clip start (Home)"
+              aria-label="Jump to clip start"
+            >
+              <SkipBack />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={duration <= 0}
+              onClick={() => jumpTo(outSec)}
+              title="Jump to clip end (End)"
+              aria-label="Jump to clip end"
+            >
+              <SkipForward />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={duration <= 0}
+              onClick={setInHere}
+              title="Set clip start at the playhead (I)"
+              aria-label="Set clip start at the playhead"
+            >
+              <ArrowLeftToLine /> Start here
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={duration <= 0}
+              onClick={setOutHere}
+              title="Set clip end at the playhead (O)"
+              aria-label="Set clip end at the playhead"
+            >
+              <ArrowRightToLine /> End here
+            </Button>
+          </div>
           <label
             className="flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground hover:text-foreground"
             title="Each time you press play, start from the beginning of your trim"
@@ -401,6 +568,7 @@ export default function Trim() {
             variant="ghost"
             onClick={() => setMuted((m) => !m)}
             title={muted ? "Unmute preview" : "Mute preview (the file's audio is untouched)"}
+            aria-label={muted ? "Unmute preview" : "Mute preview"}
           >
             {muted || volume === 0 ? <VolumeX /> : <Volume2 />}
           </Button>
@@ -425,20 +593,68 @@ export default function Trim() {
           </span>
           {note ? <span className="text-xs text-primary">{note}</span> : null}
           <div className="ml-auto flex items-center gap-1">
-            <Tooltip content="Re-encodes so the cut lands on the EXACT in/out frame you picked (slower). Off = instant cut that snaps to the nearest keyframe, which can leave a few extra frames at the start.">
+            <Button
+              size="sm"
+              variant={cropMode ? "default" : cropActive ? "secondary" : "ghost"}
+              disabled={duration <= 0}
+              onClick={() => setCropMode((m) => !m)}
+              title={
+                cropMode
+                  ? "Done cropping (the crop stays applied)"
+                  : cropActive
+                    ? `Crop: ${crop.w} × ${crop.h} — click to adjust`
+                    : "Crop the picture: drag a box over the video"
+              }
+              aria-label={cropMode ? "Leave crop mode" : "Crop"}
+              aria-pressed={cropMode}
+            >
+              <Crop /> {cropActive ? `${crop.w}×${crop.h}` : "Crop"}
+            </Button>
+            {cropActive ? (
               <Button
                 size="sm"
-                variant={precise ? "default" : "ghost"}
+                variant="ghost"
+                onClick={() => setCrop(null)}
+                title="Reset the crop to the full frame"
+                aria-label="Reset crop"
+              >
+                <RotateCcw /> Reset
+              </Button>
+            ) : null}
+            <Tooltip
+              content={
+                cropActive
+                  ? "Crop always re-encodes"
+                  : "Re-encodes so the cut lands on the EXACT in/out frame you picked (slower). Off = instant cut that snaps to the nearest keyframe, which can leave a few extra frames at the start."
+              }
+            >
+              <Button
+                size="sm"
+                variant={precise || cropActive ? "default" : "ghost"}
+                disabled={cropActive}
                 onClick={() => setPrecise((p) => !p)}
+                aria-pressed={precise || cropActive}
               >
                 <Timer /> Frame-accurate
               </Button>
             </Tooltip>
             <div className="mx-1 h-5 w-px bg-border" />
-            <Button size="sm" variant="ghost" disabled={noFile || busy} onClick={() => void doCopy()}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={noFile || busy}
+              onClick={() => void doCopy()}
+              title={cropActive ? `Copy the current file.${cropNote}` : undefined}
+            >
               <Copy /> Copy
             </Button>
-            <Button size="sm" variant="ghost" disabled={noFile || busy} onClick={() => void doSaveAs()}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={noFile || busy}
+              onClick={() => void doSaveAs()}
+              title={cropActive ? `Save the current file.${cropNote}` : undefined}
+            >
               <Save /> Save As…
             </Button>
             <Button
@@ -446,7 +662,7 @@ export default function Trim() {
               variant="ghost"
               disabled={noFile || busy}
               onClick={() => void doDiscord()}
-              title="Re-encode to fit Discord's 10MB upload cap and copy the result"
+              title={`Re-encode to fit Discord's 10MB upload cap and copy the result.${cropNote}`}
             >
               <Send /> For Discord
             </Button>
@@ -458,13 +674,18 @@ export default function Trim() {
               title={
                 existingLink
                   ? `Already shared: ${existingLink}`
-                  : "Upload your selection and copy a link anyone can open"
+                  : `Upload your selection and copy a link anyone can open.${cropNote}`
               }
             >
               <Link2 /> {existingLink ? "Copy link" : "Share link"}
             </Button>
-            <Button size="sm" disabled={noFile || busy || duration <= 0} onClick={() => void doTrim()}>
-              <Scissors /> {busy ? "Working…" : "Trim"}
+            <Button
+              size="sm"
+              disabled={noFile || busy || duration <= 0}
+              onClick={() => void doTrim()}
+              title={cropActive ? "Cut to the selection and crop the picture (re-encodes)" : "Cut the clip to the selection"}
+            >
+              <Scissors /> {busy ? "Working…" : cropActive ? "Trim & crop" : "Trim"}
             </Button>
           </div>
         </div>
@@ -657,10 +878,20 @@ export default function Trim() {
 // the window on-screen; the timeline panel's fixed chrome is added below the
 // video. A runtime-unavailable reject (dev /sample.mp4) is harmless — the
 // layout already prevents scroll on its own.
-function fitWindowToVideo(vw: number, vh: number) {
+//
+// CHROME_H assumes the control row fits on one line. It wraps on narrow
+// windows (portrait clips) and at the 1280 max once the crop controls are in
+// the row, so after the first resize the player pane is measured: if the video
+// got less height than it was sized for, the deficit is added to the chrome
+// and the window is sized once more. Measuring the deficit (rather than the
+// panel) keeps this independent of the title-bar/DPI details the constant was
+// tuned against. One correction pass only: the row can wrap transiently
+// (the action note, label changes) and the window must not breathe.
+function fitWindowToVideo(vw: number, vh: number, pane: HTMLElement | null) {
   if (!vw || !vh) return;
   const CHROME_H = 196; // timeline panel + paddings below the video (CSS px ≈ DIP)
   const SIDE_PAD = 32; // video container horizontal padding (p-4 → 16 * 2)
+  const PANE_PAD = 32; // the pane's own p-4, top + bottom
   const aspect = vw / vh;
   const screenW = window.screen?.availWidth || 1600;
   const screenH = window.screen?.availHeight || 1000;
@@ -668,24 +899,59 @@ function fitWindowToVideo(vw: number, vh: number) {
   const maxH = Math.min(960, Math.round(screenH * 0.92));
   const minW = 520;
 
-  let dispW = Math.min(vw, maxW - SIDE_PAD);
-  let dispH = dispW / aspect;
-  const maxVideoH = maxH - CHROME_H;
-  if (dispH > maxVideoH) {
-    dispH = maxVideoH;
-    dispW = dispH * aspect;
-  }
-  const winW = Math.round(Math.max(minW, Math.min(maxW, dispW + SIDE_PAD)));
-  const winH = Math.round(Math.min(maxH, dispH + CHROME_H));
+  const size = (chromeH: number) => {
+    let dispW = Math.min(vw, maxW - SIDE_PAD);
+    let dispH = dispW / aspect;
+    const maxVideoH = maxH - chromeH;
+    if (dispH > maxVideoH) {
+      dispH = maxVideoH;
+      dispW = dispH * aspect;
+    }
+    return {
+      dispH,
+      winW: Math.round(Math.max(minW, Math.min(maxW, dispW + SIDE_PAD))),
+      winH: Math.round(Math.min(maxH, dispH + chromeH)),
+    };
+  };
 
   void (async () => {
     try {
-      await Window.SetSize(winW, winH);
+      const first = size(CHROME_H);
+      await Window.SetSize(first.winW, first.winH);
+      await Window.Center();
+      if (!pane) return;
+      await settleLayout();
+      // Height the video actually has vs. what it was sized for.
+      const availH = pane.clientHeight - PANE_PAD;
+      const deficit = Math.round(first.dispH - availH);
+      if (deficit <= 1) return;
+      const second = size(CHROME_H + deficit);
+      if (second.winW === first.winW && second.winH === first.winH) return;
+      await Window.SetSize(second.winW, second.winH);
       await Window.Center();
     } catch {
       /* runtime unavailable (dev sample) — layout still prevents scroll */
     }
   })();
+}
+
+// settleLayout resolves once the window has re-laid out after a SetSize: on
+// the next resize event, or after a short wait when the size didn't change
+// (the Go side pre-sizes the window, so often it doesn't).
+function settleLayout(): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    let timer = 0;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener("resize", finish);
+      window.clearTimeout(timer);
+      requestAnimationFrame(() => resolve());
+    };
+    timer = window.setTimeout(finish, 150);
+    window.addEventListener("resize", finish);
+  });
 }
 
 // fmtSec renders seconds with 2 decimals: "0.00s", "12.34s"; minutes past 60s.

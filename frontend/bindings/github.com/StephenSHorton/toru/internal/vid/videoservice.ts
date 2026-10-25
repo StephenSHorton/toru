@@ -40,7 +40,8 @@ export function GenerateThumbnails(videoPath: string, count: number): $Cancellab
 /**
  * Trim cuts [StartMs, EndMs] from req.VideoPath into req.OutPath. Precise=false
  * is a fast stream-copy (snaps to nearest preceding keyframe); Precise=true
- * re-encodes for frame accuracy.
+ * re-encodes for frame accuracy. A Crop always re-encodes and names the
+ * output "-cropped" rather than "-trimmed": it is a different artifact.
  */
 export function Trim(req: capture$0.TrimRequest): $CancellablePromise<string> {
     return $Call.ByID(3139144495, req);

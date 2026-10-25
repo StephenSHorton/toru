@@ -337,7 +337,8 @@ export default function Timeline() {
   // [ / ] previous/next marker, Esc clear selection.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
       switch (e.key) {
         case " ":
           e.preventDefault();
@@ -537,10 +538,10 @@ export default function Timeline() {
           <Button size="sm" variant="ghost" onClick={toggle} title="Play / pause (Space)">
             {playing ? <Pause /> : <Play />}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => seek(cur - 10)} title="Back 10s (J)">
+          <Button size="sm" variant="ghost" onClick={() => seek(cur - 10)} title="Back 10s (J)" aria-label="Back 10 seconds">
             <SkipBack />
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => seek(cur + 10)} title="Forward 10s (L)">
+          <Button size="sm" variant="ghost" onClick={() => seek(cur + 10)} title="Forward 10s (L)" aria-label="Forward 10 seconds">
             <SkipForward />
           </Button>
           <span className="mx-1 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
@@ -563,6 +564,7 @@ export default function Timeline() {
             disabled={zoom <= 1}
             onClick={() => zoomAroundPlayhead(0.5)}
             title="Zoom out"
+            aria-label="Zoom out"
           >
             <ZoomOut />
           </Button>
@@ -572,6 +574,7 @@ export default function Timeline() {
             disabled={zoom >= maxZoom}
             onClick={() => zoomAroundPlayhead(2)}
             title="Zoom in"
+            aria-label="Zoom in"
           >
             <ZoomIn />
           </Button>
@@ -582,7 +585,31 @@ export default function Timeline() {
                 <span className="text-xs tabular-nums text-muted-foreground">
                   {fmt(sel.a)} – {fmt(sel.b)} ({fmt(sel.b - sel.a)})
                 </span>
-                <Button size="sm" variant="ghost" onClick={() => setSel(null)} title="Clear selection (Esc)">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => seek(sel.a)}
+                  title="Jump to selection start"
+                  aria-label="Jump to selection start"
+                >
+                  <SkipBack />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => seek(sel.b)}
+                  title="Jump to selection end"
+                  aria-label="Jump to selection end"
+                >
+                  <SkipForward />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSel(null)}
+                  title="Clear selection (Esc)"
+                  aria-label="Clear selection"
+                >
                   <X />
                 </Button>
               </>
@@ -603,15 +630,15 @@ export default function Timeline() {
                 <Download /> Save full recording
               </Button>
             ) : null}
-            <Button size="sm" variant="ghost" onClick={() => void ReplayService.OpenRecordingsDir()} title="Open the recordings folder">
+            <Button size="sm" variant="ghost" onClick={() => void ReplayService.OpenRecordingsDir()} title="Open the recordings folder" aria-label="Open the recordings folder">
               <FolderOpen />
             </Button>
             <Button
               size="sm"
               variant="ghost"
-              disabled={session?.live}
               onClick={() => setConfirmDelete(true)}
-              title={session?.live ? "Stop the recording first" : "Delete this recording"}
+              title="Delete this recording"
+              aria-label="Delete this recording"
             >
               <Trash2 />
             </Button>
@@ -625,6 +652,9 @@ export default function Timeline() {
           <p className="text-xs text-muted-foreground">
             {fmt(session?.durationSec ?? 0)} of footage will be deleted from disk. Clips you already
             saved from it are kept. This can't be undone.
+            {session?.live
+              ? " It's still recording: recording pauses for a moment, this part is deleted, and it carries on as a new recording."
+              : ""}
           </p>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
