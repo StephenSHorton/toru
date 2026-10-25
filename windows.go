@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/hato"
 	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -32,6 +33,10 @@ type WindowsService struct {
 	app     *application.App
 	cap     capture.Capturer
 	overlay *overlay.OverlayService
+
+	// hato is the file-transfer service; the hub window's file-drop handler hands
+	// dropped paths to it. Injected from main (nil-guarded).
+	hato *hato.HatoService
 
 	// settingsWin is the single live Settings/home window. Toru is a tray app that
 	// lives forever, so the tray left-click + tray "Settings…" + editor gear all
@@ -93,6 +98,31 @@ func (w *WindowsService) OpenOverlay() {
 // keeps alive forever, reintroducing the exact multi-window confusion this redesign
 // removed. The handle is cleared when the window closes.
 func (w *WindowsService) OpenSettings() {
+	w.openSettingsURL("/?view=settings")
+}
+
+// OpenHato surfaces the Hato (file transfer) page of the hub. Reached from the
+// tray's "Send a file…" item. If the hub window already exists it is raised and
+// told to switch pages via the payload-less hato:open event (the page can't be
+// changed through the URL of a live window without a reload, which would drop
+// any in-flight transfer UI); otherwise the window is opened straight onto the
+// page via ?page=hato.
+func (w *WindowsService) OpenHato() {
+	if w.app == nil {
+		return
+	}
+	if w.settingsWin != nil {
+		w.openSettingsURL("") // raise the existing window
+		w.app.Event.Emit(hato.EventOpen, nil)
+		return
+	}
+	w.openSettingsURL("/?view=settings&page=hato")
+}
+
+// openSettingsURL is the shared body of OpenSettings/OpenHato: raise the
+// singleton hub window if it exists, else create it at url. url is ignored when
+// the window already exists (singleton: never navigate a live hub).
+func (w *WindowsService) openSettingsURL(url string) {
 	if w.app == nil {
 		return
 	}
@@ -111,11 +141,17 @@ func (w *WindowsService) OpenSettings() {
 	}
 	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "Toru",
-		URL:              "/?view=settings",
+		URL:              url,
 		Width:            920,
 		Height:           640,
 		BackgroundColour: dark,
 		AlwaysOnTop:      overlayUp,
+		// File drops feed Hato's drop zone. On Windows WebView2 drag-and-drop is
+		// always on (AllowExternalDrop also governs HTML5 DnD), so this flag only
+		// makes the runtime forward drops to Go — and it does that ONLY for drops
+		// landing on an element carrying data-file-drop-target (the Hato page's
+		// zone). Every other page keeps the "no drop" cursor.
+		EnableFileDrop: true,
 	})
 	w.settingsWin = win
 	win.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) {
@@ -126,6 +162,18 @@ func (w *WindowsService) OpenSettings() {
 	// otherwise leave the tray's "open home" silently dead).
 	win.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
 		w.settingsWin = nil
+	})
+	// Dropped files start a Hato send. The event fires on the main thread; the
+	// send itself runs on its own goroutine, so this returns immediately.
+	win.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
+		if w.hato == nil {
+			return
+		}
+		files := e.Context().DroppedFiles()
+		if len(files) == 0 {
+			return
+		}
+		w.hato.HandleDrop(files)
 	})
 }
 

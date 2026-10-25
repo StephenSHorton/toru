@@ -316,6 +316,11 @@ export class ReplayStatus {
      */
     "error": string;
 
+    /**
+     * Persist: bytes of segments on disk
+     */
+    "diskBytes": number;
+
     /** Creates a new ReplayStatus instance. */
     constructor($$source: Partial<ReplayStatus> = {}) {
         if (!("running" in $$source)) {
@@ -335,6 +340,9 @@ export class ReplayStatus {
         }
         if (!("error" in $$source)) {
             this["error"] = "";
+        }
+        if (!("diskBytes" in $$source)) {
+            this["diskBytes"] = 0;
         }
 
         Object.assign(this, $$source);

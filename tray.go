@@ -25,6 +25,8 @@ type trayController struct {
 	openOverlay func()
 	replay      *replay.ReplayService
 	keys        *hotkey.Manager
+	// openHato opens the hub on the Hato (file transfer) page.
+	openHato func()
 }
 
 // rebuildMenu constructs a fresh tray menu and installs it. Safe to call from
@@ -43,6 +45,12 @@ func (t *trayController) rebuildMenu() {
 	})
 
 	t.addReplayItems(menu)
+	// Hato: the hub's file-transfer page, where a drop/picker issues the code.
+	menu.Add("Send a file… (Hato)").OnClick(func(*application.Context) {
+		if t.openHato != nil {
+			t.openHato()
+		}
+	})
 
 	menu.AddSeparator()
 

@@ -7,6 +7,7 @@ import {
   Film,
   FolderOpen,
   Image as ImageIcon,
+  Send,
   Settings2,
   SquareDashed,
   Trash2,
@@ -18,7 +19,10 @@ import { Switch } from "@/components/ui/switch";
 import { Updater } from "@/updater/Updater";
 import { Shortcuts } from "@/shortcuts/Shortcuts";
 import { ReplayPanel } from "@/replay/ReplayPanel";
+import Hato from "@/hato/Hato";
+import { errText, reportLocalSendError } from "@/hato/useHato";
 import {
+  HatoService,
   HistoryService,
   OverlayService,
   ReplayService,
@@ -33,10 +37,37 @@ import { cn } from "@/lib/utils";
 // recent screenshots & recordings; Settings is a navigable panel (shortcuts,
 // launch-at-login, freeze, updater).
 
-type Page = "library" | "settings";
+type Page = "library" | "hato" | "settings";
+const PAGES: readonly Page[] = ["library", "hato", "settings"];
+
+// initialPage honours `?page=` so the tray's "Send a file…" can open the hub
+// straight onto Hato (windows.go OpenHato); anything else lands on Library.
+function initialPage(): Page {
+  const p = new URLSearchParams(window.location.search).get("page") ?? "";
+  return (PAGES as readonly string[]).includes(p) ? (p as Page) : "library";
+}
 
 export default function Settings() {
-  const [page, setPage] = useState<Page>("library");
+  const [page, setPage] = useState<Page>(initialPage);
+
+  // Go raises an already-open hub and asks it to switch pages via hato:open
+  // (no payload) instead of reloading the window, which would drop the live
+  // transfer UI.
+  useEffect(() => {
+    const off = WailsEvents.On("hato:open", () => setPage("hato"));
+    return () => {
+      off();
+    };
+  }, []);
+
+  // Library card → Hato: kick off the send, then show the page. Transfer
+  // errors arrive as the "error" phase on hato:send and render on the Hato
+  // page itself; a synchronous rejection (the capture file is gone) is routed
+  // to the Send card the same way, since by then this page has switched.
+  const sendItem = useCallback((item: CaptureItem) => {
+    void HatoService.StartSend(item.path).catch((e: unknown) => reportLocalSendError(errText(e)));
+    setPage("hato");
+  }, []);
 
   return (
     <div className="flex h-full w-full overflow-hidden">
@@ -54,6 +85,12 @@ export default function Settings() {
           icon={LayoutGrid}
           label="Library"
           onClick={() => setPage("library")}
+        />
+        <NavBtn
+          active={page === "hato"}
+          icon={Send}
+          label="Hato"
+          onClick={() => setPage("hato")}
         />
 
         <div
@@ -82,7 +119,13 @@ export default function Settings() {
       </nav>
 
       <main className="min-w-0 flex-1 overflow-auto p-6">
-        {page === "library" ? <LibraryPage /> : <SettingsPage />}
+        {page === "library" ? (
+          <LibraryPage onSendItem={sendItem} />
+        ) : page === "hato" ? (
+          <Hato />
+        ) : (
+          <SettingsPage />
+        )}
       </main>
     </div>
   );
@@ -134,7 +177,7 @@ function readLibraryView(): LibraryView {
   return "all";
 }
 
-function LibraryPage() {
+function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }) {
   const [items, setItems] = useState<CaptureItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setViewState] = useState<LibraryView>(readLibraryView);
@@ -480,6 +523,7 @@ function LibraryPage() {
                 selected={selected.has(e.item.id)}
                 onToggleSelect={() => toggleSelect(e.item.id)}
                 onOpen={() => void HistoryService.Open(e.item.id)}
+                onSend={() => onSendItem(e.item)}
                 onDelete={() => setPendingDelete([e.item])}
               />
             ) : (
@@ -796,12 +840,14 @@ function CaptureCard({
   selected,
   onToggleSelect,
   onOpen,
+  onSend,
   onDelete,
 }: {
   item: CaptureItem;
   selected: boolean;
   onToggleSelect: () => void;
   onOpen: () => void;
+  onSend: () => void;
   onDelete: () => void;
 }) {
   const isVideo = item.kind === "video";
@@ -877,7 +923,21 @@ function CaptureCard({
           size="icon"
           variant="ghost"
           className="size-7 shrink-0 opacity-60 hover:opacity-100"
+          title="Send with Hato"
+          aria-label="Send with Hato"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSend();
+          }}
+        >
+          <Send className="size-3.5" />
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 shrink-0 opacity-60 hover:opacity-100"
           title="Delete"
+          aria-label="Delete"
           onClick={(e) => {
             e.stopPropagation();
             onDelete();
