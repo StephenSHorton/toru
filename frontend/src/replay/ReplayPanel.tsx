@@ -33,7 +33,7 @@ const MODES: { value: string; label: string; icon: React.ReactNode; summary: str
     label: "Background recording",
     icon: <Film className="size-4" />,
     summary: "Records your whole play session. Scrub back and cut clips later.",
-    detail: "Old footage is deleted automatically after the time you choose.",
+    detail: "Whole sessions, kept until storage runs out or for only as long as you choose.",
   },
   {
     value: "manual",
