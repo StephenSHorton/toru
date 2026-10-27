@@ -3,501 +3,238 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Toru (撮る) — Capture, record, and send files on Windows</title>
+    <title>Toru (撮る) · Capture, record, call and play LAN games on Windows</title>
     <meta
       name="description"
-      content="Toru is a macOS-style screenshot and screen recording tool for Windows with game recording, instant replay, a clips library, and peer-to-peer file transfer with a short code. Win+Shift+S, annotate, auto-save to your library."
+      content="Toru is a free, open-source Windows app: macOS-style screenshots and screen recording, game recording with instant replay, voice calls and peer-to-peer screen sharing, a built-in LAN for your games, Send Files and an Auto Clicker. No accounts."
     />
-    <meta property="og:title" content="Toru (撮る) — Capture, record, and send files on Windows" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://stephenshorton.github.io/toru/" />
+    <meta property="og:title" content="Toru (撮る) · Capture, record, call and play LAN games on Windows" />
     <meta
       property="og:description"
-      content="Hotkey capture, annotation editor, game recording with instant replay, clips with share links, Send Files with a short code, and auto-update."
+      content="Screenshots, screen and game recording, voice calls with peer-to-peer screen sharing, and a built-in virtual LAN for your games. Free, MIT licensed, no accounts."
     />
-    <meta property="og:image" content="toru-banner.png" />
-    <meta name="theme-color" content="#121318" />
+    <meta property="og:image" content="https://stephenshorton.github.io/toru/toru-banner.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)" />
+    <meta name="color-scheme" content="dark light" />
     <link rel="icon" href="appicon.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Theme: ?theme=light|dark wins, then a saved choice, then the system setting.
+      (function () {
+        var t = null;
+        try {
+          var q = new URLSearchParams(location.search).get("theme");
+          if (q === "light" || q === "dark") t = q;
+          else t = localStorage.getItem("toru-theme");
+        } catch (e) {}
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      })();
+    </script>
     <style>
-      /* Palette mirrors frontend/src/index.css — primary hue ~248 (sky blue). */
+      /* ---------- tokens ---------- */
       :root {
-        --bg: oklch(0.145 0.004 264);
-        --bg-elevated: oklch(0.18 0.004 264);
-        --fg: oklch(0.985 0 0);
-        --muted: oklch(0.708 0.01 264);
-        --border: oklch(0.3 0.006 264);
-        --primary: oklch(0.72 0.15 248);
-        --primary-soft: oklch(0.72 0.15 248 / 0.18);
-        --primary-glow: oklch(0.72 0.15 248 / 0.35);
-        --primary-fg: oklch(0.145 0.02 264);
-        --frost: color-mix(in oklch, oklch(0.18 0.004 264) 60%, transparent);
-        --ring: oklch(0.72 0.15 248 / 0.45);
-        --grid-line: oklch(0.72 0.12 248 / 0.09);
-        --radius: 0;
-        --font: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
-        --mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+        --bg: #0b0d12;
+        --bg-2: #10131a;
+        --surface: rgba(255, 255, 255, 0.035);
+        --surface-2: rgba(255, 255, 255, 0.06);
+        --surface-solid: #141821;
+        --border: rgba(255, 255, 255, 0.09);
+        --border-strong: rgba(255, 255, 255, 0.16);
+        --fg: #eef1f6;
+        --muted: #a2abba;
+        --faint: #7b8494;
+        --primary: #5cb8ff;
+        --primary-2: #8fd0ff;
+        --primary-ink: #04111d;
+        --primary-soft: rgba(92, 184, 255, 0.13);
+        --rec: #ff6b78;
+        --rec-soft: rgba(255, 107, 120, 0.13);
+        --call: #3ddc97;
+        --call-soft: rgba(61, 220, 151, 0.12);
+        --lan: #b49cff;
+        --lan-soft: rgba(180, 156, 255, 0.14);
+        --tools: #ffc24b;
+        --tools-soft: rgba(255, 194, 75, 0.13);
+        --grid: rgba(120, 180, 255, 0.07);
+        --glow: rgba(92, 184, 255, 0.22);
+        --shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.7);
+        --tile: #12141a;
+        --radius: 18px;
+        --radius-sm: 10px;
+        --font: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+        --display: "Inter Tight", "Segoe UI Variable Display", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+        --mono: ui-monospace, "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+        color-scheme: dark;
       }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      html {
-        scroll-behavior: smooth;
-      }
-
-      body {
-        margin: 0;
-        font-family: var(--font);
-        background: var(--bg);
-        color: var(--fg);
-        line-height: 1.55;
-        -webkit-font-smoothing: antialiased;
-        min-height: 100vh;
-        position: relative;
-        overflow-x: hidden;
-      }
-
-      /* Fixed atmosphere: blue smoke + fading grid (matches app chrome vibe). */
-      body::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        z-index: 0;
-        pointer-events: none;
-        background:
-          /* soft smoke blobs */
-          radial-gradient(55rem 40rem at 12% -8%, oklch(0.72 0.15 248 / 0.22), transparent 62%),
-          radial-gradient(48rem 38rem at 92% 8%, oklch(0.68 0.14 248 / 0.14), transparent 58%),
-          radial-gradient(42rem 36rem at 78% 88%, oklch(0.62 0.12 248 / 0.12), transparent 60%),
-          radial-gradient(36rem 30rem at 8% 72%, oklch(0.7 0.13 248 / 0.1), transparent 55%),
-          /* deeper cool wash */
-          radial-gradient(80rem 50rem at 50% 120%, oklch(0.35 0.06 264 / 0.45), transparent 55%);
-      }
-
-      body::after {
-        content: "";
-        position: fixed;
-        inset: 0;
-        z-index: 0;
-        pointer-events: none;
-        /* grid that fades toward edges via mask */
-        background-image:
-          linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
-          linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-        background-size: 48px 48px;
-        background-position: center top;
-        mask-image: radial-gradient(
-          ellipse 85% 70% at 50% 35%,
-          #000 0%,
-          #000 35%,
-          transparent 78%
-        );
-        -webkit-mask-image: radial-gradient(
-          ellipse 85% 70% at 50% 35%,
-          #000 0%,
-          #000 35%,
-          transparent 78%
-        );
-        opacity: 0.95;
-      }
-
-      /* Content above atmosphere */
-      header.nav,
-      main,
-      footer {
-        position: relative;
-        z-index: 1;
-      }
-
-      a {
-        color: var(--primary);
-        text-decoration: none;
-      }
-      a:hover {
-        text-decoration: underline;
-      }
-
-      .wrap {
-        width: min(1080px, calc(100% - 2.5rem));
-        margin-inline: auto;
-      }
-
-      /* --- nav --- */
-      header.nav {
-        position: sticky;
-        top: 0;
-        z-index: 40;
-        border-bottom: 1px solid color-mix(in oklch, var(--border) 80%, var(--primary) 20%);
-        background: color-mix(in oklch, var(--bg) 78%, transparent);
-        backdrop-filter: blur(16px) saturate(140%);
-        -webkit-backdrop-filter: blur(16px) saturate(140%);
-        box-shadow: 0 1px 0 oklch(0.72 0.15 248 / 0.08);
-      }
-
-      .nav-inner {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: 0.85rem 0;
-      }
-
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 0.65rem;
-        color: var(--fg);
-        font-weight: 600;
-        letter-spacing: -0.02em;
-        text-decoration: none;
-      }
-      .brand:hover {
-        text-decoration: none;
-      }
-      .brand img {
-        width: 28px;
-        height: 28px;
-      }
-      .brand span.jp {
-        color: var(--muted);
-        font-weight: 500;
-        font-size: 0.9rem;
-      }
-
-      .nav-links {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-      }
-      .nav-links a.quiet {
-        color: var(--muted);
-        font-size: 0.9rem;
-      }
-      .nav-links a.quiet:hover {
-        color: var(--fg);
-      }
-
-      /* --- buttons --- */
-      .btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.45rem;
-        border: 1px solid transparent;
-        padding: 0.65rem 1.05rem;
-        font: inherit;
-        font-weight: 600;
-        font-size: 0.92rem;
-        cursor: pointer;
-        transition: transform 0.1s ease, background 0.15s ease, border-color 0.15s ease;
-        user-select: none;
-        text-decoration: none !important;
-      }
-      .btn:active {
-        transform: scale(0.98);
-      }
-      .btn-primary {
-        background: var(--primary);
-        color: var(--primary-fg);
-        box-shadow: 0 0 0 1px oklch(0.72 0.15 248 / 0.25), 0 8px 28px oklch(0.72 0.15 248 / 0.22);
-      }
-      .btn-primary:hover {
-        filter: brightness(1.06);
-      }
-      .btn-ghost {
-        background: color-mix(in oklch, var(--bg-elevated) 55%, transparent);
-        color: var(--fg);
-        border-color: color-mix(in oklch, var(--border) 70%, var(--primary) 30%);
-      }
-      .btn-ghost:hover {
-        background: var(--bg-elevated);
-        border-color: var(--primary-glow);
-      }
-      .btn-lg {
-        padding: 0.85rem 1.25rem;
-        font-size: 1rem;
-      }
-      .btn .icon,
-      .icon-link .icon {
-        width: 1.1em;
-        height: 1.1em;
-        flex-shrink: 0;
-        display: block;
-      }
-      .btn-lg .icon {
-        width: 1.2em;
-        height: 1.2em;
-      }
-      .icon-link {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--muted);
-        padding: 0.35rem;
-        line-height: 0;
-      }
-      .icon-link:hover {
-        color: var(--fg);
-        text-decoration: none;
-      }
-      .icon-link .icon {
-        width: 1.35rem;
-        height: 1.35rem;
-      }
-      .btn-ghost .icon {
-        opacity: 0.95;
-      }
-
-      /* --- hero --- */
-      .hero {
-        padding: 3.5rem 0 2.5rem;
-        text-align: center;
-      }
-
-      .hero-banner {
-        width: min(720px, 100%);
-        height: auto;
-        margin: 0 auto 1.75rem;
-        display: block;
-        filter:
-          drop-shadow(0 0 40px oklch(0.72 0.15 248 / 0.25))
-          drop-shadow(0 24px 48px oklch(0 0 0 / 0.5));
-      }
-
-      .hero h1 {
-        margin: 0 0 0.75rem;
-        font-size: clamp(1.85rem, 4vw, 2.65rem);
-        letter-spacing: -0.03em;
-        font-weight: 700;
-        line-height: 1.15;
-      }
-
-      .hero .lede {
-        margin: 0 auto 1.5rem;
-        max-width: 36rem;
-        color: var(--muted);
-        font-size: 1.08rem;
-      }
-
-      .hero-cta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-        justify-content: center;
-        margin-bottom: 1.25rem;
-      }
-
-      .version-line {
-        color: var(--muted);
-        font-size: 0.85rem;
-        min-height: 1.25em;
-      }
-      .version-line code,
-      .card code {
-        font-family: var(--mono);
-        font-size: 0.82rem;
-        color: var(--primary);
-        background: oklch(0.72 0.15 248 / 0.1);
-        border: 1px solid oklch(0.72 0.15 248 / 0.28);
-        padding: 0.1rem 0.4rem;
-      }
-
-      .hotkey {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        margin-top: 1.5rem;
-        padding: 0.55rem 0.85rem;
-        background: var(--frost);
-        border: 1px solid color-mix(in oklch, var(--border) 65%, var(--primary) 35%);
-        backdrop-filter: blur(12px) saturate(150%);
-        -webkit-backdrop-filter: blur(12px) saturate(150%);
-        color: var(--muted);
-        font-size: 0.9rem;
-        box-shadow: 0 0 40px oklch(0.72 0.15 248 / 0.08);
-      }
-      kbd {
-        font-family: var(--mono);
-        font-size: 0.78rem;
-        color: var(--fg);
-        background: var(--bg-elevated);
-        border: 1px solid color-mix(in oklch, var(--border) 70%, var(--primary) 30%);
-        border-bottom-width: 2px;
-        padding: 0.15rem 0.4rem;
-      }
-
-      /* --- sections --- */
-      section {
-        padding: 2.75rem 0;
-      }
-      section.band {
-        border-block: 1px solid color-mix(in oklch, var(--border) 85%, var(--primary) 15%);
-        background: linear-gradient(
-          180deg,
-          oklch(0.72 0.15 248 / 0.05),
-          transparent 40%,
-          oklch(0.72 0.12 248 / 0.04)
-        );
-      }
-
-      h2 {
-        margin: 0 0 0.5rem;
-        font-size: 1.45rem;
-        letter-spacing: -0.02em;
-      }
-      .section-lead {
-        margin: 0 0 1.75rem;
-        color: var(--muted);
-        max-width: 36rem;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 1rem;
-      }
-
-      .card {
-        background: var(--frost);
-        border: 1px solid color-mix(in oklch, var(--border) 80%, var(--primary) 20%);
-        backdrop-filter: blur(14px) saturate(150%);
-        -webkit-backdrop-filter: blur(14px) saturate(150%);
-        padding: 1.2rem 1.25rem;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease;
-      }
-      .card:hover {
-        border-color: var(--ring);
-        box-shadow:
-          0 0 0 1px var(--ring),
-          0 12px 36px oklch(0.72 0.15 248 / 0.1);
-      }
-      .card h3 {
-        margin: 0 0 0.4rem;
-        font-size: 1.02rem;
-        letter-spacing: -0.01em;
-      }
-      .card p {
-        margin: 0;
-        color: var(--muted);
-        font-size: 0.92rem;
-      }
-      .card .icon {
-        display: inline-flex;
-        width: 2rem;
-        height: 2rem;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 0.75rem;
-        border: 1px solid oklch(0.72 0.15 248 / 0.28);
-        background: oklch(0.72 0.15 248 / 0.1);
-        color: var(--primary);
-        font-size: 1rem;
-      }
-
-      .steps {
-        display: grid;
-        gap: 0.75rem;
-        counter-reset: step;
-      }
-      .step {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 0.9rem;
-        align-items: start;
-        padding: 1rem 1.1rem;
-        border: 1px solid color-mix(in oklch, var(--border) 80%, var(--primary) 20%);
-        background: color-mix(in oklch, var(--bg-elevated) 80%, transparent);
-        backdrop-filter: blur(10px);
-      }
-      .step::before {
-        counter-increment: step;
-        content: counter(step);
-        width: 1.75rem;
-        height: 1.75rem;
-        display: grid;
-        place-items: center;
-        background: var(--primary);
-        color: var(--primary-fg);
-        font-weight: 700;
-        font-size: 0.85rem;
-        box-shadow: 0 0 16px oklch(0.72 0.15 248 / 0.35);
-      }
-      .step strong {
-        display: block;
-        margin-bottom: 0.15rem;
-      }
-      .step span {
-        color: var(--muted);
-        font-size: 0.92rem;
-      }
-
-      .download-panel {
-        display: grid;
-        gap: 1rem;
-        grid-template-columns: 1.2fr 1fr;
-        align-items: center;
-        padding: 1.5rem;
-        border: 1px solid color-mix(in oklch, var(--border) 60%, var(--primary) 40%);
-        background: var(--frost);
-        backdrop-filter: blur(16px) saturate(150%);
-        -webkit-backdrop-filter: blur(16px) saturate(150%);
-        box-shadow:
-          0 0 0 1px oklch(0.72 0.15 248 / 0.08),
-          0 24px 60px oklch(0.72 0.15 248 / 0.08),
-          inset 0 1px 0 oklch(0.72 0.15 248 / 0.08);
-      }
-      @media (max-width: 720px) {
-        .download-panel {
-          grid-template-columns: 1fr;
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme="dark"]) {
+          --bg: #f6f7fb;
+          --bg-2: #ffffff;
+          --surface: rgba(255, 255, 255, 0.75);
+          --surface-2: #ffffff;
+          --surface-solid: #ffffff;
+          --border: rgba(15, 23, 42, 0.1);
+          --border-strong: rgba(15, 23, 42, 0.18);
+          --fg: #0d1320;
+          --muted: #4a5466;
+          --faint: #5f6878;
+          --primary: #1667c9;
+          --primary-2: #0f56ad;
+          --primary-ink: #ffffff;
+          --primary-soft: rgba(22, 103, 201, 0.09);
+          --rec: #c8283c;
+          --rec-soft: rgba(200, 40, 60, 0.08);
+          --call: #0b7d55;
+          --call-soft: rgba(11, 125, 85, 0.09);
+          --lan: #6a3fd6;
+          --lan-soft: rgba(106, 63, 214, 0.08);
+          --tools: #9a5b00;
+          --tools-soft: rgba(154, 91, 0, 0.09);
+          --grid: rgba(22, 103, 201, 0.06);
+          --glow: rgba(22, 103, 201, 0.12);
+          --shadow: 0 24px 50px -28px rgba(15, 23, 42, 0.35);
+          color-scheme: light;
         }
       }
-      .download-panel h2 {
-        margin-bottom: 0.35rem;
+      :root[data-theme="light"] {
+        --bg: #f6f7fb;
+        --bg-2: #ffffff;
+        --surface: rgba(255, 255, 255, 0.75);
+        --surface-2: #ffffff;
+        --surface-solid: #ffffff;
+        --border: rgba(15, 23, 42, 0.1);
+        --border-strong: rgba(15, 23, 42, 0.18);
+        --fg: #0d1320;
+        --muted: #4a5466;
+        --faint: #5f6878;
+        --primary: #1667c9;
+        --primary-2: #0f56ad;
+        --primary-ink: #ffffff;
+        --primary-soft: rgba(22, 103, 201, 0.09);
+        --rec: #c8283c;
+        --rec-soft: rgba(200, 40, 60, 0.08);
+        --call: #0b7d55;
+        --call-soft: rgba(11, 125, 85, 0.09);
+        --lan: #6a3fd6;
+        --lan-soft: rgba(106, 63, 214, 0.08);
+        --tools: #9a5b00;
+        --tools-soft: rgba(154, 91, 0, 0.09);
+        --grid: rgba(22, 103, 201, 0.06);
+        --glow: rgba(22, 103, 201, 0.12);
+        --shadow: 0 24px 50px -28px rgba(15, 23, 42, 0.35);
+        color-scheme: light;
       }
-      .download-panel p {
+
+      /* ---------- base ---------- */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 76px;
+        -webkit-text-size-adjust: 100%;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+      body {
         margin: 0;
-        color: var(--muted);
-      }
-      .download-actions {
-        display: flex;
-        flex-direction: column;
-        gap: 0.55rem;
-      }
-      .download-actions .btn {
-        width: 100%;
-      }
-      .fine {
-        font-size: 0.8rem;
-        color: var(--muted);
-        text-align: center;
-      }
-
-      footer {
-        padding: 2.5rem 0 3rem;
-        border-top: 1px solid color-mix(in oklch, var(--border) 85%, var(--primary) 15%);
-        color: var(--muted);
-        font-size: 0.88rem;
-      }
-      footer .foot-inner {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem 1.25rem;
-        justify-content: space-between;
-        align-items: center;
-      }
-      footer nav {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.85rem;
-      }
-      footer a {
-        color: var(--muted);
-      }
-      footer a:hover {
+        background: var(--bg);
         color: var(--fg);
+        font-family: var(--font);
+        font-size: 1rem;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
       }
-
+      img,
+      svg {
+        max-width: 100%;
+      }
+      a {
+        color: var(--primary);
+        text-underline-offset: 3px;
+      }
+      a:hover {
+        color: var(--primary-2);
+      }
+      :focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 3px;
+        border-radius: 6px;
+      }
+      h1,
+      h2,
+      h3 {
+        font-family: var(--display);
+        letter-spacing: -0.018em;
+        line-height: 1.12;
+        margin: 0;
+      }
+      p {
+        margin: 0;
+      }
+      code,
+      kbd {
+        font-family: var(--mono);
+        overflow-wrap: anywhere;
+      }
+      code {
+        font-size: 0.86em;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.08em 0.38em;
+      }
+      kbd {
+        display: inline-block;
+        font-size: 0.78em;
+        line-height: 1.5;
+        color: var(--fg);
+        background: var(--surface-2);
+        border: 1px solid var(--border-strong);
+        border-bottom-width: 2px;
+        border-radius: 6px;
+        padding: 0 0.42em;
+        white-space: nowrap;
+      }
+      .wrap {
+        width: min(1160px, 100% - 2rem);
+        margin-inline: auto;
+      }
+      .skip {
+        position: absolute;
+        left: 1rem;
+        top: -4rem;
+        z-index: 100;
+        background: var(--primary);
+        color: var(--primary-ink);
+        padding: 0.6rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+      }
+      .skip:focus {
+        top: 1rem;
+      }
       .sr-only {
         position: absolute;
         width: 1px;
@@ -508,321 +245,1873 @@
         clip: rect(0, 0, 0, 0);
         border: 0;
       }
+
+      /* atmosphere */
+      .atmos {
+        position: absolute;
+        inset: 0 0 auto 0;
+        height: 1100px;
+        pointer-events: none;
+        z-index: 0;
+        overflow: hidden;
+      }
+      .atmos::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(40rem 28rem at 18% 0%, var(--glow), transparent 65%),
+          radial-gradient(36rem 26rem at 88% 12%, color-mix(in srgb, var(--lan) 16%, transparent), transparent 62%),
+          radial-gradient(30rem 22rem at 60% 70%, color-mix(in srgb, var(--call) 8%, transparent), transparent 65%);
+      }
+      .atmos::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(to right, var(--grid) 1px, transparent 1px),
+          linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+        background-size: 56px 56px;
+        -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 20%, transparent 75%);
+        mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 20%, transparent 75%);
+      }
+      header.nav,
+      main,
+      footer {
+        position: relative;
+        z-index: 1;
+      }
+
+      /* ---------- nav ---------- */
+      header.nav {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        background: color-mix(in srgb, var(--bg) 78%, transparent);
+        -webkit-backdrop-filter: blur(14px) saturate(150%);
+        backdrop-filter: blur(14px) saturate(150%);
+        border-bottom: 1px solid var(--border);
+      }
+      .nav-inner {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        height: 64px;
+      }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.6rem;
+        color: var(--fg);
+        text-decoration: none;
+        font-family: var(--display);
+        font-weight: 700;
+        font-size: 1.12rem;
+        letter-spacing: -0.02em;
+        margin-right: auto;
+        white-space: nowrap;
+      }
+      .logo-tile {
+        display: inline-block;
+        width: 32px;
+        height: 32px;
+        border-radius: 9px;
+        overflow: hidden;
+        background: var(--tile);
+        flex: none;
+      }
+      .logo-tile img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        transform: scale(1.7);
+      }
+      @media (max-width: 420px) {
+        .brand .jp {
+          display: none;
+        }
+      }
+      .brand:hover {
+        color: var(--fg);
+      }
+      .brand .jp {
+        color: var(--faint);
+        font-weight: 600;
+        font-size: 0.9rem;
+      }
+      .nav-links {
+        display: flex;
+        gap: 0.25rem;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .nav-links a {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.93rem;
+        padding: 0.4rem 0.65rem;
+        border-radius: 8px;
+      }
+      .nav-links a:hover {
+        color: var(--fg);
+        background: var(--surface-2);
+      }
+      .icon-btn {
+        display: inline-grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        padding: 0;
+      }
+      .icon-btn:hover {
+        color: var(--fg);
+        background: var(--surface-2);
+      }
+      .icon-btn svg {
+        width: 18px;
+        height: 18px;
+      }
+      .theme-toggle .moon {
+        display: none;
+      }
+      :root[data-theme="light"] .theme-toggle .sun {
+        display: none;
+      }
+      :root[data-theme="light"] .theme-toggle .moon {
+        display: block;
+      }
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme]) .theme-toggle .sun {
+          display: none;
+        }
+        :root:not([data-theme]) .theme-toggle .moon {
+          display: block;
+        }
+      }
+      @media (max-width: 900px) {
+        .nav-links {
+          display: none;
+        }
+      }
+
+      /* ---------- buttons ---------- */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        font: inherit;
+        font-weight: 600;
+        font-size: 0.95rem;
+        line-height: 1.2;
+        padding: 0.7rem 1.1rem;
+        border-radius: 12px;
+        border: 1px solid transparent;
+        text-decoration: none;
+        cursor: pointer;
+        transition: transform 0.12s ease, box-shadow 0.2s ease, background 0.2s ease;
+        white-space: nowrap;
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .btn svg {
+        width: 1.1em;
+        height: 1.1em;
+        flex: none;
+      }
+      .btn-primary {
+        background: var(--primary);
+        color: var(--primary-ink);
+        box-shadow: 0 10px 30px -10px var(--primary), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      }
+      .btn-primary:hover {
+        color: var(--primary-ink);
+        background: var(--primary-2);
+      }
+      .btn-ghost {
+        color: var(--fg);
+        background: var(--surface);
+        border-color: var(--border-strong);
+      }
+      .btn-ghost:hover {
+        color: var(--fg);
+        background: var(--surface-2);
+      }
+      .btn-lg {
+        padding: 0.9rem 1.35rem;
+        font-size: 1.02rem;
+        border-radius: 14px;
+      }
+      .btn-sm {
+        padding: 0.5rem 0.85rem;
+        font-size: 0.88rem;
+        border-radius: 10px;
+      }
+
+      /* ---------- hero ---------- */
+      .hero {
+        padding: 4.5rem 0 3rem;
+      }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr;
+        gap: 3rem;
+        align-items: center;
+      }
+      .pill-new {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.32rem 0.8rem 0.32rem 0.38rem;
+        border-radius: 999px;
+        background: var(--surface);
+        border: 1px solid var(--border-strong);
+        color: var(--fg);
+        font-size: 0.88rem;
+        text-decoration: none;
+        margin-bottom: 1.4rem;
+        max-width: 100%;
+      }
+      .pill-new:hover {
+        color: var(--fg);
+        border-color: var(--lan);
+      }
+      .pill-new .tag {
+        background: var(--lan);
+        color: #120a26;
+        font-weight: 700;
+        font-size: 0.74rem;
+        padding: 0.12rem 0.55rem;
+        border-radius: 999px;
+        letter-spacing: 0.02em;
+        flex: none;
+      }
+      :root[data-theme="light"] .pill-new .tag {
+        color: #fff;
+      }
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme="dark"]) .pill-new .tag {
+          color: #fff;
+        }
+      }
+      .hero h1 {
+        font-size: clamp(2.5rem, 6vw, 4.4rem);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        line-height: 1.04;
+      }
+      .grad {
+        background: linear-gradient(100deg, var(--primary) 0%, var(--lan) 55%, var(--rec) 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .lede {
+        margin-top: 1.3rem;
+        font-size: 1.15rem;
+        color: var(--muted);
+        max-width: 34rem;
+      }
+      .hero-cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 2rem;
+      }
+      .hero-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1.2rem;
+        margin-top: 1.25rem;
+        color: var(--faint);
+        font-size: 0.88rem;
+      }
+      .hero-meta span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .hero-meta svg {
+        width: 15px;
+        height: 15px;
+        color: var(--call);
+      }
+      .version-line {
+        min-height: 1.4em;
+        margin-top: 0.9rem;
+        color: var(--faint);
+        font-size: 0.86rem;
+      }
+
+      /* hero art */
+      .hero-art {
+        position: relative;
+        aspect-ratio: 1 / 0.92;
+        width: 100%;
+        max-width: 540px;
+        justify-self: end;
+      }
+      .hero-art .stage {
+        position: absolute;
+        inset: 6% 4% 6% 4%;
+        border-radius: 22px;
+        background: linear-gradient(160deg, color-mix(in srgb, var(--surface-solid) 92%, var(--primary) 8%), var(--surface-solid));
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      .hero-art .stage::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(to right, var(--grid) 1px, transparent 1px),
+          linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+        background-size: 28px 28px;
+      }
+      .marquee {
+        position: absolute;
+        inset: 16% 20% 20% 16%;
+        border: 2px dashed var(--primary);
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--primary) 6%, transparent);
+        animation: breathe 4s ease-in-out infinite;
+      }
+      .marquee i {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        background: var(--bg-2);
+        border: 2px solid var(--primary);
+        border-radius: 3px;
+      }
+      .marquee i:nth-child(1) { left: -6px; top: -6px; }
+      .marquee i:nth-child(2) { right: -6px; top: -6px; }
+      .marquee i:nth-child(3) { left: -6px; bottom: -6px; }
+      .marquee i:nth-child(4) { right: -6px; bottom: -6px; }
+      .marquee .dim {
+        position: absolute;
+        left: 0;
+        top: -2.1rem;
+        font: 600 0.72rem/1 var(--mono);
+        background: var(--primary);
+        color: var(--primary-ink);
+        padding: 0.32rem 0.5rem;
+        border-radius: 6px;
+        white-space: nowrap;
+      }
+      .marquee .logo {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+      }
+      .marquee .logo span {
+        width: 46%;
+        aspect-ratio: 1;
+        border-radius: 22%;
+        overflow: hidden;
+        background: var(--tile);
+        box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.6);
+      }
+      .marquee .logo img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        transform: scale(1.55);
+      }
+      .chip-float {
+        position: absolute;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        border-radius: 12px;
+        background: var(--surface-solid);
+        border: 1px solid var(--border-strong);
+        box-shadow: var(--shadow);
+        font-size: 0.8rem;
+        font-weight: 600;
+        white-space: nowrap;
+        color: var(--fg);
+      }
+      .chip-float small {
+        display: block;
+        font-weight: 500;
+        color: var(--faint);
+        font-size: 0.72rem;
+      }
+      .chip-float .dot {
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        flex: none;
+      }
+      .chip-float .dot svg {
+        width: 15px;
+        height: 15px;
+      }
+      .cf-rec { left: 0; bottom: 20%; animation: float 7s ease-in-out infinite; }
+      .cf-call { right: 0; top: 0; animation: float 8s ease-in-out -2s infinite; }
+      .cf-lan { right: 6%; bottom: 0; animation: float 9s ease-in-out -4s infinite; }
+      .cf-rec .dot { background: var(--rec-soft); color: var(--rec); }
+      .cf-call .dot { background: var(--call-soft); color: var(--call); }
+      .cf-lan .dot { background: var(--lan-soft); color: var(--lan); }
+      @keyframes float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-8px); }
+      }
+      @keyframes breathe {
+        0%, 100% { inset: 16% 20% 20% 16%; }
+        50% { inset: 14% 17% 18% 13%; }
+      }
+
+      @media (max-width: 900px) {
+        .hero {
+          padding-top: 2.5rem;
+        }
+        .hero-grid {
+          grid-template-columns: 1fr;
+          gap: 2.5rem;
+        }
+        .hero-art {
+          justify-self: center;
+          max-width: 440px;
+        }
+        .marquee .dim {
+          display: none;
+        }
+      }
+
+      /* ---------- pillars ---------- */
+      .pillars {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+        padding-bottom: 1rem;
+      }
+      .pillar {
+        display: block;
+        padding: 1.25rem;
+        border-radius: var(--radius);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--fg);
+        text-decoration: none;
+        transition: border-color 0.2s ease, transform 0.2s ease;
+      }
+      .pillar:hover {
+        color: var(--fg);
+        transform: translateY(-2px);
+        border-color: var(--accent);
+      }
+      .pillar .ico {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        background: var(--accent-soft);
+        color: var(--accent);
+        margin-bottom: 0.9rem;
+      }
+      .pillar .ico svg {
+        width: 21px;
+        height: 21px;
+      }
+      .pillar h3 {
+        font-size: 1.1rem;
+        margin-bottom: 0.3rem;
+      }
+      .pillar p {
+        color: var(--muted);
+        font-size: 0.92rem;
+        line-height: 1.5;
+      }
+      @media (max-width: 900px) {
+        .pillars {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      @media (max-width: 520px) {
+        .pillars {
+          grid-template-columns: 1fr;
+          gap: 0.6rem;
+        }
+        .pillar {
+          display: grid;
+          grid-template-columns: 40px 1fr;
+          column-gap: 0.9rem;
+          padding: 0.9rem 1rem;
+        }
+        .pillar .ico {
+          grid-row: span 2;
+          margin: 0;
+        }
+        .pillar h3 {
+          margin: 0;
+        }
+      }
+      .a-cap { --accent: var(--primary); --accent-soft: var(--primary-soft); }
+      .a-rec { --accent: var(--rec); --accent-soft: var(--rec-soft); }
+      .a-call { --accent: var(--call); --accent-soft: var(--call-soft); }
+      .a-lan { --accent: var(--lan); --accent-soft: var(--lan-soft); }
+      .a-tools { --accent: var(--tools); --accent-soft: var(--tools-soft); }
+
+      /* ---------- sections ---------- */
+      section.block {
+        padding: 6rem 0 1rem;
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--accent, var(--primary));
+        margin-bottom: 0.9rem;
+      }
+      .eyebrow::before {
+        content: "";
+        width: 18px;
+        height: 2px;
+        border-radius: 2px;
+        background: currentColor;
+      }
+      .block h2 {
+        font-size: clamp(2rem, 4.2vw, 3.1rem);
+        font-weight: 800;
+        letter-spacing: -0.028em;
+      }
+      .block .sub {
+        margin-top: 1rem;
+        font-size: 1.1rem;
+        color: var(--muted);
+        max-width: 40rem;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 3.5rem;
+        align-items: center;
+        margin-top: 3rem;
+      }
+      .split.flip > :first-child {
+        order: 2;
+      }
+      @media (max-width: 900px) {
+        section.block {
+          padding-top: 4.5rem;
+        }
+        .split {
+          grid-template-columns: 1fr;
+          gap: 2rem;
+          margin-top: 2rem;
+        }
+        .split.flip > :first-child {
+          order: 0;
+        }
+      }
+      .feat-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 1.1rem;
+      }
+      .feat-list li {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 0.9rem;
+        align-items: start;
+      }
+      .feat-list .fi {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      .feat-list .fi svg {
+        width: 18px;
+        height: 18px;
+      }
+      .feat-list strong {
+        display: block;
+        font-size: 1rem;
+        margin-bottom: 0.1rem;
+      }
+      .feat-list span.d {
+        color: var(--muted);
+        font-size: 0.94rem;
+        line-height: 1.55;
+      }
+      .panel {
+        position: relative;
+        border-radius: 22px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        padding: 1.5rem;
+        overflow: hidden;
+      }
+      .panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(30rem 18rem at 80% 0%, var(--accent-soft), transparent 70%);
+        pointer-events: none;
+      }
+      .panel > * {
+        position: relative;
+      }
+      .panel svg.diagram {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .caption {
+        margin-top: 0.9rem;
+        font-size: 0.84rem;
+        color: var(--faint);
+        text-align: center;
+      }
+
+      /* cards grid */
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        margin-top: 3rem;
+      }
+      .cards.two {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      @media (max-width: 900px) {
+        .cards,
+        .cards.two {
+          grid-template-columns: 1fr 1fr;
+          margin-top: 2rem;
+        }
+      }
+      @media (max-width: 600px) {
+        .cards,
+        .cards.two {
+          grid-template-columns: 1fr;
+        }
+      }
+      .card {
+        padding: 1.4rem;
+        border-radius: var(--radius);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        min-width: 0;
+      }
+      .card h3 {
+        font-size: 1.08rem;
+        margin: 0.85rem 0 0.4rem;
+        letter-spacing: -0.015em;
+      }
+      .card p {
+        color: var(--muted);
+        font-size: 0.93rem;
+        line-height: 1.55;
+      }
+      .card p + p {
+        margin-top: 0.6rem;
+      }
+      .card .ico {
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
+        display: grid;
+        place-items: center;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      .card .ico svg {
+        width: 20px;
+        height: 20px;
+      }
+      .card .more {
+        display: inline-block;
+        margin-top: 0.8rem;
+        font-size: 0.88rem;
+        font-weight: 600;
+      }
+      .card.wide {
+        grid-column: span 2;
+      }
+      @media (max-width: 600px) {
+        .card.wide {
+          grid-column: auto;
+        }
+      }
+
+      /* stats */
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+        margin-top: 2.5rem;
+      }
+      .stat {
+        padding: 1.1rem 1.2rem;
+        border-radius: 16px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+      }
+      .stat b {
+        display: block;
+        font-family: var(--display);
+        font-size: 1.65rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: var(--accent);
+        line-height: 1.15;
+      }
+      .stat span {
+        color: var(--muted);
+        font-size: 0.86rem;
+        line-height: 1.4;
+        display: block;
+        margin-top: 0.2rem;
+      }
+      @media (max-width: 900px) {
+        .stats {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      /* tags */
+      .tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 1rem;
+      }
+      .tags span {
+        font-size: 0.84rem;
+        padding: 0.3rem 0.7rem;
+        border-radius: 999px;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        color: var(--fg);
+      }
+      .note {
+        margin-top: 1.4rem;
+        display: flex;
+        gap: 0.7rem;
+        align-items: flex-start;
+        padding: 0.9rem 1rem;
+        border-radius: 14px;
+        border: 1px dashed var(--border-strong);
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.5;
+      }
+      .note svg {
+        flex: none;
+        width: 18px;
+        height: 18px;
+        margin-top: 0.15rem;
+        color: var(--accent, var(--primary));
+      }
+      .note strong {
+        color: var(--fg);
+      }
+
+      /* steps */
+      .steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 0.75rem;
+        counter-reset: s;
+      }
+      .steps li {
+        counter-increment: s;
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 0.9rem;
+        padding: 1rem 1.1rem;
+        border-radius: 14px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+      }
+      .steps li::before {
+        content: counter(s);
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        font-family: var(--display);
+        font-weight: 800;
+        background: var(--accent);
+        color: var(--bg);
+      }
+      .steps strong {
+        display: block;
+      }
+      .steps span {
+        color: var(--muted);
+        font-size: 0.93rem;
+      }
+
+      /* glossary */
+      .gloss {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 0.6rem;
+        margin-top: 1.25rem;
+      }
+      .gloss div {
+        padding: 0.8rem 0.9rem;
+        border-radius: 12px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        font-size: 0.84rem;
+        color: var(--muted);
+        line-height: 1.45;
+        min-width: 0;
+      }
+      .gloss b {
+        display: block;
+        color: var(--fg);
+        font-size: 0.92rem;
+        margin-bottom: 0.15rem;
+      }
+      @media (max-width: 900px) {
+        .gloss {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      /* code example */
+      .codebox {
+        display: inline-block;
+        font-family: var(--mono);
+        font-weight: 600;
+        font-size: 1.05rem;
+        letter-spacing: 0.04em;
+        padding: 0.6rem 0.9rem;
+        border-radius: 12px;
+        background: var(--surface-2);
+        border: 1px solid var(--border-strong);
+        color: var(--accent);
+        overflow-wrap: anywhere;
+        max-width: 100%;
+      }
+
+      /* changelog */
+      .timeline {
+        list-style: none;
+        margin: 3rem 0 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem 2rem;
+      }
+      @media (max-width: 760px) {
+        .timeline {
+          grid-template-columns: 1fr;
+          margin-top: 2rem;
+        }
+      }
+      .timeline li {
+        display: grid;
+        grid-template-columns: 74px 1fr;
+        gap: 1rem;
+        padding: 0.9rem 0;
+        border-bottom: 1px solid var(--border);
+        align-items: baseline;
+      }
+      .timeline .v {
+        font-family: var(--mono);
+        font-size: 0.84rem;
+        font-weight: 700;
+        color: var(--accent);
+      }
+      .timeline b {
+        display: block;
+        font-size: 0.98rem;
+      }
+      .timeline span {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      /* privacy */
+      .privacy {
+        display: grid;
+        grid-template-columns: 1fr 1.15fr;
+        gap: 3rem;
+        margin-top: 3rem;
+        align-items: start;
+      }
+      @media (max-width: 900px) {
+        .privacy {
+          grid-template-columns: 1fr;
+          gap: 2rem;
+          margin-top: 2rem;
+        }
+      }
+      .big-claims {
+        display: grid;
+        gap: 0.8rem;
+      }
+      .big-claims div {
+        display: flex;
+        gap: 0.85rem;
+        align-items: center;
+        padding: 1rem 1.15rem;
+        border-radius: 14px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        font-weight: 600;
+      }
+      .big-claims svg {
+        width: 22px;
+        height: 22px;
+        color: var(--call);
+        flex: none;
+      }
+      .big-claims small {
+        display: block;
+        font-weight: 400;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+      .hosts {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.92rem;
+      }
+      .hosts caption {
+        text-align: left;
+        font-weight: 700;
+        font-family: var(--display);
+        font-size: 1.15rem;
+        padding-bottom: 0.4rem;
+      }
+      .hosts th,
+      .hosts td {
+        text-align: left;
+        vertical-align: top;
+        padding: 0.75rem 0.5rem 0.75rem 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .hosts th {
+        font-weight: 600;
+        width: 38%;
+        overflow-wrap: anywhere;
+      }
+      .hosts td {
+        color: var(--muted);
+      }
+
+      /* download */
+      .download {
+        margin-top: 6rem;
+        border-radius: 28px;
+        padding: clamp(1.5rem, 5vw, 3.5rem);
+        background:
+          radial-gradient(40rem 20rem at 0% 0%, var(--glow), transparent 70%),
+          radial-gradient(30rem 20rem at 100% 100%, color-mix(in srgb, var(--lan) 14%, transparent), transparent 70%),
+          var(--surface);
+        border: 1px solid var(--border-strong);
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 2.5rem;
+        align-items: center;
+      }
+      @media (max-width: 900px) {
+        .download {
+          grid-template-columns: 1fr;
+          margin-top: 4.5rem;
+        }
+      }
+      .download h2 {
+        font-size: clamp(2rem, 4vw, 2.8rem);
+        font-weight: 800;
+        letter-spacing: -0.035em;
+      }
+      .download .sub {
+        margin-top: 0.8rem;
+        color: var(--muted);
+      }
+      .req {
+        list-style: none;
+        margin: 1.4rem 0 0;
+        padding: 0;
+        display: grid;
+        gap: 0.45rem;
+        font-size: 0.92rem;
+        color: var(--muted);
+      }
+      .req li {
+        display: flex;
+        gap: 0.55rem;
+        align-items: flex-start;
+      }
+      .req svg {
+        width: 16px;
+        height: 16px;
+        margin-top: 0.25rem;
+        flex: none;
+        color: var(--primary);
+      }
+      .dl-actions {
+        display: grid;
+        gap: 0.65rem;
+      }
+      .dl-actions .btn {
+        width: 100%;
+        white-space: normal;
+        text-align: center;
+      }
+      .fine {
+        text-align: center;
+        color: var(--faint);
+        font-size: 0.8rem;
+        overflow-wrap: anywhere;
+      }
+
+      /* faq */
+      .faq {
+        margin-top: 2.5rem;
+        display: grid;
+        gap: 0.65rem;
+      }
+      .faq details {
+        border-radius: 14px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        padding: 0 1.15rem;
+      }
+      .faq summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 1rem 0;
+        font-weight: 600;
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+      .faq summary::-webkit-details-marker {
+        display: none;
+      }
+      .faq summary::after {
+        content: "+";
+        font-family: var(--mono);
+        color: var(--faint);
+        font-size: 1.2rem;
+        line-height: 1;
+      }
+      .faq details[open] summary::after {
+        content: "\2212";
+      }
+      .faq details p {
+        color: var(--muted);
+        padding-bottom: 1.1rem;
+        font-size: 0.95rem;
+      }
+
+      /* footer */
+      footer {
+        margin-top: 6rem;
+        border-top: 1px solid var(--border);
+        padding: 2.5rem 0 3rem;
+        color: var(--faint);
+        font-size: 0.9rem;
+      }
+      .foot {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.5rem 3rem;
+        justify-content: space-between;
+      }
+      .foot nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1.4rem;
+      }
+      .foot a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+      .foot a:hover {
+        color: var(--fg);
+        text-decoration: underline;
+      }
+      .foot .credits {
+        flex-basis: 100%;
+        font-size: 0.82rem;
+        line-height: 1.6;
+      }
+      .foot .credits a {
+        text-decoration: underline;
+      }
+
+      /* svg diagram helpers */
+      .dg-line { stroke: var(--border-strong); }
+      .dg-acc { stroke: var(--accent); }
+      .dg-fill { fill: var(--surface-solid); }
+      .dg-soft { fill: var(--accent-soft); }
+      .dg-text { fill: var(--fg); font-family: var(--font); }
+      .dg-muted { fill: var(--muted); font-family: var(--font); }
+      .dg-acc-text { fill: var(--accent); font-family: var(--mono); }
+      .flow {
+        stroke-dasharray: 6 8;
+        animation: flow 1.2s linear infinite;
+      }
+      @keyframes flow {
+        to { stroke-dashoffset: -14; }
+      }
     </style>
   </head>
   <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <div class="atmos" aria-hidden="true"></div>
+
+    <!-- shared icon sprites -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <symbol id="i-win" viewBox="0 0 88 88"><path fill="currentColor" d="M0 12.402l35.687-4.86.016 34.423-35.67.203zm35.67 33.529l.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349l-.011 41.34-47.318-6.678-.066-34.739z"/></symbol>
+        <symbol id="i-gh" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
+        <symbol id="i-crop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></symbol>
+        <symbol id="i-pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+        <symbol id="i-lib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+        <symbol id="i-snow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M4.9 6l14.2 12M4.9 18 19.1 6"/></symbol>
+        <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></symbol>
+        <symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="currentColor"/><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+        <symbol id="i-game" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.3 5H6.7a4 4 0 0 0-4 3.6l-.7 6.3A3 3 0 0 0 5 18c1 0 1.5-.5 2-1l1.4-1.4A2 2 0 0 1 9.8 15h4.4a2 2 0 0 1 1.4.6L17 17c.5.5 1 1 2 1a3 3 0 0 0 3-3.1l-.7-6.3a4 4 0 0 0-4-3.6Z"/></symbol>
+        <symbol id="i-scissors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+        <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/></symbol>
+        <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+        <symbol id="i-call" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2Z"/></symbol>
+        <symbol id="i-screen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+        <symbol id="i-wave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12h2M6 8v8M10 5v14M14 9v6M18 7v10M22 12h-2"/></symbol>
+        <symbol id="i-vol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></symbol>
+        <symbol id="i-chip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/></symbol>
+        <symbol id="i-net" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M12 8v4M5 16v-2a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2"/></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></symbol>
+        <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+        <symbol id="i-click" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 9 5 12 1.8-5.2L21 14Z"/><path d="M7.2 2.2 8 5.1M5.1 8l-2.9-.8M14 4.1 12 6.2M6.2 12l-2.1 2"/></symbol>
+        <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+        <symbol id="i-sparkle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"/><path d="M19 17v4M17 19h4"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></symbol>
+      </defs>
+    </svg>
+
     <header class="nav">
       <div class="wrap nav-inner">
         <a class="brand" href="./">
-          <img src="appicon.png" alt="" width="28" height="28" />
-          Toru <span class="jp">撮る</span>
+          <span class="logo-tile"><img src="appicon.png" alt="" width="32" height="32" /></span>
+          Toru <span class="jp" lang="ja">撮る</span>
         </a>
-        <nav class="nav-links" aria-label="Primary">
-          <a class="quiet" href="#features">Features</a>
-          <a class="quiet" href="#how">How it works</a>
-          <a
-            class="icon-link"
-            href="https://github.com/StephenSHorton/toru"
-            aria-label="GitHub repository"
-            title="GitHub"
-          >
-            <!-- GitHub mark -->
-            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path
-                fill="currentColor"
-                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
-              />
-            </svg>
-          </a>
-          <a class="btn btn-primary" id="nav-download" href="https://github.com/StephenSHorton/toru/releases/latest">
-            <!-- Windows logo -->
-            <svg class="icon" viewBox="0 0 88 88" aria-hidden="true" focusable="false">
-              <path
-                fill="currentColor"
-                d="M0 12.402l35.687-4.86.016 34.423-35.67.203zm35.67 33.529l.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349l-.011 41.34-47.318-6.678-.066-34.739z"
-              />
-            </svg>
-            <span class="btn-label">Download</span>
-          </a>
+        <nav aria-label="Primary">
+          <ul class="nav-links">
+            <li><a href="#capture">Capture</a></li>
+            <li><a href="#record">Record</a></li>
+            <li><a href="#call">Call</a></li>
+            <li><a href="#lan">LAN</a></li>
+            <li><a href="#tools">Tools</a></li>
+            <li><a href="#privacy">Privacy</a></li>
+          </ul>
         </nav>
+        <button class="icon-btn theme-toggle" type="button" id="theme-toggle" aria-label="Switch between light and dark theme">
+          <svg class="sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          <svg class="moon" aria-hidden="true"><use href="#i-moon" /></svg>
+        </button>
+        <a class="icon-btn" href="https://github.com/StephenSHorton/toru" aria-label="Toru on GitHub">
+          <svg aria-hidden="true"><use href="#i-gh" /></svg>
+        </a>
+        <a class="btn btn-primary btn-sm" id="nav-download" href="https://github.com/StephenSHorton/toru/releases/latest">
+          <svg aria-hidden="true"><use href="#i-win" /></svg>
+          Download
+        </a>
       </div>
     </header>
 
-    <main>
-      <section class="hero">
-        <div class="wrap">
-          <img
-            class="hero-banner"
-            src="toru-banner.png"
-            width="720"
-            height="240"
-            alt="Toru (撮る) — Screen Capture"
-          />
-          <h1>macOS-style capture for Windows</h1>
-          <p class="lede">
-            Press a hotkey, crop a region or window, annotate, and you’re done. Record your
-            games with instant replay and share clips as a link. Send any file to anyone with
-            a short code.
-          </p>
-          <div class="hero-cta">
-            <a
-              class="btn btn-primary btn-lg"
-              id="hero-download"
-              href="https://github.com/StephenSHorton/toru/releases/latest"
-            >
-              <svg class="icon" viewBox="0 0 88 88" aria-hidden="true" focusable="false">
-                <path
-                  fill="currentColor"
-                  d="M0 12.402l35.687-4.86.016 34.423-35.67.203zm35.67 33.529l.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349l-.011 41.34-47.318-6.678-.066-34.739z"
-                />
-              </svg>
-              <span class="btn-label">Download for Windows</span>
+    <main id="main">
+      <!-- ================= HERO ================= -->
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="wrap hero-grid">
+          <div>
+            <a class="pill-new" href="#lan">
+              <span class="tag">NEW</span>
+              <span>Built-in LAN for your games, in v0.13</span>
             </a>
-            <a class="btn btn-ghost btn-lg" href="https://github.com/StephenSHorton/toru">
-              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                <path
-                  fill="currentColor"
-                  d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
-                />
-              </svg>
-              <span class="btn-label">View source</span>
-            </a>
+            <h1 id="hero-title">
+              Capture it. Clip it.<br />
+              <span class="grad">Call, share and play together.</span>
+            </h1>
+            <p class="lede">
+              Toru is one small, free app for Windows: macOS-style screenshots, screen and game
+              recording with instant replay, voice calls with peer-to-peer screen sharing, and a
+              virtual LAN so your old LAN games find each other over the internet.
+            </p>
+            <div class="hero-cta">
+              <a class="btn btn-primary btn-lg" id="hero-download" href="https://github.com/StephenSHorton/toru/releases/latest">
+                <svg aria-hidden="true"><use href="#i-win" /></svg>
+                <span class="btn-label">Download for Windows</span>
+              </a>
+              <a class="btn btn-ghost btn-lg" href="https://github.com/StephenSHorton/toru">
+                <svg aria-hidden="true"><use href="#i-gh" /></svg>
+                View source
+              </a>
+            </div>
+            <div class="hero-meta">
+              <span><svg aria-hidden="true"><use href="#i-check" /></svg>Free and MIT licensed</span>
+              <span><svg aria-hidden="true"><use href="#i-check" /></svg>No account</span>
+              <span><svg aria-hidden="true"><use href="#i-check" /></svg>No telemetry</span>
+            </div>
+            <p class="version-line" id="version-line" aria-live="polite">Fetching the latest release…</p>
           </div>
-          <p class="version-line" id="version-line">Fetching latest release…</p>
-          <div class="hotkey" title="Default global shortcut">
-            Capture with
-            <kbd>⊞</kbd>
-            <kbd>Shift</kbd>
-            <kbd>S</kbd>
+
+          <div class="hero-art" aria-hidden="true">
+            <div class="stage">
+              <div class="marquee">
+                <i></i><i></i><i></i><i></i>
+                <span class="dim">⊞ Shift S · Region</span>
+                <div class="logo"><span><img src="appicon.png" alt="" width="1024" height="1024" /></span></div>
+              </div>
+            </div>
+            <div class="chip-float cf-rec">
+              <span class="dot"><svg><use href="#i-rec" /></svg></span>
+              <span>Instant replay<small>Alt+F10 saves a clip</small></span>
+            </div>
+            <div class="chip-float cf-call">
+              <span class="dot"><svg><use href="#i-call" /></svg></span>
+              <span>In a call<small>Sharing screen, direct</small></span>
+            </div>
+            <div class="chip-float cf-lan">
+              <span class="dot"><svg><use href="#i-net" /></svg></span>
+              <span>Toru LAN on<small>100.96.12.34</small></span>
+            </div>
           </div>
         </div>
       </section>
 
-      <section class="band" id="features">
+      <!-- ================= PILLARS ================= -->
+      <div class="wrap">
+        <div class="pillars">
+          <a class="pillar a-cap" href="#capture">
+            <div class="ico" aria-hidden="true"><svg><use href="#i-crop" /></svg></div>
+            <h3>Capture</h3>
+            <p>Region, window or full screen. Annotate, and it saves itself.</p>
+          </a>
+          <a class="pillar a-rec" href="#record">
+            <div class="ico" aria-hidden="true"><svg><use href="#i-rec" /></svg></div>
+            <h3>Record</h3>
+            <p>Screen recordings, instant replay and whole game sessions.</p>
+          </a>
+          <a class="pillar a-call" href="#call">
+            <div class="ico" aria-hidden="true"><svg><use href="#i-call" /></svg></div>
+            <h3>Call</h3>
+            <p>Voice and screen sharing straight between PCs. No accounts.</p>
+          </a>
+          <a class="pillar a-lan" href="#lan">
+            <div class="ico" aria-hidden="true"><svg><use href="#i-net" /></svg></div>
+            <h3>LAN</h3>
+            <p>One virtual network for your room. LAN games just show up.</p>
+          </a>
+        </div>
+      </div>
+
+      <!-- ================= CAPTURE ================= -->
+      <section class="block a-cap" id="capture" aria-labelledby="capture-title">
         <div class="wrap">
-          <h2>Built for the way you actually capture</h2>
-          <p class="section-lead">
-            Fast overlay, a real annotation editor, game recording that stays out of your
-            way, and a library that holds your shots, recordings, and clips.
+          <p class="eyebrow">Capture</p>
+          <h2 id="capture-title">The screenshot tool Windows should have shipped.</h2>
+          <p class="sub">
+            Press <kbd>⊞</kbd> <kbd>Shift</kbd> <kbd>S</kbd>, pick a region, a window or the whole
+            screen, mark it up and press Done. It’s already in your library.
           </p>
-          <div class="grid">
-            <article class="card">
-              <div class="icon" aria-hidden="true">⬚</div>
-              <h3>Region · Window · Full screen</h3>
-              <p>
-                Freeform crop, hover-to-highlight window pick (click captures), or the entire
-                monitor — for stills and video.
-              </p>
-            </article>
-            <article class="card">
-              <div class="icon" aria-hidden="true">✎</div>
-              <h3>Annotation editor</h3>
-              <p>
-                Pen, shapes, arrows, text, emoji, crop, and paste-as-layer. Opens in a centered
-                window sized to your shot.
-              </p>
-            </article>
-            <article class="card">
-              <div class="icon" aria-hidden="true">◫</div>
-              <h3>Library + auto-save</h3>
-              <p>
-                Hit Done and it’s in your library. Choose the folder in Settings. Tray recents
-                for quick reopen.
-              </p>
-            </article>
-            <article class="card">
-              <div class="icon" aria-hidden="true">◎</div>
-              <h3>Game recording</h3>
-              <p>
-                Instant replay keeps the last few minutes — <kbd>Alt</kbd> <kbd>F10</kbd> saves a
-                clip. Or record the whole session in the background and cut clips later. System
-                and mic audio, H.264 or HEVC (AV1 for instant replay), and a share link for every
-                clip. Needs a graphics card with a hardware encoder (NVIDIA, AMD or Intel).
-              </p>
-            </article>
-            <article class="card">
-              <div class="icon" aria-hidden="true">❄</div>
-              <h3>Freeze or live</h3>
-              <p>
-                Freeze the screen while you select, or keep it live so motion stays visible —
-                toggle anytime.
-              </p>
-            </article>
-            <article class="card">
-              <div class="icon" aria-hidden="true">↻</div>
-              <h3>Auto-update</h3>
-              <p>
-                Downloads the latest build from GitHub Releases in the background and announces
-                it — restart when you like, or it installs when you quit Toru.
-              </p>
-            </article>
-            <article class="card">
-              <div class="icon" aria-hidden="true">▤</div>
-              <h3>Clips library</h3>
-              <p>
-                Tabs for screenshots, recordings, and clips by game. Scrub a session on the
-                timeline, drop markers while you play with <kbd>Ctrl</kbd> <kbd>F12</kbd>, select a
-                range, and trim or crop, copy, save, or share.
-              </p>
-            </article>
-            <article class="card">
-              <div class="icon" aria-hidden="true">⇄</div>
-              <h3>Send Files</h3>
-              <p>
-                Pick a file or folder and Toru gives you a short code like
-                <code>22-conformist-belfast</code>. The receiver types it into Toru or
-                <code>wormhole receive</code>. Peer-to-peer, end-to-end encrypted, no account.
-              </p>
-            </article>
-          </div>
-        </div>
-      </section>
+          <div class="split">
+            <ul class="feat-list">
+              <li>
+                <span class="fi" aria-hidden="true"><svg><use href="#i-crop" /></svg></span>
+                <div><strong>Region, window, full screen</strong><span class="d">Windows highlight as you hover and a click captures. Lock the region to 16:9, 9:16, 4:3, 3:2, 1:1 or 21:9 while you drag.</span></div>
+              </li>
+              <li>
+                <span class="fi" aria-hidden="true"><svg><use href="#i-pen" /></svg></span>
+                <div><strong>A real annotation editor</strong><span class="d">Pen, shapes, arrows, text, emoji, crop and paste-as-layer, in an overlay right after the shot.</span></div>
+              </li>
+              <li>
+                <span class="fi" aria-hidden="true"><svg><use href="#i-lib" /></svg></span>
+                <div><strong>A library that files itself</strong><span class="d">Done saves automatically to the folder you choose. Or skip the editor and auto-save and copy every shot.</span></div>
+              </li>
+              <li>
+                <span class="fi" aria-hidden="true"><svg><use href="#i-snow" /></svg></span>
+                <div><strong>Freeze or live</strong><span class="d">Freeze the screen while you select, or keep it live so motion stays visible.</span></div>
+              </li>
+              <li>
+                <span class="fi" aria-hidden="true"><svg><use href="#i-phone" /></svg></span>
+                <div><strong>Share to a phone or TV</strong><span class="d">Show your screen in a browser on the same Wi-Fi, straight from the capture overlay.</span></div>
+              </li>
+            </ul>
 
-      <section id="how">
-        <div class="wrap">
-          <h2>How it works</h2>
-          <p class="section-lead">From hotkey to library — and on to whoever needs it — in a few seconds.</p>
-          <div class="steps">
-            <div class="step">
-              <div>
-                <strong>Invoke</strong>
-                <span><kbd>⊞</kbd> <kbd>Shift</kbd> <kbd>S</kbd> or tray / library Capture.</span>
-              </div>
-            </div>
-            <div class="step">
-              <div>
-                <strong>Select</strong>
-                <span>Region drag, window hover+click, or full screen. Switch to Record when you need video.</span>
-              </div>
-            </div>
-            <div class="step">
-              <div>
-                <strong>Annotate</strong>
-                <span>Editor opens centered. Markup, copy, then Done — auto-saves to your library folder.</span>
-              </div>
-            </div>
-            <div class="step">
-              <div>
-                <strong>Share</strong>
-                <span>Copy to the clipboard, get a share link for a clip, or Send Files with a short code the other side types in.</span>
-              </div>
+            <div class="panel" aria-hidden="true">
+              <svg class="diagram" viewBox="0 0 480 340" role="img">
+                <rect x="10" y="10" width="460" height="320" rx="14" class="dg-fill" stroke="var(--border-strong)" />
+                <rect x="10" y="10" width="460" height="34" rx="14" fill="var(--surface-2)" />
+                <circle cx="32" cy="27" r="5" fill="var(--rec)" opacity=".8" />
+                <circle cx="50" cy="27" r="5" fill="var(--tools)" opacity=".8" />
+                <circle cx="68" cy="27" r="5" fill="var(--call)" opacity=".8" />
+                <!-- toolbar -->
+                <g transform="translate(140 18)">
+                  <rect width="200" height="18" rx="9" fill="var(--bg)" stroke="var(--border)" />
+                  <rect x="6" y="3" width="24" height="12" rx="6" fill="var(--primary)" />
+                  <rect x="36" y="5" width="20" height="8" rx="4" fill="var(--border-strong)" />
+                  <rect x="62" y="5" width="20" height="8" rx="4" fill="var(--border-strong)" />
+                  <rect x="88" y="5" width="20" height="8" rx="4" fill="var(--border-strong)" />
+                  <rect x="114" y="5" width="20" height="8" rx="4" fill="var(--border-strong)" />
+                  <rect x="150" y="3" width="44" height="12" rx="6" fill="var(--call)" />
+                </g>
+                <!-- "content" blocks -->
+                <rect x="40" y="70" width="190" height="14" rx="7" fill="var(--border-strong)" />
+                <rect x="40" y="96" width="140" height="10" rx="5" fill="var(--border)" />
+                <rect x="40" y="114" width="170" height="10" rx="5" fill="var(--border)" />
+                <rect x="40" y="148" width="180" height="140" rx="10" fill="var(--surface-2)" stroke="var(--border)" />
+                <rect x="250" y="70" width="190" height="218" rx="10" fill="var(--surface-2)" stroke="var(--border)" />
+                <rect x="270" y="92" width="120" height="10" rx="5" fill="var(--border-strong)" />
+                <rect x="270" y="112" width="150" height="8" rx="4" fill="var(--border)" />
+                <rect x="270" y="128" width="140" height="8" rx="4" fill="var(--border)" />
+                <!-- annotation: box -->
+                <rect x="262" y="180" width="166" height="80" rx="8" fill="none" stroke="var(--rec)" stroke-width="3" />
+                <!-- annotation: arrow -->
+                <path d="M110 230 C 150 250, 200 250, 250 222" fill="none" stroke="var(--rec)" stroke-width="3.5" stroke-linecap="round" />
+                <path d="M238 214 L 256 219 L 246 235" fill="none" stroke="var(--rec)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+                <!-- annotation: text label -->
+                <rect x="58" y="200" width="98" height="26" rx="6" fill="var(--rec)" />
+                <text x="107" y="218" text-anchor="middle" font-size="13" font-weight="700" fill="#fff" style="font-family: var(--font)">look here</text>
+                <!-- pen squiggle -->
+                <path d="M290 150 q 10 -14 20 0 t 20 0 t 20 0 t 20 0" fill="none" stroke="var(--tools)" stroke-width="3" stroke-linecap="round" />
+              </svg>
+              <p class="caption">Illustration. Mark up a shot, press Done, and it lands in your library.</p>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="band" id="download">
+      <!-- ================= RECORD ================= -->
+      <section class="block a-rec" id="record" aria-labelledby="record-title">
         <div class="wrap">
-          <div class="download-panel">
+          <p class="eyebrow">Record</p>
+          <h2 id="record-title">Never miss the play.</h2>
+          <p class="sub">
+            Screen recordings from the same overlay, and game recording that sits quietly in the
+            background until something worth keeping happens. Uses your graphics card’s hardware
+            encoder (NVIDIA, AMD or Intel), so your frame rate stays yours.
+          </p>
+
+          <div class="cards">
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-clock" /></svg></div>
+              <h3>Instant replay</h3>
+              <p>Keeps the last few minutes in the background. Press <kbd>Alt</kbd> <kbd>F10</kbd> and the moment that just happened becomes a clip.</p>
+            </article>
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-game" /></svg></div>
+              <h3>Background recording</h3>
+              <p>Records whole sessions, optionally only while a game is in focus. Open a session on a timeline, scrub it, and cut clips later.</p>
+            </article>
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-rec" /></svg></div>
+              <h3>Hotkey recording</h3>
+              <p><kbd>Ctrl</kbd> <kbd>F11</kbd> starts and stops. Drop timeline markers while you play with <kbd>Ctrl</kbd> <kbd>F12</kbd>. Hotkey recordings are never deleted automatically.</p>
+            </article>
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-scissors" /></svg></div>
+              <h3>Clip editor</h3>
+              <p>Trim and crop. <kbd>Home</kbd>/<kbd>End</kbd> jump to the ends, <kbd>I</kbd>/<kbd>O</kbd> set in and out at the playhead. Export Discord-friendly files.</p>
+            </article>
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-mic" /></svg></div>
+              <h3>Audio, separated</h3>
+              <p>Game, Discord voice chat and microphone as separate sources with their own volume, mic noise suppression, and optional separate tracks for editing.</p>
+            </article>
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-link" /></svg></div>
+              <h3>Share as a link</h3>
+              <p>One click uploads a clip to catbox.moe and copies a link: no account, links don’t expire, 200 MB cap. Only when you ask.</p>
+            </article>
+          </div>
+
+          <div class="stats">
+            <div class="stat"><b>30 min – 24 h</b><span><strong>Keep the last</strong>: cap background footage across all games and sessions</span></div>
+            <div class="stat"><b>H.264 · HEVC</b><span>HEVC when your card supports it; AV1 for instant replay too</span></div>
+            <div class="stat"><b>4 presets</b><span>Saver, Standard, High, or Custom quality</span></div>
+            <div class="stat"><b>0 setup</b><span>FFmpeg downloads by itself on first launch</span></div>
+          </div>
+
+          <h3 style="margin-top: 3rem; font-size: 1.25rem">One name per thing</h3>
+          <div class="gloss">
+            <div><b>Screen recording</b>Recorded from the capture overlay.</div>
+            <div><b>Game recording</b>The feature that records your games.</div>
+            <div><b>Hotkey recording</b>Started and stopped with Ctrl+F11.</div>
+            <div><b>Game session</b>A whole background-recorded session.</div>
+            <div><b>Clip</b>A cut you saved from replay or a session.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= CALL ================= -->
+      <section class="block a-call" id="call" aria-labelledby="call-title">
+        <div class="wrap">
+          <p class="eyebrow">Call</p>
+          <h2 id="call-title">Voice and screen sharing, PC to PC.</h2>
+          <p class="sub">
+            Make a room, share its code, talk. Share your screen at the resolution, frame rate and
+            bitrate you choose. There’s no account to make and no Toru server in the middle: the
+            audio and video go straight between your PCs.
+          </p>
+
+          <div class="split">
+            <div class="panel">
+              <svg class="diagram" viewBox="0 0 480 330" role="img" aria-labelledby="call-dg-t call-dg-d">
+                <title id="call-dg-t">How a Toru call connects</title>
+                <desc id="call-dg-d">Two PCs exchange small sealed signaling messages through public MQTT brokers, which only see random bytes. Voice and screen share go directly between the two PCs.</desc>
+                <!-- broker cloud -->
+                <g>
+                  <path d="M180 78 a 30 30 0 0 1 52 -26 a 36 36 0 0 1 64 12 a 26 26 0 0 1 4 52 h -116 a 22 22 0 0 1 -4 -38 Z" fill="var(--surface-2)" stroke="var(--border-strong)" stroke-width="1.5" />
+                  <text x="242" y="94" text-anchor="middle" font-size="13" font-weight="600" class="dg-text">Public MQTT brokers</text>
+                  <text x="242" y="110" text-anchor="middle" font-size="11" class="dg-muted">see only sealed bytes</text>
+                </g>
+                <!-- signaling lines -->
+                <path d="M190 120 L 110 186" stroke="var(--border-strong)" stroke-width="2" stroke-dasharray="3 6" fill="none" />
+                <path d="M294 120 L 370 186" stroke="var(--border-strong)" stroke-width="2" stroke-dasharray="3 6" fill="none" />
+                <text x="118" y="146" font-size="11" class="dg-muted" transform="rotate(-40 118 146)">signaling</text>
+                <text x="334" y="132" font-size="11" class="dg-muted" transform="rotate(40 334 132)">signaling</text>
+                <!-- PCs -->
+                <g transform="translate(40 186)">
+                  <rect width="128" height="84" rx="10" class="dg-fill" stroke="var(--border-strong)" stroke-width="1.5" />
+                  <rect x="10" y="10" width="108" height="56" rx="5" fill="var(--call-soft)" />
+                  <path d="M52 94 h24 M64 84 v10" stroke="var(--border-strong)" stroke-width="3" stroke-linecap="round" />
+                  <text x="64" y="44" text-anchor="middle" font-size="13" font-weight="700" class="dg-text">You</text>
+                </g>
+                <g transform="translate(312 186)">
+                  <rect width="128" height="84" rx="10" class="dg-fill" stroke="var(--border-strong)" stroke-width="1.5" />
+                  <rect x="10" y="10" width="108" height="56" rx="5" fill="var(--call-soft)" />
+                  <path d="M52 94 h24 M64 84 v10" stroke="var(--border-strong)" stroke-width="3" stroke-linecap="round" />
+                  <text x="64" y="44" text-anchor="middle" font-size="13" font-weight="700" class="dg-text">Friend</text>
+                </g>
+                <!-- direct media -->
+                <path d="M170 228 H 310" stroke="var(--call)" stroke-width="4" stroke-linecap="round" class="flow" fill="none" />
+                <text x="240" y="216" text-anchor="middle" font-size="12" font-weight="700" fill="var(--call)" style="font-family: var(--font)">voice + screen</text>
+                <text x="240" y="250" text-anchor="middle" font-size="11" class="dg-muted">direct, peer to peer</text>
+                <!-- room code -->
+                <rect x="140" y="292" width="200" height="28" rx="8" fill="var(--surface-2)" stroke="var(--border)" />
+                <text x="240" y="311" text-anchor="middle" font-size="12" class="dg-acc-text" style="fill: var(--call)">XXXX-XXXX-XXXX-XXXX</text>
+              </svg>
+              <p class="caption">Rooms use a reusable 16-character code. Signaling is sealed with a key derived from it.</p>
+            </div>
+
+            <ul class="feat-list">
+              <li>
+                <span class="fi" aria-hidden="true"><svg><use href="#i-screen" /></svg></span>
+                <div><strong>Screen share with no caps</strong><span class="d">Any resolution, 1–500 fps, 0.5–500 Mbps. Hardware encoding on NVENC, AMF or Quick Sync, in H.264 or AV1, tuned for low latency.</span></div>
+              </li>
+              <li>
+                <span class="fi" aria-hidden="true"><svg><use href="#i-sparkle" /></svg></span>
+                <div><strong>AI noise suppression</strong><span class="d">DeepFilterNet3 runs locally on your PC and takes out keyboard clicks while your voice stays at full level. Off, Standard or AI, switchable mid-call.</span></div>
+              </li>
+              <li>
+                <span class="fi" aria-hidden="true"><svg><use href="#i-wave" /></svg></span>
+                <div><strong>Auto bitrate</strong><span class="d">Follows your resolution and frame rate, so 1080p60 and an ultrawide at 144 fps each get a sensible rate. Type a number to go manual.</span></div>
+              </li>
+              <li>
+                <span class="fi" aria-hidden="true"><svg><use href="#i-vol" /></svg></span>
+                <div><strong>Per-person volume, 0–200%</strong><span class="d">Turn up the quiet friend. Saved per person.</span></div>
+              </li>
+              <li>
+                <span class="fi" aria-hidden="true"><svg><use href="#i-shield" /></svg></span>
+                <div><strong>No echo of the call in your stream</strong><span class="d">Your stream’s desktop audio leaves out Toru, so call voices aren’t sent back to viewers, even with audio mixers like SteelSeries Sonar.</span></div>
+              </li>
+            </ul>
+          </div>
+
+          <div class="note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <span><strong>Good to know:</strong> there’s no relay server yet, so two people who are both behind very strict NATs may not be able to connect. Voice is a full mesh, which suits a handful of people. Screen sharing starts from inside a call.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= LAN ================= -->
+      <section class="block a-lan" id="lan" aria-labelledby="lan-title">
+        <div class="wrap">
+          <p class="eyebrow">LAN · New in v0.13</p>
+          <h2 id="lan-title">Your room is now a LAN party.</h2>
+          <p class="sub">
+            Turn on LAN and everyone in your room joins one virtual network. LAN and direct-play
+            games find each other as if you were all in the same house. No Radmin VPN, no Hamachi,
+            no extra app, and the room code you already shared is the network name and password.
+          </p>
+
+          <div class="split flip">
+            <div class="panel">
+              <svg class="diagram" viewBox="0 0 480 360" role="img" aria-labelledby="lan-dg-t lan-dg-d">
+                <title id="lan-dg-t">Toru LAN</title>
+                <desc id="lan-dg-d">Three PCs in one Toru room, each with an address on the 100.96.0.0/16 virtual network, connected directly to one another with encrypted links. A game broadcast from one PC reaches the others.</desc>
+                <circle cx="240" cy="180" r="128" fill="var(--lan-soft)" stroke="var(--lan)" stroke-width="1.5" stroke-dasharray="4 6" />
+                <text x="240" y="174" text-anchor="middle" font-size="15" font-weight="700" class="dg-text">Toru LAN</text>
+                <text x="240" y="194" text-anchor="middle" font-size="12" class="dg-acc-text" style="fill: var(--lan)">100.96.0.0/16</text>
+                <!-- links -->
+                <path d="M240 72 L 116 262" stroke="var(--lan)" stroke-width="3" class="flow" fill="none" />
+                <path d="M240 72 L 364 262" stroke="var(--lan)" stroke-width="3" class="flow" fill="none" />
+                <path d="M130 282 L 350 282" stroke="var(--lan)" stroke-width="3" class="flow" fill="none" />
+                <!-- nodes -->
+                <g transform="translate(176 22)">
+                  <rect width="128" height="62" rx="12" class="dg-fill" stroke="var(--lan)" stroke-width="1.5" />
+                  <text x="64" y="27" text-anchor="middle" font-size="13" font-weight="700" class="dg-text">Host</text>
+                  <text x="64" y="46" text-anchor="middle" font-size="11" class="dg-acc-text" style="fill: var(--muted)">100.96.12.34</text>
+                </g>
+                <g transform="translate(20 252)">
+                  <rect width="128" height="62" rx="12" class="dg-fill" stroke="var(--lan)" stroke-width="1.5" />
+                  <text x="64" y="27" text-anchor="middle" font-size="13" font-weight="700" class="dg-text">Friend</text>
+                  <text x="64" y="46" text-anchor="middle" font-size="11" class="dg-acc-text" style="fill: var(--muted)">100.96.40.7</text>
+                </g>
+                <g transform="translate(332 252)">
+                  <rect width="128" height="62" rx="12" class="dg-fill" stroke="var(--lan)" stroke-width="1.5" />
+                  <text x="64" y="27" text-anchor="middle" font-size="13" font-weight="700" class="dg-text">Friend</text>
+                  <text x="64" y="46" text-anchor="middle" font-size="11" class="dg-acc-text" style="fill: var(--muted)">100.96.201.9</text>
+                </g>
+                <!-- broadcast badge -->
+                <g transform="translate(176 222)">
+                  <rect width="128" height="26" rx="13" fill="var(--surface-solid)" stroke="var(--border-strong)" />
+                  <text x="64" y="17" text-anchor="middle" font-size="11" font-weight="600" class="dg-text">“Game found”</text>
+                </g>
+                <text x="240" y="350" text-anchor="middle" font-size="11" class="dg-muted">Example addresses. Each friend keeps a fixed one.</text>
+              </svg>
+            </div>
+
             <div>
-              <h2>Get Toru</h2>
-              <p>
-                Windows 11 · per-user installer (no UAC) · portable zip also available.
-                MIT licensed.
-              </p>
+              <ol class="steps">
+                <li><div><strong>Join a room</strong><span>Create or join one on the Call page. The LAN card sits right there, even before you’re in a room.</span></div></li>
+                <li><div><strong>Set up once</strong><span>The first time, Windows asks for administrator approval one time to add the <em>Toru LAN</em> adapter. After that, LAN turns on and off with no prompts.</span></div></li>
+                <li><div><strong>Turn LAN on, then start the game</strong><span>Each friend gets a fixed address like <code>100.96.12.34</code>. Host a LAN game; everyone else sees it in the list.</span></div></li>
+              </ol>
             </div>
-            <div class="download-actions">
-              <a
-                class="btn btn-primary btn-lg"
-                id="panel-download"
-                href="https://github.com/StephenSHorton/toru/releases/latest"
-              >
-                <svg class="icon" viewBox="0 0 88 88" aria-hidden="true" focusable="false">
-                  <path
-                    fill="currentColor"
-                    d="M0 12.402l35.687-4.86.016 34.423-35.67.203zm35.67 33.529l.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349l-.011 41.34-47.318-6.678-.066-34.739z"
-                  />
-                </svg>
-                <span class="btn-label">Download installer</span>
-              </a>
-              <a
-                class="btn btn-ghost"
-                id="panel-zip"
-                href="https://github.com/StephenSHorton/toru/releases/latest"
-              >
-                <svg class="icon" viewBox="0 0 88 88" aria-hidden="true" focusable="false">
-                  <path
-                    fill="currentColor"
-                    d="M0 12.402l35.687-4.86.016 34.423-35.67.203zm35.67 33.529l.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349l-.011 41.34-47.318-6.678-.066-34.739z"
-                  />
-                </svg>
-                <span class="btn-label">Portable zip</span>
-              </a>
-              <p class="fine" id="panel-meta">Resolving assets from GitHub Releases…</p>
+          </div>
+
+          <div class="cards">
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-lock" /></svg></div>
+              <h3>Encrypted end to end</h3>
+              <p>Traffic between friends is encrypted from one PC to the other. Each PC’s private key stays on that PC, readable only by the LAN service.</p>
+            </article>
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-net" /></svg></div>
+              <h3>Direct, peer to peer</h3>
+              <p>PCs connect straight to each other. Only LAN traffic uses the adapter; your normal internet traffic never goes through it.</p>
+            </article>
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-shield" /></svg></div>
+              <h3>Safe defaults</h3>
+              <p>File sharing, RPC, NetBIOS, Remote Desktop and WinRM are blocked between members by default. Spoofed broadcasts are dropped and broadcast is rate-limited.</p>
+            </article>
+          </div>
+
+          <div class="panel" style="margin-top: 1rem; box-shadow: none">
+            <h3 style="font-size: 1.15rem">Built for games that look for each other on the local network</h3>
+            <p style="color: var(--muted); margin-top: 0.4rem; font-size: 0.95rem">
+              LAN copies game broadcasts and multicast to everyone in the room, so server lists fill in.
+              By design, that covers games like these:
+            </p>
+            <div class="tags">
+              <span>Minecraft Java (LAN worlds)</span>
+              <span>Minecraft Bedrock</span>
+              <span>Warcraft 3</span>
+              <span>StarCraft / Brood War</span>
+              <span>Age of Empires 2</span>
+              <span>Factorio</span>
+              <span>Terraria</span>
+              <span>Stardew Valley</span>
+              <span>Valheim</span>
+              <span>Diablo 2</span>
+              <span>IPX classics via IPXWrapper</span>
             </div>
+            <p style="color: var(--faint); margin-top: 1rem; font-size: 0.86rem">
+              This list comes from how each game finds servers, not from testing every title on Toru.
+              Games that need raw Ethernet frames (like IPXWrapper’s “Real IPX” mode) won’t work.
+              Details in <a href="https://github.com/StephenSHorton/toru/blob/main/docs/lan.md">docs/lan.md</a>.
+            </p>
+          </div>
+
+          <div class="note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <span><strong>Honest limits:</strong> LAN is direct-only for now, with no relay, so two PCs that are both behind very strict NATs may not connect. It needs that one-time administrator approval. While LAN is on, games that broadcast look for servers on Toru LAN rather than your home network.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TOOLS ================= -->
+      <section class="block a-tools" id="tools" aria-labelledby="tools-title">
+        <div class="wrap">
+          <p class="eyebrow">And the rest of the toolbox</p>
+          <h2 id="tools-title">Small tools, done properly.</h2>
+
+          <div class="cards">
+            <article class="card wide a-tools">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-send" /></svg></div>
+              <h3>Send Files</h3>
+              <p>Send any file, folder or capture with a short spoken code. The other person types it and the file goes straight to them, end-to-end encrypted. They can use Toru, the standard <code>wormhole receive</code> command, or scan the code as a QR on a phone.</p>
+              <p><span class="codebox">7-guitarist-revenge</span></p>
+              <a class="more" href="https://github.com/StephenSHorton/toru/blob/main/docs/send-files.md">How Send Files works →</a>
+            </article>
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-click" /></svg></div>
+              <h3>Auto Clicker</h3>
+              <p>Click a mouse button or press a key up to 500 times a second (1,000 if you ask), at the cursor or through points you pick. <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Y</kbd> toggles or holds.</p>
+              <p>Stops itself at screen corners and edges, in stop zones you draw, on Alt+Tab, or when the wrong app is in front. Presets import from Blur AutoClicker.</p>
+              <a class="more" href="https://github.com/StephenSHorton/toru/blob/main/docs/clicker.md">Auto Clicker guide →</a>
+            </article>
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-bell" /></svg></div>
+              <h3>Notifications that help</h3>
+              <p>Stacked, clickable cards that never steal focus and stay out of your captures, with buttons like Open, and short sounds with their own volume.</p>
+            </article>
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-trash" /></svg></div>
+              <h3>Library cleanup</h3>
+              <p>Optional auto-delete: keep at most N captures, delete after N days, or both. Off by default. Multi-select delete for the rest.</p>
+            </article>
+            <article class="card">
+              <div class="ico" aria-hidden="true"><svg><use href="#i-refresh" /></svg></div>
+              <h3>Updates that ask first</h3>
+              <p>New versions download in the background and announce themselves. Restart when you like, or they install when you quit. Toru keeps checking while it runs.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= WHAT'S NEW ================= -->
+      <section class="block a-cap" id="whats-new" aria-labelledby="new-title">
+        <div class="wrap">
+          <p class="eyebrow">What’s new</p>
+          <h2 id="new-title">Shipping fast.</h2>
+          <p class="sub">Every release since v0.8.6. Toru updates itself, so you get these without lifting a finger.</p>
+          <ol class="timeline" reversed>
+            <li><span class="v">v0.13.1</span><div><b>Always up to date</b><span>Toru keeps checking for updates while it runs; the LAN card shows before you join a room.</span></div></li>
+            <li><span class="v">v0.13.0</span><div><b>Built-in LAN</b><span>One virtual network per room for LAN games, plus per-person call volume from 0 to 200%.</span></div></li>
+            <li><span class="v">v0.12.0</span><div><b>Cleaner calls</b><span>AI noise suppression, call voices kept out of stream audio, Auto bitrate.</span></div></li>
+            <li><span class="v">v0.11.0</span><div><b>Call</b><span>Voice calls and peer-to-peer screen sharing at any resolution, fps and bitrate.</span></div></li>
+            <li><span class="v">v0.10.0</span><div><b>Notifications</b><span>Stacked, clickable notification cards with sounds.</span></div></li>
+            <li><span class="v">v0.9.2</span><div><b>Clearer names</b><span>One name per recording feature, used everywhere.</span></div></li>
+            <li><span class="v">v0.9.1</span><div><b>Library cleanup</b><span>Optional auto-delete, temp-file cleanup, a wider trim window.</span></div></li>
+            <li><span class="v">v0.9.0</span><div><b>Auto Clicker</b><span>Clicks or key presses at up to 500 a second, with safety stops.</span></div></li>
+            <li><span class="v">v0.8.7</span><div><b>Keep the last</b><span>Cap background footage at 30 minutes to 24 hours.</span></div></li>
+            <li><span class="v">v0.8.6</span><div><b>Works out of the box</b><span>FFmpeg downloads on first launch, so recording just works.</span></div></li>
+          </ol>
+          <p style="margin-top: 1.25rem"><a href="https://github.com/StephenSHorton/toru/releases">Full release notes on GitHub →</a></p>
+        </div>
+      </section>
+
+      <!-- ================= PRIVACY ================= -->
+      <section class="block a-call" id="privacy" aria-labelledby="privacy-title">
+        <div class="wrap">
+          <p class="eyebrow">Privacy and open source</p>
+          <h2 id="privacy-title">Your stuff stays yours.</h2>
+          <p class="sub">
+            Toru is MIT licensed and every line is on GitHub. There’s no account, no analytics and
+            no telemetry in the code. Here is everything it talks to on the internet, and when.
+          </p>
+          <div class="privacy">
+            <div class="big-claims">
+              <div><svg aria-hidden="true"><use href="#i-check" /></svg><span>No account, ever<small>Rooms and transfers use codes you share yourself.</small></span></div>
+              <div><svg aria-hidden="true"><use href="#i-check" /></svg><span>No telemetry<small>Nothing reports how you use the app.</small></span></div>
+              <div><svg aria-hidden="true"><use href="#i-check" /></svg><span>Captures stay on your PC<small>Saved to a folder you pick, uploaded only when you ask.</small></span></div>
+              <div><svg aria-hidden="true"><use href="#i-check" /></svg><span>Open source, MIT<small>Read it, build it, fork it.</small></span></div>
+            </div>
+            <table class="hosts">
+              <caption>What Toru connects to</caption>
+              <tbody>
+                <tr><th scope="row">GitHub</th><td>Checks for and downloads updates. On first launch, downloads FFmpeg.</td></tr>
+                <tr><th scope="row">catbox.moe</th><td>Only when you click to share a recording or clip as a link.</td></tr>
+                <tr><th scope="row">Public MQTT brokers (EMQX, HiveMQ)</th><td>Call and LAN room signaling. Messages are sealed with a key from your room code, so the brokers see random bytes.</td></tr>
+                <tr><th scope="row">Public STUN servers (Google, Cloudflare)</th><td>Helps two PCs find a direct path to each other for calls and LAN.</td></tr>
+                <tr><th scope="row">magic-wormhole servers</th><td>Send Files rendezvous, and a relay if a direct path fails. They see only encrypted data. You can point Toru at your own.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= DOWNLOAD ================= -->
+      <div class="wrap">
+        <section class="download a-cap" id="download" aria-labelledby="dl-title">
+          <div>
+            <h2 id="dl-title">Get Toru.</h2>
+            <p class="sub">Free, open source, and it keeps itself up to date.</p>
+            <ul class="req">
+              <li><svg aria-hidden="true"><use href="#i-check" /></svg><span>Windows 11. The per-user installer needs no administrator rights.</span></li>
+              <li><svg aria-hidden="true"><use href="#i-check" /></svg><span>Game recording and screen sharing need a graphics card with a hardware encoder (NVIDIA, AMD or Intel).</span></li>
+              <li><svg aria-hidden="true"><use href="#i-check" /></svg><span>LAN asks for administrator approval once, the first time you set it up.</span></li>
+              <li><svg aria-hidden="true"><use href="#i-check" /></svg><span>Prefer no installer? The portable zip has <code>toru.exe</code> and the LAN files.</span></li>
+            </ul>
+          </div>
+          <div class="dl-actions">
+            <a class="btn btn-primary btn-lg" id="panel-download" href="https://github.com/StephenSHorton/toru/releases/latest">
+              <svg aria-hidden="true"><use href="#i-win" /></svg>
+              <span class="btn-label">Download installer</span>
+            </a>
+            <a class="btn btn-ghost" id="panel-zip" href="https://github.com/StephenSHorton/toru/releases/latest">
+              <svg aria-hidden="true"><use href="#i-win" /></svg>
+              <span class="btn-label">Portable zip</span>
+            </a>
+            <p class="fine" id="panel-meta">Resolving files from GitHub Releases…</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- ================= FAQ ================= -->
+      <section class="block" id="faq" aria-labelledby="faq-title" style="padding-top: 5rem">
+        <div class="wrap">
+          <h2 id="faq-title" style="font-size: clamp(1.7rem, 3vw, 2.2rem)">Questions</h2>
+          <div class="faq">
+            <details>
+              <summary>Is Toru really free?</summary>
+              <p>Yes. It’s MIT licensed open source. There’s no paid tier and nothing to sign up for.</p>
+            </details>
+            <details>
+              <summary>Does it work on macOS or Linux?</summary>
+              <p>No. Toru is Windows only. It leans on Windows capture APIs, hardware encoders and the Windows network stack.</p>
+            </details>
+            <details>
+              <summary>Why does LAN ask for administrator approval?</summary>
+              <p>Adding a network adapter and its firewall rules needs it. Toru asks once, when you first set LAN up, and installs a small service that only starts when you turn LAN on. After that, turning LAN on and off needs no prompts. Uninstalling Toru asks once more to remove it.</p>
+            </details>
+            <details>
+              <summary>Can my friends and I always connect?</summary>
+              <p>Usually. Calls and LAN connect directly between PCs. There’s no relay server yet, so if both of you are behind very strict NATs the connection may fail. Send Files can fall back to a relay, so it isn’t affected.</p>
+            </details>
+            <details>
+              <summary>Where do my screenshots and recordings go?</summary>
+              <p>To a library folder you pick in Settings. Game clips land in <code>Videos\Toru Replays</code>, sorted by game. Nothing is uploaded unless you click share.</p>
+            </details>
           </div>
         </div>
       </section>
     </main>
 
     <footer>
-      <div class="wrap foot-inner">
-        <div>© Stephen Horton · <a href="https://github.com/StephenSHorton/toru/blob/main/LICENSE">MIT</a></div>
+      <div class="wrap foot">
+        <div>
+          <a class="brand" href="./" style="font-size: 1rem">
+            <span class="logo-tile"><img src="appicon.png" alt="" width="32" height="32" /></span>
+            Toru <span class="jp" lang="ja">撮る</span>
+          </a>
+          <p style="margin-top: 0.6rem">撮る (<em>toru</em>) is the Japanese verb “to take a photo, to shoot video.”</p>
+        </div>
         <nav aria-label="Footer">
-          <a href="https://github.com/StephenSHorton/toru">Repository</a>
+          <a href="https://github.com/StephenSHorton/toru">Source</a>
           <a href="https://github.com/StephenSHorton/toru/releases">Releases</a>
-          <a href="https://github.com/StephenSHorton/toru/blob/main/docs/PLAN.md">Design notes</a>
+          <a href="https://github.com/StephenSHorton/toru/blob/main/docs/lan.md">LAN</a>
+          <a href="https://github.com/StephenSHorton/toru/blob/main/docs/send-files.md">Send Files</a>
+          <a href="https://github.com/StephenSHorton/toru/blob/main/docs/clicker.md">Auto Clicker</a>
+          <a href="https://github.com/StephenSHorton/toru/blob/main/CONTRIBUTING.md">Contribute</a>
         </nav>
+        <p class="credits">
+          © Stephen Horton and the Toru contributors ·
+          <a href="https://github.com/StephenSHorton/toru/blob/main/LICENSE">MIT License</a> ·
+          <a href="https://github.com/StephenSHorton/toru/blob/main/THIRD_PARTY_NOTICES">Third-party notices</a>.
+          Notification sounds from the s&amp;box editor, © Facepunch Studios, MIT, via
+          <a href="https://github.com/StephenSHorton/go-toast">go-toast</a>.
+        </p>
       </div>
     </footer>
 
     <script>
-      (async function () {
-        const api =
-          "https://api.github.com/repos/StephenSHorton/toru/releases/latest";
-        const versionEl = document.getElementById("version-line");
-        const panelMeta = document.getElementById("panel-meta");
-        const heroDl = document.getElementById("hero-download");
-        const navDl = document.getElementById("nav-download");
-        const panelDl = document.getElementById("panel-download");
-        const panelZip = document.getElementById("panel-zip");
+      // Theme toggle (saved per browser when storage is available).
+      (function () {
+        var btn = document.getElementById("theme-toggle");
+        var root = document.documentElement;
+        btn.addEventListener("click", function () {
+          var cur = root.getAttribute("data-theme");
+          if (!cur) cur = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+          var next = cur === "light" ? "dark" : "light";
+          root.setAttribute("data-theme", next);
+          try {
+            localStorage.setItem("toru-theme", next);
+          } catch (e) {}
+        });
+      })();
 
+      // Point the download buttons at the latest release's files.
+      (async function () {
+        var versionEl = document.getElementById("version-line");
+        var panelMeta = document.getElementById("panel-meta");
+        var heroDl = document.getElementById("hero-download");
+        var navDl = document.getElementById("nav-download");
+        var panelDl = document.getElementById("panel-download");
+        var panelZip = document.getElementById("panel-zip");
         try {
-          const res = await fetch(api, {
+          var res = await fetch("https://api.github.com/repos/StephenSHorton/toru/releases/latest", {
             headers: { Accept: "application/vnd.github+json" },
           });
           if (!res.ok) throw new Error("release fetch failed");
-          const rel = await res.json();
-          const tag = rel.tag_name || "latest";
-          const assets = Array.isArray(rel.assets) ? rel.assets : [];
-          const installer = assets.find((a) => /installer\.exe$/i.test(a.name));
-          const zip = assets.find((a) => /\.zip$/i.test(a.name));
+          var rel = await res.json();
+          var tag = rel.tag_name || "latest";
+          var assets = Array.isArray(rel.assets) ? rel.assets : [];
+          var installer = assets.find(function (a) { return /installer\.exe$/i.test(a.name); });
+          var zip = assets.find(function (a) { return /\.zip$/i.test(a.name); });
 
-          versionEl.innerHTML =
-            "Latest: <code>" +
-            tag.replace(/^v/, "v") +
-            "</code>" +
-            (rel.published_at
-              ? " · " +
+          versionEl.textContent = "";
+          versionEl.append("Latest: ");
+          var c = document.createElement("code");
+          c.textContent = tag;
+          versionEl.append(c);
+          if (rel.published_at) {
+            versionEl.append(
+              " · " +
                 new Date(rel.published_at).toLocaleDateString(undefined, {
                   year: "numeric",
                   month: "short",
                   day: "numeric",
                 })
-              : "");
+            );
+          }
 
+          var main = installer ? installer.browser_download_url : rel.html_url;
+          heroDl.href = main;
+          navDl.href = main;
+          panelDl.href = main;
           if (installer) {
-            heroDl.href = installer.browser_download_url;
-            navDl.href = installer.browser_download_url;
-            panelDl.href = installer.browser_download_url;
-            const label = panelDl.querySelector(".btn-label");
-            if (label) label.textContent = "Download " + tag;
-          } else {
-            heroDl.href = rel.html_url;
-            navDl.href = rel.html_url;
-            panelDl.href = rel.html_url;
+            var label = panelDl.querySelector(".btn-label");
+            if (label) label.textContent = "Download " + tag + " installer";
           }
-          if (zip) {
-            panelZip.href = zip.browser_download_url;
-          } else {
-            panelZip.href = rel.html_url;
-          }
+          panelZip.href = zip ? zip.browser_download_url : rel.html_url;
           panelMeta.textContent = installer
             ? installer.name + (zip ? " · " + zip.name : "")
-            : "Open the release page for assets";
+            : "Open the release page for the files.";
         } catch (e) {
           versionEl.textContent = "See GitHub Releases for the latest build.";
-          panelMeta.textContent = "Open Releases if the direct link is unavailable.";
+          panelMeta.textContent = "Opens GitHub Releases.";
         }
       })();
     </script>

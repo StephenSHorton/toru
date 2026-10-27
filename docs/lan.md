@@ -7,7 +7,9 @@ that look for servers on the local network find the friends' games as if
 everyone were in the same house. There is no account and no separate VPN app:
 the room code you already share for **Call** is the network name and password.
 
-**Status: design only. Nothing below is built yet.** It is based on main at
+**Status: shipped in v0.13.0 (#61), direct-only: the relay in
+`cmd/toru-relay` is built but not deployed.** The design below was written
+before the build. It is based on main at
 `6829d41` (Call and screen sharing landed in `eee0fd6`, #58). It is written for
 Stephen and Blake. Once a piece ships, the matching section here becomes the
 user doc in the same style as [Send Files](send-files.md) and

@@ -37,7 +37,7 @@ Press <kbd>⊞</kbd> <kbd>Shift</kbd> <kbd>S</kbd> → pick a **region**, **wind
 
 Grab the latest from **[Releases](https://github.com/StephenSHorton/toru/releases/latest)**.
 
-## LAN (in development)
+## LAN
 
 **LAN** puts everyone in a Toru room on one virtual network, so LAN games find
 each other over the internet as if everyone were in the same house. The room
@@ -49,10 +49,11 @@ account and no separate VPN app. Windows gets a network adapter called
   prompt the first time you turn it on: Toru runs `toru-lan.exe install`, which
   sets up the `ToruLan` service, the adapter and two firewall rules. After
   that, turning LAN on and off needs no prompts.
-- Traffic between friends is end-to-end encrypted. When two PCs can't reach
-  each other directly it goes through a relay ([`cmd/toru-relay`](cmd/toru-relay)),
-  which can't read it. The same relay also fixes calls and streams between
-  hard NATs.
+- Traffic between friends is end-to-end encrypted and goes directly between
+  the PCs. No relay is deployed yet, so two PCs that are both behind strict
+  NATs may not connect. A relay server ([`cmd/toru-relay`](cmd/toru-relay)),
+  which can't read the traffic and would also help calls and streams between
+  hard NATs, is built but not running anywhere.
 - Uninstalling Toru asks for administrator approval once more to remove the
   service and adapter; if you refuse, it says what was left behind.
 
