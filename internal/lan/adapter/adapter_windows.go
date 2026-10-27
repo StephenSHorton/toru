@@ -223,8 +223,21 @@ func (a *Adapter) configureOnce() error {
 	if err != nil {
 		return fmt.Errorf("set address: %w", err)
 	}
+	// Windows creates its own on-link 255.255.255.255/32 and 224.0.0.0/4
+	// routes (route metric 256) on every interface once it has an address, so
+	// the add usually finds one: lower it to 0 instead. Another interface-
+	// metric-1 adapter (Radmin VPN) then loses the tie, 1+0 against 1+256, and
+	// unbound broadcasts and multicasts leave through Toru LAN.
 	for _, p := range []netip.Prefix{limitedBcast, multicast} {
-		if err := a.luid.AddRoute(p, netip.IPv4Unspecified(), 0); err != nil && !errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) {
+		err := a.luid.AddRoute(p, netip.IPv4Unspecified(), 0)
+		if errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) {
+			var row *winipcfg.MibIPforwardRow2
+			if row, err = a.luid.Route(p, netip.IPv4Unspecified()); err == nil && row.Metric != 0 {
+				row.Metric = 0
+				err = row.Set()
+			}
+		}
+		if err != nil {
 			return fmt.Errorf("add route %s: %w", p, err)
 		}
 	}

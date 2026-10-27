@@ -429,6 +429,7 @@ func checkAdapter(r *report, ip netip.Addr) {
 	}
 	routes, err := winipcfg.GetIPForwardTable2(windows.AF_INET)
 	have := map[string]bool{}
+	metric := map[string]uint32{}
 	defaultVia := ""
 	for i := range routes {
 		if routes[i].InterfaceLUID != luid {
@@ -436,12 +437,18 @@ func checkAdapter(r *report, ip netip.Addr) {
 		}
 		p := routes[i].DestinationPrefix.Prefix()
 		have[p.String()] = true
+		metric[p.String()] = routes[i].Metric
 		if p.Bits() == 0 {
 			defaultVia = routes[i].NextHop.Addr().String()
 		}
 	}
 	for _, p := range []string{"255.255.255.255/32", "224.0.0.0/4", "100.96.0.0/16"} {
 		r.add("route "+p+" on the adapter", true, errOr(err, boolErr(have[p], "missing")), "")
+	}
+	// Route metric 0 on these makes Toru LAN win a tie with another
+	// interface-metric-1 adapter (Radmin VPN) for unbound broadcasts.
+	for _, p := range []string{"255.255.255.255/32", "224.0.0.0/4"} {
+		r.add("route "+p+" metric 0", true, boolErr(have[p] && metric[p] == 0, fmt.Sprintf("metric %d", metric[p])), "")
 	}
 	if defaultVia != "" {
 		r.add("no default route (Unidentified-network fallback in use)", false, fmt.Errorf("default route via %s", defaultVia), "")
