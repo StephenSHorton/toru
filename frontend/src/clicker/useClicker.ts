@@ -9,13 +9,22 @@ import { RunState, parseError } from "./cadence";
 // after an event already arrived, so a run started from the tray or a hotkey
 // is on screen at once and a slow fetch can't clobber newer state.
 //
-// Edits: update(fn) applies locally right away, then sends the whole Settings
-// to SetSettings after a short debounce and adopts the normalized result Go
-// returns (unless the user has edited again meanwhile). Go is the only judge of
-// a value; the page renders whatever comes back.
+// Edits: update(fn) keeps fn itself, not a finished snapshot. What the page
+// shows is Go's last known Settings (base) with the unsaved edits replayed on
+// top, so a change Go makes meanwhile (hotkey disarm, tray, point/zone pick)
+// survives: the next save replays the edits onto it instead of sending a stale
+// copy back. Saves are debounced and, like apply/run, go through one serial
+// queue, so a preset apply or an arm toggle never races a SetSettings that is
+// still on the wire. Go is the only judge of a value; the page renders what
+// comes back.
 
 const SAVE_DEBOUNCE_MS = 250;
 const ERROR_CLEAR_MS = 6000;
+
+type Edit = (s: ClickerSettings) => ClickerSettings;
+
+const replay = (edits: Edit[], base: ClickerSettings) => edits.reduce((s, f) => f(s), base);
+const same = (a: ClickerSettings, b: ClickerSettings) => JSON.stringify(a) === JSON.stringify(b);
 
 export const IDLE_STATUS: ClickerStatus = new ClickerStatus({ state: RunState.StateIdle, activePoint: -1 });
 
@@ -64,18 +73,30 @@ export function useClicker(): Clicker {
   const [stats, setStats] = useState<ClickerStats | null>(null);
   const [error, setError] = useState("");
 
-  const settingsRef = useRef<ClickerSettings | null>(null);
-  // editSeq counts local edits; a SetSettings answer is adopted only if no
-  // edit happened after it was sent.
-  const editSeq = useRef(0);
-  const pending = useRef<ClickerSettings | null>(null);
+  // base is Go's last known Settings; queued holds edits not sent yet and sent
+  // the ones in the SetSettings call on the wire. heard keeps the newest
+  // clicker:settings payload that arrived during that call.
+  const base = useRef<ClickerSettings | null>(null);
+  const queued = useRef<Edit[]>([]);
+  const sent = useRef<Edit[]>([]);
+  const sending = useRef(false);
+  const heard = useRef<ClickerSettings | null>(null);
+  const chain = useRef<Promise<unknown>>(Promise.resolve());
   const timer = useRef<number | null>(null);
   const errTimer = useRef<number | null>(null);
 
-  const adopt = useCallback((s: ClickerSettings) => {
-    settingsRef.current = s;
-    setSettings(s);
+  // show renders base with every unsaved edit replayed on top.
+  const show = useCallback(() => {
+    if (base.current) setSettings(replay([...sent.current, ...queued.current], base.current));
   }, []);
+
+  const rebase = useCallback(
+    (s: ClickerSettings) => {
+      base.current = s;
+      show();
+    },
+    [show],
+  );
 
   const showError = useCallback((msg: string) => {
     setError(msg);
@@ -94,68 +115,109 @@ export function useClicker(): Clicker {
       .catch(() => {});
   }, []);
 
-  // flush sends the pending edit now. On a rejection the page re-reads what Go
-  // has, so the controls never show a value that was not stored.
-  const flush = useCallback(async () => {
+  // serial runs task after every earlier save/apply/run has settled.
+  const serial = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    const p = chain.current.then(task);
+    chain.current = p.catch(() => {});
+    return p;
+  }, []);
+
+  // save sends the queued edits, replayed onto base. If Go broadcast new
+  // Settings while the call was on the wire, that change may have landed
+  // before ours and been overwritten, so the same edits are replayed onto the
+  // broadcast and sent once more when that differs from it. On a rejection the
+  // page re-reads what Go has, so the controls never show a value that was not
+  // stored. Callers hold the serial queue.
+  const save = useCallback(async () => {
     if (timer.current !== null) {
       window.clearTimeout(timer.current);
       timer.current = null;
     }
-    const next = pending.current;
-    if (!next) return;
-    pending.current = null;
-    const seq = editSeq.current;
-    try {
-      const stored = await ClickerService.SetSettings(next);
-      if (stored && seq === editSeq.current) adopt(stored);
-    } catch (e) {
-      showError(parseError(e).message);
-      if (seq === editSeq.current) {
-        try {
-          adopt(await ClickerService.GetSettings());
-        } catch {
-          /* keep the local copy */
-        }
+    let retried = false;
+    while (queued.current.length > 0 && base.current) {
+      const edits = queued.current;
+      queued.current = [];
+      sent.current = edits;
+      heard.current = null;
+      sending.current = true;
+      let stored: ClickerSettings | null = null;
+      let failed = false;
+      try {
+        stored = await ClickerService.SetSettings(replay(edits, base.current));
+      } catch (e) {
+        showError(parseError(e).message);
+        failed = true;
       }
+      sending.current = false;
+      sent.current = [];
+      const ev = heard.current;
+      heard.current = null;
+      if (failed) {
+        if (ev) rebase(ev);
+        else {
+          try {
+            rebase(await ClickerService.GetSettings());
+          } catch {
+            show(); // keep the last known copy, minus the rejected edit
+          }
+        }
+        return;
+      }
+      if (ev && !retried && !same(replay(edits, ev), ev)) {
+        retried = true;
+        queued.current = [...edits, ...queued.current];
+        rebase(ev);
+        continue;
+      }
+      rebase((retried ? stored : ev) ?? stored ?? base.current);
+      return;
     }
-  }, [adopt, showError]);
+  }, [rebase, show, showError]);
+
+  const flush = useCallback(() => serial(save), [serial, save]);
 
   const update = useCallback(
-    (fn: (s: ClickerSettings) => ClickerSettings) => {
-      const cur = settingsRef.current;
-      if (!cur) return;
-      const next = fn(cur);
-      editSeq.current += 1;
-      pending.current = next;
-      adopt(next);
+    (fn: Edit) => {
+      if (!base.current) return;
+      queued.current.push(fn);
+      show();
       if (timer.current !== null) window.clearTimeout(timer.current);
       timer.current = window.setTimeout(() => void flush(), SAVE_DEBOUNCE_MS);
     },
-    [adopt, flush],
+    [show, flush],
   );
 
-  const run = useCallback(
-    async <T>(call: () => Promise<T>): Promise<T | undefined> => {
-      await flush();
-      try {
-        return await call();
-      } catch (e) {
-        showError(parseError(e).message);
-        return undefined;
-      }
-    },
-    [flush, showError],
+  // run saves pending edits, then runs call in the same serial slot, so no
+  // SetSettings can land between them; done sees the result inside that slot.
+  const runThen = useCallback(
+    <T,>(call: () => Promise<T>, done?: (got: T) => void): Promise<T | undefined> =>
+      serial(async () => {
+        await save();
+        try {
+          const got = await call();
+          done?.(got);
+          return got;
+        } catch (e) {
+          showError(parseError(e).message);
+          return undefined;
+        }
+      }),
+    [serial, save, showError],
   );
+
+  const run = useCallback(<T,>(call: () => Promise<T>) => runThen(call), [runThen]);
 
   const apply = useCallback(
     async (call: () => Promise<ClickerSettings>): Promise<boolean> => {
-      const got = await run(call);
-      if (!got) return false;
-      editSeq.current += 1; // an older SetSettings answer must not undo this
-      adopt(got);
-      return true;
+      let ok = false;
+      await runThen(call, (got) => {
+        if (!got) return;
+        ok = true;
+        rebase(got);
+      });
+      return ok;
     },
-    [run, adopt],
+    [runThen, rebase],
   );
 
   const resetStats = useCallback(async () => {
@@ -177,10 +239,9 @@ export function useClicker(): Clicker {
       const d = payload<ClickerSettings>(ev.data);
       if (!d) return;
       gotSettings = true;
-      // An unsent local edit wins: it is about to overwrite Go's copy anyway.
-      if (pending.current) return;
-      editSeq.current += 1;
-      adopt(d);
+      // Unsaved edits are replayed on top, so neither side's change is lost.
+      if (sending.current) heard.current = d;
+      rebase(d);
     });
     void ClickerService.Status()
       .then((s) => {
@@ -189,7 +250,7 @@ export function useClicker(): Clicker {
       .catch(() => {});
     void ClickerService.GetSettings()
       .then((s) => {
-        if (!gone && !gotSettings && s && !settingsRef.current) adopt(s);
+        if (!gone && !gotSettings && s && !base.current) rebase(s);
       })
       .catch((e) => {
         if (!gone) showError(parseError(e).message);
@@ -203,7 +264,7 @@ export function useClicker(): Clicker {
       void flush();
       if (errTimer.current !== null) window.clearTimeout(errTimer.current);
     };
-  }, [adopt, flush, refreshStats, showError]);
+  }, [rebase, flush, refreshStats, showError]);
 
   // Lifetime totals change when a run ends.
   const wasActive = useRef(false);
