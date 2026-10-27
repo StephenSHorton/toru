@@ -17,18 +17,19 @@ import (
 	"slices"
 	"time"
 
+	toast "github.com/StephenSHorton/go-toast"
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/clicker"
 	"github.com/StephenSHorton/toru/internal/dpi"
 	"github.com/StephenSHorton/toru/internal/export"
 	"github.com/StephenSHorton/toru/internal/history"
 	"github.com/StephenSHorton/toru/internal/hotkey"
+	"github.com/StephenSHorton/toru/internal/inputtag"
 	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/StephenSHorton/toru/internal/replay"
 	"github.com/StephenSHorton/toru/internal/share"
 	"github.com/StephenSHorton/toru/internal/shot"
 	"github.com/StephenSHorton/toru/internal/stream"
-	"github.com/StephenSHorton/toru/internal/toast"
 	"github.com/StephenSHorton/toru/internal/transfer"
 	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/StephenSHorton/toru/internal/upload"
@@ -93,6 +94,19 @@ func init() {
 }
 
 func main() {
+	// Notification cards (go-toast): Toru's look and window classes, set before
+	// anything can post. Square dark cards, kept out of screenshots and
+	// recordings, and the auto clicker's own injected clicks (tagged with
+	// inputtag.Toru) never press a card.
+	toast.Configure(toast.Config{
+		AppName:        "Toru",
+		ClassPrefix:    "ToruToast", // cards ToruToast, host ToruToastHost, as before
+		Palette:        toast.Dark,
+		CornerRadius:   0,
+		CaptureExclude: true,
+		IgnoreInput:    func(extra uintptr) bool { return extra == inputtag.Toru },
+	})
+
 	// startedAtLogin is true when Toru was launched by the Windows "Run at login"
 	// registry entry, which SettingsService.SetLaunchAtLogin writes WITH the
 	// --startup flag. In that case we boot SILENT in the tray (install the systray

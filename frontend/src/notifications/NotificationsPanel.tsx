@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { NotificationOptions, ReplayService, SettingsService } from "@/lib/api";
 import { errText } from "@/transfer/useTransfer";
 
-// Settings → Notifications: Toru's notification cards (internal/toast) and
+// Settings → Notifications: Toru's notification cards (go-toast) and
 // which features post them. Cards stack in a corner over every window and
 // never take focus; the sounds are the s&box editor's.
 

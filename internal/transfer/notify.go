@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/StephenSHorton/toru/internal/toast"
+	toast "github.com/StephenSHorton/go-toast"
 )
 
 // Notification card IDs: a retry replaces the last card for that side instead

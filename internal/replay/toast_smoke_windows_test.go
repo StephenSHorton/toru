@@ -12,7 +12,7 @@ import (
 
 // TestToastSmoke shows the save toasts + sound and checks focus never moves.
 // Opt-in (TORU_SMOKE=1): it draws on the desktop and makes a sound. The card
-// window's own show/click/fade assertions live in internal/toast.
+// window's own show/click/fade assertions live in go-toast.
 func TestToastSmoke(t *testing.T) {
 	if os.Getenv("TORU_SMOKE") != "1" {
 		t.Skip("set TORU_SMOKE=1")

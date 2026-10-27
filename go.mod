@@ -1,8 +1,9 @@
 module github.com/StephenSHorton/toru
 
-go 1.25.0
+go 1.26
 
 require (
+	github.com/StephenSHorton/go-toast v0.1.0
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	github.com/pion/interceptor v0.1.49

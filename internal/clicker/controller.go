@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	toast "github.com/StephenSHorton/go-toast"
 	"github.com/StephenSHorton/toru/internal/clicker/engine"
 	"github.com/StephenSHorton/toru/internal/clicker/safety"
-	"github.com/StephenSHorton/toru/internal/toast"
 )
 
 // statusInterval throttles status events and indicator redraws while a run is

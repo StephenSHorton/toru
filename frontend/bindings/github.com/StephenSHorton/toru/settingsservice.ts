@@ -18,7 +18,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as toast$0 from "./internal/toast/models.js";
+import * as toast$0 from "../go-toast/models.js";
 
 /**
  * GetLaunchAtLogin reports whether Toru is currently registered to start at user

@@ -3,8 +3,8 @@ package replay
 import (
 	"time"
 
+	toast "github.com/StephenSHorton/go-toast"
 	"github.com/StephenSHorton/toru/internal/capture"
-	"github.com/StephenSHorton/toru/internal/toast"
 )
 
 // Notification IDs: the start and stop notices share one, so a recording's

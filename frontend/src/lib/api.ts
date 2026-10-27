@@ -66,7 +66,7 @@ import {
   ReplayStatus,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
 import * as SettingsService from "../../bindings/github.com/StephenSHorton/toru/settingsservice.js";
-import { Options as NotificationOptions } from "../../bindings/github.com/StephenSHorton/toru/internal/toast/models.js";
+import { Options as NotificationOptions } from "../../bindings/github.com/StephenSHorton/go-toast/models.js";
 import * as HistoryService from "../../bindings/github.com/StephenSHorton/toru/internal/history/historyservice.js";
 import {
   Item as CaptureItem,
