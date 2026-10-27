@@ -15,6 +15,10 @@ import "sort"
 //     started Toru or Sonar: including it would include them too);
 //   - an ancestor is already picked (its tree covers this one; capturing both
 //     would play this app twice).
+//
+// Parent pids come from a snapshot and can be stale: if a banned process's
+// dead parent's pid was reused, the new owner is dropped too (it goes
+// unheard, never leaks).
 func appMixRoots(sessions []uint32, parent map[uint32]uint32, banned []uint32) []uint32 {
 	isBanned := map[uint32]bool{}
 	for _, b := range banned {

@@ -178,8 +178,9 @@ func (m *appMixAudio) mix(n int) []byte {
 // now covers, lose theirs.
 func (m *appMixAudio) scan() {
 	parent, exe := processSnapshot()
+	sessions := renderSessionPIDs()
 	var live []uint32
-	for _, pid := range renderSessionPIDs() {
+	for _, pid := range sessions {
 		// Sessions can outlive their process. audiodg is the audio engine's
 		// own host (effects), not an app.
 		if name, ok := exe[pid]; ok && name != "audiodg.exe" {
@@ -193,8 +194,10 @@ func (m *appMixAudio) scan() {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// An empty session list is an enumeration failure (Toru itself has
+	// sessions while streaming), not "every app went quiet": keep the clients.
 	for pid, a := range m.apps {
-		if !want[pid] || a.exited() {
+		if (len(sessions) > 0 && !want[pid]) || a.exited() {
 			delete(m.apps, pid)
 			go a.close()
 		}

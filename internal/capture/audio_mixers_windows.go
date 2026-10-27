@@ -22,10 +22,11 @@ import (
 //     -42 dBFS on the Arctis endpoint) is invisible to process loopback:
 //     include-Sonar had no tone (-121..-129 dBFS) and exclude-tone none
 //     either, so call audio does NOT come back in through Sonar;
-//   - Sonar's process DOES play one stream: the processed microphone, into
-//     its "SteelSeries Sonar - Microphone" render endpoint (include-Sonar
-//     total matched that endpoint's total in every run: -73.8/-73.8,
-//     -80.7/-80.7, about -92/-93 in a quiet room). Process loopback hears
+//   - Sonar's process DOES play one stream, by all signs the processed
+//     microphone, into its "SteelSeries Sonar - Microphone" render endpoint
+//     (include-Sonar total matched that endpoint's total in every run:
+//     -73.8/-73.8, -80.7/-80.7, about -92/-93 in a quiet room; inferred
+//     from levels, nobody spoke during the probe). Process loopback hears
 //     every process on every endpoint, so the exclude-Toru capture carried
 //     the streamer's own voice: viewers heard them from the call and again
 //     from the stream;
