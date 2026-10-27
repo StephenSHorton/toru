@@ -108,7 +108,7 @@ Two things every L3 design teaches:
 ## Layers
 
 ```
- Toru.exe (normal user, asInvoker)             toru-lan-svc.exe (LocalSystem, demand-start)
+ Toru.exe (normal user, asInvoker)             toru-lan.exe (LocalSystem service, demand-start)
  ┌──────────────────────────────┐              ┌───────────────────────────────────────────┐
  │ StreamPage → LanCard (UI)    │              │ pipe server (narrow API)                  │
  │ StreamService                │  named pipe  │ identity key (never leaves the service)   │
@@ -250,7 +250,7 @@ info), so the bind can be swapped without touching the shim, pipe or UI.
   public key. One key per Windows user (by SID), so two accounts on one PC are
   two nodes.
 - **One IP per install, across rooms** (Radmin's model): host part =
-  `H(pubkey) mod 65534`, skipping `.0.0`, `.0.1` and `.255.255`, in
+  `H(pubkey ‖ salt) mod 65533 + 2`, skipping `.0.0`, `.0.1` and `.255.255`, in
   `100.96.0.0/16`. The same friend has the same address in every room and
   after every restart, so "join 100.96.12.34" can be saved in a game.
 - **Collisions** (about 1 in 65k per pair) are seen through presence: the
@@ -292,7 +292,7 @@ join; it takes the adapter down after the same 60 s rule.
 
 ### The service and the pipe
 
-- `toru-lan-svc.exe`, a LocalSystem service named `ToruLan`, built on
+- `toru-lan.exe` (run with no command by the SCM), a LocalSystem service named `ToruLan`, built on
   `golang.org/x/sys/windows/svc` and `svc/mgr` (x/sys v0.43.0 is already a
   direct dependency). **Demand-start**: Toru starts it when LAN is turned on;
   the service's own security descriptor lets interactive users start and stop
@@ -359,8 +359,8 @@ join; it takes the adapter down after the same 60 s rule.
 | pion stack | `go.mod`: webrtc v4.2.25 direct; ice v4.4.8, turn v5.1.2, stun v4.0.1, dtls v3.1.15 indirect | ice and turn become direct |
 
 New code lives in `internal/lan` (bind, agent, shim, pipe client and server,
-adapter) and three commands: `cmd/toru-lan-svc`, `cmd/toru-lan-setup`,
-`cmd/toru-relay`.
+adapter) and two commands: `cmd/toru-lan` (the service, and its own
+elevated `install` / `uninstall`) and `cmd/toru-relay`.
 
 ## How Call and screen sharing get easier
 
@@ -495,11 +495,11 @@ would make every auto-update prompt UAC.
 **First time LAN is turned on:**
 
 1. The card says *LAN needs a one-time administrator setup* and **Set up**.
-2. Toru runs `toru-lan-setup.exe` with `ShellExecuteEx` verb `runas`: one UAC
+2. Toru runs `toru-lan.exe install` with `ShellExecuteEx` verb `runas`: one UAC
    prompt.
-3. The setup exe checks the SHA-256 of `toru-lan-svc.exe` and `wintun.dll`
-   against hashes embedded in itself (Authenticode once releases are signed),
-   copies them to `%ProgramFiles%\Toru\lan\`, registers `ToruLan` (demand-start,
+3. `toru-lan.exe install` checks the SHA-256 of `wintun.dll` against
+   `api.WintunSHA256` (Authenticode once releases are signed), copies itself
+   and the DLL to `%ProgramFiles%\Toru\lan\`, registers `ToruLan` (demand-start,
    SD that lets interactive users start and stop it), and creates the two
    firewall rules.
 4. After that, turning LAN on and off needs no prompts.
@@ -511,7 +511,7 @@ replace the exe or plant a DLL and become SYSTEM.
 **Updates:** the silent per-user update (`internal/update/service.go`, `/S
 /NORELAUNCH`) can't touch Program Files. The service reports its version and
 pipe protocol in `Hello`. When the GUI is newer, the card shows **Update LAN
-(needs admin)**, which re-runs the setup exe: stop, replace, start. Keep
+(needs admin)**, which re-runs `toru-lan.exe install`: stop, replace, start. Keep
 mechanism in the service and policy in the GUI so service changes are rare,
 and keep the pipe protocol backward compatible within a major version. A
 service that updates itself from GitHub would be an unsigned SYSTEM-level
@@ -519,7 +519,7 @@ auto-updater (SHA256SUMS comes from the same release, so it adds no
 independent trust); only consider it once releases are Authenticode-signed.
 
 **Uninstall:** **Remove LAN** in Advanced, and the NSIS uninstaller when the
-service exists, run `toru-lan-setup.exe /uninstall` elevated: stop and delete
+service exists, run `toru-lan.exe uninstall` elevated: stop and delete
 the service, remove the adapter (and the Wintun driver only if no other Wintun
 adapters remain), delete the firewall rules, `%ProgramFiles%\Toru\lan` and
 `%ProgramData%\Toru\lan`. The per-user uninstaller can't do machine-level work
@@ -528,9 +528,9 @@ and says so.
 
 **Installer and release changes:**
 
-- `release.yml`: build `toru-lan-svc.exe` and `toru-lan-setup.exe`, embed the
-  service and DLL hashes in the setup exe, add all three files to SHA256SUMS.
-- `build/windows/nsis/project.nsi`: install the setup exe, service exe and
+- `release.yml`: build `toru-lan.exe`, check the vendored `wintun.dll` against
+  `api.WintunSHA256`, add both (and Wintun's license) to SHA256SUMS.
+- `build/windows/nsis/project.nsi`: install `toru-lan.exe` and
   `wintun.dll` (plus Wintun's `LICENSE.txt`) into the per-user folder as the
   payload; uninstall hook as above.
 - `build/windows/info.json`: replace the Wails placeholders (`"© 2026, My
@@ -592,9 +592,9 @@ No step depends on a later one; each can be tested on its own.
    flags; TURN entries in the shared list. Test both PCs behind a phone
    hotspot or CGNAT, and on a UDP-blocked network (`turns:443`). Calls and
    streams between hard NATs work from here, with LAN off.
-4. **`cmd/toru-lan-setup`:** elevated install, update and uninstall; payload
+4. **`cmd/toru-lan install|uninstall`:** elevated install, update and uninstall; payload
    hash check; service SD; firewall rules through COM.
-5. **`cmd/toru-lan-svc` and `internal/lan/pipe`:** service host, versioned pipe
+5. **`cmd/toru-lan` (service) and `internal/lan/pipe`:** service host, versioned pipe
    API, session check, key generation and storage.
 6. **`internal/lan/adapter`:** Wintun bring-up, winipcfg, Private category with
    retry, range-overlap check, metric only while on.
@@ -715,10 +715,9 @@ Toru stays MIT (`LICENSE`).
 - Raising the MTU from 1280 to about 1380 on real paths.
 - Relay credential lifetime against long relayed sessions. Every TURN
   Refresh, CreatePermission and ChannelBind needs an unexpired credential, so
-  with the 10-minute default a relayed link drops about 10-15 minutes in
-  unless the client fetches a fresh credential and moves to a new allocation
-  (LAN: `SetICE` plus the make-before-break agent). Either the LAN agent and
-  Call do that, or `toru-relay -cred-ttl` goes up. See
+  a relayed link drops when the credential it allocated with expires. Decided
+  for now: `toru-relay -cred-ttl` defaults to 12 h. Moving live allocations
+  to fresh credentials (LAN agent, Call) is the later fix. See
   [`cmd/toru-relay`](../cmd/toru-relay/README.md#known-gaps).
 - The relay's 10-minute allocation lifetime is the default, not a hard cap:
   pion/turn v5 honours a client-requested `LIFETIME` under one hour. The
@@ -728,14 +727,14 @@ Toru stays MIT (`LICENSE`).
 
 | What | Where |
 | --- | --- |
-| Service and Wintun DLL | `%ProgramFiles%\Toru\lan\` (`toru-lan-svc.exe`, `wintun.dll`, `LICENSE.txt`) |
-| Setup payload (per-user install) | `%LOCALAPPDATA%\Programs\Toru\` (`toru-lan-setup.exe` and the files it copies) |
+| Service and Wintun DLL | `%ProgramFiles%\Toru\lan\` (`toru-lan.exe`, `wintun.dll`, `LICENSE.txt`) |
+| Setup payload (per-user install) | `%LOCALAPPDATA%\Programs\Toru\` (`toru-lan.exe`, `wintun.dll`, `wintun-LICENSE.txt`: what `install` copies) |
 | Node key and assigned address | `%ProgramData%\Toru\lan\` (SYSTEM only) |
 | Pins and LAN toggles | `%AppData%\toru\stream.json` |
 | Windows service | `ToruLan` (demand-start, LocalSystem) |
 | Pipe | `\\.\pipe\ProtectedPrefix\Administrators\Toru\lan` |
 | Adapter | **Toru LAN** (Wintun, tunnel type `Toru`) |
 | Firewall rules | `Toru LAN (inbound)`, `Toru LAN ICMP` |
-| Code | `internal/lan/`, `cmd/toru-lan-svc/`, `cmd/toru-lan-setup/`, `cmd/toru-relay/` |
+| Code | `internal/lan/`, `cmd/toru-lan/`, `cmd/toru-relay/` |
 
 Back to the [README](../README.md).

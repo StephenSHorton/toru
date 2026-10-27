@@ -9,7 +9,8 @@ import (
 )
 
 // dialPipe connects to the service's named pipe. The pipe's SDDL lets
-// interactive users connect, so this needs no elevation.
+// interactive users connect with api.PipeClientAccess (not GENERIC_WRITE),
+// so this needs no elevation.
 func dialPipe(ctx context.Context) (net.Conn, error) {
-	return winio.DialPipeContext(ctx, api.PipeName)
+	return winio.DialPipeAccess(ctx, api.PipeName, api.PipeClientAccess)
 }

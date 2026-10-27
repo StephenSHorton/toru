@@ -4,6 +4,7 @@ package selftest
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -241,8 +242,10 @@ func dialPipe() (*pipeClient, error) {
 	var conn net.Conn
 	var err error
 	for i := 0; i < 40; i++ {
-		timeout := time.Second
-		if conn, err = winio.DialPipe(api.PipeName, &timeout); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		conn, err = winio.DialPipeAccess(ctx, api.PipeName, api.PipeClientAccess)
+		cancel()
+		if err == nil {
 			break
 		}
 		time.Sleep(250 * time.Millisecond)

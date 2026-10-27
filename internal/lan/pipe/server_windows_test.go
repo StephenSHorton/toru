@@ -2,8 +2,10 @@ package pipe
 
 import (
 	"bufio"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -13,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/StephenSHorton/toru/internal/lan/api"
@@ -21,7 +24,10 @@ import (
 
 // Named pipes never touch the network stack or the firewall. The real pipe
 // name lives under ProtectedPrefix\Administrators, which a non-elevated test
-// cannot create, so each test uses its own name with the production SDDL.
+// cannot create, so each test uses its own name with the production SDDL
+// plus FILE_CREATE_PIPE_INSTANCE for the test user: the real server runs as
+// SYSTEM, which PipeSDDL lets make the instances after the first, and a
+// non-elevated test process is only an interactive user (TestPipeSDDL).
 
 type fakeBackend struct {
 	mu      sync.Mutex
@@ -91,12 +97,61 @@ func (f *fakeBackend) Status() api.Status {
 
 var pipeSeq atomic.Int32
 
+// TestPipeSDDL checks what api.PipeSDDL gives an interactive non-admin (this
+// test must run non-elevated to mean anything): connecting works, but
+// creating a second server instance of the pipe, which would let it catch the
+// GUI's next connection, is refused.
+func TestPipeSDDL(t *testing.T) {
+	if windows.GetCurrentProcessToken().IsElevated() {
+		t.Skip("elevated: Administrators get everything, nothing to check")
+	}
+	sd, err := windows.SecurityDescriptorFromString(api.PipeSDDL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: sd}
+	seq := 0
+	// listen makes a fresh pipe (a first instance needs no instance right).
+	listen := func() *uint16 {
+		seq++
+		n, _ := windows.UTF16PtrFromString(fmt.Sprintf(`\\.\pipe\toru-lan-sddl-%d-%d`, os.Getpid(), seq))
+		h, err := windows.CreateNamedPipe(n, windows.PIPE_ACCESS_DUPLEX|windows.FILE_FLAG_FIRST_PIPE_INSTANCE,
+			windows.PIPE_TYPE_BYTE, windows.PIPE_UNLIMITED_INSTANCES, 4096, 4096, 0, sa)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { windows.CloseHandle(h) })
+		return n
+	}
+
+	n := listen()
+	second, err := windows.CreateNamedPipe(n, windows.PIPE_ACCESS_DUPLEX,
+		windows.PIPE_TYPE_BYTE, windows.PIPE_UNLIMITED_INSTANCES, 4096, 4096, 0, nil)
+	if err == nil {
+		windows.CloseHandle(second)
+		t.Fatal("a non-admin created a second server instance")
+	}
+	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		t.Fatalf("second instance: %v, want access denied", err)
+	}
+
+	// The GUI's access, and winio's default GENERIC_READ|GENERIC_WRITE
+	// (which on a pipe does not include the instance right), both connect.
+	for _, access := range []uint32{api.PipeClientAccess, windows.GENERIC_READ | windows.GENERIC_WRITE} {
+		h, err := windows.CreateFile(listen(), access, 0, nil, windows.OPEN_EXISTING, 0, 0)
+		if err != nil {
+			t.Fatalf("open with %#x: %v", access, err)
+		}
+		windows.CloseHandle(h)
+	}
+}
+
 // newServer starts a server; ids, when given, are handed out to
 // connections in accept order (tests dial one at a time).
 func newServer(t *testing.T, b *fakeBackend, idle time.Duration, onIdle func(), ids ...Identity) (*Server, string) {
 	t.Helper()
 	name := fmt.Sprintf(`\\.\pipe\toru-lan-test-%d-%d`, os.Getpid(), pipeSeq.Add(1))
-	cfg := Config{Name: name, Version: "test", Backend: b, IdleTimeout: idle, OnIdle: onIdle, Logf: t.Logf}
+	cfg := Config{Name: name, SDDL: api.PipeSDDL + "(A;;0x4;;;" + currentSID(t) + ")", Version: "test", Backend: b, IdleTimeout: idle, OnIdle: onIdle, Logf: t.Logf}
 	if len(ids) > 0 {
 		var mu sync.Mutex
 		next := 0
@@ -127,8 +182,9 @@ type client struct {
 
 func dial(t *testing.T, name string) *client {
 	t.Helper()
-	timeout := 2 * time.Second
-	conn, err := winio.DialPipe(name, &timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	conn, err := winio.DialPipeAccess(ctx, name, api.PipeClientAccess)
 	if err != nil {
 		t.Fatal(err)
 	}

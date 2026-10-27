@@ -1,5 +1,3 @@
-//go:build lanstub
-
 package main
 
 import (
@@ -21,9 +19,79 @@ import (
 	"golang.zx2c4.com/wireguard/tun/tuntest"
 )
 
-// These tests run the host against an in-memory tun device and the stub (or
-// real) lan.Node; nothing here creates an adapter or opens a socket. Build
-// with -tags lanstub until package lan lands.
+// These tests run the host against an in-memory tun device and a fake node
+// (plus one smoke test with the real lan.Node); nothing here creates an
+// adapter or opens a socket.
+
+// fakeNode records what the host tells it and reports no peers until a test
+// calls SetPeers.
+type fakeNode struct {
+	cfg lan.Config
+
+	mu       sync.Mutex
+	peers    []api.PeerState
+	onChange func()
+	Signals  []string // "peer kind"
+	Dropped  []string
+	ICE      [][]api.ICEServer
+	Policy   []api.Policy
+}
+
+func (n *fakeNode) Hello() api.SignalBlob {
+	return api.SignalBlob{Kind: api.KindHello, IP: n.cfg.Addr.String()}
+}
+
+func (n *fakeNode) HandleSignal(peer string, blob api.SignalBlob) {
+	n.mu.Lock()
+	n.Signals = append(n.Signals, peer+" "+blob.Kind)
+	n.mu.Unlock()
+}
+
+func (n *fakeNode) Drop(peer string) {
+	n.mu.Lock()
+	n.Dropped = append(n.Dropped, peer)
+	n.mu.Unlock()
+}
+
+func (n *fakeNode) SetICE(servers []api.ICEServer) {
+	n.mu.Lock()
+	n.ICE = append(n.ICE, servers)
+	n.mu.Unlock()
+}
+
+func (n *fakeNode) SetPolicy(p api.Policy) {
+	n.mu.Lock()
+	n.Policy = append(n.Policy, p)
+	n.mu.Unlock()
+}
+
+func (n *fakeNode) Peers() []api.PeerState {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]api.PeerState(nil), n.peers...)
+}
+
+func (n *fakeNode) OnChange(fn func()) {
+	n.mu.Lock()
+	n.onChange = fn
+	n.mu.Unlock()
+}
+
+func (n *fakeNode) Close() error { return nil }
+
+// SetPeers replaces the peer list and fires OnChange.
+func (n *fakeNode) SetPeers(p []api.PeerState) {
+	n.mu.Lock()
+	n.peers = p
+	fn := n.onChange
+	n.mu.Unlock()
+	if fn != nil {
+		go fn()
+	}
+}
+
+// EmitSignal makes the node send a blob to a peer.
+func (n *fakeNode) EmitSignal(peer string, blob api.SignalBlob) { n.cfg.Signal(peer, blob) }
 
 type sent struct {
 	mu   sync.Mutex
@@ -52,13 +120,29 @@ func (s *sent) take() []api.Message {
 }
 
 type fakeAdapter struct {
-	ch     *tuntest.ChannelTUN
+	dev    *onceCloseTUN
 	addr   netip.Addr
 	closed bool
 }
 
-func (f *fakeAdapter) Device() tun.Device { return f.ch.TUN() }
-func (f *fakeAdapter) Close() error       { f.closed = true; return f.ch.TUN().Close() }
+func newFakeAdapter(addr netip.Addr) *fakeAdapter {
+	return &fakeAdapter{dev: &onceCloseTUN{Device: tuntest.NewChannelTUN().TUN()}, addr: addr}
+}
+
+func (f *fakeAdapter) Device() tun.Device { return f.dev }
+func (f *fakeAdapter) Close() error       { f.closed = true; return f.dev.Close() }
+
+// onceCloseTUN makes Close idempotent, as Wintun's is: the real lan.Node
+// closes the device it was given and the adapter closes it again.
+type onceCloseTUN struct {
+	tun.Device
+	once sync.Once
+}
+
+func (d *onceCloseTUN) Close() error {
+	d.once.Do(func() { d.Device.Close() })
+	return nil
+}
 
 func testStore(t *testing.T) *pipe.KeyStore {
 	u, err := windows.GetCurrentProcessToken().GetTokenUser()
@@ -72,7 +156,7 @@ type harness struct {
 	h        *host
 	out      *sent
 	adapters []*fakeAdapter
-	nodes    []*lan.Node
+	nodes    []*fakeNode
 	adErr    error
 	cfgs     []lan.Config
 }
@@ -87,15 +171,12 @@ func newHarness(t *testing.T) *harness {
 		if hs.adErr != nil {
 			return nil, hs.adErr
 		}
-		a := &fakeAdapter{ch: tuntest.NewChannelTUN(), addr: addr}
+		a := newFakeAdapter(addr)
 		hs.adapters = append(hs.adapters, a)
 		return a, nil
 	}
 	h.newNode = func(dev tun.Device, cfg lan.Config) (node, error) {
-		n, err := lan.NewNode(dev, cfg)
-		if err != nil {
-			return nil, err
-		}
+		n := &fakeNode{cfg: cfg}
 		hs.cfgs = append(hs.cfgs, cfg)
 		hs.nodes = append(hs.nodes, n)
 		return n, nil
@@ -198,6 +279,37 @@ func TestHostUpDown(t *testing.T) {
 	}
 	if err := hs.h.Signal("p", api.SignalBlob{Kind: api.KindCand}); err == nil {
 		t.Fatal("signal accepted while down")
+	}
+}
+
+// TestHostRealNode runs Up and Down with the real lan.Node on an in-memory
+// device: no peers, so no ICE agent and no socket.
+func TestHostRealNode(t *testing.T) {
+	hs := newHarness(t)
+	hs.h.newNode = func(dev tun.Device, cfg lan.Config) (node, error) {
+		return lan.NewNode(dev, cfg)
+	}
+	_, addr, err := hs.h.Identity(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hs.h.Up(pipe.Owner{Session: 1, SID: sid}, api.Up{Room: "r", Self: "me"}); err != nil {
+		t.Fatal(err)
+	}
+	var hello api.SignalBlob
+	for _, m := range hs.out.take() {
+		if m.Type == api.TypeSignal && m.Signal.Peer == "" {
+			json.Unmarshal(m.Signal.Blob, &hello)
+		}
+	}
+	if hello.Kind != api.KindHello || hello.IP != addr.String() || hello.WGPub == "" {
+		t.Fatalf("real node hello %+v", hello)
+	}
+	if err := hs.h.Down(); err != nil {
+		t.Fatal(err)
+	}
+	if !hs.adapters[0].closed {
+		t.Fatal("adapter left up")
 	}
 }
 

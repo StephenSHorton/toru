@@ -74,7 +74,7 @@ func parseConfig(args []string, getenv func(string) (string, bool)) (*config, er
 	fs.StringVar(&c.HTTPSAddr, "https-addr", ":8443", "credential endpoint over HTTPS, needs -cert (empty = off)")
 	fs.StringVar(&c.HTTPAddr, "http-addr", "", "credential endpoint over plain HTTP, for use behind a TLS reverse proxy (e.g. 127.0.0.1:8080)")
 	fs.BoolVar(&c.TrustForward, "trust-forwarded-for", false, "rate-limit on X-Forwarded-For (only behind your own reverse proxy)")
-	fs.DurationVar(&c.CredTTL, "cred-ttl", 10*time.Minute, "lifetime of each credential")
+	fs.DurationVar(&c.CredTTL, "cred-ttl", 12*time.Hour, "lifetime of each credential (it bounds a relayed session: see README)")
 	fs.DurationVar(&c.AllocLifetime, "alloc-lifetime", 10*time.Minute, "default allocation lifetime, at most 10m")
 	fs.IntVar(&c.UserKbps, "user-kbps", 20000, "relay bandwidth per user in kbit/s, both directions together (0 = unlimited)")
 	fs.IntVar(&c.MaxPerUser, "max-allocs-per-user", 16, "allocations per user at once (0 = unlimited)")

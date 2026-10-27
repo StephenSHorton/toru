@@ -57,7 +57,7 @@ line wins.
 | `-https-addr` | `:8443` | credential endpoint over HTTPS |
 | `-http-addr` | | credential endpoint over plain HTTP, for a TLS reverse proxy in front (e.g. `127.0.0.1:8080`) |
 | `-trust-forwarded-for` | off | rate-limit on the right-most `X-Forwarded-For` hop; only behind your own proxy |
-| `-cred-ttl` | `10m` | how long each credential is valid |
+| `-cred-ttl` | `12h` | how long each credential is valid; a relayed session lasts at most this long |
 | `-alloc-lifetime` | `10m` | allocation lifetime the server grants by default (at most 10m) |
 | `-user-kbps` | 20000 | relay bandwidth per user, kbit/s (0 = unlimited) |
 | `-max-allocs-per-user`, `-max-allocs` | 16, 2000 | allocation caps (0 = unlimited) |
@@ -210,10 +210,11 @@ local test binary has to open a socket.
   its credential expires (permissions lapse 5 minutes after their last
   refresh, so relayed traffic stops sooner).
 - **Long relayed sessions need fresh credentials.** The same rule means a
-  client that keeps using a 10-minute credential loses its relay about 10-15
-  minutes in. Clients must fetch a new credential before expiry and start new
-  allocations with it (LAN: `SetICE` and a make-before-break agent), or the
-  operator raises `-cred-ttl`.
+  client loses its relay once the credential it allocated with expires. The
+  `-cred-ttl` default is therefore 12 hours, not minutes: clients don't yet
+  move a live allocation to a fresh credential (LAN's `SetICE` only reaches
+  new agents), and the endpoint is open anyway, so a short lifetime buys
+  little. Lowering it needs that client work first.
 - **The credential endpoint is open.** Anyone who can reach it gets a
   credential; the per-IP rate limit and the per-user caps are the gate. A
   proof of room membership can be added later without changing clients much.

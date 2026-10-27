@@ -1,5 +1,5 @@
 // Package api is the contract between Toru (the per-user GUI process) and
-// toru-lan-svc (the LocalSystem service that owns the Wintun adapter and the
+// toru-lan.exe (the LocalSystem service that owns the Wintun adapter and the
 // WireGuard device). It is the only thing both sides import, so it holds no
 // behaviour: names, constants and the JSON messages that cross the pipe.
 //
@@ -23,8 +23,17 @@ const (
 const PipeName = `\\.\pipe\ProtectedPrefix\Administrators\Toru\lan`
 
 // PipeSDDL lets SYSTEM and Administrators do anything and interactive users
-// read and write (connect), nobody else.
-const PipeSDDL = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)"
+// connect (read and write data), nobody else. Interactive users get
+// PipeClientAccess, not GW: GENERIC_WRITE on a pipe includes
+// FILE_CREATE_PIPE_INSTANCE, which would let a non-admin add a server
+// instance of the pipe and catch the GUI's next connection.
+const PipeSDDL = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;IU)"
+
+// PipeClientAccess is what the GUI opens the pipe with: FILE_GENERIC_READ |
+// FILE_WRITE_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES (no
+// FILE_APPEND_DATA, which on a pipe is FILE_CREATE_PIPE_INSTANCE). Opening
+// with GENERIC_WRITE asks for that bit too and is denied by PipeSDDL.
+const PipeClientAccess = 0x12019b
 
 // ServiceName is the Windows service; "toru-lan.exe install" registers it demand-start
 // with a security descriptor that lets interactive users start and stop it.
@@ -148,7 +157,9 @@ type SetICE struct {
 
 // Signal carries one opaque LAN signaling blob to or from a room peer. The
 // GUI seals it into the room as msgLan and never parses Blob; the service
-// owns its format (SignalBlob).
+// owns its format (SignalBlob). From the service, an empty Peer means "every
+// room member" (the service doesn't know who is in the room; it announces its
+// Hello that way on Up and after a Readdress).
 type Signal struct {
 	Peer string          `json:"peer"`
 	Blob json.RawMessage `json:"blob"`
@@ -196,7 +207,8 @@ type Policy struct {
 	MDNS bool `json:"mdns"`
 }
 
-// Status is the service's state, sent on request and on every change.
+// Status is the service's state, sent on request and on every change. Its
+// Peers replace the GUI's whole peer list; a PeerState message updates one.
 type Status struct {
 	State   string      `json:"state"` // off | starting | on | error
 	IP      string      `json:"ip,omitempty"`

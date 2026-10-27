@@ -62,13 +62,8 @@ $exit = 1
 try {
   Set-Location $repo
 
-  # Build with the lan stub until package lan has real files.
-  $realLan = Get-ChildItem (Join-Path $repo 'internal\lan') -Filter *.go -File |
-    Where-Object { $_.Name -ne 'stub_winhost.go' }
-  $tags = if ($realLan) { '' } else { 'lanstub' }
-  if ($tags) { Write-Host 'package lan not present yet: building with -tags lanstub (no data plane)' }
-  $tagArg = if ($tags) { @('-tags', $tags) } else { @() }
-  $testTags = if ($tags) { "lanselftest,$tags" } else { 'lanselftest' }
+  $tagArg = @()
+  $testTags = 'lanselftest'
 
   Write-Host 'Building toru-lan.exe'
   & go build @tagArg -ldflags '-X main.version=selftest' -o $lanExe ./cmd/toru-lan
