@@ -135,7 +135,7 @@ func TestResetSettingsKeepsPresets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Profile.Cadence.Rate != 25 || got.StartDelayMs != 3000 || len(got.Presets) != 4 {
+	if got.Profile.Cadence.Rate != 25 || got.StartDelayMs != 3000 || len(got.Presets) != 4 || got.ActivePresetID != "" {
 		t.Fatalf("reset = %+v", got)
 	}
 }

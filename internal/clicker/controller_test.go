@@ -278,6 +278,28 @@ func TestHotkeyHoldModePassesTriggerVK(t *testing.T) {
 	}
 }
 
+func TestHotkeyHoldModeIgnoresRepeatPresses(t *testing.T) {
+	r := newRig(t)
+	r.settings(func(s *Settings) { s.HotkeyMode = HotkeyHold })
+	r.s.HotkeyToggle()
+	r.waitFor("running", func() bool { return r.state() == StateRunning })
+	r.s.HotkeyToggle() // key auto-repeat while held
+	r.s.HotkeyToggle()
+	if st := r.s.Status(); st.State != StateRunning {
+		t.Fatalf("a repeat press stopped a hold-mode run: %+v", st)
+	}
+	r.s.Stop()
+
+	// Without a trigger VK the release can't be seen: a press stops it.
+	r.s.d.triggerVK = func(hotkey.Binding) uint16 { return 0 }
+	r.s.HotkeyToggle()
+	r.waitFor("running", func() bool { return r.state() == StateRunning })
+	r.s.HotkeyToggle()
+	if st := r.s.Status(); st.State != StateIdle || st.StopCode != StopHotkey {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
 func TestHotkeyToggleModeStartsAndStops(t *testing.T) {
 	r := newRig(t)
 	r.s.HotkeyToggle()

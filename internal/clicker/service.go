@@ -175,13 +175,18 @@ func (s *ClickerService) Shutdown() {
 func (s *ClickerService) HotkeyToggle() {
 	s.mu.Lock()
 	active, picking, armed, mode := s.cur != nil, s.picking, s.settings.Armed, s.settings.HotkeyMode
+	// A hold-mode run whose trigger key the guard watches is stopped by the
+	// release; more press edges (key auto-repeat while held) must not stop it.
+	guardOwnsStop := active && s.cur.safe.HoldTriggerVK != 0
 	keys := s.keys
 	s.mu.Unlock()
 	if picking || !armed {
 		return
 	}
 	if active {
-		s.stopRun(0, StopHotkey)
+		if !guardOwnsStop {
+			s.stopRun(0, StopHotkey)
+		}
 		return
 	}
 	var holdVK uint16
@@ -324,11 +329,12 @@ func (s *ClickerService) monitors() []safety.Rect {
 	return sysq.Monitors()
 }
 
-// ResetSettings restores defaults, keeping presets.
+// ResetSettings restores defaults, keeping presets (none is active after).
 func (s *ClickerService) ResetSettings() (Settings, error) {
 	s.mu.Lock()
 	def := DefaultSettings()
 	def.Presets = s.settings.Presets
+	s.settings.ActivePresetID = "" // SetSettings keeps the stored one
 	s.mu.Unlock()
 	return s.SetSettings(def)
 }
