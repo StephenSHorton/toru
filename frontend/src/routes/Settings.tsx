@@ -21,6 +21,7 @@ import { Updater } from "@/updater/Updater";
 import { UpdateBanner } from "@/updater/UpdateBanner";
 import { Shortcuts } from "@/shortcuts/Shortcuts";
 import { ReplayPanel } from "@/replay/ReplayPanel";
+import { NotificationsPanel } from "@/notifications/NotificationsPanel";
 import SendFiles from "@/transfer/SendFiles";
 import ClickerPage from "@/clicker/ClickerPage";
 import { errText, reportLocalSendError } from "@/transfer/useTransfer";
@@ -1067,14 +1068,14 @@ function formatWhen(iso: string | Date): string {
 // Settings panel
 // ---------------------------------------------------------------------------
 
-type SettingsTab = "general" | "recording" | "shortcuts" | "about";
+type SettingsTab = "general" | "recording" | "notifications" | "shortcuts" | "about";
 const SETTINGS_TAB_KEY = "toru.settings.tab";
 
 function SettingsPage() {
   const [tab, setTabState] = useState<SettingsTab>(() => {
     try {
       const v = window.localStorage.getItem(SETTINGS_TAB_KEY);
-      if (v === "general" || v === "recording" || v === "shortcuts" || v === "about") return v;
+      if (v === "general" || v === "recording" || v === "notifications" || v === "shortcuts" || v === "about") return v;
     } catch {
       // default tab
     }
@@ -1211,6 +1212,7 @@ function SettingsPage() {
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "general", label: "General" },
     { id: "recording", label: "Game recording" },
+    { id: "notifications", label: "Notifications" },
     { id: "shortcuts", label: "Shortcuts" },
     { id: "about", label: "About" },
   ];
@@ -1241,6 +1243,7 @@ function SettingsPage() {
       </div>
 
       {tab === "recording" ? <ReplayPanel /> : null}
+      {tab === "notifications" ? <NotificationsPanel onOpenRecording={() => setTab("recording")} /> : null}
       {tab === "shortcuts" ? <Shortcuts includeAll /> : null}
       {tab === "about" ? <Updater /> : null}
       {tab === "general" ? (

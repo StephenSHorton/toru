@@ -47,8 +47,9 @@ type Settings struct {
 	// replay's FPS/BitrateMbps.
 	RecordingFPS         int `json:"recordingFps"`
 	RecordingBitrateMbps int `json:"recordingBitrateMbps"`
-	// RecordingNotices toasts when a background/manual recording starts and
-	// stops and when a marker is added.
+	// RecordingNotices posts a notification when recording turns on
+	// (instant replay, or a background/hotkey recording starting), when a
+	// Game session is saved, and when a marker is added (notices.go).
 	RecordingNotices bool `json:"recordingNotices"`
 
 	DurationSec   int    `json:"durationSec"`   // clip length the hotkey saves (= the window kept)

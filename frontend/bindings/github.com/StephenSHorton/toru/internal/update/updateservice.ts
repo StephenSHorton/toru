@@ -21,7 +21,7 @@ import * as $models from "./models.js";
 /**
  * AutoUpdate runs on startup: it checks for a newer release and, if one exists,
  * downloads and verifies it in the background, then announces that it is ready
- * (toast + status event + tray item). It never installs or quits on its own —
+ * (status event, plus the tray item and notification the tray adds on ready). It never installs or quits on its own —
  * the user restarts when they like, or the installer runs when Toru quits.
  * 
  * It runs as a fire-and-forget goroutine on startup. All errors are logged and

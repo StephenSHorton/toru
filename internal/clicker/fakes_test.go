@@ -10,6 +10,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/clicker/overlay"
 	"github.com/StephenSHorton/toru/internal/clicker/safety"
 	"github.com/StephenSHorton/toru/internal/hotkey"
+	"github.com/StephenSHorton/toru/internal/toast"
 )
 
 // isolateConfig points os.UserConfigDir at a temp dir (APPDATA on Windows,
@@ -229,7 +230,7 @@ func newRig(t *testing.T) *rig {
 		indicatorShow:    func(text string) { r.mu.Lock(); r.pills = append(r.pills, text); r.mu.Unlock() },
 		indicatorHide:    func() {},
 		overlayShutdown:  func() {},
-		toast:            func(title, body string, _ bool) { r.mu.Lock(); r.toasts = append(r.toasts, body); r.mu.Unlock() },
+		toast:            func(n toast.Note) { r.mu.Lock(); r.toasts = append(r.toasts, n.Body); r.mu.Unlock() },
 		physicallyDown:   func(vk uint16) bool { return vk == escVK && r.esc.Load() },
 		triggerVKs:       func(hotkey.Binding) []uint16 { return []uint16{'Y'} },
 		setInjecting:     func(on bool) { r.mu.Lock(); r.injecting = append(r.injecting, on); r.mu.Unlock() },

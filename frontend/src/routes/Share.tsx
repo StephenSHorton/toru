@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Square } from "lucide-react";
 import { Window } from "@wailsio/runtime";
-import { OverlayService } from "@/lib/api";
+import { ExportService, OverlayService } from "@/lib/api";
 
 // The share card. Go opens it after the overlay hides, then this page reads
 // the link and QR code. Stop ends the stream; closing the window does too.
@@ -51,7 +51,7 @@ export default function Share() {
   const copy = useCallback(async () => {
     if (!info?.url) return;
     try {
-      await navigator.clipboard.writeText(info.url);
+      await ExportService.CopyTextAs(info.url, "Share link");
       setCopied(true);
     } catch {
       setCopied(false);

@@ -127,7 +127,7 @@ export default function SafetyCard({ settings, update }: CardProps) {
             aria-label="Show indicator"
           />
         </SwitchRow>
-        <SwitchRow label="Notify on stop" caption="A toast with the reason when a failsafe stops a run.">
+        <SwitchRow label="Notify on stop" caption="A notification when a failsafe or limit stops a run, or Windows blocks clicks.">
           <Switch
             checked={settings.toastOnStop}
             onCheckedChange={(on) => setTop("toastOnStop", on)}

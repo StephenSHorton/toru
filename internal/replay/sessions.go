@@ -330,10 +330,11 @@ func (s *ReplayService) pauseRecorder() {
 }
 
 // resumeRecorder restarts the buffer if the settings and recorder state still
-// call for one; reconcile is the single source of truth for that. A start
-// failure surfaces in GetStatus().Error like any other.
+// call for one; reconcile is the single source of truth for that, run without
+// its notice since recording only paused. A start failure surfaces in
+// GetStatus().Error like any other.
 func (s *ReplayService) resumeRecorder() {
-	if err := s.reconcile(); err != nil {
+	if _, _, err := s.apply(); err != nil {
 		log.Printf("replay: resume recording after delete: %v", err)
 	}
 	emit(EventRecordings, nil)

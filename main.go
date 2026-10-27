@@ -27,6 +27,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/replay"
 	"github.com/StephenSHorton/toru/internal/share"
 	"github.com/StephenSHorton/toru/internal/shot"
+	"github.com/StephenSHorton/toru/internal/toast"
 	"github.com/StephenSHorton/toru/internal/transfer"
 	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/StephenSHorton/toru/internal/upload"
@@ -133,9 +134,14 @@ func main() {
 	overlaySvc.SetHistory(hist)
 	histSvc := history.NewService(hist)
 
-	// App-level preferences (currently just "launch at Windows login"). Backed by
-	// Wails' AutostartManager; app is injected after application.New below.
+	// App-level preferences ("launch at Windows login", notifications). Launch
+	// at login is backed by Wails' AutostartManager; app is injected after
+	// application.New below.
 	settingsSvc := &SettingsService{}
+	// Apply the saved notification settings (on/off, sound, volume, corner)
+	// before anything can post: the updater and the login-time recording
+	// notice both run right after startup.
+	toast.SetOptions(loadNotifications())
 
 	// Send Files: send/receive files peer-to-peer with a short code (magic-wormhole,
 	// in-process). The app is injected after application.New like the others.
@@ -331,6 +337,13 @@ func main() {
 		keys.SetActive("timelineMarker", st.Enabled && st.Mode != replay.ModeReplay)
 	}
 	armRecordingKeys(replaySvc.GetSettings())
+	// Recording notices name the live hotkeys ("Press Ctrl+F11 again to stop").
+	replaySvc.SetHotkeyLabel(func(action string) string {
+		if b, ok := keys.Binding(action); ok && b.Key != 0 {
+			return comboLabel(b)
+		}
+		return ""
+	})
 	replaySvc.SetOnChange(func(st replay.Settings) {
 		armRecordingKeys(st)
 		tray.rebuildMenu()
@@ -420,7 +433,9 @@ func main() {
 		go updateSvc.AutoUpdate()
 
 		// Start the instant-replay buffer if the user enabled it. Off the main
-		// thread: the hardware-encoder probe takes about a second.
+		// thread: the hardware-encoder probe takes about a second. When game
+		// recording is on, Init posts a notice saying so, which is how a silent
+		// login launch tells the user Toru is recording.
 		go replaySvc.Init()
 
 		// Auto clicker: load settings, arm its hotkeys.

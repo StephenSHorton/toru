@@ -231,7 +231,7 @@ type Settings struct {
 	StopOnTaskSwitcher bool       `json:"stopOnTaskSwitcher"` // Alt+Tab / Win+Tab stops a run
 	ShowSafetyOverlay  bool       `json:"showSafetyOverlay"`  // flash the failsafe areas when they change
 	ShowIndicator      bool       `json:"showIndicator"`      // small "Clicking" pill while running
-	ToastOnStop        bool       `json:"toastOnStop"`        // toast with the reason when a failsafe stops a run
+	ToastOnStop        bool       `json:"toastOnStop"`        // card with the reason when a failsafe, limit or error stops a run, or Windows blocks clicks
 	StartDelayMs       int        `json:"startDelayMs"`       // countdown for the page's Start button, 0..10_000
 	HighRate           bool       `json:"highRate"`           // allow up to 1000 clicks/s instead of 500
 	NewPointClicks     int        `json:"newPointClicks"`     // defaults for picked points

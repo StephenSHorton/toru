@@ -10,6 +10,7 @@ import (
 
 	"github.com/StephenSHorton/toru/internal/clicker/safety"
 	"github.com/StephenSHorton/toru/internal/hotkey"
+	"github.com/StephenSHorton/toru/internal/toast"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -259,7 +260,7 @@ func (s *ClickerService) TrayToggle() {
 func (s *ClickerService) notifyStartError(err error) {
 	log.Printf("clicker: start: %v", err)
 	if s.d.toast != nil {
-		s.d.toast("Auto clicker didn't start", userMessage(err), false)
+		s.d.toast(toast.Note{ID: noteID, Title: "Auto clicker didn't start", Body: userMessage(err), Kind: toast.Error})
 	}
 }
 

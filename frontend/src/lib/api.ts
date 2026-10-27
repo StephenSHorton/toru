@@ -24,6 +24,8 @@
 //   VideoService.Trim(req: TrimRequest): Promise<string>  (returns outPath)
 //   SettingsService.GetLaunchAtLogin(): Promise<boolean>
 //   SettingsService.SetLaunchAtLogin(enabled: boolean): Promise<void>  (registry Run key; --startup => silent-to-tray)
+//   SettingsService.GetNotifications / SetNotifications(o) -> NotificationOptions  (enabled, sound, volume 0..1, corner)
+//   SettingsService.TestNotification / PreviewNotificationSound(): Promise<void>
 //   HistoryService.Add(srcPath, kind): Promise<Item>  (archive file into library)
 //   HistoryService.Delete(id): Promise<void>  (one item + file; Library bulk-delete loops this)
 //   HistoryService.GetDir / SetDir / PickDir / ResetDir / IsDefaultDir
@@ -61,6 +63,7 @@ import {
   ReplayStatus,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
 import * as SettingsService from "../../bindings/github.com/StephenSHorton/toru/settingsservice.js";
+import { Options as NotificationOptions } from "../../bindings/github.com/StephenSHorton/toru/internal/toast/models.js";
 import * as HistoryService from "../../bindings/github.com/StephenSHorton/toru/internal/history/historyservice.js";
 import {
   Item as CaptureItem,
@@ -113,6 +116,7 @@ export {
   AudioConfig,
   AudioSession,
   SettingsService,
+  NotificationOptions,
   HistoryService,
   LibraryRetention,
   ReplayService,

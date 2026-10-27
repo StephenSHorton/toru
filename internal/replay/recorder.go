@@ -100,19 +100,13 @@ func (s *ReplayService) ToggleRecording() (bool, error) {
 	s.manualOn = !s.manualOn
 	on := s.manualOn
 	s.mu.Unlock()
+	// reconcile posts the started / Game session saved notice.
 	err := s.reconcile()
 	if err != nil {
 		s.mu.Lock()
 		s.manualOn = false
 		s.mu.Unlock()
 		return false, err
-	}
-	if st.RecordingNotices {
-		if on {
-			showToast("Recording", "Press the record hotkey again to stop", true)
-		} else {
-			showToast("Recording saved", "Open it from the Library's Recordings tab", true)
-		}
 	}
 	emit(EventRecordings, nil)
 	return on, nil
@@ -126,7 +120,7 @@ func (s *ReplayService) AddMarker() error {
 	}
 	s.addMarker(MarkerUser, "")
 	if s.GetSettings().RecordingNotices {
-		showToast("Marker added", "Find it on the recording's timeline", true)
+		markerNotice()
 	}
 	return nil
 }
@@ -243,10 +237,7 @@ func (s *ReplayService) watchGames(stop chan struct{}) {
 			}
 			s.game, s.gamePID = "", 0
 			s.mu.Unlock()
-			_ = s.reconcile()
-			if s.GetSettings().RecordingNotices {
-				showToast("Recording saved", game+" closed · it's in the Library's Recordings tab", true)
-			}
+			_ = s.reconcile() // posts "Game session saved"
 			emit(EventRecordings, nil)
 			continue
 		}
@@ -266,9 +257,7 @@ func (s *ReplayService) watchGames(stop chan struct{}) {
 		}
 		s.game, s.gamePID = g, app.PID
 		s.mu.Unlock()
-		if err := s.reconcile(); err == nil && s.GetSettings().RecordingNotices {
-			showToast("Recording in the background", g, true)
-		}
+		_ = s.reconcile() // posts "Recording <game>"
 		emit(EventRecordings, nil)
 	}
 }

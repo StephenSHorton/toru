@@ -447,8 +447,9 @@ export class Settings {
     "recordingBitrateMbps": number;
 
     /**
-     * RecordingNotices toasts when a background/manual recording starts and
-     * stops and when a marker is added.
+     * RecordingNotices posts a notification when recording turns on
+     * (instant replay, or a background/hotkey recording starting), when a
+     * Game session is saved, and when a marker is added (notices.go).
      */
     "recordingNotices": boolean;
 

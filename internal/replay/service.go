@@ -43,6 +43,8 @@ type ReplayService struct {
 	clipOpener func(path, servedURL string)
 	// sessionOpener shows a recording in the timeline viewer.
 	sessionOpener func(id int)
+	// hotkeyLabel names a hotkey in notices (see SetHotkeyLabel).
+	hotkeyLabel func(action string) string
 
 	saving atomic.Bool
 
@@ -87,7 +89,7 @@ func (s *ReplayService) Init() {
 	// No FFmpeg (the installer doesn't ship it): fetch it once in the
 	// background; recording starts when it lands.
 	s.DownloadFFmpeg()
-	_ = s.reconcile()
+	s.startupNotice(s.reconcile())
 	s.notify(s.GetSettings())
 }
 
@@ -131,7 +133,16 @@ func (s *ReplayService) SetSettings(next Settings) (capture.ReplayStatus, error)
 // reconcile starts, restarts or stops the buffer to match the settings and
 // recorder state, and runs the game watcher when background recording
 // follows games. Restarts only happen when the capture config changed.
+// Recording turning on or off posts its notice (announce).
 func (s *ReplayService) reconcile() error {
+	from, to, err := s.apply()
+	s.announce(from, to)
+	return err
+}
+
+// apply is reconcile without the notice. It returns the config the buffer
+// ran with before and runs with now (zero = stopped).
+func (s *ReplayService) apply() (from, to capture.ReplayConfig, err error) {
 	st := s.GetSettings()
 	if st.Enabled && st.Mode == ModeBackground && st.GamesOnly {
 		s.startGameWatch()
@@ -148,10 +159,11 @@ func (s *ReplayService) reconcile() error {
 		(st.Mode == ModeBackground && (!st.GamesOnly || game != "")) ||
 		(st.Mode == ModeManual && manual))
 	cfg := toConfigFor(st, game)
-	same := cfg == s.runningCfg
+	from = s.runningCfg
+	same := cfg == from
 	// A new storage or footage limit applies to the running recorder without
 	// a restart.
-	limitsOnly := !same && cfg.Persist && withoutLimits(cfg) == withoutLimits(s.runningCfg)
+	limitsOnly := !same && cfg.Persist && withoutLimits(cfg) == withoutLimits(from)
 	s.mu.Unlock()
 
 	if !want {
@@ -159,10 +171,10 @@ func (s *ReplayService) reconcile() error {
 		s.mu.Lock()
 		s.runningCfg = capture.ReplayConfig{}
 		s.mu.Unlock()
-		return nil
+		return from, capture.ReplayConfig{}, nil
 	}
 	if same && s.buf.Running() {
-		return nil
+		return from, from, nil
 	}
 	if limitsOnly && s.buf.Running() {
 		s.buf.SetMaxBytes(cfg.MaxBytes)
@@ -170,19 +182,21 @@ func (s *ReplayService) reconcile() error {
 		s.mu.Lock()
 		s.runningCfg = cfg
 		s.mu.Unlock()
-		return nil
+		// Only limits moved: the same recording goes on, so no notice.
+		return cfg, cfg, nil
 	}
 	if cfg.Dir == "" {
-		return fmt.Errorf("replay: no storage directory")
+		return from, from, fmt.Errorf("replay: no storage directory")
 	}
-	err := s.buf.Start(cfg)
+	err = s.buf.Start(cfg)
 	s.mu.Lock()
 	s.runningCfg = cfg
 	if err != nil {
 		s.runningCfg = capture.ReplayConfig{}
 	}
+	to = s.runningCfg
 	s.mu.Unlock()
-	return err
+	return from, to, err
 }
 
 func (s *ReplayService) notify(st Settings) {
@@ -339,18 +353,14 @@ func (s *ReplayService) SaveReplay() (string, error) {
 		what = game + " · " + what
 	}
 	if st.ToastOnSave {
-		showToast("Saving clip…", what, true)
+		savingToast(what)
 	}
 	path, err := s.save(st, game)
 	if st.SoundOnSave {
 		playSaveSound(err == nil)
 	}
 	if st.ToastOnSave {
-		if err != nil {
-			showToast("Couldn't save clip", err.Error(), false)
-		} else {
-			showToast("Clip saved", what, true)
-		}
+		savedToast(what, err)
 	}
 	if err != nil {
 		emit(EventError, err.Error())

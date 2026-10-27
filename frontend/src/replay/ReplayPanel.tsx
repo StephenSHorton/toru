@@ -812,13 +812,6 @@ export function ReplayPanel() {
             onReset={settings.recordingsDir ? () => void ReplayService.ResetRecordingsDir().then(refreshRecorder) : undefined}
             onOpen={() => void ReplayService.OpenRecordingsDir()}
           />
-          <ToggleRow
-            label="Notify when recording starts and stops"
-            info="A small corner message that never takes focus from your game."
-            checked={settings.recordingNotices}
-            disabled={busy}
-            onChange={(v) => void update({ recordingNotices: v })}
-          />
         </Collapsible>
       )}
 
@@ -1120,13 +1113,14 @@ export function ReplayPanel() {
         />
         <ToggleRow
           label="Play a sound when saved"
+          info="The notification sound, at the volume set in Settings → Notifications. It plays in exclusive-fullscreen games too."
           checked={settings.soundOnSave}
           disabled={busy}
           onChange={(v) => void update({ soundOnSave: v })}
         />
         <ToggleRow
           label="Show a message when saved"
-          info="A small note in the top-right corner that never takes focus from your game. Exclusive-fullscreen games hide it, so keep the sound on too."
+          info="A notification card that never takes focus from your game, in the corner set in Settings → Notifications. Exclusive-fullscreen games hide it, so keep the sound on too."
           checked={settings.toastOnSave}
           disabled={busy}
           onChange={(v) => void update({ toastOnSave: v })}

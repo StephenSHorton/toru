@@ -53,7 +53,14 @@ func runBeforeDialog() (restore func()) {
 // CopyImageFile publishes a PNG at path to the system clipboard. Package-level
 // so the overlay can auto-copy on capture without going through the Wails
 // binding (and without the overlay package depending on the Service type).
+// Posts the native copy notice either way.
 func CopyImageFile(path string) error {
+	err := copyImage(path)
+	notifyCopy(whatImage, "", err)
+	return err
+}
+
+func copyImage(path string) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("copy: source not found: %w", err)
 	}
@@ -67,27 +74,59 @@ func CopyImageFile(path string) error {
 //   - mediaType "video": publishes the file as a CF_HDROP file-drop reference so
 //     it pastes into Explorer / Discord / Slack / Teams. (Windows has no
 //     universal "video bitstream on the clipboard" format; the file IS the payload.)
+//
+// Posts a native "Copied to clipboard" notice naming a "Screenshot" or the
+// video's file name; CopyToClipboardAs names it something else.
 func (s *ExportService) CopyToClipboard(path, mediaType string) error {
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("copy: source not found: %w", err)
-	}
+	return s.CopyToClipboardAs(path, mediaType, "")
+}
+
+// CopyToClipboardAs is CopyToClipboard with what naming the copy on its notice
+// (e.g. "Discord-sized copy"). Empty what uses the CopyToClipboard default.
+func (s *ExportService) CopyToClipboardAs(path, mediaType, what string) error {
+	var err error
 	switch mediaType {
 	case MediaImage:
-		return copyImageToClipboard(path)
+		if what == "" {
+			what = whatImage
+		}
+		err = copyImage(path)
+		notifyCopy(what, "", err)
 	case MediaVideo:
-		return copyFileToClipboard(path)
+		if what == "" {
+			what = whatVideo
+		}
+		if _, err = os.Stat(path); err != nil {
+			err = fmt.Errorf("copy: source not found: %w", err)
+		} else {
+			err = copyFileToClipboard(path)
+		}
+		notifyCopy(what, path, err)
 	default:
-		return fmt.Errorf("copy: unknown mediaType %q (want %q|%q)", mediaType, MediaImage, MediaVideo)
+		err = fmt.Errorf("copy: unknown mediaType %q (want %q|%q)", mediaType, MediaImage, MediaVideo)
 	}
+	return err
 }
 
 // CopyText puts text (e.g. a share link) on the clipboard. Done in Go:
-// the webview's clipboard API is unreliable in Wails windows.
+// the webview's clipboard API is unreliable in Wails windows. Posts a native
+// notice naming it a "Link"; CopyTextAs names it something else.
 func (s *ExportService) CopyText(text string) error {
+	return s.CopyTextAs(text, "")
+}
+
+// CopyTextAs is CopyText with what naming the copy on its notice (e.g.
+// "Share link", "Send code"). Empty what means "Link".
+func (s *ExportService) CopyTextAs(text, what string) error {
 	if text == "" {
 		return fmt.Errorf("copy: empty text")
 	}
-	return copyTextToClipboard(text)
+	if what == "" {
+		what = whatText
+	}
+	err := copyTextToClipboard(text)
+	notifyCopy(what, "", err)
+	return err
 }
 
 // SaveAs opens a native Save-As dialog seeded with suggestedName and copies

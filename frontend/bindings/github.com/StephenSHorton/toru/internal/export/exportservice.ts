@@ -12,10 +12,19 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 /**
  * CopyText puts text (e.g. a share link) on the clipboard. Done in Go:
- * the webview's clipboard API is unreliable in Wails windows.
+ * the webview's clipboard API is unreliable in Wails windows. Posts a native
+ * notice naming it a "Link"; CopyTextAs names it something else.
  */
 export function CopyText(text: string): $CancellablePromise<void> {
     return $Call.ByID(3825476505, text);
+}
+
+/**
+ * CopyTextAs is CopyText with what naming the copy on its notice (e.g.
+ * "Share link", "Send code"). Empty what means "Link".
+ */
+export function CopyTextAs(text: string, what: string): $CancellablePromise<void> {
+    return $Call.ByID(1232623777, text, what);
 }
 
 /**
@@ -26,9 +35,20 @@ export function CopyText(text: string): $CancellablePromise<void> {
  *   - mediaType "video": publishes the file as a CF_HDROP file-drop reference so
  *     it pastes into Explorer / Discord / Slack / Teams. (Windows has no
  *     universal "video bitstream on the clipboard" format; the file IS the payload.)
+ * 
+ * Posts a native "Copied to clipboard" notice naming a "Screenshot" or the
+ * video's file name; CopyToClipboardAs names it something else.
  */
 export function CopyToClipboard(path: string, mediaType: string): $CancellablePromise<void> {
     return $Call.ByID(10702351, path, mediaType);
+}
+
+/**
+ * CopyToClipboardAs is CopyToClipboard with what naming the copy on its notice
+ * (e.g. "Discord-sized copy"). Empty what uses the CopyToClipboard default.
+ */
+export function CopyToClipboardAs(path: string, mediaType: string, what: string): $CancellablePromise<void> {
+    return $Call.ByID(904408891, path, mediaType, what);
 }
 
 /**

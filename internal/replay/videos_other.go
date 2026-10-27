@@ -13,5 +13,3 @@ func videosDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "Videos")
 }
-
-func playSaveSound(bool) {}

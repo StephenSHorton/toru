@@ -19,8 +19,9 @@ import (
 //
 // JS binding name: TransferService.*
 type TransferService struct {
-	m   *Manager
-	app *application.App
+	m     *Manager
+	app   *application.App
+	notes *notifier
 }
 
 // NewService returns an idle service. SetApp must follow application.New.
@@ -33,16 +34,20 @@ func NewService() *TransferService {
 			log.Printf("transfer: removed %d stale scratch zip(s) from %%TEMP%%", n)
 		}
 	}()
-	return &TransferService{m: NewManager()}
+	return &TransferService{m: NewManager(), notes: newNotifier()}
 }
 
-// SetApp injects the running app and routes Manager events through it.
+// SetApp injects the running app and routes Manager events through it, and
+// through the notifier that posts a card when a transfer ends (notify.go).
 //
 //wails:ignore
 func (s *TransferService) SetApp(app *application.App) {
 	s.app = app
 	if app != nil {
-		s.m.SetEmitter(func(name string, data any) { app.Event.Emit(name, data) })
+		s.m.SetEmitter(func(name string, data any) {
+			app.Event.Emit(name, data)
+			s.notes.observe(name, data)
+		})
 	}
 }
 
