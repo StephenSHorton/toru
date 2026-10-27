@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	toast "github.com/StephenSHorton/go-toast"
 	"github.com/StephenSHorton/toru/internal/clicker/engine"
 	"github.com/StephenSHorton/toru/internal/hotkey"
-	"github.com/StephenSHorton/toru/internal/toast"
 )
 
 func TestToggleRunsAndStops(t *testing.T) {

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"sync"
 
+	toast "github.com/StephenSHorton/go-toast"
 	"github.com/StephenSHorton/toru/internal/clicker"
 	"github.com/StephenSHorton/toru/internal/history"
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/StephenSHorton/toru/internal/replay"
-	"github.com/StephenSHorton/toru/internal/toast"
 	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
