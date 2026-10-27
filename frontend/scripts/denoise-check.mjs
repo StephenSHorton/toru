@@ -111,12 +111,12 @@ function loadProcessor() {
     sampleRate: SR,
     currentTime: 0,
     console,
-    TextDecoder,
-    TextEncoder,
-    crypto: globalThis.crypto,
   };
   ctx.globalThis = ctx;
   vm.createContext(ctx);
+  // Like Chromium's worklet scope: no TextDecoder or crypto until the shim
+  // the call window loads first.
+  vm.runInContext(fs.readFileSync(path.join(here, "../src/stream/workletShim.js"), "utf8"), ctx);
   // Fail loudly instead of the worklet's silent pass-through on a bad init.
   const src = fs
     .readFileSync(path.join(pkg, "worklet.js"), "utf8")

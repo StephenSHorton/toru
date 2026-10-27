@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Events as WailsEvents, Window } from "@wailsio/runtime";
 import dfWasmUrl from "@lofcz/deepfilternet-web/df_bg.wasm?url";
 import dfWorkletUrl from "@lofcz/deepfilternet-web/worklet?url";
+import workletShimUrl from "@/stream/workletShim.js?url";
 import { StreamService, StreamState } from "@/lib/api";
 
 // Call — the hidden window that runs a voice call. It never renders anything:
@@ -220,7 +221,8 @@ class CallEngine {
             if (!r.ok) throw new Error(`denoiser model: HTTP ${r.status}`);
             return WebAssembly.compile(await r.arrayBuffer());
           }),
-          this.ctx.audioWorklet.addModule(dfWorkletUrl),
+          // The shim must run first: the worklet scope has no TextDecoder.
+          this.ctx.audioWorklet.addModule(workletShimUrl).then(() => this.ctx.audioWorklet.addModule(dfWorkletUrl)),
         ]);
         const node = new AudioWorkletNode(this.ctx, "deepfilternet-processor", {
           numberOfInputs: 1,
