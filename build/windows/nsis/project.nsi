@@ -31,6 +31,44 @@ Unicode true
 ## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
 ## !define WAILS_INSTALL_SCOPE     "user"             # Default "machine" - set to "user" for per-user install ($LOCALAPPDATA) without UAC prompt
 ####
+## Publisher and copyright: wails_tools.nsh still carries the Wails placeholders
+## ("© 2026, My Company"), so set the real ones here. They show in the
+## installer's file properties and in Apps & features.
+!ifndef INFO_COMPANYNAME
+    !define INFO_COMPANYNAME "Stephen Horton"
+!endif
+!ifndef INFO_COPYRIGHT
+    # ASCII only: this file has no BOM, so makensis reads it as ANSI and a
+    # UTF-8 "©" would come out as "Â©".
+    !define INFO_COPYRIGHT "Copyright (c) 2026 Stephen Horton. MIT License."
+!endif
+## The uninstall registry key was named from the old company name. Keep it, or
+## every existing install's next silent update would write a second Apps &
+## features entry and orphan the first.
+!ifndef UNINST_KEY_NAME
+    !define UNINST_KEY_NAME "StephenSHortonToru"
+!endif
+####
+## LAN payload (docs/lan.md, "Elevation, the service and installer changes").
+## toru-lan.exe, wintun.dll and Wintun's license are installed next to toru.exe
+## in the per-user folder. Nothing here registers the service: Toru runs
+## "toru-lan.exe install" with one UAC prompt the first time LAN is turned on,
+## and that copies the files to Program Files. The release passes
+## -DARG_TORU_LAN_BINARY=...\bin\toru-lan.exe; without it the installer is
+## built without LAN. The Wintun files and the notices default to the repo.
+!ifndef ARG_WINTUN_DLL
+    !define ARG_WINTUN_DLL "..\wintun\wintun.dll"
+!endif
+!ifndef ARG_WINTUN_LICENSE
+    !define ARG_WINTUN_LICENSE "..\wintun\LICENSE.txt"
+!endif
+!ifndef ARG_THIRD_PARTY_NOTICES
+    !define ARG_THIRD_PARTY_NOTICES "..\..\..\THIRD_PARTY_NOTICES"
+!endif
+!define TORU_LAN_EXE "toru-lan.exe"
+!define TORU_LAN_SERVICE "ToruLan" # internal/lan/api ServiceName
+!define TORU_LAN_SERVICE_KEY "SYSTEM\CurrentControlSet\Services\${TORU_LAN_SERVICE}"
+####
 ## Include the wails tools
 ####
 !include "wails_tools.nsh"
@@ -150,6 +188,21 @@ Section
 
     !insertmacro wails.files
 
+    File "/oname=THIRD_PARTY_NOTICES.txt" "${ARG_THIRD_PARTY_NOTICES}"
+
+    # LAN payload. The Program Files copy the service runs from is separate, so
+    # a silent update never touches a running service; Toru offers "Update LAN
+    # (needs admin)" when the two differ.
+    !ifdef ARG_TORU_LAN_BINARY
+        ${If} ${IsNativeAMD64}
+            File "/oname=${TORU_LAN_EXE}" "${ARG_TORU_LAN_BINARY}"
+            File "/oname=wintun.dll" "${ARG_WINTUN_DLL}"
+            File "/oname=wintun-LICENSE.txt" "${ARG_WINTUN_LICENSE}"
+        ${EndIf}
+    !else
+        !warning "ARG_TORU_LAN_BINARY not set: building the installer without LAN (toru-lan.exe, wintun.dll)"
+    !endif
+
     # Start-Menu shortcut is always (re)created; Desktop shortcut only on a fresh
     # install so updates don't keep resurrecting a shortcut the user removed.
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
@@ -182,8 +235,45 @@ Section
     ${EndIf}
 SectionEnd
 
-Section "uninstall" 
+Section "uninstall"
     !insertmacro wails.setShellContext
+
+    # LAN: the ToruLan service, its adapter, firewall rules and the Program
+    # Files copy are machine-wide, which this per-user uninstaller can't remove
+    # by itself. If the service exists, run "toru-lan.exe uninstall" elevated
+    # (one UAC prompt) before $INSTDIR, and the exe in it, are deleted. If the
+    # prompt is refused, everything else is still uninstalled and we say what
+    # was left behind. Users can read the Services key, so the check itself
+    # needs no elevation.
+    SetRegView 64
+    ClearErrors
+    ReadRegStr $0 HKLM "${TORU_LAN_SERVICE_KEY}" "ImagePath"
+    ${IfNot} ${Errors}
+        StrCpy $1 "$INSTDIR\${TORU_LAN_EXE}"
+        ${IfNot} ${FileExists} "$1"
+            StrCpy $1 "$PROGRAMFILES64\Toru\lan\${TORU_LAN_EXE}"
+        ${EndIf}
+        DetailPrint "Removing Toru LAN (needs administrator approval)..."
+        ClearErrors
+        ExecShellWait "runas" "$1" "uninstall" SW_HIDE
+        StrCpy $2 "refused" # ShellExecuteEx failed: UAC refused, or no exe
+        ${IfNot} ${Errors}
+            ClearErrors
+            ReadRegStr $0 HKLM "${TORU_LAN_SERVICE_KEY}" "ImagePath"
+            StrCpy $2 "ok"
+            ${IfNot} ${Errors}
+                StrCpy $2 "failed" # ran, but the service is still registered
+            ${EndIf}
+        ${EndIf}
+        ${If} $2 == "ok"
+            DetailPrint "Toru LAN removed."
+        ${Else}
+            DetailPrint "Toru LAN was not removed ($2)."
+            ${IfNot} ${Silent}
+                MessageBox MB_OK|MB_ICONEXCLAMATION "Toru LAN (the ToruLan service, the Toru LAN network adapter and its firewall rules) is still installed, because administrator approval was refused or the removal failed.$\r$\n$\r$\nTo remove it, run this as administrator:$\r$\n$\"$PROGRAMFILES64\Toru\lan\${TORU_LAN_EXE}$\" uninstall"
+            ${EndIf}
+        ${EndIf}
+    ${EndIf}
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 
