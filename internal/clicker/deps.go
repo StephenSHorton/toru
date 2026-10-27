@@ -52,7 +52,7 @@ type deps struct {
 
 	// hotkey hooks
 	physicallyDown func(vk uint16) bool
-	triggerVK      func(b hotkey.Binding) uint16
+	triggerVKs     func(b hotkey.Binding) []uint16
 	setInjecting   func(on bool)
 
 	// host
@@ -93,7 +93,7 @@ func realDeps() deps {
 		toast:            toast.Show,
 
 		physicallyDown: hotkey.PhysicallyDown,
-		triggerVK:      hotkey.TriggerVK,
+		triggerVKs:     hotkey.TriggerVKs,
 		setInjecting:   hotkey.SetInjecting,
 
 		now: time.Now,

@@ -100,6 +100,17 @@ export function ListProcesses(): $CancellablePromise<$models.ProcessInfo[]> {
 }
 
 /**
+ * PointWarnings returns the indexes of click points that sit inside an active
+ * corner or edge failsafe on the current displays: a run would stop as soon
+ * as the cursor reached them. Empty when none do (or the displays are unknown).
+ */
+export function PointWarnings(): $CancellablePromise<number[]> {
+    return $Call.ByID(1622945698).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
  * PreviewSafety flashes the failsafe areas on screen for a few seconds (even
  * with ShowSafetyOverlay off: the user asked for it).
  */
@@ -130,7 +141,7 @@ export function ResetSettings(): $CancellablePromise<$models.Settings> {
  */
 export function ResetStats(): $CancellablePromise<$models.Stats> {
     return $Call.ByID(2707815657).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -157,7 +168,7 @@ export function SetArmed(armed: boolean): $CancellablePromise<$models.Settings> 
  */
 export function SetPaused(paused: boolean): $CancellablePromise<$models.Status> {
     return $Call.ByID(4033256919, paused).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -179,7 +190,7 @@ export function SetSettings(next: $models.Settings): $CancellablePromise<$models
  */
 export function Start(): $CancellablePromise<$models.Status> {
     return $Call.ByID(4115523897).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -205,7 +216,7 @@ export function StartZonePick(zoneID: string): $CancellablePromise<void> {
  */
 export function Stats(): $CancellablePromise<$models.Stats> {
     return $Call.ByID(3997786374).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -214,7 +225,7 @@ export function Stats(): $CancellablePromise<$models.Stats> {
  */
 export function Status(): $CancellablePromise<$models.Status> {
     return $Call.ByID(2726887821).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -223,7 +234,7 @@ export function Status(): $CancellablePromise<$models.Status> {
  */
 export function Stop(): $CancellablePromise<$models.Status> {
     return $Call.ByID(166345619).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -232,7 +243,7 @@ export function Stop(): $CancellablePromise<$models.Status> {
  */
 export function Toggle(): $CancellablePromise<$models.Status> {
     return $Call.ByID(143354815).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -250,5 +261,6 @@ const $$createType0 = $models.Settings.createFrom;
 const $$createType1 = $models.Point.createFrom;
 const $$createType2 = $models.ProcessInfo.createFrom;
 const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = $models.Stats.createFrom;
-const $$createType5 = $models.Status.createFrom;
+const $$createType4 = $Create.Array($Create.Any);
+const $$createType5 = $models.Stats.createFrom;
+const $$createType6 = $models.Status.createFrom;

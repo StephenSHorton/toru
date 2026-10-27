@@ -226,6 +226,9 @@ func main() {
 	// Recording a shortcut stops the clicker first, so its input can't land in
 	// the recorder.
 	hotkeySvc.SetOnRecordStart(func() { clickerSvc.StopFor(clicker.StopKeyCapture) })
+	// A rebound shortcut refreshes the clicker's status (its hotkey caption
+	// and the running pill) and the tray menu labels.
+	hotkeySvc.SetOnBindingChange(func(string) { clickerSvc.BindingsChanged() })
 	// Suspend alt-tab-cancels while a native Save dialog is up (dialog steals
 	// focus but the user is still mid-edit).
 	exportSvc.SetBeforeDialog(func() (restore func()) {

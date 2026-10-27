@@ -2,6 +2,7 @@ package clicker
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -268,8 +269,8 @@ func TestHotkeyHoldModePassesTriggerVK(t *testing.T) {
 	r.settings(func(s *Settings) { s.HotkeyMode = HotkeyHold })
 	r.s.HotkeyToggle()
 	r.waitFor("running", func() bool { return r.state() == StateRunning })
-	if vk := r.lastSafety().HoldTriggerVK; vk != 'Y' {
-		t.Fatalf("HoldTriggerVK = %d, want the trigger key", vk)
+	if vks := r.lastSafety().HoldTriggerVKs; len(vks) != 1 || vks[0] != 'Y' {
+		t.Fatalf("HoldTriggerVKs = %v, want the trigger key", vks)
 	}
 	r.guard.set(engine.Verdict{Kind: engine.Stop, Code: string(StopHoldRelease)})
 	r.waitFor("idle", func() bool { return r.state() == StateIdle })
@@ -291,7 +292,7 @@ func TestHotkeyHoldModeIgnoresRepeatPresses(t *testing.T) {
 	r.s.Stop()
 
 	// Without a trigger VK the release can't be seen: a press stops it.
-	r.s.d.triggerVK = func(hotkey.Binding) uint16 { return 0 }
+	r.s.d.triggerVKs = func(hotkey.Binding) []uint16 { return nil }
 	r.s.HotkeyToggle()
 	r.waitFor("running", func() bool { return r.state() == StateRunning })
 	r.s.HotkeyToggle()
@@ -304,8 +305,8 @@ func TestHotkeyToggleModeStartsAndStops(t *testing.T) {
 	r := newRig(t)
 	r.s.HotkeyToggle()
 	r.waitFor("running", func() bool { return r.state() == StateRunning })
-	if vk := r.lastSafety().HoldTriggerVK; vk != 0 {
-		t.Fatalf("toggle mode set HoldTriggerVK = %d", vk)
+	if vks := r.lastSafety().HoldTriggerVKs; len(vks) != 0 {
+		t.Fatalf("toggle mode set HoldTriggerVKs = %v", vks)
 	}
 	r.s.HotkeyToggle()
 	if st := r.s.Status(); st.State != StateIdle || st.StopCode != StopHotkey {
@@ -603,5 +604,137 @@ func TestPresetsLockedWhileRunning(t *testing.T) {
 		if err := fn(); err == nil || !strings.Contains(err.Error(), ErrPresetLocked) {
 			t.Errorf("%s while running: %v", name, err)
 		}
+	}
+}
+
+// begin unlocks s.mu while it checks conflicts; anything that blocks a start
+// and lands in that gap must still stop it.
+func TestBeginRechecksGatesAfterUnlock(t *testing.T) {
+	cases := []struct {
+		name  string
+		flip  func(s *ClickerService)
+		reset func(s *ClickerService)
+		code  string
+	}{
+		{"closed", func(s *ClickerService) { s.closed = true }, func(s *ClickerService) { s.closed = false }, ErrAlreadyRunning},
+		{"disarmed", func(s *ClickerService) { s.settings.Armed = false }, func(s *ClickerService) { s.settings.Armed = true }, ErrDisarmed},
+		{"picking", func(s *ClickerService) { s.picking = true }, func(s *ClickerService) { s.picking = false }, ErrPickActive},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			// capsLock is read between begin's two locked sections.
+			r.s.d.capsLock = func() bool {
+				r.s.mu.Lock()
+				c.flip(r.s)
+				r.s.mu.Unlock()
+				return false
+			}
+			_, err := r.s.Toggle()
+			if err == nil || !strings.Contains(err.Error(), c.code) {
+				t.Fatalf("start = %v, want %s", err, c.code)
+			}
+			r.s.mu.Lock()
+			cur := r.s.cur
+			c.reset(r.s)
+			r.s.mu.Unlock()
+			if cur != nil {
+				t.Fatal("a run was installed after the gate closed")
+			}
+			time.Sleep(20 * time.Millisecond)
+			if n := r.runs.Load(); n != 0 {
+				t.Fatalf("engine ran %d times", n)
+			}
+		})
+	}
+}
+
+// The injecting flag must end false once every run has let go, however the
+// on/off calls of overlapping runs interleave.
+func TestInjectingLastAppliedMatchesRefcount(t *testing.T) {
+	r := newRig(t)
+	for range 50 {
+		r.mu.Lock()
+		r.injecting = nil
+		r.mu.Unlock()
+		var wg sync.WaitGroup
+		for range 4 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				r.s.injecting(true)
+				r.s.injecting(false)
+			}()
+		}
+		wg.Wait()
+		r.mu.Lock()
+		got := append([]bool(nil), r.injecting...)
+		r.mu.Unlock()
+		if len(got) != 8 || got[len(got)-1] {
+			t.Fatalf("applied %v, want 8 calls ending false", got)
+		}
+	}
+}
+
+// A publish that runs after the stop (a ticker that read the running status
+// just before it) must not bring back the running state or the pill.
+func TestPublishAfterStopStaysIdle(t *testing.T) {
+	r := newRig(t)
+	if _, err := r.s.Toggle(); err != nil {
+		t.Fatal(err)
+	}
+	r.waitFor("pill", func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return len(r.pills) > 0
+	})
+	r.s.Stop()
+	r.mu.Lock()
+	pills := len(r.pills)
+	r.mu.Unlock()
+	r.s.publish(false)
+	r.s.publish(true)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.pills) != pills {
+		t.Fatalf("pill re-shown after stop: %q", r.pills[pills:])
+	}
+	if st := r.statuses[len(r.statuses)-1]; st.State != StateIdle {
+		t.Fatalf("last emitted status = %+v", st)
+	}
+}
+
+func TestBindingsChangedRepublishesHotkeyLabel(t *testing.T) {
+	r := newRig(t)
+	r.keys.mu.Lock()
+	r.keys.bindings[actionToggle] = hotkey.Binding{Alt: true, Key: 'K'}
+	r.keys.mu.Unlock()
+	r.s.BindingsChanged()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if h := r.statuses[len(r.statuses)-1].Hotkey; h != "Alt + K" {
+		t.Fatalf("Hotkey = %q after rebinding", h)
+	}
+}
+
+func TestPointWarnings(t *testing.T) {
+	r := newRig(t) // fakeSystem: one 1920x1080 monitor at 0,0
+	r.settings(func(s *Settings) {
+		s.Profile.Corners = Corners{Enabled: true, TL: 50, TR: 50, BL: 50, BR: 50}
+		s.Profile.Edges = Edges{Enabled: true, Right: 30}
+		s.Profile.ClickPoints.Points = []ClickPoint{
+			{ID: "a", X: 20, Y: 20, Clicks: 1},     // top-left corner
+			{ID: "b", X: 900, Y: 500, Clicks: 1},   // clear
+			{ID: "c", X: 1900, Y: 540, Clicks: 1},  // right edge
+			{ID: "d", X: 1000, Y: 1060, Clicks: 1}, // bottom edge is 0: clear
+		}
+	})
+	got := r.s.PointWarnings()
+	if len(got) != 2 || got[0] != 0 || got[1] != 2 {
+		t.Fatalf("PointWarnings = %v, want [0 2]", got)
+	}
+	r.settings(func(s *Settings) { s.Profile.Corners.Enabled = false; s.Profile.Edges.Enabled = false })
+	if got := r.s.PointWarnings(); got == nil || len(got) != 0 {
+		t.Fatalf("failsafes off: PointWarnings = %#v, want empty", got)
 	}
 }

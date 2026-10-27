@@ -36,6 +36,7 @@ type ClickerService struct {
 	last         Status // the last run's totals and stop reason
 	lastEmit     time.Time
 	lastPill     string
+	pubMu        sync.Mutex // serializes publish (controller.go); taken before mu
 	injectRefs   int
 
 	// pickers (picks.go)
@@ -184,7 +185,7 @@ func (s *ClickerService) HotkeyToggle() {
 	active, picking, armed, mode := s.cur != nil, s.picking, s.settings.Armed, s.settings.HotkeyMode
 	// A hold-mode run whose trigger key the guard watches is stopped by the
 	// release; more press edges (key auto-repeat while held) must not stop it.
-	guardOwnsStop := active && s.cur.safe.HoldTriggerVK != 0
+	guardOwnsStop := active && len(s.cur.safe.HoldTriggerVKs) > 0
 	keys := s.keys
 	s.mu.Unlock()
 	if picking || !armed {
@@ -196,13 +197,13 @@ func (s *ClickerService) HotkeyToggle() {
 		}
 		return
 	}
-	var holdVK uint16
-	if mode == HotkeyHold && keys != nil && s.d.triggerVK != nil {
+	var holdVKs []uint16
+	if mode == HotkeyHold && keys != nil && s.d.triggerVKs != nil {
 		if b, ok := keys.Binding(actionToggle); ok {
-			holdVK = s.d.triggerVK(b)
+			holdVKs = s.d.triggerVKs(b)
 		}
 	}
-	if _, err := s.begin(srcHotkey, holdVK, -1); err != nil {
+	if _, err := s.begin(srcHotkey, holdVKs, -1); err != nil {
 		s.notifyStartError(err)
 	}
 }
@@ -217,6 +218,15 @@ func (s *ClickerService) HotkeyArm() {
 	if _, err := s.SetArmed(!armed); err != nil {
 		log.Printf("clicker: arm hotkey: %v", err)
 	}
+}
+
+// BindingsChanged republishes the status (its Hotkey label and the running
+// pill) and rebuilds the tray after a shortcut was rebound.
+//
+//wails:ignore
+func (s *ClickerService) BindingsChanged() {
+	s.publish(true)
+	s.changed()
 }
 
 // StopFor stops a run (or countdown) for a host reason such as the capture
@@ -238,7 +248,7 @@ func (s *ClickerService) TrayToggle() {
 		s.stopRun(0, StopTray)
 		return
 	}
-	if _, err := s.begin(srcTray, 0, -1); err != nil {
+	if _, err := s.begin(srcTray, nil, -1); err != nil {
 		s.notifyStartError(err)
 	}
 }
@@ -289,7 +299,7 @@ func (s *ClickerService) SetSettings(next Settings) (Settings, error) {
 			s.stopRun(0, StopDisarmed)
 		}
 		s.applyArmed(next.Armed)
-		s.publish(s.Status(), true)
+		s.publish(true)
 		s.changed()
 	}
 	s.syncMonitor()
@@ -323,6 +333,27 @@ func (s *ClickerService) PreviewSafety() {
 	if s.d.showSafety != nil {
 		s.d.showSafety(safetyScene(set, s.monitors()), false)
 	}
+}
+
+// PointWarnings returns the indexes of click points that sit inside an active
+// corner or edge failsafe on the current displays: a run would stop as soon
+// as the cursor reached them. Empty when none do (or the displays are unknown).
+func (s *ClickerService) PointWarnings() []int {
+	s.mu.Lock()
+	set := s.settings
+	s.mu.Unlock()
+	out := []int{}
+	safe := buildSafetyConfig(set, nil, -1)
+	if !safe.Corners.Enabled && !safe.Edges.Enabled {
+		return out
+	}
+	mons := s.monitors()
+	for i, pt := range set.Profile.ClickPoints.Points {
+		if safety.PointInFailsafe(safe.Corners, safe.Edges, mons, pt.X, pt.Y) {
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 // monitors returns the display rects (nil when unknown).
@@ -374,7 +405,7 @@ func (s *ClickerService) Status() Status {
 // Start starts a run from the page, after StartDelayMs of countdown (Esc or
 // Stop cancels it), so the run does not click the Start button itself.
 func (s *ClickerService) Start() (Status, error) {
-	return s.begin(srcPage, 0, -1)
+	return s.begin(srcPage, nil, -1)
 }
 
 // Stop stops a run or cancels a countdown.
@@ -390,7 +421,7 @@ func (s *ClickerService) Toggle() (Status, error) {
 	if active {
 		return s.stopAndWait(StopUser, shutdownWait), nil
 	}
-	return s.begin(srcToggle, 0, -1)
+	return s.begin(srcToggle, nil, -1)
 }
 
 // SetPaused pauses or resumes a running clicker.
@@ -402,8 +433,10 @@ func (s *ClickerService) SetPaused(paused bool) Status {
 func (s *ClickerService) SetArmed(armed bool) (Settings, error) {
 	s.mu.Lock()
 	changed := s.settings.Armed != armed
+	// Store the flag before stopping, so a start racing the disarm sees it
+	// (begin rechecks Armed under the lock) instead of slipping in between.
+	s.settings.Armed = armed
 	next := s.settings
-	next.Armed = armed
 	s.mu.Unlock()
 	if !changed {
 		return next, nil
@@ -414,7 +447,7 @@ func (s *ClickerService) SetArmed(armed bool) (Settings, error) {
 	err := s.commitFromGo(next)
 	s.applyArmed(armed)
 	s.syncMonitor()
-	s.publish(s.Status(), true)
+	s.publish(true)
 	s.changed()
 	return next, err
 }

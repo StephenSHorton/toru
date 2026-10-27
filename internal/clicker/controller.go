@@ -90,28 +90,29 @@ func (r *run) elapsed(now time.Time) time.Duration {
 	return max(d, 0)
 }
 
+// startBlockedLocked is why a run can't start now (nil = it can). Caller
+// holds s.mu.
+func (s *ClickerService) startBlockedLocked() error {
+	switch {
+	case s.closed:
+		return clickerErr(ErrAlreadyRunning, "Toru is shutting down")
+	case s.cur != nil:
+		return clickerErr(ErrAlreadyRunning, "The clicker is already running")
+	case s.picking:
+		return clickerErr(ErrPickActive, "Finish picking on screen first")
+	case !s.settings.Armed:
+		return clickerErr(ErrDisarmed, "The clicker is disarmed; arm it to start")
+	}
+	return nil
+}
+
 // begin validates and starts a run. Caller must not hold s.mu.
-func (s *ClickerService) begin(src runSource, holdVK uint16, startZone int) (Status, error) {
+func (s *ClickerService) begin(src runSource, holdVKs []uint16, startZone int) (Status, error) {
 	s.mu.Lock()
-	if s.closed {
+	if err := s.startBlockedLocked(); err != nil {
 		st := s.statusLocked()
 		s.mu.Unlock()
-		return st, clickerErr(ErrAlreadyRunning, "Toru is shutting down")
-	}
-	if s.cur != nil {
-		st := s.statusLocked()
-		s.mu.Unlock()
-		return st, clickerErr(ErrAlreadyRunning, "The clicker is already running")
-	}
-	if s.picking {
-		st := s.statusLocked()
-		s.mu.Unlock()
-		return st, clickerErr(ErrPickActive, "Finish picking on screen first")
-	}
-	if !s.settings.Armed {
-		st := s.statusLocked()
-		s.mu.Unlock()
-		return st, clickerErr(ErrDisarmed, "The clicker is disarmed; arm it to start")
+		return st, err
 	}
 	set := s.settings
 	keys := s.keys
@@ -126,11 +127,14 @@ func (s *ClickerService) begin(src runSource, holdVK uint16, startZone int) (Sta
 		return s.Status(), err
 	}
 
+	// Everything checked above may have changed while unlocked: another start,
+	// Shutdown, a disarm or a pick. runs.Add happens under the same lock as
+	// the closed check, so Shutdown's runs.Wait always counts this run.
 	s.mu.Lock()
-	if s.cur != nil { // lost a race with another start
+	if err := s.startBlockedLocked(); err != nil {
 		st := s.statusLocked()
 		s.mu.Unlock()
-		return st, clickerErr(ErrAlreadyRunning, "The clicker is already running")
+		return st, err
 	}
 	s.gen++
 	r := &run{
@@ -138,7 +142,7 @@ func (s *ClickerService) begin(src runSource, holdVK uint16, startZone int) (Sta
 		source:    src,
 		startZone: startZone,
 		cfg:       cfg,
-		safe:      buildSafetyConfig(set, holdVK, startZone),
+		safe:      buildSafetyConfig(set, holdVKs, startZone),
 		toastOn:   set.ToastOnStop,
 		done:      make(chan struct{}),
 		cancel:    make(chan struct{}),
@@ -158,9 +162,9 @@ func (s *ClickerService) begin(src runSource, holdVK uint16, startZone int) (Sta
 		r.startedAt = s.d.now()
 	}
 	st := s.statusLocked()
+	s.runs.Add(1)
 	s.mu.Unlock()
 
-	s.runs.Add(1)
 	go func() {
 		defer s.runs.Done()
 		if delay > 0 {
@@ -169,7 +173,7 @@ func (s *ClickerService) begin(src runSource, holdVK uint16, startZone int) (Sta
 			s.execute(r)
 		}
 	}()
-	s.publish(st, true)
+	s.publish(true)
 	s.changed()
 	go s.ticker(r)
 	return st, nil
@@ -201,9 +205,8 @@ func (s *ClickerService) countdown(r *run) {
 		}
 		s.state = StateRunning
 		r.startedAt = s.d.now()
-		st := s.statusLocked()
 		s.mu.Unlock()
-		s.publish(st, true)
+		s.publish(true)
 		s.changed()
 		s.execute(r)
 		return
@@ -278,18 +281,19 @@ func (s *ClickerService) drive(r *run) engine.Verdict {
 }
 
 // injecting reference-counts hotkey.SetInjecting so a stale run winding down
-// cannot clear the flag under a newer one.
+// cannot clear the flag under a newer one. The flag is applied under s.mu so
+// the last count computed is the last one applied (hotkey.SetInjecting only
+// stores atomics and posts a message to the hook thread; it never calls back).
 func (s *ClickerService) injecting(on bool) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if on {
 		s.injectRefs++
 	} else if s.injectRefs > 0 {
 		s.injectRefs--
 	}
-	flag := s.injectRefs > 0
-	s.mu.Unlock()
 	if s.d.setInjecting != nil {
-		s.d.setInjecting(flag)
+		s.d.setInjecting(s.injectRefs > 0)
 	}
 }
 
@@ -307,7 +311,6 @@ func (s *ClickerService) finish(r *run, v engine.Verdict) {
 	}
 	stats := s.stats
 	current := s.cur == r
-	var st Status
 	code, reason := StopCode(v.Code), v.Reason
 	if r.stopReq != "" && (v.Code == engine.CodeInterrupted || v.Code == "") {
 		code, reason = r.stopReq, ""
@@ -322,7 +325,6 @@ func (s *ClickerService) finish(r *run, v engine.Verdict) {
 		s.cur = nil
 		s.state = StateIdle
 		s.last = Status{Clicks: clicks, ElapsedMs: int64(secs * 1000), StopCode: code, StopReason: reason}
-		st = s.statusLocked()
 	}
 	s.mu.Unlock()
 
@@ -335,7 +337,7 @@ func (s *ClickerService) finish(r *run, v engine.Verdict) {
 	if code == StopError {
 		log.Printf("clicker: run ended with an error: %s", reason)
 	}
-	s.publish(st, true)
+	s.publish(true)
 	s.changed()
 	if r.toastOn && toastWorthy(code) && s.d.toast != nil {
 		s.d.toast("Auto clicker stopped", reason, code == StopClickLimit || code == StopTimeLimit || code == StopPointsDone)
@@ -366,7 +368,7 @@ func (s *ClickerService) stopRun(gen uint64, code StopCode) (Status, *run) {
 	s.last = Status{Clicks: clicks, ElapsedMs: r.elapsed(now).Milliseconds(), StopCode: code, StopReason: stopText(code, r)}
 	st := s.statusLocked()
 	s.mu.Unlock()
-	s.publish(st, true)
+	s.publish(true)
 	s.changed()
 	return st, r
 }
@@ -410,7 +412,7 @@ func (s *ClickerService) setPaused(paused bool) Status {
 	s.pauseClockLocked(r, now)
 	st := s.statusLocked()
 	s.mu.Unlock()
-	s.publish(st, true)
+	s.publish(true)
 	s.changed()
 	return st
 }
@@ -446,13 +448,12 @@ func (s *ClickerService) ticker(r *run) {
 		case <-t.C:
 		}
 		s.mu.Lock()
-		if s.cur != r {
-			s.mu.Unlock()
+		current := s.cur == r
+		s.mu.Unlock()
+		if !current {
 			return
 		}
-		st := s.statusLocked()
-		s.mu.Unlock()
-		s.publish(st, false)
+		s.publish(false)
 	}
 }
 
@@ -495,14 +496,23 @@ func (s *ClickerService) statusLocked() Status {
 	return st
 }
 
-// publish emits the status (forced, or at most every statusInterval) and keeps
-// the indicator pill in step.
-func (s *ClickerService) publish(st Status, force bool) {
+// publish emits the live status (forced, or at most every statusInterval) and
+// keeps the indicator pill in step. It returns the status it took.
+//
+// Publishes are serialized by pubMu and each one snapshots the status under
+// s.mu while holding it, so emits and pill updates land in the order the
+// snapshots were taken: a ticker publish racing a stop can't re-show the
+// pill or a running state after the stop's idle publish. Lock order is
+// pubMu, then s.mu; callers must hold neither.
+func (s *ClickerService) publish(force bool) Status {
+	s.pubMu.Lock()
+	defer s.pubMu.Unlock()
 	now := s.d.now()
 	s.mu.Lock()
+	st := s.statusLocked()
 	if !force && now.Sub(s.lastEmit) < statusInterval {
 		s.mu.Unlock()
-		return
+		return st
 	}
 	s.lastEmit = now
 	showPill := s.settings.ShowIndicator
@@ -525,6 +535,7 @@ func (s *ClickerService) publish(st Status, force bool) {
 			s.d.indicatorShow(text)
 		}
 	}
+	return st
 }
 
 // changed tells the host (tray) that the run state or arming changed.
@@ -669,9 +680,8 @@ func (s *ClickerService) zonePaused(r *run, on bool) {
 	}
 	r.zonePause = on
 	s.pauseClockLocked(r, s.d.now())
-	st := s.statusLocked()
 	s.mu.Unlock()
-	s.publish(st, true)
+	s.publish(true)
 }
 
 // watchInjector notes when Windows drops some of a run's input (UIPI: an

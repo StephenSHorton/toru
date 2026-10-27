@@ -83,7 +83,7 @@ func (s *ClickerService) watchZones(stop chan struct{}) {
 		}
 		switch {
 		case in && !prevIn && r == nil:
-			if _, err := s.begin(srcZone, 0, idx); err != nil {
+			if _, err := s.begin(srcZone, nil, idx); err != nil {
 				log.Printf("clicker: start zone: %v", err)
 			}
 		case !in && prevIn && r != nil && r.source == srcZone:

@@ -138,9 +138,10 @@ func safetyZones(s Settings) []safety.Zone {
 	return out
 }
 
-// buildSafetyConfig is one run's failsafe setup. holdVK is the hold-mode
-// trigger key (0 in toggle mode); startZone >= 0 when a start zone started it.
-func buildSafetyConfig(s Settings, holdVK uint16, startZone int) safety.Config {
+// buildSafetyConfig is one run's failsafe setup. holdVKs are the hold-mode
+// trigger keys (empty in toggle mode); startZone >= 0 when a start zone
+// started it.
+func buildSafetyConfig(s Settings, holdVKs []uint16, startZone int) safety.Config {
 	p := s.Profile
 	cfg := safety.Config{
 		Corners: safety.Corners{
@@ -156,7 +157,7 @@ func buildSafetyConfig(s Settings, holdVK uint16, startZone int) safety.Config {
 		},
 		Zones:          safetyZones(s),
 		TaskSwitcher:   s.StopOnTaskSwitcher,
-		HoldTriggerVK:  holdVK,
+		HoldTriggerVKs: holdVKs,
 		StartZoneIndex: startZone,
 	}
 	if p.ProcessList.Enabled {

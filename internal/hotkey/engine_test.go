@@ -692,6 +692,32 @@ func TestSetShortcutRefusesOverlap(t *testing.T) {
 	}
 }
 
+func TestBindingChangeCallback(t *testing.T) {
+	isolateConfig(t)
+	m := idleManager(map[string]Binding{"replaySave": DefaultReplaySave, "clickerToggle": DefaultClickerToggle})
+	svc := NewService(m)
+	var got []string
+	svc.SetOnBindingChange(func(action string) { got = append(got, action) })
+	if err := svc.SetShortcut("clickerToggle", Shortcut{Alt: true, Key: "F10"}); err == nil {
+		t.Fatal("overlap should be refused")
+	}
+	if len(got) != 0 {
+		t.Fatalf("a refused change notified: %v", got)
+	}
+	if err := svc.SetShortcut("clickerToggle", Shortcut{Ctrl: true, Key: "K"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ClearShortcut("clickerToggle"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ResetShortcut("clickerToggle"); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0] != "clickerToggle" || got[1] != "clickerToggle" || got[2] != "clickerToggle" {
+		t.Fatalf("notified %v, want clickerToggle x3", got)
+	}
+}
+
 func TestRecordStartCallback(t *testing.T) {
 	m := New()
 	svc := NewService(m)

@@ -26,8 +26,8 @@ import "fmt"
 // GetAsyncKeyState saw the release. A hold-mode run on such a binding keeps
 // going until then.
 //
-// The clicker's hold-mode guard polls PhysicallyDown for the binding's keys
-// (TriggerVK, TriggerVKs); the conflict guard makes sure the clicker never
+// The clicker's hold-mode guard polls PhysicallyDown for all of the binding's
+// keys (TriggerVKs); the conflict guard makes sure the clicker never
 // injects them.
 func PhysicallyDown(vk uint16) bool { return phys.physicallyDown(uint32(vk)) }
 
@@ -100,6 +100,7 @@ func (s *HotkeyService) ClearShortcut(action string) error {
 		return fmt.Errorf("save shortcut: %w", err)
 	}
 	s.mgr.SetBinding(action, Binding{})
+	s.bindingChanged(action)
 	return nil
 }
 
@@ -111,4 +112,25 @@ func (s *HotkeyService) SetOnRecordStart(fn func()) {
 	s.mu.Lock()
 	s.onRecordStart = fn
 	s.mu.Unlock()
+}
+
+// SetOnBindingChange registers a callback run after SetShortcut,
+// ResetShortcut or ClearShortcut changes an action's binding, so labels shown
+// outside the Shortcuts UI (the clicker's status and pill, the tray) follow.
+//
+//wails:ignore
+func (s *HotkeyService) SetOnBindingChange(fn func(action string)) {
+	s.mu.Lock()
+	s.onBindingChange = fn
+	s.mu.Unlock()
+}
+
+// bindingChanged runs the SetOnBindingChange callback for action.
+func (s *HotkeyService) bindingChanged(action string) {
+	s.mu.Lock()
+	fn := s.onBindingChange
+	s.mu.Unlock()
+	if fn != nil {
+		fn(action)
+	}
 }

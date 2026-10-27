@@ -40,8 +40,9 @@ type Shortcut struct {
 type HotkeyService struct {
 	mgr *Manager
 
-	mu            sync.Mutex
-	onRecordStart func() // run when RecordShortcut begins (stops the auto clicker)
+	mu              sync.Mutex
+	onRecordStart   func()              // run when RecordShortcut begins (stops the auto clicker)
+	onBindingChange func(action string) // run after a shortcut is set, reset or cleared
 }
 
 // NewService wraps mgr. This is a plain Go constructor (NOT a bound method), so
@@ -81,6 +82,7 @@ func (s *HotkeyService) SetShortcut(action string, sc Shortcut) error {
 		return fmt.Errorf("save shortcut: %w", err)
 	}
 	s.mgr.SetBinding(action, b)
+	s.bindingChanged(action)
 	return nil
 }
 
@@ -95,6 +97,7 @@ func (s *HotkeyService) ResetShortcut(action string) error {
 		return fmt.Errorf("save shortcut: %w", err)
 	}
 	s.mgr.SetBinding(action, def)
+	s.bindingChanged(action)
 	return nil
 }
 

@@ -41,7 +41,7 @@ func everythingTrips() (Config, *fakeSystem) {
 		},
 		TaskSwitcher:   true,
 		Process:        ProcessRule{Enabled: true, Allow: false, Exes: []string{"Game"}},
-		HoldTriggerVK:  holdVK,
+		HoldTriggerVKs: []uint16{holdVK},
 		StartZoneIndex: 1,
 	}
 	sys := &fakeSystem{
@@ -156,6 +156,20 @@ func TestGuardNoCursorSkipsGeometry(t *testing.T) {
 	}
 	if sys.monsCalls != 0 {
 		t.Errorf("Monitors called %d times without a cursor", sys.monsCalls)
+	}
+}
+
+func TestGuardHoldChordStopsOnAnyRelease(t *testing.T) {
+	const a, b = 'A', 'S'
+	sys := &fakeSystem{down: map[uint16]bool{a: true, b: true}}
+	cfg := Config{HoldTriggerVKs: []uint16{a, b}, StartZoneIndex: -1}
+	g := NewGuard(cfg, sys)
+	if v := g.Check(0, 0); v.Kind != engine.Continue {
+		t.Fatalf("chord held: %+v", v)
+	}
+	sys.down[b] = false // the main key stays down, the other is let go
+	if v := g.Check(0, 0); v.Kind != engine.Stop || v.Code != "holdRelease" {
+		t.Fatalf("one chord key released: %+v", v)
 	}
 }
 

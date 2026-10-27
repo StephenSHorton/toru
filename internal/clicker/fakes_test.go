@@ -231,7 +231,7 @@ func newRig(t *testing.T) *rig {
 		overlayShutdown:  func() {},
 		toast:            func(title, body string, _ bool) { r.mu.Lock(); r.toasts = append(r.toasts, body); r.mu.Unlock() },
 		physicallyDown:   func(vk uint16) bool { return vk == escVK && r.esc.Load() },
-		triggerVK:        func(hotkey.Binding) uint16 { return 'Y' },
+		triggerVKs:       func(hotkey.Binding) []uint16 { return []uint16{'Y'} },
 		setInjecting:     func(on bool) { r.mu.Lock(); r.injecting = append(r.injecting, on); r.mu.Unlock() },
 		now:              time.Now,
 		saveDialog:       func(string, string) (string, error) { return "", nil },

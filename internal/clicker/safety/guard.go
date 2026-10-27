@@ -84,8 +84,10 @@ func (g *guard) Check(int64, int64) engine.Verdict {
 		}
 	}
 
-	if g.cfg.HoldTriggerVK != 0 && !g.sys.PhysicallyDown(g.cfg.HoldTriggerVK) {
-		return stop(codeHoldRelease, "Hotkey released")
+	for _, vk := range g.cfg.HoldTriggerVKs {
+		if !g.sys.PhysicallyDown(vk) {
+			return stop(codeHoldRelease, "Hotkey released")
+		}
 	}
 
 	if g.startZone >= 0 && haveCursor {

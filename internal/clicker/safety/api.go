@@ -49,9 +49,10 @@ type Config struct {
 	Zones        []Zone // empty when zones are off
 	TaskSwitcher bool
 	Process      ProcessRule
-	// HoldTriggerVK is the clickerToggle trigger key in hold mode (0 = toggle
-	// mode): the run stops once it is no longer physically down.
-	HoldTriggerVK uint16
+	// HoldTriggerVKs are the clickerToggle binding's keys in hold mode (empty
+	// = toggle mode): the run stops once any of them is no longer physically
+	// down, so releasing one key of a chord ends it.
+	HoldTriggerVKs []uint16
 	// StartZoneIndex >= 0 means the run was started by entering that start
 	// zone and stops (zoneLeft) when the cursor leaves it.
 	StartZoneIndex int
