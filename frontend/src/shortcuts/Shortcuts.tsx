@@ -192,3 +192,20 @@ export function Shortcuts({ includeAll = false }: { includeAll?: boolean }) {
     </div>
   );
 }
+
+// ShortcutRows — the editable rows for just the given actions, without the
+// panel frame, for feature pages that own their hotkeys (the Auto Clicker page
+// shows clickerToggle / clickerArm).
+export function ShortcutRows({ actions }: { actions: readonly string[] }) {
+  const { shortcuts, save, reset } = useShortcuts();
+  const rows = actions
+    .map((a) => shortcuts.find((sc) => sc.action === a))
+    .filter((sc): sc is NonNullable<typeof sc> => sc !== undefined);
+  return (
+    <div className="flex flex-col gap-2">
+      {rows.map((sc) => (
+        <ShortcutRow key={sc.action} sc={sc} onSave={save} onReset={reset} />
+      ))}
+    </div>
+  );
+}
