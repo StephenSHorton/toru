@@ -11,6 +11,7 @@ import (
 
 	"github.com/StephenSHorton/toru/internal/clicker/engine"
 	"github.com/StephenSHorton/toru/internal/clicker/safety"
+	"github.com/StephenSHorton/toru/internal/toast"
 )
 
 // statusInterval throttles status events and indicator redraws while a run is
@@ -351,7 +352,7 @@ func (s *ClickerService) finish(r *run, v engine.Verdict) {
 	s.publish(true)
 	s.changed()
 	if r.toastOn && toastWorthy(code) && s.d.toast != nil {
-		s.d.toast("Auto clicker stopped", reason, code == StopClickLimit || code == StopTimeLimit || code == StopPointsDone)
+		s.d.toast(stopNote(code, reason))
 	}
 }
 
@@ -597,6 +598,23 @@ func groupDigits(n int64) string {
 	return b.String()
 }
 
+// noteID is the clicker's one notification card: a stop, a failed start or a
+// blocked-clicks warning replaces the last one instead of stacking.
+const noteID = "clicker"
+
+// stopNote is the card for a stop the user did not ask for: a limit reached is
+// a finished run (Success), a failsafe a Warn, an engine failure an Error.
+func stopNote(c StopCode, reason string) toast.Note {
+	n := toast.Note{ID: noteID, Title: "Auto clicker stopped", Body: reason, Kind: toast.Warn}
+	switch c {
+	case StopClickLimit, StopTimeLimit, StopPointsDone:
+		n.Title, n.Kind = "Auto clicker finished", toast.Success
+	case StopError:
+		n.Kind = toast.Error
+	}
+	return n
+}
+
 // toastWorthy: the stops a user did not ask for (failsafes, limits, errors).
 func toastWorthy(c StopCode) bool {
 	switch c {
@@ -696,7 +714,9 @@ func (s *ClickerService) zonePaused(r *run, on bool) {
 }
 
 // watchInjector notes when Windows drops some of a run's input (UIPI: an
-// elevated window in front, or a secure desktop).
+// elevated window in front, or a secure desktop). The first drop in a run also
+// posts a card (under Notify on stop), since a hotkey or tray run has no page
+// to show the warning on and would otherwise click into nothing unnoticed.
 type watchInjector struct {
 	inner engine.Injector
 	s     *ClickerService
@@ -712,6 +732,14 @@ func (w *watchInjector) Send(ops []engine.Op) (int, error) {
 		w.s.mu.Lock()
 		w.r.warnInject = blockedWarning
 		w.s.mu.Unlock()
+		if w.r.toastOn && w.s.d.toast != nil {
+			w.s.d.toast(toast.Note{
+				ID:    noteID,
+				Title: "Windows blocked some clicks",
+				Body:  "The app in front may be running as administrator",
+				Kind:  toast.Warn,
+			})
+		}
 	}
 	return n, err
 }

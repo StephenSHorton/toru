@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/StephenSHorton/toru/internal/clicker"
 	"github.com/StephenSHorton/toru/internal/history"
@@ -32,6 +33,14 @@ type trayController struct {
 	openSendFiles func()
 	// update supplies the "Restart to update to vX" item while an update is ready.
 	update *update.UpdateService
+	// announced is the update version whose "ready" notification has been
+	// posted, so it is posted once per version per run. rebuildMenu runs from
+	// many goroutines, hence the lock.
+	announceMu sync.Mutex
+	announced  string
+	// warned is whether the card for announced says Install stops the
+	// current recording.
+	warned bool
 	// clicker backs the "Auto clicker" check item; openClicker opens its hub page.
 	clicker     *clicker.ClickerService
 	openClicker func()
@@ -51,15 +60,12 @@ func (t *trayController) rebuildMenu() {
 	if t.update != nil {
 		if st := t.update.GetStatus(); st.Phase == update.PhaseReady {
 			menu.Add("Restart to update to v" + st.Version).OnClick(func(*application.Context) {
-				go func() {
-					// A tray-only user has no banner to read a failure from: the
-					// service logs and reverts to ready, so say why nothing happened.
-					if err := t.update.RestartToUpdate(); err != nil {
-						toast.Show("Couldn't start the update", err.Error(), false)
-					}
-				}()
+				go t.restartToUpdate()
 			})
 			menu.AddSeparator()
+			// The updater's onChange rebuilds this menu on every transition, so
+			// this is also where the ready notification goes up.
+			t.announceUpdate(st)
 		}
 	}
 
@@ -120,6 +126,78 @@ func (t *trayController) rebuildMenu() {
 	})
 
 	t.tray.SetMenu(menu)
+}
+
+// restartToUpdate is the one install path for the tray item and the update
+// notification's Install button: launch the installer and quit. A tray-only
+// user has no banner to read a failure from, and the service only logs it and
+// reverts to ready, so say why nothing happened.
+func (t *trayController) restartToUpdate() {
+	if err := t.update.RestartToUpdate(); err != nil {
+		toast.Post(toast.Note{ID: "update", Kind: toast.Error, Title: "Couldn't start the update", Body: err.Error()})
+	}
+}
+
+// announceUpdate posts the sticky "Toru vX is ready" notification, once per
+// version per run (rebuildMenu calls it on every rebuild while ready).
+func (t *trayController) announceUpdate(st update.Status) {
+	t.announceMu.Lock()
+	if t.announced == st.Version {
+		t.announceMu.Unlock()
+		return
+	}
+	t.announced = st.Version
+	t.announceMu.Unlock()
+	t.postUpdateCard(st, t.recording(), false)
+}
+
+// postUpdateCard posts the update card, warning that Install stops the
+// current recording when warn. The app has no confirm step before restarting,
+// only the banner's warning, so the card carries the same one. A sticky card
+// can stay up long after it was posted, so Install checks again: a Game
+// session started since then re-posts the card with the warning instead of
+// installing, and the next press is a deliberate one.
+func (t *trayController) postUpdateCard(st update.Status, warn, silent bool) {
+	t.announceMu.Lock()
+	t.warned = warn
+	t.announceMu.Unlock()
+
+	body := "Install restarts Toru. Or keep working — it installs when you quit."
+	if warn {
+		body = "Install restarts Toru and stops the current recording. Or it installs when you quit."
+	}
+	install := func() {
+		t.announceMu.Lock()
+		warned := t.warned
+		t.announceMu.Unlock()
+		if !warned && t.recording() {
+			t.postUpdateCard(st, true, true) // a reply to the click: no second chime
+			return
+		}
+		t.restartToUpdate()
+	}
+	n := toast.Note{
+		ID:     "update",
+		Title:  "Toru v" + st.Version + " is ready",
+		Body:   body,
+		Kind:   toast.Info,
+		Sticky: true,
+		Silent: silent,
+		Actions: []toast.Action{
+			{Label: "Install", Run: install},
+			{Label: "Later"}, // just closes the card; it still installs on quit
+		},
+	}
+	if t.windows != nil {
+		n.OnClick = t.windows.OpenSettings // the hub's update banner
+	}
+	toast.Post(n)
+}
+
+// recording reports whether a Game session or Hotkey recording is capturing
+// now, which installing an update would stop.
+func (t *trayController) recording() bool {
+	return t.replay != nil && t.replay.GetRecorderState().Recording
 }
 
 // addReplayItems adds the instant-replay toggle, and while it's on, the save

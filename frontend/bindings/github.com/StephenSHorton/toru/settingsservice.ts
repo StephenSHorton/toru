@@ -3,9 +3,10 @@
 
 /**
  * SettingsService is the Wails-bound API for app-level preferences that aren't
- * keyboard shortcuts. Right now that's just "launch at Windows login", backed
- * directly by Wails' AutostartManager — on Windows the registry Run key IS the
- * source of truth, so there is nothing extra to persist in settings.json.
+ * keyboard shortcuts: "launch at Windows login", backed directly by Wails'
+ * AutostartManager (on Windows the registry Run key IS the source of truth, so
+ * nothing is persisted for it), and the notification settings, persisted to
+ * %AppData%\toru\notifications.json.
  * 
  * JS binding name: SettingsService.*
  * @module
@@ -14,6 +15,10 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as toast$0 from "./internal/toast/models.js";
 
 /**
  * GetLaunchAtLogin reports whether Toru is currently registered to start at user
@@ -25,6 +30,23 @@ export function GetLaunchAtLogin(): $CancellablePromise<boolean> {
 }
 
 /**
+ * GetNotifications returns the notification settings in effect.
+ */
+export function GetNotifications(): $CancellablePromise<toast$0.Options> {
+    return $Call.ByID(1883929452).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
+ * PreviewNotificationSound plays the notification sound at the current
+ * volume (the volume slider calls it on release).
+ */
+export function PreviewNotificationSound(): $CancellablePromise<void> {
+    return $Call.ByID(1087944222);
+}
+
+/**
  * SetLaunchAtLogin enables or disables launch-at-login. When enabling, Toru is
  * registered WITH the --startup argument so the login launch starts silently in
  * the tray (no Settings window — see startupArg). Disabling removes the registry
@@ -33,3 +55,25 @@ export function GetLaunchAtLogin(): $CancellablePromise<boolean> {
 export function SetLaunchAtLogin(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(1701942847, enabled);
 }
+
+/**
+ * SetNotifications applies and persists the notification settings, returning
+ * them as applied (out-of-range values fixed). They apply even when saving
+ * fails; the error says they won't survive a restart.
+ */
+export function SetNotifications(o: toast$0.Options): $CancellablePromise<toast$0.Options> {
+    return $Call.ByID(2007235048, o).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
+ * TestNotification posts a sample card with its sound, so the user sees where
+ * cards land and hears the volume. Repeated presses replace it.
+ */
+export function TestNotification(): $CancellablePromise<void> {
+    return $Call.ByID(3892409479);
+}
+
+// Private type creation functions
+const $$createType0 = toast$0.Options.createFrom;

@@ -37,7 +37,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/StephenSHorton/toru/internal/toast"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -150,7 +149,7 @@ func (s *UpdateService) setStatus(mut func(st *Status)) Status {
 
 // AutoUpdate runs on startup: it checks for a newer release and, if one exists,
 // downloads and verifies it in the background, then announces that it is ready
-// (toast + status event + tray item). It never installs or quits on its own —
+// (status event, plus the tray item and notification the tray adds on ready). It never installs or quits on its own —
 // the user restarts when they like, or the installer runs when Toru quits.
 //
 // It runs as a fire-and-forget goroutine on startup. All errors are logged and
@@ -199,8 +198,9 @@ func (s *UpdateService) CheckAndDownload() (Status, error) {
 		st.Phase, st.InstallerPath, st.Error = PhaseReady, path, ""
 	})
 	log.Printf("toru: update v%s ready at %s", info.Version, path)
-	toast.Show("Toru v"+info.Version+" is ready",
-		"Restart now from the Toru window or tray, or keep working — it installs when you quit.", true)
+	// The ready transition is the announcement: the status event drives the
+	// banner, and onChange rebuilds the tray, which adds "Restart to update" and
+	// posts the "Toru vX is ready" notification (tray.go).
 	return st, nil
 }
 

@@ -47,6 +47,9 @@ export default function Trim() {
   // Instant-replay clips have a cached thumbnail: show it while the player
   // spins up its decoder (a 1440p/144fps clip can take a moment).
   const poster = src.startsWith("/__replayclip/") ? src.replace("/__replayclip/", "/__replaythumb/") : undefined;
+  // What a copy is called on Toru's "Copied to clipboard" notice: files served
+  // from the replay folder are Clips, everything else here a Screen recording.
+  const copyName = src.startsWith("/__replayclip/") ? "Clip" : "Screen recording";
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(false), [src]);
   const [absPath, setAbsPath] = useState(params.get("path") ?? "");
@@ -289,14 +292,14 @@ export default function Trim() {
     if (!absPath || busy) return;
     setBusy(true);
     try {
-      await ExportService.CopyToClipboard(absPath, "video");
+      await ExportService.CopyToClipboardAs(absPath, "video", copyName);
       setNote("Copied ✓");
     } catch (err) {
       setNote(`Copy failed: ${err}`);
     } finally {
       setBusy(false);
     }
-  }, [absPath, busy]);
+  }, [absPath, busy, copyName]);
 
   const doSaveAs = useCallback(async () => {
     if (!absPath || busy) return;
@@ -321,7 +324,8 @@ export default function Trim() {
     setDiscord({ state: "working", msg: "" });
     try {
       const out = await VideoService.ExportForDiscord(absPath);
-      await ExportService.CopyToClipboard(out, "video");
+      // A source already under the cap is copied as-is, so it keeps its name.
+      await ExportService.CopyToClipboardAs(out, "video", out === absPath ? copyName : "Discord-sized copy");
       setDiscord({
         state: "done",
         msg:
@@ -334,7 +338,7 @@ export default function Trim() {
     } finally {
       setBusy(false);
     }
-  }, [absPath, busy]);
+  }, [absPath, busy, copyName]);
 
   const doTrim = useCallback(async () => {
     if (!absPath || busy || duration <= 0) return;
@@ -392,7 +396,7 @@ export default function Trim() {
       );
       let copied = true;
       try {
-        await ExportService.CopyText(url);
+        await ExportService.CopyTextAs(url, "Share link");
       } catch {
         copied = false;
       }
@@ -780,7 +784,7 @@ export default function Trim() {
                 size="sm"
                 variant="ghost"
                 onClick={() => {
-                  void ExportService.CopyText(share.url)
+                  void ExportService.CopyTextAs(share.url, "Share link")
                     .then(() => {
                       setShare({ ...share, copied: true });
                       setLinkFlash(true);

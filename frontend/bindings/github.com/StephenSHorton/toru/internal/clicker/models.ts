@@ -883,7 +883,7 @@ export class Settings {
     "showIndicator": boolean;
 
     /**
-     * toast with the reason when a failsafe stops a run
+     * card with the reason when a failsafe, limit or error stops a run, or Windows blocks clicks
      */
     "toastOnStop": boolean;
 

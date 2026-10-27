@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { TransferService } from "@/lib/api";
+import { ExportService, TransferService } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { humanBytes, percent } from "./format";
 import {
@@ -144,7 +144,7 @@ function SendCard() {
   const copy = useCallback(async () => {
     if (!code) return;
     try {
-      await navigator.clipboard.writeText(code);
+      await ExportService.CopyTextAs(code, "Send code");
       setCopied(true);
       if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
       copyTimer.current = window.setTimeout(() => setCopied(false), 1400);

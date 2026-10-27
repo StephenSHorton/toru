@@ -8,6 +8,7 @@ import (
 
 	"github.com/StephenSHorton/toru/internal/clicker/engine"
 	"github.com/StephenSHorton/toru/internal/hotkey"
+	"github.com/StephenSHorton/toru/internal/toast"
 )
 
 func TestToggleRunsAndStops(t *testing.T) {
@@ -375,6 +376,39 @@ func TestShortSendSetsWarning(t *testing.T) {
 	}
 	defer r.s.Stop()
 	r.waitFor("warning", func() bool { return r.s.Status().Warning == blockedWarning })
+	// A hotkey run has no page to show the warning on, so it is also a card,
+	// once per run however many sends come up short.
+	r.waitFor("blocked toast", func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return len(r.toasts) > 0
+	})
+	time.Sleep(50 * time.Millisecond)
+	r.mu.Lock()
+	toasts := append([]string(nil), r.toasts...)
+	r.mu.Unlock()
+	if len(toasts) != 1 || !strings.Contains(toasts[0], "administrator") {
+		t.Fatalf("toasts = %v", toasts)
+	}
+}
+
+func TestStopNoteKinds(t *testing.T) {
+	for _, tc := range []struct {
+		code  StopCode
+		kind  toast.Kind
+		title string
+	}{
+		{StopCorner, toast.Warn, "Auto clicker stopped"},
+		{StopProcessList, toast.Warn, "Auto clicker stopped"},
+		{StopClickLimit, toast.Success, "Auto clicker finished"},
+		{StopPointsDone, toast.Success, "Auto clicker finished"},
+		{StopError, toast.Error, "Auto clicker stopped"},
+	} {
+		n := stopNote(tc.code, "why")
+		if n.Kind != tc.kind || n.Title != tc.title || n.Body != "why" || n.ID != noteID {
+			t.Errorf("%s: %+v", tc.code, n)
+		}
+	}
 }
 
 func TestGuardWarningWins(t *testing.T) {

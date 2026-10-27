@@ -48,7 +48,7 @@ type deps struct {
 	indicatorShow    func(text string)
 	indicatorHide    func()
 	overlayShutdown  func()
-	toast            func(title, body string, ok bool)
+	toast            func(n toast.Note)
 
 	// hotkey hooks
 	physicallyDown func(vk uint16) bool
@@ -65,6 +65,19 @@ type deps struct {
 	openDialog func(title string) (string, error)
 }
 
+// beginRunClickThrough is sys.BeginRun plus a click-through hold on Toru's
+// notification cards for the run, so a card that pops up under the click
+// point (an update, the run's own warning) doesn't swallow the clicks or get
+// pressed by them.
+func beginRunClickThrough() (end func(), warning string) {
+	release := toast.HoldClickThrough()
+	endRun, warn := sys.BeginRun()
+	return func() {
+		endRun()
+		release()
+	}, warn
+}
+
 // realDeps wires every seam to the production packages. Dialogs and emits need
 // the running app and are filled in by SetApp.
 func realDeps() deps {
@@ -73,7 +86,7 @@ func realDeps() deps {
 		newInjector:     sys.NewInjector,
 		newClock:        sys.NewClock,
 		newFallbackClk:  sys.NewFallbackClock,
-		beginRun:        sys.BeginRun,
+		beginRun:        beginRunClickThrough,
 		keyScan:         sys.KeyScan,
 		capsLock:        sys.CapsLock,
 		keyRepeat:       sys.KeyRepeat,
@@ -92,7 +105,7 @@ func realDeps() deps {
 		indicatorShow:    overlay.IndicatorShow,
 		indicatorHide:    overlay.IndicatorHide,
 		overlayShutdown:  overlay.Shutdown,
-		toast:            toast.Show,
+		toast:            toast.Post,
 
 		physicallyDown:   hotkey.PhysicallyDown,
 		triggerVKs:       hotkey.TriggerVKs,
