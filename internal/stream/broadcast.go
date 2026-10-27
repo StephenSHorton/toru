@@ -296,16 +296,33 @@ func (b *broadcaster) update(cfg Settings) error {
 		return err
 	}
 	b.mu.Lock()
+	// Switching Auto <-> Manual at the same resolved rate (the UI's Manual
+	// starts from the Auto value) changes nothing the encoder sees, so it
+	// does not restart it.
+	sameVideo := sameEncode(old, cfg, b.screenW, b.screenH)
 	b.cfg = cfg
 	b.status.Info = b.infoLocked()
 	vKick, aKick := b.vKick, b.aKick
 	b.mu.Unlock()
-	kick(vKick)
+	if !sameVideo {
+		kick(vKick)
+	}
 	if cfg.AudioKbps != old.AudioKbps {
 		kick(aKick)
 	}
 	b.changed()
 	return nil
+}
+
+// sameEncode reports whether a and b give the video encoder the same
+// command: equal apart from how the bitrate was chosen.
+func sameEncode(a, b Settings, screenW, screenH int) bool {
+	if a.VideoKbps(a.OutputSize(screenW, screenH)) != b.VideoKbps(b.OutputSize(screenW, screenH)) {
+		return false
+	}
+	a.AutoBitrate, a.BitrateKbps = false, 0
+	b.AutoBitrate, b.BitrateKbps = false, 0
+	return a == b
 }
 
 func kick(ch chan struct{}) {

@@ -171,6 +171,7 @@ func TestSettingsMigration(t *testing.T) {
 		{"old file at the old default moves to Auto", `{"fps":144,"bitrateKbps":20000}`, true, 20000},
 		{"old file with a hand-picked rate stays manual", `{"fps":60,"bitrateKbps":35000}`, false, 35000},
 		{"old file without a bitrate moves to Auto", `{"fps":60}`, true, 20000},
+		{"old file with a zero bitrate moves to Auto", `{"fps":60,"bitrateKbps":0}`, true, 20000},
 		{"new file keeps manual", `{"autoBitrate":false,"bitrateKbps":20000}`, false, 20000},
 		{"new file keeps Auto", `{"autoBitrate":true,"bitrateKbps":35000}`, true, 35000},
 		{"garbage gives the defaults", `not json`, true, 20000},
@@ -179,5 +180,28 @@ func TestSettingsMigration(t *testing.T) {
 		if s.AutoBitrate != c.wantAuto || s.BitrateKbps != c.wantKbps {
 			t.Errorf("%s: auto=%v kbps=%d, want auto=%v kbps=%d", c.name, s.AutoBitrate, s.BitrateKbps, c.wantAuto, c.wantKbps)
 		}
+	}
+}
+
+func TestSameEncode(t *testing.T) {
+	auto := DefaultSettings() // Auto, native, 60 fps, H.264
+	manual := auto
+	manual.AutoBitrate, manual.BitrateKbps = false, AutoBitrateKbps(1920, 1080, 60, CodecH264)
+	if !sameEncode(auto, manual, 1920, 1080) {
+		t.Error("Auto -> Manual at the same rate should not restart the encoder")
+	}
+	manual.BitrateKbps += 1000
+	if sameEncode(auto, manual, 1920, 1080) {
+		t.Error("a new manual rate must restart the encoder")
+	}
+	faster := auto
+	faster.FPS = 120
+	if sameEncode(auto, faster, 1920, 1080) {
+		t.Error("a new frame rate must restart the encoder")
+	}
+	ignored := auto
+	ignored.BitrateKbps = 35000 // not used while Auto is on
+	if !sameEncode(auto, ignored, 1920, 1080) {
+		t.Error("the manual value is unused in Auto")
 	}
 }

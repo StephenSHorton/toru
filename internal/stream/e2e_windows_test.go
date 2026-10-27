@@ -156,4 +156,23 @@ func TestEndToEnd(t *testing.T) {
 	if pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
 		t.Errorf("viewer dropped after a live change: %s", pc.ConnectionState())
 	}
+
+	// Auto bitrate live: the room is told the formula's rate for the real
+	// output size, and the viewer stays connected.
+	cfg = host.GetSettings()
+	cfg.AutoBitrate, cfg.FPS = true, 60
+	if _, err := host.SetSettings(cfg); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+	info := host.GetState().Live.Info
+	if want := AutoBitrateKbps(info.Width, info.Height, 60, cfg.Codec); info.BitrateKbps != want {
+		t.Errorf("auto: room told %d kbps, want %d", info.BitrateKbps, want)
+	}
+	if fps, _ := measure("native 60 auto"); fps < 45 {
+		t.Errorf("native 60 auto: got %.1f fps", fps)
+	}
+	if pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
+		t.Errorf("viewer dropped after switching to Auto: %s", pc.ConnectionState())
+	}
 }

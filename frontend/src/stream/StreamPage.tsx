@@ -814,7 +814,6 @@ function VideoCard({
             step={1}
             decimals={1}
             suffix="Mbps"
-            disabled={settings.autoBitrate}
             onChange={(mbps) => update({ autoBitrate: false, bitrateKbps: Math.round(mbps * 1000) })}
             boxClassName="w-28"
           />

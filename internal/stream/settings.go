@@ -243,7 +243,8 @@ func parseSettings(data []byte) Settings {
 		AutoBitrate *bool `json:"autoBitrate"`
 	}
 	if json.Unmarshal(data, &probe) == nil && probe.AutoBitrate == nil {
-		s.AutoBitrate = s.BitrateKbps == legacyDefaultKbps
+		// 0 is what Normalize turns into the default.
+		s.AutoBitrate = s.BitrateKbps == legacyDefaultKbps || s.BitrateKbps == 0
 	}
 	return Normalize(s)
 }
