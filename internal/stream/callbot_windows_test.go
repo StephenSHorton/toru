@@ -16,7 +16,8 @@ import (
 
 // TestCallBot joins a running Toru's room call as "Bot": it answers the call
 // window's offer, plays a tone (so Toru shows it speaking) and counts the
-// audio Toru sends. For checking the call by hand.
+// audio Toru sends. For checking the call by hand, against a Toru on this
+// PC: the bot's media stays on 127.0.0.1 (see loopbackOnly).
 //
 //	TORU_CALL_BOT=<room code> go test ./internal/stream -run CallBot -v
 func TestCallBot(t *testing.T) {
@@ -29,6 +30,7 @@ func TestCallBot(t *testing.T) {
 		secs = 30
 	}
 	const self = "ffffffffffffffff" // sorts last, so Toru makes the offer
+	loopbackOnly(t)
 
 	api, err := newAPI()
 	if err != nil {
