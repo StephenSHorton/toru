@@ -169,7 +169,9 @@ export function useClicker(): Clicker {
         rebase(ev);
         continue;
       }
-      rebase((retried ? stored : ev) ?? stored ?? base.current);
+      // A broadcast that already holds these edits is at least as new as the
+      // answer; otherwise the answer is what Go stored.
+      rebase((ev && same(replay(edits, ev), ev) ? ev : stored) ?? base.current);
       return;
     }
   }, [rebase, show, showError]);
