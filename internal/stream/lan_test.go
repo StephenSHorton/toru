@@ -285,6 +285,8 @@ type fakeLink struct {
 	mu        sync.Mutex
 	signals   []api.Signal
 	drops     []string
+	expires   []string
+	seen      []string
 	salts     []uint32
 	rooms     []string
 	iceEvents int
@@ -296,6 +298,19 @@ func (f *fakeLink) signal(peer string, blob json.RawMessage) {
 	f.signals = append(f.signals, api.Signal{Peer: peer, Blob: blob})
 }
 func (f *fakeLink) drop(peer string) { f.mu.Lock(); f.drops = append(f.drops, peer); f.mu.Unlock() }
+func (f *fakeLink) expired(peer string) {
+	f.mu.Lock()
+	f.expires = append(f.expires, peer)
+	f.mu.Unlock()
+}
+func (f *fakeLink) memberSeen(peer string, lanOn, fresh bool) {
+	f.mu.Lock()
+	if fresh {
+		f.seen = append(f.seen, peer)
+	}
+	f.mu.Unlock()
+}
+func (f *fakeLink) roomConnected() {}
 func (f *fakeLink) readdress(salt uint32) {
 	f.mu.Lock()
 	f.salts = append(f.salts, salt)
@@ -331,7 +346,7 @@ func TestLanRelay(t *testing.T) {
 		t.Fatalf("signals %+v", f.signals)
 	}
 
-	// Members that leave or time out become Drop.
+	// Members that leave become Drop; those that time out, expired.
 	s.onMessage(presence(t, "peerA", presenceBody{Name: "A"}))
 	s.onMessage(presence(t, "peerB", presenceBody{Name: "B"}))
 	s.onMessage(Envelope{From: "peerA", Type: msgLeave})
@@ -339,8 +354,11 @@ func TestLanRelay(t *testing.T) {
 	s.members["peerB"].seen = time.Now().Add(-time.Minute)
 	s.mu.Unlock()
 	s.expireMembers(time.Now())
-	if !slices.Equal(f.drops, []string{"peerA", "peerB"}) {
-		t.Fatalf("drops %v", f.drops)
+	if !slices.Equal(f.drops, []string{"peerA"}) || !slices.Equal(f.expires, []string{"peerB"}) {
+		t.Fatalf("drops %v expires %v", f.drops, f.expires)
+	}
+	if !slices.Equal(f.seen, []string{"peerA", "peerB"}) {
+		t.Fatalf("fresh members %v", f.seen)
 	}
 
 	// The service's blobs go back out through the room.
@@ -645,7 +663,7 @@ func TestLanServiceUpAndDown(t *testing.T) {
 		t.Fatalf("after disconnect: %q", st.State)
 	}
 	n := len(p.types())
-	p.h.Connected(api.Hello{Major: api.ProtocolMajor, Version: "0.13.0", PubKey: pub, IP: "100.96.9.9"})
+	p.h.Connected(api.Hello{Major: api.ProtocolMajor, Minor: api.ProtocolMinor, Version: "0.13.0", PubKey: pub, IP: "100.96.9.9"})
 	if m := p.last(api.TypeUp); m == nil || len(p.types()) == n {
 		t.Fatal("no Up after reconnect")
 	}
@@ -692,16 +710,16 @@ func TestLanServiceErrors(t *testing.T) {
 	}
 	waitFor(t, "a pipe", func() bool { p := latest(); return p != nil && p.start })
 	p := latest()
-	p.h.Connected(api.Hello{Major: api.ProtocolMajor, Version: "0.13.0"})
+	p.h.Connected(api.Hello{Major: api.ProtocolMajor, Minor: api.ProtocolMinor, Version: "0.13.0"})
 	p.h.Status(api.Status{State: api.StateError, Error: api.ErrRangeInUse, Detail: "Tailscale"})
 	if st := l.GetState(); st.State != LanFailed || st.Error != api.ErrRangeInUse || st.Detail != "Tailscale" {
 		t.Fatalf("range in use: %+v", st)
 	}
 
-	// An older service: Update LAN, and no Up.
+	// An older service (an older protocol minor): Update LAN, and no Up.
 	n := len(p.types())
 	p.h.Disconnected(errors.New("restart"))
-	p.h.Connected(api.Hello{Major: api.ProtocolMajor, Version: "0.12.0"})
+	p.h.Connected(api.Hello{Major: api.ProtocolMajor, Minor: api.ProtocolMinor - 1, Version: "0.13.0"})
 	if st := l.GetState(); st.State != LanUpdate {
 		t.Fatalf("older service: %q", st.State)
 	}
@@ -758,22 +776,214 @@ func TestLanServiceSetupTurnsOn(t *testing.T) {
 	}
 }
 
-func TestVersionLess(t *testing.T) {
-	for _, c := range []struct {
-		a, b string
-		want bool
-	}{
-		{"0.12.0", "0.13.0", true},
-		{"v0.13.0", "0.13.0", false},
-		{"0.13.1", "0.13.0", false},
-		{"1.0", "0.99.9", false},
-		{"dev", "0.13.0", true},
-		{"0.13.0-rc1", "0.13.0", false},
-		{"0.13.0", "dev", false},
-	} {
-		if got := versionLess(c.a, c.b); got != c.want {
-			t.Errorf("versionLess(%q, %q) = %v", c.a, c.b, got)
+// TestLanServiceSameProtocolNoUpdate: a service from an older Toru release
+// with the same protocol needs no update (releases bump both versions).
+func TestLanServiceSameProtocolNoUpdate(t *testing.T) {
+	_, l, _, latest := newTestLan(t, lanSvcInfo{installed: true})
+	l.roomChanged("room1")
+	if _, err := l.Enable(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the pipe", func() bool { p := latest(); return p != nil && p.start })
+	p := latest()
+	p.h.Connected(api.Hello{Major: api.ProtocolMajor, Minor: api.ProtocolMinor, Version: "0.12.0"})
+	if st := l.GetState(); st.State == LanUpdate {
+		t.Fatal("same protocol, older app version: asked for an update")
+	}
+	if p.last(api.TypeUp) == nil {
+		t.Fatal("no Up")
+	}
+}
+
+// TestLanServiceUpdateTakesDown: the previous Toru left LAN up; this one
+// finds the service needs an update. The adapter must go down (it holds
+// metric 1 and the broadcast routes), and Disable must still send Down.
+func TestLanServiceUpdateTakesDown(t *testing.T) {
+	_, l, _, latest := newTestLan(t, lanSvcInfo{installed: true})
+	l.roomChanged("room1")
+	if _, err := l.Enable(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the pipe", func() bool { p := latest(); return p != nil && p.start })
+	p := latest()
+	p.h.Connected(api.Hello{Major: api.ProtocolMajor, Minor: api.ProtocolMinor - 1, Version: "0.13.0"})
+	if l.GetState().State != LanUpdate || p.last(api.TypeUp) != nil {
+		t.Fatalf("state %q, Up %v", l.GetState().State, p.last(api.TypeUp))
+	}
+	p.h.Status(api.Status{State: api.StateOn, IP: "100.96.9.9", Room: "room1"})
+	if p.last(api.TypeDown) == nil {
+		t.Fatal("an older service left up was not taken down")
+	}
+	if st := l.GetState(); st.State != LanUpdate || !st.Wanted {
+		t.Fatalf("state %+v", st)
+	}
+
+	// Turning it off from the Update state also sends Down if it is still up.
+	p2 := &fakePipe{}
+	l.mu.Lock()
+	l.pipe = p2
+	l.status = api.Status{State: api.StateOn}
+	l.mu.Unlock()
+	l.Disable()
+	if p2.last(api.TypeDown) == nil {
+		t.Fatal("Disable in the Update state sent no Down")
+	}
+}
+
+// TestLanServiceRestartsStoppedService: the service stops under a live
+// pipe; with LAN wanted it is started again and the watchdog re-armed.
+func TestLanServiceRestartsStoppedService(t *testing.T) {
+	_, l, o, latest := newTestLan(t, lanSvcInfo{installed: true})
+	l.roomChanged("room1")
+	if _, err := l.Enable(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the pipe", func() bool { p := latest(); return p != nil && p.start })
+	p := latest()
+	p.h.Connected(api.Hello{Major: api.ProtocolMajor, Minor: api.ProtocolMinor, Version: "0.13.0"})
+	p.h.Status(api.Status{State: api.StateOn, IP: "100.96.9.9"})
+	starts := func() int { o.mu.Lock(); defer o.mu.Unlock(); return o.starts }
+	before := starts()
+
+	p.h.Disconnected(errors.New("pipe closed"))
+	if starts() != before+1 {
+		t.Fatalf("service starts %d, want %d", starts(), before+1)
+	}
+	l.mu.Lock()
+	armed := l.watchdog != nil
+	l.mu.Unlock()
+	if !armed {
+		t.Fatal("watchdog not re-armed")
+	}
+
+	// It can't be started: the card says so instead of hanging at Starting.
+	o.mu.Lock()
+	o.startErr = errors.New("access denied")
+	o.mu.Unlock()
+	p.h.Connected(api.Hello{Major: api.ProtocolMajor, Minor: api.ProtocolMinor, Version: "0.13.0"})
+	p.h.Disconnected(errors.New("pipe closed"))
+	if st := l.GetState(); st.State != LanFailed || st.Error != LanErrService {
+		t.Fatalf("state %+v", st)
+	}
+
+	// LAN turned off: a disconnect starts nothing.
+	o.mu.Lock()
+	o.startErr = nil
+	o.mu.Unlock()
+	l.Disable()
+	n := starts()
+	p.h.Disconnected(errors.New("pipe closed"))
+	if starts() != n {
+		t.Fatal("started the service with LAN off")
+	}
+}
+
+// lanUp brings a test LanService up in room1 with the pipe connected and
+// the service on.
+func lanUp(t *testing.T) (*StreamService, *LanService, *fakePipe) {
+	t.Helper()
+	s, l, _, latest := newTestLan(t, lanSvcInfo{installed: true})
+	l.roomChanged("room1")
+	if _, err := l.Enable(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the pipe", func() bool { p := latest(); return p != nil && p.start })
+	p := latest()
+	p.h.Connected(api.Hello{Major: api.ProtocolMajor, Minor: api.ProtocolMinor, Version: "0.13.0"})
+	p.h.Status(api.Status{State: api.StateOn, IP: "100.96.9.9"})
+	return s, l, p
+}
+
+// TestLanHelloResent: the service's room-wide Hello is kept and resent to
+// a member that appears with LAN on and no working tunnel to us.
+func TestLanHelloResent(t *testing.T) {
+	_, l, p := lanUp(t)
+	hello := json.RawMessage(`{"kind":"hello","gen":5}`)
+	// Not in a real room, so the send fails (as with no broker connected).
+	p.h.Signal(api.Signal{Peer: "", Blob: hello})
+	l.mu.Lock()
+	kept, pending := string(l.lastHello), l.helloPending
+	l.mu.Unlock()
+	if kept != string(hello) || !pending {
+		t.Fatalf("kept %q pending %v", kept, pending)
+	}
+
+	var sent []string
+	l.mu.Lock()
+	l.peers["ok"] = LanPeer{State: api.PeerConnected}
+	l.mu.Unlock()
+	try := func(peer string, lanOn, fresh bool) bool {
+		l.mu.Lock()
+		before := l.helloSent[peer]
+		l.mu.Unlock()
+		l.memberSeen(peer, lanOn, fresh)
+		l.mu.Lock()
+		after := l.helloSent[peer]
+		l.mu.Unlock()
+		if after != before {
+			sent = append(sent, peer)
+			return true
 		}
+		return false
+	}
+	if !try("new", true, true) {
+		t.Fatal("no Hello for a new member with LAN on")
+	}
+	if try("new", true, false) {
+		t.Fatal("resent within the gap")
+	}
+	if try("off", false, true) || try("ok", true, true) {
+		t.Fatal("Hello to a member with LAN off, or with a working tunnel")
+	}
+	l.mu.Lock()
+	l.helloSent["new"] = time.Now().Add(-2 * helloResendGap)
+	l.mu.Unlock()
+	if !try("new", true, false) {
+		t.Fatal("not resent after the gap")
+	}
+
+	// LAN going down forgets it.
+	l.Disable()
+	l.mu.Lock()
+	gone := l.lastHello == nil && !l.helloPending
+	l.mu.Unlock()
+	if !gone {
+		t.Fatal("Hello kept after Disable")
+	}
+}
+
+// TestLanExpiredHold: a member that times out keeps a working tunnel; one
+// whose tunnel is down is dropped at once.
+func TestLanExpiredHold(t *testing.T) {
+	old := lanHold
+	lanHold = 50 * time.Millisecond
+	t.Cleanup(func() { lanHold = old })
+	_, l, p := lanUp(t)
+	p.h.PeerState(api.PeerState{Peer: "up", State: api.PeerConnected})
+	p.h.PeerState(api.PeerState{Peer: "down", State: api.PeerFailed})
+
+	l.expired("down")
+	if m := p.last(api.TypeDrop); m == nil || m.Drop.Peer != "down" {
+		t.Fatalf("a timed-out member with no tunnel wasn't dropped: %+v", m)
+	}
+	l.expired("up")
+	time.Sleep(120 * time.Millisecond)
+	if m := p.last(api.TypeDrop); m.Drop.Peer == "up" {
+		t.Fatal("a timed-out member with a working tunnel was dropped")
+	}
+	// Its tunnel goes down while it is still away: dropped at the next check.
+	p.h.PeerState(api.PeerState{Peer: "up", State: api.PeerConnecting})
+	waitFor(t, "the drop", func() bool { m := p.last(api.TypeDrop); return m != nil && m.Drop.Peer == "up" })
+
+	// Back in presence before the hold runs out: kept.
+	p.h.PeerState(api.PeerState{Peer: "back", State: api.PeerConnected})
+	l.expired("back")
+	l.memberSeen("back", true, true)
+	l.mu.Lock()
+	held := l.holds["back"] != nil
+	l.mu.Unlock()
+	if held {
+		t.Fatal("hold not cancelled by presence")
 	}
 }
 

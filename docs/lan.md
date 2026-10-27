@@ -218,8 +218,14 @@ info), so the bind can be swapped without touching the shim, pipe or UI.
   fresh agent. A `ConnectivityLoop` watches `NotifyIpInterfaceChange` and
   re-dials when the user moves between Wi-Fi and Ethernet.
 - **A broker outage does not tear down tunnels.** Once a tunnel is up its
-  traffic never touches MQTT. A peer is removed only after 60 s with no
-  presence *and* no WireGuard handshake.
+  traffic never touches MQTT. A member that times out of presence (13 s)
+  keeps its tunnel while ICE stays connected; it is dropped once it has been
+  gone 60 s with the tunnel down, or at once when it leaves the room.
+- **Hellos are resent.** The GUI keeps the service's last room-wide Hello
+  and sends it again to a member that shows up (or turns LAN on) with no
+  working tunnel to us, at most every 20 s per member, and room-wide when a
+  broker reconnects after the send found none. Without that, a member that
+  dropped us (a restart, a long outage) would never get our Hello again.
 - **Optional later:** `tailscale.com/net/portmapper` (BSD-3) for UPnP, NAT-PMP
   and PCP, to raise the share of direct paths.
 

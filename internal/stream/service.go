@@ -369,6 +369,7 @@ func (s *StreamService) JoinRoom(code string) (State, error) {
 	room, err := OpenRoom(canon, s.self, s.onMessage, func() {
 		s.announce()
 		s.emitState()
+		s.lanRoomConnected()
 	})
 	if err != nil {
 		return s.GetState(), err
@@ -481,7 +482,7 @@ func (s *StreamService) expireMembers(now time.Time) {
 			bc.removePeer(id)
 		}
 	}
-	s.lanDropped(gone...)
+	s.lanExpired(gone...)
 }
 
 // onMessage handles one room message from another peer.
@@ -496,6 +497,7 @@ func (s *StreamService) onMessage(env Envelope) {
 		m := s.members[env.From]
 		isNew := m == nil
 		wasLive := m != nil && m.Live != nil
+		wasLan := m != nil && m.Lan != nil && m.Lan.On
 		if m == nil {
 			m = &member{}
 			s.members[env.From] = m
@@ -506,8 +508,12 @@ func (s *StreamService) onMessage(env Envelope) {
 		salt := s.lanCollisionLocked(m.Lan)
 		notify := s.settings.NotifyLive && p.Live != nil && !wasLive
 		name := m.Name
+		lanOn := m.Lan != nil && m.Lan.On
 		l, settings := s.lan, s.settings
 		s.mu.Unlock()
+		if l != nil {
+			l.memberSeen(env.From, lanOn, isNew || (lanOn && !wasLan))
+		}
 		if salt != 0 && l != nil {
 			logf("LAN address %s is also %s's; moving", m.Lan.IP, name)
 			if err := saveSettings(settings); err != nil {

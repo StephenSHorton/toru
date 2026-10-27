@@ -22,11 +22,14 @@ import (
 // lanLink is what the room talks to on the LAN side: LanService, or a fake
 // in tests. Methods are unexported so Wails doesn't bind them.
 type lanLink interface {
-	signal(peer string, blob json.RawMessage) // a msgLan from peer, for the service
-	drop(peer string)                         // peer left the room or timed out
-	readdress(salt uint32)                    // our address collides; re-derive it with salt
-	roomChanged(room string)                  // joined room (its hash), or "" = left
-	iceChanged()                              // the ICE list changed (fresh TURN credentials)
+	signal(peer string, blob json.RawMessage)  // a msgLan from peer, for the service
+	drop(peer string)                          // peer left the room
+	expired(peer string)                       // peer timed out of presence (it may come back)
+	memberSeen(peer string, lanOn, fresh bool) // presence from peer; fresh = new, or just turned LAN on
+	readdress(salt uint32)                     // our address collides; re-derive it with salt
+	roomChanged(room string)                   // joined room (its hash), or "" = left
+	roomConnected()                            // a broker (re)connected
+	iceChanged()                               // the ICE list changed (fresh TURN credentials)
 }
 
 // readdressGap is how long after a Readdress the same collision is left
@@ -130,7 +133,7 @@ func (s *StreamService) onLanMessage(env Envelope) {
 	}
 }
 
-// lanDropped tells the LAN side these members are gone.
+// lanDropped tells the LAN side these members left.
 func (s *StreamService) lanDropped(ids ...string) {
 	s.mu.Lock()
 	l := s.lan
@@ -141,6 +144,36 @@ func (s *StreamService) lanDropped(ids ...string) {
 	for _, id := range ids {
 		l.drop(id)
 	}
+}
+
+// lanExpired tells the LAN side these members timed out of presence.
+func (s *StreamService) lanExpired(ids ...string) {
+	s.mu.Lock()
+	l := s.lan
+	s.mu.Unlock()
+	if l == nil {
+		return
+	}
+	for _, id := range ids {
+		l.expired(id)
+	}
+}
+
+// lanRoomConnected tells the LAN side a broker (re)connected.
+func (s *StreamService) lanRoomConnected() {
+	s.mu.Lock()
+	l := s.lan
+	s.mu.Unlock()
+	if l != nil {
+		l.roomConnected()
+	}
+}
+
+// isMember reports whether id is in the room's presence right now.
+func (s *StreamService) isMember(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.members[id] != nil
 }
 
 // lanRoomChanged tells the LAN side which room we're in now ("" = none).

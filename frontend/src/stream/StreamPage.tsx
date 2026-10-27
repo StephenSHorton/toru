@@ -473,7 +473,9 @@ function LanCard({ lan, run }: { lan: LanState; run: (fn: () => Promise<LanState
   const [copied, setCopied] = useState(false);
   const busy = lan.busy !== "";
   const installed = lan.state !== "setup" && lan.state !== "unsupported";
-  const switchable = installed && lan.state !== "update";
+  // While LAN waits for an update the switch stays, if it is on, so it can
+  // be turned off.
+  const switchable = installed && (lan.state !== "update" || lan.wanted);
 
   const copy = async () => {
     if (!(await copyText(lan.ip, "LAN address"))) return;

@@ -9,13 +9,20 @@ package api
 
 import "encoding/json"
 
-// Protocol is the pipe protocol version. Bump the minor on additive changes
-// (new optional fields, new message types an older peer can ignore) and the
-// major on anything an older peer would misread. The GUI shows "Update LAN
-// (needs admin)" when the service's major differs or its version is older.
+// Protocol is the pipe protocol version. Bump the minor whenever the
+// service must be replaced for this GUI: additive pipe changes (new optional
+// fields, new message types an older peer can ignore) and any service
+// change peers or the GUI rely on (signaling, checks, firewall rules). Bump
+// the major on anything an older peer would misread. The GUI shows "Update
+// LAN (needs admin)" only when the service's major differs or its minor is
+// older; the app version is not compared, so a Toru release that leaves the
+// service alone needs no UAC prompt.
+//
+// Minor 1: Hello carries the address salt (peers check it), data folder
+// reparse-point checks, the firewall's system-RPC block rules.
 const (
 	ProtocolMajor = 1
-	ProtocolMinor = 0
+	ProtocolMinor = 1
 )
 
 // PipeName is the service's named pipe. ProtectedPrefix\Administrators stops

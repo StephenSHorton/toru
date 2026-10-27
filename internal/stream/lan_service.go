@@ -3,8 +3,6 @@ package stream
 import (
 	"encoding/json"
 	"errors"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +42,16 @@ const (
 
 // lanStartWait is how long LAN may take to come up before the card says so.
 var lanStartWait = 20 * time.Second
+
+var (
+	// lanHold is how long a member that timed out of presence keeps a
+	// working tunnel before it is checked again (docs/lan.md: a broker
+	// outage does not tear down tunnels).
+	lanHold = 60 * time.Second
+	// helloResendGap spaces the Hellos resent to one member that has no
+	// working tunnel to us.
+	helloResendGap = 20 * time.Second
+)
 
 // LanPeer is one member's tunnel as our LAN service sees it.
 type LanPeer struct {
@@ -130,10 +138,18 @@ type LanService struct {
 	errDetail   string
 	busy        string
 	watchdog    *time.Timer
+
+	// lastHello is the service's last room-wide Hello ("" peer), resent to
+	// members that have no tunnel to us: a Hello lost to a broker outage,
+	// or one a member dropped us before, is otherwise never sent again.
+	lastHello    json.RawMessage
+	helloPending bool                   // the last room-wide send failed (no broker)
+	helloSent    map[string]time.Time   // last resend per member
+	holds        map[string]*time.Timer // timed-out members whose tunnel still works
 }
 
 // NewLanService returns the LAN card's service for s; appVersion is this
-// Toru's version ("dev" never asks for a LAN update over versions alone).
+// Toru's version, shown on the card (updates go by protocol, not version).
 func NewLanService(s *StreamService, appVersion string) *LanService {
 	l := newLanService(s, appVersion, defaultLanOS(), func(h client.Handlers) lanPipe { return client.New(h) })
 	return l
@@ -146,6 +162,7 @@ func newLanService(s *StreamService, appVersion string, os lanOS, newPipe func(c
 	l := &LanService{
 		s: s, appVersion: appVersion, os: os, newPipe: newPipe,
 		peers: map[string]LanPeer{}, wanted: wanted, status: api.Status{State: api.StateOff},
+		helloSent: map[string]time.Time{}, holds: map[string]*time.Timer{},
 	}
 	s.setLan(l)
 	return l
@@ -301,12 +318,99 @@ func (l *LanService) drop(peer string) {
 	p, ok := l.pipe, l.connected
 	_, had := l.peers[peer]
 	delete(l.peers, peer)
+	delete(l.helloSent, peer)
+	if h := l.holds[peer]; h != nil {
+		h.Stop()
+		delete(l.holds, peer)
+	}
 	l.mu.Unlock()
 	if ok {
 		_ = p.Drop(peer)
 	}
 	if had {
 		l.emit()
+	}
+}
+
+// expired: peer timed out of presence. A working tunnel stays (the game
+// keeps running through a broker outage); it is dropped once the member has
+// been gone lanHold and its tunnel is down, or when it leaves.
+func (l *LanService) expired(peer string) {
+	l.mu.Lock()
+	ps, have := l.peers[peer]
+	if !have || ps.State != api.PeerConnected || !l.connected {
+		l.mu.Unlock()
+		l.drop(peer)
+		return
+	}
+	if l.holds[peer] == nil {
+		l.holds[peer] = time.AfterFunc(lanHold, func() {
+			l.mu.Lock()
+			delete(l.holds, peer)
+			l.mu.Unlock()
+			if !l.s.isMember(peer) {
+				l.expired(peer) // still gone: drop, or hold again if it still works
+			}
+		})
+	}
+	l.mu.Unlock()
+}
+
+// memberSeen: presence from peer. A member with LAN on and no working
+// tunnel to us gets our Hello again (fresh: at once; otherwise at most every
+// helloResendGap): it may have dropped us while we were away, or our Hello
+// may have been lost to a broker outage.
+func (l *LanService) memberSeen(peer string, lanOn, fresh bool) {
+	l.mu.Lock()
+	if h := l.holds[peer]; h != nil {
+		h.Stop()
+		delete(l.holds, peer)
+	}
+	blob := l.lastHello
+	ps, have := l.peers[peer]
+	send := len(blob) > 0 && lanOn && l.connected && l.upRoom != "" && (!have || ps.State != api.PeerConnected)
+	if send && !fresh {
+		if at, ok := l.helloSent[peer]; ok && time.Since(at) < helloResendGap {
+			send = false
+		}
+	}
+	if send {
+		l.helloSent[peer] = time.Now()
+	}
+	l.mu.Unlock()
+	if send {
+		if err := l.s.lanSend(peer, blob); err != nil {
+			logf("LAN hello to %s: %v", peer, err)
+		}
+	}
+}
+
+// roomConnected: a broker (re)connected. A room-wide Hello that found no
+// broker goes out now.
+func (l *LanService) roomConnected() {
+	l.mu.Lock()
+	blob, pending := l.lastHello, l.helloPending
+	ok := pending && len(blob) > 0 && l.connected && l.upRoom != ""
+	l.mu.Unlock()
+	if !ok {
+		return
+	}
+	if err := l.s.lanSend("", blob); err == nil {
+		l.mu.Lock()
+		if string(l.lastHello) == string(blob) {
+			l.helloPending = false
+		}
+		l.mu.Unlock()
+	}
+}
+
+// forgetHelloLocked clears the resend state when the service's node goes.
+func (l *LanService) forgetHelloLocked() {
+	l.lastHello, l.helloPending = nil, false
+	l.helloSent = map[string]time.Time{}
+	for id, h := range l.holds {
+		h.Stop()
+		delete(l.holds, id)
 	}
 }
 
@@ -437,11 +541,12 @@ func (l *LanService) sendUp() {
 // takeDown sends Down if LAN is up; closePipe also drops the pipe.
 func (l *LanService) takeDown(closePipe bool) {
 	l.mu.Lock()
-	p, wasUp := l.pipe, l.connected && l.upRoom != ""
+	p, wasUp := l.pipe, l.connected && (l.upRoom != "" || serviceUp(l.status))
 	l.upRoom = ""
 	l.status = api.Status{State: api.StateOff}
 	l.peers = map[string]LanPeer{}
 	l.errCode, l.errDetail = "", ""
+	l.forgetHelloLocked()
 	l.stopWatchdogLocked()
 	if closePipe {
 		l.pipe, l.connected = nil, false
@@ -540,12 +645,30 @@ func (l *LanService) handlers(gen int) client.Handlers {
 			l.connected, l.upRoom = false, ""
 			l.status = api.Status{State: api.StateOff}
 			l.peers = map[string]LanPeer{}
+			l.forgetHelloLocked()
 			if errors.As(err, &inc) {
 				l.hello, l.needsUpdate = inc.Hello, true
+			}
+			// The service stopped under a live pipe (stopped from
+			// services.msc, an idle stop racing Enable, a crash): the pipe
+			// redials, but nothing would start the service again.
+			restart := l.wanted && l.room != "" && l.info.installed && !l.updateLocked() && l.busy == ""
+			if restart {
+				l.armWatchdogLocked()
 			}
 			ip, pub := l.hello.IP, l.hello.PubKey
 			l.mu.Unlock()
 			l.s.setLanInfo(lanInfo(ip, pub, false))
+			if restart {
+				if err := l.os.start(); err != nil {
+					l.mu.Lock()
+					ok := current()
+					l.mu.Unlock()
+					if ok {
+						l.fail(LanErrService, err.Error())
+					}
+				}
+			}
 			l.emit()
 		},
 		Status: func(st api.Status) {
@@ -573,8 +696,17 @@ func (l *LanService) handlers(gen int) client.Handlers {
 			if st.PubKey != "" {
 				l.hello.PubKey = st.PubKey
 			}
-			ip, pub, on := l.hello.IP, l.hello.PubKey, st.State == api.StateOn && l.wanted
+			// An older service still up (left up by the Toru before an
+			// update) keeps the adapter's metric and broadcast routes while
+			// the card waits for Update LAN: take it down.
+			down := l.updateLocked() && serviceUp(st)
+			p := l.pipe
+			ip, pub, on := l.hello.IP, l.hello.PubKey, st.State == api.StateOn && l.wanted && !down
 			l.mu.Unlock()
+			if down && p != nil {
+				logf("LAN: the service needs an update; taking LAN down")
+				_ = p.Down()
+			}
 			l.s.setLanInfo(lanInfo(ip, pub, on))
 			l.emit()
 		},
@@ -608,7 +740,19 @@ func (l *LanService) handlers(gen int) client.Handlers {
 			if !ok {
 				return
 			}
-			if err := l.s.lanSend(sig.Peer, sig.Blob); err != nil {
+			err := l.s.lanSend(sig.Peer, sig.Blob)
+			if sig.Peer == "" {
+				// The service sends only its Hello room-wide (on Up and after
+				// a Readdress): keep it for members that miss it.
+				l.mu.Lock()
+				if current() {
+					l.lastHello = append(json.RawMessage(nil), sig.Blob...)
+					l.helloPending = err != nil
+					l.helloSent = map[string]time.Time{}
+				}
+				l.mu.Unlock()
+			}
+			if err != nil {
 				logf("LAN signal to %s: %v", sig.Peer, err)
 			}
 		},
@@ -616,54 +760,17 @@ func (l *LanService) handlers(gen int) client.Handlers {
 }
 
 // olderService reports whether the service in h must be updated for this
-// Toru: another protocol, an older minor, or an older build.
+// Toru: another major protocol or an older minor. The app version is not
+// compared: every release builds both binaries with the same version, so
+// that would put LAN behind a UAC prompt after every Toru update. The minor
+// is bumped whenever the service must be replaced (api.ProtocolMinor).
 func (l *LanService) olderService(h api.Hello) bool {
-	if h.Major != api.ProtocolMajor || h.Minor < api.ProtocolMinor {
-		return true
-	}
-	if l.appVersion == "" || l.appVersion == "dev" {
-		return false
-	}
-	return versionLess(h.Version, l.appVersion)
+	return h.Major != api.ProtocolMajor || h.Minor < api.ProtocolMinor
 }
 
-// versionLess compares "1.2.3" style versions (a leading v and any
-// "-suffix" ignored). A version that doesn't parse is older than one that does.
-func versionLess(a, b string) bool {
-	pa, okA := parseVersion(a)
-	pb, okB := parseVersion(b)
-	if !okB {
-		return false
-	}
-	if !okA {
-		return true
-	}
-	for i := range pa {
-		if pa[i] != pb[i] {
-			return pa[i] < pb[i]
-		}
-	}
-	return false
-}
-
-func parseVersion(v string) ([3]int, bool) {
-	var out [3]int
-	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	if i := strings.IndexAny(v, "-+"); i >= 0 {
-		v = v[:i]
-	}
-	parts := strings.Split(v, ".")
-	if len(parts) == 0 || len(parts) > 3 {
-		return out, false
-	}
-	for i, p := range parts {
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 0 {
-			return out, false
-		}
-		out[i] = n
-	}
-	return out, true
+// serviceUp: the service reports LAN up or coming up.
+func serviceUp(st api.Status) bool {
+	return st.State == api.StateOn || st.State == api.StateStarting
 }
 
 func lanPeer(ps api.PeerState) LanPeer {
