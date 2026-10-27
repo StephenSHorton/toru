@@ -30,6 +30,7 @@ const (
 type waitClock struct {
 	handles    [2]windows.Handle // [interrupt (manual reset), timer]
 	stop       atomic.Bool       // mirrors the event for the spin loop
+	stopMu     sync.Mutex        // makes stop and the event change together
 	freq       int64             // QPC ticks per second
 	spinMargin int64             // ns
 	closeOnce  sync.Once
@@ -163,12 +164,16 @@ func (c *waitClock) spin(deadline int64) bool {
 // Interrupt wakes a WaitUntil in progress and makes later ones return false
 // until ClearInterrupt. Safe from any goroutine.
 func (c *waitClock) Interrupt() {
+	c.stopMu.Lock()
+	defer c.stopMu.Unlock()
 	c.stop.Store(true)
 	_ = windows.SetEvent(c.handles[0])
 }
 
 // ClearInterrupt re-arms waiting.
 func (c *waitClock) ClearInterrupt() {
+	c.stopMu.Lock()
+	defer c.stopMu.Unlock()
 	_ = windows.ResetEvent(c.handles[0])
 	c.stop.Store(false)
 }

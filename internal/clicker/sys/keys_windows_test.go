@@ -26,6 +26,9 @@ func TestKeyScan(t *testing.T) {
 		{"LCtrl", 0x1D, false, false},
 		{"RCtrl", 0x1D, true, false},
 		{"1", 0x02, false, false},
+		// MapVirtualKeyW gives the Alt+SysRq scan, which Windows maps back to
+		// VK_SNAPSHOT.
+		{"PrintScreen", 0x54, false, false},
 	}
 	for _, c := range cases {
 		scan, ext, letter, err := KeyScan(c.name)
@@ -38,7 +41,7 @@ func TestKeyScan(t *testing.T) {
 				c.name, scan, ext, letter, c.scan, c.extended, c.letter)
 		}
 	}
-	for _, bad := range []string{"", "MouseMiddle", "Mouse4", "F25", "F0", "Bogus"} {
+	for _, bad := range []string{"", "MouseMiddle", "Mouse4", "F25", "F0", "Bogus", "Pause"} {
 		if _, _, _, err := KeyScan(bad); err == nil {
 			t.Errorf("KeyScan(%q) succeeded, want an error", bad)
 		}

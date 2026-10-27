@@ -22,10 +22,14 @@ const (
 // KeyScan resolves a hotkey.KeyName spelling ("A", "7", "F5", "Space", "Num5",
 // "Up", "[", "LCtrl") to the scan code the clicker sends. scan is the low byte
 // of MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX); extended is set when that call
-// reports an 0xE0/0xE1 prefix (Num/, RCtrl, RAlt, PrintScreen, ...) and for the
-// navigation cluster (arrows, Ins/Del/Home/End/PgUp/PgDn; see navExtended).
-// isLetter is true for A-Z, the keys Shift wrapping applies to. Mouse button
-// names are not keys and return an error.
+// reports an 0xE0 prefix (Num/, RCtrl, RAlt, ...) and for the navigation
+// cluster (arrows, Ins/Del/Home/End/PgUp/PgDn; see navExtended). PrintScreen
+// comes back as 0x54 (the Alt+SysRq scan) with no prefix; Windows maps that
+// scan back to VK_SNAPSHOT, so it is sent as is. An 0xE1 prefix (Pause, whose
+// make sequence is E1 1D 45) cannot be expressed as one scan code plus
+// KEYEVENTF_EXTENDEDKEY: sending the low byte would press Right Ctrl, so those
+// keys return an error. isLetter is true for A-Z, the keys Shift wrapping
+// applies to. Mouse button names are not keys and return an error.
 func KeyScan(keyName string) (scan uint16, extended bool, isLetter bool, err error) {
 	vk, letter, ok := vkForName(keyName)
 	if !ok {
@@ -37,7 +41,10 @@ func KeyScan(keyName string) (scan uint16, extended bool, isLetter bool, err err
 		return 0, false, false, fmt.Errorf("clicker/sys: key %q has no scan code on this layout", keyName)
 	}
 	prefix := sc >> 8
-	return sc & 0xFF, prefix == 0xE0 || prefix == 0xE1 || navExtended(vk), letter, nil
+	if prefix == 0xE1 {
+		return 0, false, false, fmt.Errorf("clicker/sys: key %q cannot be sent by scan code", keyName)
+	}
+	return sc & 0xFF, prefix == 0xE0 || navExtended(vk), letter, nil
 }
 
 // navExtended reports the dedicated navigation keys. They share their scan
