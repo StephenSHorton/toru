@@ -7,9 +7,11 @@
     "dev": "vite",
     "build:dev": "tsc && vite build --minify false --mode development",
     "build": "tsc && vite build --mode production",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:denoise": "node scripts/denoise-check.mjs"
   },
   "dependencies": {
+    "@lofcz/deepfilternet-web": "0.1.0",
     "@wailsio/runtime": "latest",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -165,7 +165,7 @@ export default function StreamPage() {
             onWatch={watch}
           />
         ) : null}
-        <VoiceCard state={state} onChange={(ns, mic, speaker) => void run(() => StreamService.SetVoice(ns, mic, speaker))} />
+        <VoiceCard state={state} onChange={(noise, mic, speaker) => void run(() => StreamService.SetVoice(noise, mic, speaker))} />
         <LiveCard
           state={state}
           inCall={inCall}
@@ -516,6 +516,12 @@ function CallTile({ tile, canWatch, onWatch }: { tile: Tile; canWatch: boolean; 
   );
 }
 
+const NOISE_CAPTIONS: Record<string, string> = {
+  off: "Your mic as it is",
+  standard: "Filters out fans, hum and steady background noise",
+  ai: "Also removes keyboard clicks and other sudden sounds",
+};
+
 // VoiceCard: noise suppression and the mic and speaker devices. The hidden
 // call window applies changes at once.
 function VoiceCard({
@@ -523,7 +529,7 @@ function VoiceCard({
   onChange,
 }: {
   state: StreamState;
-  onChange: (noiseSuppression: boolean, mic: string, speaker: string) => void;
+  onChange: (noiseMode: string, mic: string, speaker: string) => void;
 }) {
   const call = state.call;
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -550,17 +556,24 @@ function VoiceCard({
   return (
     <Card label="Voice">
       <CardHead icon={Mic} title="Voice" caption="Applies right away, even mid-call" />
-      <Row label="Noise suppression" caption="Filters out fans, keyboards and background noise">
-        <Switch
-          checked={call.noiseSuppression}
-          onCheckedChange={(ns) => onChange(ns, call.micDevice, call.speakerDevice)}
+      <Row label="Noise suppression" caption={NOISE_CAPTIONS[call.noiseMode] ?? NOISE_CAPTIONS.standard}>
+        <Segmented
+          size="xs"
+          value={call.noiseMode}
+          options={[
+            { value: "off", label: "Off" },
+            { value: "standard", label: "Standard", title: "The browser's built-in noise suppression" },
+            { value: "ai", label: "AI", title: "DeepFilterNet3 speech enhancement, runs on this PC" },
+          ]}
+          onChange={(noise) => onChange(noise, call.micDevice, call.speakerDevice)}
+          aria-label="Noise suppression"
         />
       </Row>
       <Row label="Microphone">
         <Select
           value={mics.some((m) => m.value === call.micDevice) ? call.micDevice : ""}
           options={mics}
-          onChange={(mic) => onChange(call.noiseSuppression, mic, call.speakerDevice)}
+          onChange={(mic) => onChange(call.noiseMode, mic, call.speakerDevice)}
           boxClassName="w-56"
         />
       </Row>
@@ -568,7 +581,7 @@ function VoiceCard({
         <Select
           value={speakers.some((m) => m.value === call.speakerDevice) ? call.speakerDevice : ""}
           options={speakers}
-          onChange={(speaker) => onChange(call.noiseSuppression, call.micDevice, speaker)}
+          onChange={(speaker) => onChange(call.noiseMode, call.micDevice, speaker)}
           boxClassName="w-56"
         />
       </Row>

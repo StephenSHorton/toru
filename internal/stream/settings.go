@@ -20,6 +20,15 @@ const (
 	CodecAV1  = "av1"
 )
 
+// Call noise suppression modes. Standard is Chromium's own (WebRTC's) noise
+// suppressor; AI is DeepFilterNet3 running in the call window, which also
+// takes out sudden sounds like key presses.
+const (
+	NoiseOff      = "off"
+	NoiseStandard = "standard"
+	NoiseAI       = "ai"
+)
+
 // Limits on what Settings accepts. They are sanity bounds, not quality caps.
 const (
 	MinFPS         = 1
@@ -56,9 +65,13 @@ type Settings struct {
 	ShowPreview bool `json:"showPreview"`
 
 	// Voice call. Devices are WebView2 device ids; "" = the system default.
-	NoiseSuppression bool   `json:"noiseSuppression"`
-	MicDevice        string `json:"micDevice"`
-	SpeakerDevice    string `json:"speakerDevice"`
+	NoiseMode     string `json:"noiseMode"` // NoiseOff | NoiseStandard | NoiseAI
+	MicDevice     string `json:"micDevice"`
+	SpeakerDevice string `json:"speakerDevice"`
+	// NoiseSuppression is the 0.11.0 on/off switch, kept in step with
+	// NoiseMode (on = not off) so an older Toru reading this file still
+	// works. A file with only this field gets its NoiseMode from it.
+	NoiseSuppression bool `json:"noiseSuppression"`
 }
 
 // DefaultSettings is the first-run setup: the main monitor as-is at 60 fps.
@@ -74,6 +87,7 @@ func DefaultSettings() Settings {
 		Audio:            true,
 		AudioKbps:        160,
 		NotifyLive:       true,
+		NoiseMode:        NoiseStandard,
 		NoiseSuppression: true,
 	}
 }
@@ -136,6 +150,17 @@ func Normalize(s Settings) Settings {
 		s.AudioKbps = d.AudioKbps
 	}
 	s.AudioKbps = clamp(s.AudioKbps, 32, 510)
+	switch s.NoiseMode {
+	case NoiseOff, NoiseStandard, NoiseAI:
+	case "":
+		s.NoiseMode = NoiseOff
+		if s.NoiseSuppression {
+			s.NoiseMode = NoiseStandard
+		}
+	default:
+		s.NoiseMode = d.NoiseMode
+	}
+	s.NoiseSuppression = s.NoiseMode != NoiseOff
 	return s
 }
 
@@ -178,6 +203,7 @@ func loadSettings() Settings {
 	if err != nil {
 		return s
 	}
+	s.NoiseMode = "" // a file from before noiseMode: Normalize derives it from noiseSuppression
 	_ = json.Unmarshal(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), &s)
 	return Normalize(s)
 }
