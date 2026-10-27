@@ -22,7 +22,9 @@ const (
 	KindVideo = "video"
 )
 
-// MaxItems is the cap for the tray "Recent" list (newest first).
+// MaxItems is how many captures the tray "Recent" menu shows (newest first).
+// The library itself keeps everything unless the user turns on auto-delete
+// (see Retention).
 const MaxItems = 12
 
 // Item is one recent capture shown in the tray menu.
@@ -40,6 +42,7 @@ type Store struct {
 	items    []Item
 	dir      string // %AppData%/toru/captures
 	index    string // %AppData%/toru/captures/index.json
+	keep     Retention
 	onChange func()
 }
 
@@ -48,7 +51,7 @@ type Store struct {
 // initial tray build — the caller usually rebuilds once on start anyway).
 // The directory is the user-configured path when set, otherwise DefaultDir.
 func New(onChange func()) *Store {
-	s := &Store{onChange: onChange}
+	s := &Store{onChange: onChange, keep: loadRetention()}
 	dir, err := loadPreferredDir()
 	if err != nil {
 		return s
@@ -259,15 +262,11 @@ func (s *Store) Add(srcPath, kind string) (Item, error) {
 	// prepend and cap.
 	s.pruneMissingLocked()
 	s.items = append([]Item{item}, s.items...)
-	if len(s.items) > MaxItems {
-		// Drop oldest files that fell off the list (best-effort).
-		dropped := s.items[MaxItems:]
-		s.items = s.items[:MaxItems]
-		for _, d := range dropped {
-			_ = os.Remove(d.Path)
-		}
-	}
+	dropped := s.expireLocked(now)
 	_ = saveIndex(s.index, s.items) // keep in-memory even if index write fails
+	for _, d := range dropped {
+		_ = os.Remove(d.Path) // best-effort
+	}
 
 	cb := s.onChange
 	s.mu.Unlock()
@@ -278,6 +277,68 @@ func (s *Store) Add(srcPath, kind string) (Item, error) {
 	// Also broadcast so an open dashboard library refreshes live.
 	emitHistoryChanged()
 	return item, nil
+}
+
+// Retention returns the library's auto-delete choice.
+func (s *Store) Retention() Retention {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.keep
+}
+
+// CountExpired reports how many current captures r would delete right now,
+// so the UI can ask before a tighter limit removes existing files.
+func (s *Store) CountExpired(r Retention) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, drop := splitExpired(s.items, r, time.Now())
+	return len(drop)
+}
+
+// SetRetention saves r and applies it immediately.
+func (s *Store) SetRetention(r Retention) error {
+	r = r.normalized()
+	if err := saveRetention(r); err != nil {
+		return fmt.Errorf("history: persist retention: %w", err)
+	}
+	s.mu.Lock()
+	s.keep = r
+	s.mu.Unlock()
+	s.Expire()
+	return nil
+}
+
+// Expire deletes the captures the retention choice no longer keeps. Called
+// on Add, on SetRetention, and periodically so "older than N days" applies
+// to a tray app that runs for weeks without new captures.
+func (s *Store) Expire() {
+	s.mu.Lock()
+	dropped := s.expireLocked(time.Now())
+	if len(dropped) > 0 {
+		_ = saveIndex(s.index, s.items)
+	}
+	cb := s.onChange
+	s.mu.Unlock()
+	if len(dropped) == 0 {
+		return
+	}
+	for _, d := range dropped {
+		_ = os.Remove(d.Path)
+	}
+	if cb != nil {
+		cb()
+	}
+	emitHistoryChanged()
+}
+
+// expireLocked trims s.items to the retention choice and returns what fell
+// off; the caller saves the index and removes the files. Caller holds mu.
+func (s *Store) expireLocked(now time.Time) []Item {
+	keep, drop := splitExpired(s.items, s.keep, now)
+	if len(drop) > 0 {
+		s.items = append([]Item(nil), keep...)
+	}
+	return drop
 }
 
 // pruneMissingLocked drops items whose files no longer exist. Caller holds mu.

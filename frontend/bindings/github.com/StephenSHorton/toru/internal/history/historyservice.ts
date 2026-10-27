@@ -26,6 +26,13 @@ export function Add(srcPath: string, kind: string): $CancellablePromise<$models.
 }
 
 /**
+ * CountExpired reports how many existing captures r would delete right away.
+ */
+export function CountExpired(r: $models.Retention): $CancellablePromise<number> {
+    return $Call.ByID(2224816079, r);
+}
+
+/**
  * Delete removes one capture from the list and deletes its file.
  */
 export function Delete(id: string): $CancellablePromise<void> {
@@ -40,6 +47,15 @@ export function GetDir(): $CancellablePromise<string> {
 }
 
 /**
+ * GetRetention returns the library auto-delete choice.
+ */
+export function GetRetention(): $CancellablePromise<$models.Retention> {
+    return $Call.ByID(249498301).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+/**
  * IsDefaultDir reports whether the library uses the built-in default path.
  */
 export function IsDefaultDir(): $CancellablePromise<boolean> {
@@ -51,7 +67,7 @@ export function IsDefaultDir(): $CancellablePromise<boolean> {
  */
 export function List(): $CancellablePromise<$models.Item[]> {
     return $Call.ByID(351740431).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType2($result);
     });
 }
 
@@ -102,6 +118,14 @@ export function SetDir(path: string): $CancellablePromise<void> {
     return $Call.ByID(446929228, path);
 }
 
+/**
+ * SetRetention saves the auto-delete choice and applies it immediately.
+ */
+export function SetRetention(r: $models.Retention): $CancellablePromise<void> {
+    return $Call.ByID(1026975449, r);
+}
+
 // Private type creation functions
 const $$createType0 = $models.Item.createFrom;
-const $$createType1 = $Create.Array($$createType0);
+const $$createType1 = $models.Retention.createFrom;
+const $$createType2 = $Create.Array($$createType0);

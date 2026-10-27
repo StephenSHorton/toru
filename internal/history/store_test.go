@@ -40,16 +40,66 @@ func TestAddAndList(t *testing.T) {
 		t.Fatalf("path mismatch")
 	}
 
-	// Cap: add MaxItems+2 and ensure only MaxItems remain.
-	for i := 0; i < MaxItems+2; i++ {
-		p := filepath.Join(dir, "extra.png")
-		_ = os.WriteFile(p, []byte{byte(i)}, 0o644)
-		if _, err := s.Add(p, KindImage); err != nil {
-			t.Fatalf("Add[%d]: %v", i, err)
+	// Auto-delete is off by default: nothing is capped.
+	addN := func(n int) {
+		for i := 0; i < n; i++ {
+			p := filepath.Join(dir, "extra.png")
+			_ = os.WriteFile(p, []byte{byte(i)}, 0o644)
+			if _, err := s.Add(p, KindImage); err != nil {
+				t.Fatalf("Add[%d]: %v", i, err)
+			}
+			time.Sleep(2 * time.Millisecond) // ids are millisecond-stamped
 		}
 	}
-	if n := len(s.List()); n != MaxItems {
-		t.Fatalf("capped len = %d, want %d", n, MaxItems)
+	addN(MaxItems + 2)
+	if n := len(s.List()); n != MaxItems+3 {
+		t.Fatalf("len = %d, want %d (auto-delete off keeps everything)", n, MaxItems+3)
+	}
+
+	// With a count limit, the next Add trims the oldest and deletes their files.
+	oldest := s.List()[len(s.List())-1]
+	s.keep = Retention{AutoDelete: true, KeepCount: 5}
+	addN(1)
+	if n := len(s.List()); n != 5 {
+		t.Fatalf("len = %d, want 5", n)
+	}
+	if _, err := os.Stat(oldest.Path); !os.IsNotExist(err) {
+		t.Fatalf("oldest file should be deleted, stat err = %v", err)
+	}
+}
+
+func TestSplitExpired(t *testing.T) {
+	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	items := []Item{
+		{ID: "a", TakenAt: now.Add(-1 * time.Hour)},
+		{ID: "b", TakenAt: now.Add(-2 * 24 * time.Hour)},
+		{ID: "c", TakenAt: now.Add(-10 * 24 * time.Hour)},
+		{ID: "d", TakenAt: now.Add(-40 * 24 * time.Hour)},
+	}
+	ids := func(it []Item) string {
+		out := ""
+		for _, x := range it {
+			out += x.ID
+		}
+		return out
+	}
+	cases := []struct {
+		name       string
+		r          Retention
+		keep, drop string
+	}{
+		{"off ignores limits", Retention{AutoDelete: false, KeepCount: 1, KeepDays: 1}, "abcd", ""},
+		{"on with no limits", Retention{AutoDelete: true}, "abcd", ""},
+		{"count", Retention{AutoDelete: true, KeepCount: 2}, "ab", "cd"},
+		{"days", Retention{AutoDelete: true, KeepDays: 7}, "ab", "cd"},
+		{"both, stricter wins", Retention{AutoDelete: true, KeepCount: 3, KeepDays: 1}, "a", "bcd"},
+		{"negative is no limit", Retention{AutoDelete: true, KeepCount: -4}, "abcd", ""},
+	}
+	for _, c := range cases {
+		keep, drop := splitExpired(items, c.r, now)
+		if ids(keep) != c.keep || ids(drop) != c.drop {
+			t.Errorf("%s: keep=%q drop=%q, want %q %q", c.name, ids(keep), ids(drop), c.keep, c.drop)
+		}
 	}
 }
 

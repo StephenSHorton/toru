@@ -31,6 +31,7 @@ import {
   ReplayService,
   SettingsService,
   WindowsService,
+  LibraryRetention,
 } from "@/lib/api";
 import type { CaptureItem, RecordingSession, ReplayClip } from "@/lib/api";
 import { Events as WailsEvents } from "@wailsio/runtime";
@@ -1340,8 +1341,174 @@ function SettingsPage() {
             </Button>
           </div>
         </div>
+
+        <LibraryAutoDelete />
       </div>
       ) : null}
+    </div>
+  );
+}
+
+// Library auto-delete. Off (the default) keeps every capture until you delete
+// it. On, a capture goes once it falls past "Keep at most" or is older than
+// "Delete after", whichever comes first. A change that would delete captures
+// you already have asks first, with the count.
+const KEEP_COUNTS = [0, 25, 50, 100, 250, 500];
+const KEEP_DAYS = [0, 7, 30, 90, 365];
+
+const fmtKeepCount = (n: number) => (n === 0 ? "No limit" : String(n));
+const fmtKeepDays = (d: number) => (d === 0 ? "Never" : d === 365 ? "1 year" : `${d} days`);
+
+function LibraryAutoDelete() {
+  const [saved, setSaved] = useState<LibraryRetention | null>(null);
+  const [pending, setPending] = useState<{ next: LibraryRetention; count: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void HistoryService.GetRetention()
+      .then(setSaved)
+      .catch(() => setSaved(new LibraryRetention()));
+  }, []);
+
+  const apply = async (next: LibraryRetention) => {
+    await HistoryService.SetRetention(next);
+    setSaved(next);
+    setPending(null);
+  };
+
+  // propose applies next straight away unless it would delete existing
+  // captures; then it waits for the user to confirm the count.
+  const propose = async (next: LibraryRetention) => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const count = await HistoryService.CountExpired(next);
+      if (count > 0) setPending({ next, count });
+      else await apply(next);
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirm = async () => {
+    if (!pending || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await apply(pending.next);
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!saved) return null;
+  const shown = pending?.next ?? saved;
+  const withPatch = (patch: Partial<LibraryRetention>) => new LibraryRetention({ ...shown, ...patch });
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-border pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col">
+          <span className="text-sm font-medium">Auto-delete old captures</span>
+          <span className="text-xs text-muted-foreground">
+            Off: screenshots and recordings stay in the library until you delete them
+          </span>
+        </div>
+        <Switch
+          checked={shown.autoDelete}
+          disabled={busy}
+          onCheckedChange={(on) =>
+            void propose(
+              // Turning it on with no limit set would do nothing; start at 30 days.
+              on && !shown.keepCount && !shown.keepDays
+                ? withPatch({ autoDelete: true, keepDays: 30 })
+                : withPatch({ autoDelete: on }),
+            )
+          }
+          aria-label="Automatically delete old library captures"
+        />
+      </div>
+      {shown.autoDelete ? (
+        <>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-muted-foreground">Keep at most (newest first)</span>
+            <ChoiceChips
+              options={KEEP_COUNTS}
+              value={shown.keepCount}
+              format={fmtKeepCount}
+              disabled={busy}
+              onPick={(v) => void propose(withPatch({ keepCount: v }))}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-muted-foreground">Delete after</span>
+            <ChoiceChips
+              options={KEEP_DAYS}
+              value={shown.keepDays}
+              format={fmtKeepDays}
+              disabled={busy}
+              onPick={(v) => void propose(withPatch({ keepDays: v }))}
+            />
+          </div>
+          {!shown.keepCount && !shown.keepDays ? (
+            <span className="text-xs text-muted-foreground">With no limit set, nothing is deleted.</span>
+          ) : null}
+        </>
+      ) : null}
+      {pending ? (
+        <div className="flex flex-wrap items-center gap-2 border border-destructive/40 bg-destructive/10 px-3 py-2">
+          <span className="text-xs">
+            This deletes {pending.count} {pending.count === 1 ? "capture" : "captures"} already in your library.
+          </span>
+          <div className="ml-auto flex gap-2">
+            <Button size="sm" variant="destructive" disabled={busy} onClick={() => void confirm()}>
+              Delete {pending.count}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPending(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {error ? <span className="text-xs text-destructive">{error}</span> : null}
+    </div>
+  );
+}
+
+// ChoiceChips is a row of exclusive choice buttons.
+function ChoiceChips({
+  options,
+  value,
+  format,
+  disabled,
+  onPick,
+}: {
+  options: number[];
+  value: number;
+  format: (v: number) => string;
+  disabled?: boolean;
+  onPick: (v: number) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {options.map((o) => (
+        <Button
+          key={o}
+          size="sm"
+          variant={value === o ? "default" : "outline"}
+          disabled={disabled}
+          onClick={() => onPick(o)}
+          className="h-7 px-2.5 text-xs"
+        >
+          {format(o)}
+        </Button>
+      ))}
     </div>
   );
 }

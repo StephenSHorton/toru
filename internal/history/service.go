@@ -114,6 +114,30 @@ func (s *HistoryService) Delete(id string) error {
 	return s.store.Delete(id)
 }
 
+// GetRetention returns the library auto-delete choice.
+func (s *HistoryService) GetRetention() Retention {
+	if s == nil || s.store == nil {
+		return Retention{}
+	}
+	return s.store.Retention()
+}
+
+// CountExpired reports how many existing captures r would delete right away.
+func (s *HistoryService) CountExpired(r Retention) int {
+	if s == nil || s.store == nil {
+		return 0
+	}
+	return s.store.CountExpired(r)
+}
+
+// SetRetention saves the auto-delete choice and applies it immediately.
+func (s *HistoryService) SetRetention(r Retention) error {
+	if s == nil || s.store == nil {
+		return fmt.Errorf("history: not configured")
+	}
+	return s.store.SetRetention(r)
+}
+
 // GetDir returns the absolute path of the library folder (empty if unset).
 func (s *HistoryService) GetDir() string {
 	if s == nil || s.store == nil {

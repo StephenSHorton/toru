@@ -7,5 +7,6 @@ export {
 };
 
 export {
-    Item
+    Item,
+    Retention
 } from "./models.js";

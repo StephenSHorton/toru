@@ -351,16 +351,18 @@ func (w *WindowsService) openTrimWindow(title, videoPath, servedURL string) {
 }
 
 // trimWindowSize mirrors Trim.tsx fitWindowToVideo: the video at up to its
-// native size inside 95% x 92% of the work area (max 1280 x 960), plus the
+// native size inside 95% x 92% of the work area (max 1280 x 960, min 820 wide
+// so the action row fits), plus the
 // editor chrome below it.
 func trimWindowSize(vw, vh int, screen *application.Screen) (int, int) {
-	const chromeH, sidePad, minW = 196, 32, 520
+	const chromeH, sidePad = 196, 32
 	screenW, screenH := 1600.0, 1000.0
 	if screen != nil && screen.WorkArea.Width > 0 {
 		screenW, screenH = float64(screen.WorkArea.Width), float64(screen.WorkArea.Height)
 	}
 	maxW := math.Min(1280, math.Round(screenW*0.95))
 	maxH := math.Min(960, math.Round(screenH*0.92))
+	minW := math.Min(maxW, 820) // fits the action row on one line
 	aspect := float64(vw) / float64(vh)
 	dispW := math.Min(float64(vw), maxW-sidePad)
 	dispH := dispW / aspect
