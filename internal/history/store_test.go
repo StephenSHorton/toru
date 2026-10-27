@@ -154,6 +154,49 @@ func TestSetDirReloadsIndex(t *testing.T) {
 	}
 }
 
+func TestSetDirPausesAutoDeleteInsteadOfDeleting(t *testing.T) {
+	cfgRoot := t.TempDir()
+	t.Setenv("APPDATA", cfgRoot)
+	t.Setenv("XDG_CONFIG_HOME", cfgRoot)
+
+	// Folder b already holds three captures.
+	b := t.TempDir()
+	sB := &Store{dir: b, index: filepath.Join(b, "index.json")}
+	for i := 0; i < 3; i++ {
+		p := filepath.Join(b, "seed.png")
+		_ = os.WriteFile(p, []byte{byte(i)}, 0o644)
+		if _, err := sB.Add(p, KindImage); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	// Auto-delete "keep at most 1" was confirmed against an empty folder a.
+	a := t.TempDir()
+	s := &Store{dir: a, index: filepath.Join(a, "index.json"), keep: Retention{AutoDelete: true, KeepCount: 1}}
+	if err := s.SetDir(b); err != nil {
+		t.Fatalf("SetDir: %v", err)
+	}
+	if n := len(s.List()); n != 3 {
+		t.Fatalf("len = %d, want 3 (nothing deleted on switch)", n)
+	}
+	if r := s.Retention(); r.AutoDelete || r.KeepCount != 1 {
+		t.Fatalf("retention = %+v, want auto-delete paused with the limit kept", r)
+	}
+	if r := loadRetention(); r.AutoDelete {
+		t.Fatalf("paused retention not persisted: %+v", r)
+	}
+	// A later Add must not delete the old captures either.
+	p := filepath.Join(b, "new.png")
+	_ = os.WriteFile(p, []byte("n"), 0o644)
+	if _, err := s.Add(p, KindImage); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(s.List()); n != 4 {
+		t.Fatalf("after Add len = %d, want 4", n)
+	}
+}
+
 func TestReplaceKeepsItemInPlace(t *testing.T) {
 	dir := t.TempDir()
 	s := &Store{dir: dir, index: filepath.Join(dir, "index.json")}

@@ -126,8 +126,21 @@ func (s *Store) SetDir(dir string) error {
 	s.items = loadIndex(s.index)
 	s.pruneMissingLocked()
 	_ = saveIndex(s.index, s.items)
+	// The user confirmed auto-delete against the OLD folder's contents. If the
+	// new folder holds captures the limits would delete, switch auto-delete
+	// off rather than delete them unasked; turning it back on in Settings
+	// shows the count first.
+	var pause bool
+	if _, drop := splitExpired(s.items, s.keep, time.Now()); len(drop) > 0 {
+		s.keep.AutoDelete = false
+		pause = true
+	}
+	keep := s.keep
 	cb := s.onChange
 	s.mu.Unlock()
+	if pause {
+		_ = saveRetention(keep)
+	}
 
 	if cb != nil {
 		cb()

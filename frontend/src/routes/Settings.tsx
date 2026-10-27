@@ -1342,7 +1342,8 @@ function SettingsPage() {
           </div>
         </div>
 
-        <LibraryAutoDelete />
+        {/* Keyed on the folder: switching it can pause auto-delete (store.go SetDir). */}
+        <LibraryAutoDelete key={libraryDir} />
       </div>
       ) : null}
     </div>
