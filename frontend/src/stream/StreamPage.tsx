@@ -207,7 +207,18 @@ export default function StreamPage() {
           onJoin={(code) => void run(() => StreamService.JoinRoom(code))}
           onLeave={() => void run(() => StreamService.LeaveRoom())}
         />
-        {inRoom ? <LanCard lan={lan} run={(fn) => void runLan(fn)} /> : null}
+        {inRoom ? (
+          <LanCard lan={lan} run={(fn) => void runLan(fn)} />
+        ) : (
+          // Shown before a room too, so LAN is findable: it works per room.
+          <Card label="LAN" wide>
+            <CardHead
+              icon={Network}
+              title="LAN"
+              caption="Create or join a room first: everyone in the room with LAN on shares one network, so LAN and direct-play games find each other"
+            />
+          </Card>
+        )}
         {inRoom ? (
           <CallCard
             state={state}

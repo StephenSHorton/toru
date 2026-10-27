@@ -147,16 +147,43 @@ func (s *UpdateService) setStatus(mut func(st *Status)) Status {
 	return st
 }
 
+// checkEvery is how often a running Toru looks for a new release. Toru lives
+// in the tray for days, so a check only at startup missed every release
+// published while it was open. Two unauthenticated GitHub API calls an hour
+// stay far under the 60/hour limit.
+const checkEvery = 30 * time.Minute
+
 // AutoUpdate runs on startup: it checks for a newer release and, if one exists,
 // downloads and verifies it in the background, then announces that it is ready
 // (status event, plus the tray item and notification the tray adds on ready). It never installs or quits on its own —
 // the user restarts when they like, or the installer runs when Toru quits.
+// After that first check it checks again every checkEvery for as long as Toru
+// runs, until an update is ready.
 //
 // It runs as a fire-and-forget goroutine on startup. All errors are logged and
 // swallowed — a failed or offline update check must never block startup.
 func (s *UpdateService) AutoUpdate() {
-	if _, err := s.CheckAndDownload(); err != nil {
-		log.Printf("toru: auto-update failed: %v", err)
+	autoUpdate(checkEvery, nil, s.CheckAndDownload)
+}
+
+// autoUpdate is AutoUpdate's loop with the interval, a stop channel and the
+// check itself passed in, so tests can run it without the network.
+func autoUpdate(every time.Duration, stop <-chan struct{}, check func() (Status, error)) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		st, err := check()
+		if err != nil {
+			log.Printf("toru: auto-update failed: %v", err)
+		}
+		if st.Phase == PhaseReady || st.Phase == PhaseInstalling {
+			return // announced; nothing left to look for until Toru restarts
+		}
+		select {
+		case <-t.C:
+		case <-stop:
+			return
+		}
 	}
 }
 

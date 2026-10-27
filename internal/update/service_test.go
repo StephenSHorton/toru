@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestIsNewer(t *testing.T) {
@@ -159,5 +160,51 @@ func TestCheckAndDownloadReturnsReadyStatusWithoutRerun(t *testing.T) {
 	}
 	if len(f.calls) != 0 {
 		t.Fatalf("launched %v; want nothing", f.calls)
+	}
+}
+
+// TestAutoUpdateKeepsChecking: a Toru left running must notice a release
+// published after it started, so the loop checks again on every tick until an
+// update is ready, then stops.
+func TestAutoUpdateKeepsChecking(t *testing.T) {
+	calls := 0
+	check := func() (Status, error) {
+		calls++
+		switch calls {
+		case 1:
+			return Status{Phase: PhaseIdle}, nil // up to date at startup
+		case 2:
+			return Status{Phase: PhaseError}, errors.New("offline") // a failed check doesn't stop it
+		default:
+			return Status{Phase: PhaseReady, Version: "9.9.9"}, nil // published later
+		}
+	}
+	done := make(chan struct{})
+	go func() {
+		autoUpdate(time.Millisecond, nil, check)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("autoUpdate did not stop after an update became ready")
+	}
+	if calls != 3 {
+		t.Fatalf("checks = %d, want 3", calls)
+	}
+}
+
+func TestAutoUpdateStops(t *testing.T) {
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		autoUpdate(time.Hour, stop, func() (Status, error) { return Status{Phase: PhaseIdle}, nil })
+		close(done)
+	}()
+	close(stop)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("autoUpdate ignored stop")
 	}
 }
