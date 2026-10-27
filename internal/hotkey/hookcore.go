@@ -91,6 +91,9 @@ func handleKey(ev keyEvent) bool {
 		return false
 	}
 	resync := !ev.down && toggleDeferred.Load() && phys.swallowedDown(vk)
+	// A down for a key the table already holds, not swallowed by us, is an
+	// auto-repeat whose first down went elsewhere (RegisterHotKey, or the app).
+	repeat := ev.down && phys.heldUnswallowed(vk)
 	phys.note(vk, ev.down)
 	if resync {
 		requestSync()
@@ -184,7 +187,11 @@ func handleKey(ev keyEvent) bool {
 		heldAction = matched
 	}
 	actMu.Unlock()
-	if firstDown {
+	// clickerToggle moves from RegisterHotKey to this hook when a run starts.
+	// If the press that started the run is still held, its repeats now reach
+	// the hook: latch them (swallowed below) but don't fire, or the run would
+	// stop itself.
+	if firstDown && !(repeat && matched == toggleAction) {
 		m.signal(matched)
 	}
 

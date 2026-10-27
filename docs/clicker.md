@@ -90,7 +90,7 @@ The clicker stops by itself when:
 - a click or time limit is reached, or the click points are done.
 
 When a failsafe or a limit stops the run, a small toast says why (turn off with
-*Notify on stop*). *Preview* flashes the corners, edges and zones on screen.
+*Notify on stop*). *Preview* flashes the corners, edges and zones on screen (it needs *Show safety overlay* on).
 With *Show safety overlay* on (the default) they also flash briefly whenever
 you change them, and so do the click points.
 

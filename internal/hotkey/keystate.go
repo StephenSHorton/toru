@@ -88,6 +88,12 @@ func (t *keyTable) swallowedDown(vk uint32) bool {
 	return vk <= 0xFF && t.swallowed[vk].Load() && t.down[vk].Load()
 }
 
+// heldUnswallowed reports whether vk is already held without our hook having
+// swallowed its down.
+func (t *keyTable) heldUnswallowed(vk uint32) bool {
+	return vk <= 0xFF && t.down[vk].Load() && !t.swallowed[vk].Load()
+}
+
 // anySwallowedDown is swallowedDown for any of vks.
 func (t *keyTable) anySwallowedDown(vks []uint32) bool {
 	return slices.ContainsFunc(vks, t.swallowedDown)

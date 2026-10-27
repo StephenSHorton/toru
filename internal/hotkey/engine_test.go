@@ -893,3 +893,46 @@ func TestRecordMouseHeldKeepsHook(t *testing.T) {
 		t.Fatal("the owed up is in: hook no longer wanted")
 	}
 }
+
+// TestToggleHeldAcrossHandoff: the press that starts a run goes through
+// RegisterHotKey; the run then hands clickerToggle to the hook. Repeats of the
+// still-held combo must be swallowed without firing (or the run would stop
+// itself), and the next real press fires.
+func TestToggleHeldAcrossHandoff(t *testing.T) {
+	s := newSim(t, map[string]Binding{toggleAction: {Ctrl: true, Shift: true, Key: 'Y'}})
+	s.m.mu.Lock()
+	s.m.sysOwned = map[string]bool{toggleAction: true}
+	s.m.mu.Unlock()
+	s.key(vkLControl, true)
+	s.key(vkLShift, true)
+	if s.key('Y', true) {
+		t.Fatal("a RegisterHotKey-owned combo is not the hook's to swallow")
+	}
+	s.m.mu.Lock()
+	s.m.sysOwned = nil // the run started: the hook owns the toggle now
+	s.m.mu.Unlock()
+	if !s.key('Y', true) {
+		t.Fatal("repeat of the held toggle must be swallowed")
+	}
+	s.wantFired()
+	s.key('Y', false)
+	if !s.key('Y', true) {
+		t.Fatal("a new press must match")
+	}
+	s.wantFired(toggleAction)
+	s.key('Y', false)
+	s.key(vkLShift, false)
+	s.key(vkLControl, false)
+}
+
+// TestEscapeRepeatAfterRecordingPasses: a recording cancelled with Esc must
+// not swallow Esc repeats afterwards (Escape is never swallowed).
+func TestEscapeRepeatAfterRecordingPasses(t *testing.T) {
+	s := newSim(t, map[string]Binding{})
+	actMu.Lock()
+	recSwallow[vkEscape] = true
+	actMu.Unlock()
+	if s.key(vkEscape, true) {
+		t.Fatal("Esc repeat after a recording must pass through")
+	}
+}

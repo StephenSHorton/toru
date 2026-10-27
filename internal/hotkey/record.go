@@ -123,7 +123,9 @@ func recordKey(vk uint32, down bool) bool {
 		// part of the recorded press: swallow its auto-repeat instead of
 		// letting it match a hotkey or reach the app. If its up was lost
 		// (Win+L mid-recording), this costs the next press of that key.
-		return recSwallow[vk]
+		// Escape is never swallowed outside a recording (see handleKey), so a
+		// recording cancelled with Esc leaves its repeats alone.
+		return vk != vkEscape && recSwallow[vk]
 	}
 	recSwallow[vk] = true
 	switch {
