@@ -572,8 +572,11 @@ func TestLanServiceUpAndDown(t *testing.T) {
 	}
 	waitFor(t, "the pipe", func() bool { p := latest(); return p != nil && p.start })
 	p := latest()
-	if l.GetState().State != LanStarting || o.starts != 1 {
-		t.Fatalf("state %q starts %d", l.GetState().State, o.starts)
+	o.mu.Lock()
+	starts := o.starts
+	o.mu.Unlock()
+	if l.GetState().State != LanStarting || starts != 1 {
+		t.Fatalf("state %q starts %d", l.GetState().State, starts)
 	}
 
 	pub := key(0x42)

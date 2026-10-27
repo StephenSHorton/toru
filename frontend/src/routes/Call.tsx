@@ -247,7 +247,8 @@ class CallEngine {
       return;
     }
     this.unboost(p);
-    p.audio.volume = pct / 100;
+    // Over 100% with no stream yet: 100% until the track arrives and boosts.
+    p.audio.volume = Math.min(pct, 100) / 100;
     p.audio.muted = this.deafened;
   }
 
