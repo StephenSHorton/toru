@@ -15,7 +15,9 @@ const rtpPacketSize = 1200
 // videoArgs is the low-latency capture → hardware encode → RTP command.
 // zeroCopy keeps frames on the GPU from ddagrab to the encoder; it is only
 // possible at the monitor's own size (scaling goes through system memory).
-func videoArgs(ddaIdx int, s Settings, enc string, zeroCopy bool, url string) []string {
+// screenW × screenH is the captured monitor's size, which Auto bitrate needs
+// when the output is native.
+func videoArgs(ddaIdx int, s Settings, screenW, screenH int, enc string, zeroCopy bool, url string) []string {
 	graph := fmt.Sprintf("ddagrab=output_idx=%d:framerate=%d:draw_mouse=%s",
 		ddaIdx, s.FPS, boolArg(s.Cursor))
 	if !zeroCopy {
@@ -31,7 +33,7 @@ func videoArgs(ddaIdx int, s Settings, enc string, zeroCopy bool, url string) []
 		"-hide_banner", "-loglevel", "warning", "-nostdin",
 		"-filter_complex", graph,
 	}
-	args = append(args, encoderArgs(enc, s)...)
+	args = append(args, encoderArgs(enc, s, s.VideoKbps(s.OutputSize(screenW, screenH)))...)
 	if s.Codec == CodecAV1 {
 		// ffmpeg still labels its AV1 RTP packetizer experimental.
 		args = append(args, "-strict", "experimental")
@@ -46,12 +48,12 @@ func videoArgs(ddaIdx int, s Settings, enc string, zeroCopy bool, url string) []
 // encoderArgs tunes each hardware encoder for the lowest latency: no
 // B-frames (they hold frames back), no lookahead, constant bitrate, and a
 // full frame every KeyframeSec so new viewers (and ones that lost packets)
-// can start decoding.
-func encoderArgs(enc string, s Settings) []string {
-	rate := fmt.Sprintf("%dk", s.BitrateKbps)
+// can start decoding. kbps is the resolved bitrate (Settings.VideoKbps).
+func encoderArgs(enc string, s Settings, kbps int) []string {
+	rate := fmt.Sprintf("%dk", kbps)
 	// A quarter second of VBV keeps keyframes sharp without letting the rate
 	// controller bank a long burst.
-	buf := fmt.Sprintf("%dk", max(s.BitrateKbps/4, 1))
+	buf := fmt.Sprintf("%dk", max(kbps/4, 1))
 	args := []string{"-c:v", enc}
 	switch {
 	case strings.HasSuffix(enc, "_nvenc"):

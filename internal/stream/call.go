@@ -5,7 +5,7 @@ import "errors"
 // call.go is the voice call: everyone in a room can join one call, and the
 // call is where screen sharing happens (you share and watch from inside it).
 // Audio runs in a hidden call window (WebView2's WebRTC: echo cancellation,
-// noise suppression, Opus, jitter buffer), one peer connection per other
+// noise suppression or DeepFilterNet3, Opus, jitter buffer), one peer connection per other
 // person in the call; this file is its state and its signaling relay.
 
 // Call events.
@@ -31,13 +31,13 @@ type CallSignal struct {
 
 // CallState is this app's side of the call.
 type CallState struct {
-	InCall           bool   `json:"inCall"`
-	Muted            bool   `json:"muted"`
-	Deafened         bool   `json:"deafened"` // also mutes the mic
-	Speaking         bool   `json:"speaking"`
-	NoiseSuppression bool   `json:"noiseSuppression"`
-	MicDevice        string `json:"micDevice"`     // WebView deviceId; "" = system default
-	SpeakerDevice    string `json:"speakerDevice"` // WebView sinkId; "" = system default
+	InCall        bool   `json:"inCall"`
+	Muted         bool   `json:"muted"`
+	Deafened      bool   `json:"deafened"` // also mutes the mic
+	Speaking      bool   `json:"speaking"`
+	NoiseMode     string `json:"noiseMode"`     // NoiseOff | NoiseStandard | NoiseAI
+	MicDevice     string `json:"micDevice"`     // WebView deviceId; "" = system default
+	SpeakerDevice string `json:"speakerDevice"` // WebView sinkId; "" = system default
 	// Peers is each other call member's connection state as the call window
 	// sees it ("connecting", "connected", "failed"...).
 	Peers map[string]string `json:"peers"`
@@ -131,13 +131,16 @@ func (s *StreamService) SetDeafened(on bool) State {
 	return s.GetState()
 }
 
-// SetVoice saves the voice preferences: noise suppression and devices. The
-// call window applies them at once.
-func (s *StreamService) SetVoice(noiseSuppression bool, micDevice, speakerDevice string) State {
+// SetVoice saves the voice preferences: the noise suppression mode
+// (NoiseOff, NoiseStandard or NoiseAI) and devices. The call window applies
+// them at once.
+func (s *StreamService) SetVoice(noiseMode, micDevice, speakerDevice string) State {
 	s.mu.Lock()
-	s.settings.NoiseSuppression = noiseSuppression
-	s.settings.MicDevice = micDevice
-	s.settings.SpeakerDevice = speakerDevice
+	next := s.settings
+	next.NoiseMode = noiseMode
+	next.MicDevice = micDevice
+	next.SpeakerDevice = speakerDevice
+	s.settings = Normalize(next)
 	settings := s.settings
 	s.mu.Unlock()
 	if err := saveSettings(settings); err != nil {
@@ -209,14 +212,13 @@ func (s *StreamService) callStateLocked() CallState {
 		peers[id] = st
 	}
 	return CallState{
-		InCall:           s.inCall,
-		Muted:            s.muted || s.deafened,
-		Deafened:         s.deafened,
-		Speaking:         s.inCall && s.speaking[s.self] && !s.muted && !s.deafened,
-		NoiseSuppression: s.settings.NoiseSuppression,
-		MicDevice:        s.settings.MicDevice,
-		SpeakerDevice:    s.settings.SpeakerDevice,
-		Peers:            peers,
+		InCall:        s.inCall,
+		Muted:         s.muted || s.deafened,
+		Deafened:      s.deafened,
+		Speaking:      s.inCall && s.speaking[s.self] && !s.muted && !s.deafened,
+		NoiseMode:     s.settings.NoiseMode,
+		MicDevice:     s.settings.MicDevice,
+		SpeakerDevice: s.settings.SpeakerDevice,
+		Peers:         peers,
 	}
 }
-

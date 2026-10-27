@@ -1,11 +1,18 @@
 import { useEffect, useRef } from "react";
 import { Events as WailsEvents, Window } from "@wailsio/runtime";
+import dfWasmUrl from "@lofcz/deepfilternet-web/df_bg.wasm?url";
+import dfWorkletUrl from "@lofcz/deepfilternet-web/worklet?url";
+import workletShimUrl from "@/stream/workletShim.js?url";
 import { StreamService, StreamState } from "@/lib/api";
 
 // Call — the hidden window that runs a voice call. It never renders anything:
 // it holds the microphone, one audio peer connection to every other person in
 // the call (mesh), and plays them. Chromium's audio processing does echo
-// cancellation, auto gain and (when on) noise suppression. Signaling goes
+// cancellation, auto gain and, in "standard" mode, noise suppression. In "ai"
+// mode Chromium's suppressor is off and the mic goes through DeepFilterNet3
+// (a speech enhancement model, bundled as WASM and run in an AudioWorklet)
+// before it is sent: it takes out key presses and other sudden sounds that
+// Chromium's suppressor lets through, at 48 kHz fullband. Signaling goes
 // through StreamService.CallSend / "call:signal"; mute, deafen, devices and
 // who's in the call all come from "stream:state". Speaking levels are
 // measured on the audio thread (an AudioWorklet), so they stay live even
@@ -16,7 +23,10 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: ["stun:stun.cloudflare.com:3478"] },
 ];
 
+// Opus mono at 96 kbps is already transparent fullband speech; noise is a
+// suppression problem, not a bitrate one.
 const VOICE_BITRATE = 96_000;
+const SAMPLE_RATE = 48_000; // DeepFilterNet3's rate; also what Opus runs at
 const SPEAKING_LEVEL = 0.015; // RMS
 const SPEAKING_HOLD_MS = 350;
 const CONNECT_TIMEOUT_MS = 12_000;
@@ -35,6 +45,14 @@ interface Peer {
   meter?: AudioWorkletNode;
   source?: MediaStreamAudioSourceNode;
   timer?: number;
+}
+
+// Denoiser is the DeepFilterNet3 node and the track it feeds. It is built
+// once per call and kept: every node holds its own copy of the model in the
+// worklet, and the package has no way to free one.
+interface Denoiser {
+  node: AudioWorkletNode;
+  out: MediaStreamAudioDestinationNode;
 }
 
 // The level meter: posts the block RMS ~20 times a second from the audio thread.
@@ -93,12 +111,19 @@ function chime(ctx: AudioContext, up: boolean) {
 class CallEngine {
   self = "";
   peers = new Map<string, Peer>();
-  ctx = new AudioContext({ latencyHint: "interactive" });
+  ctx = new AudioContext({ latencyHint: "interactive", sampleRate: SAMPLE_RATE });
   workletReady: Promise<void>;
   mic: MediaStream | null = null;
+  // send is the track every sender carries: the mic's own track, or in ai
+  // mode the denoised one.
+  send: MediaStreamTrack | null = null;
   micKey = "";
   micMeter?: AudioWorkletNode;
   micSource?: MediaStreamAudioSourceNode;
+  // micBus is the mic as sent (denoised in ai mode); the speaking meter
+  // listens to it.
+  micBus: GainNode;
+  denoiser: Promise<Denoiser> | null = null;
   muted = false;
   deafened = false;
   speaker = "";
@@ -110,10 +135,11 @@ class CallEngine {
   constructor() {
     const url = URL.createObjectURL(new Blob([METER_WORKLET], { type: "application/javascript" }));
     this.workletReady = this.ctx.audioWorklet.addModule(url);
+    this.micBus = this.ctx.createGain();
     this.reportTimer = window.setInterval(() => this.report(), 150);
   }
 
-  meter(id: string, source: MediaStreamAudioSourceNode): AudioWorkletNode {
+  meter(id: string, source: AudioNode): AudioWorkletNode {
     const node = new AudioWorkletNode(this.ctx, "toru-meter");
     node.port.onmessage = (e) => {
       if ((e.data as number) > SPEAKING_LEVEL) this.lastSpeak.set(id, performance.now());
@@ -149,9 +175,10 @@ class CallEngine {
     if (!call.inCall) return;
     if (this.ctx.state === "suspended") void this.ctx.resume();
 
-    await this.ensureMic(call.micDevice, call.noiseSuppression);
+    await this.ensureMic(call.micDevice, call.noiseMode);
     this.muted = call.muted;
     this.mic?.getAudioTracks().forEach((t) => (t.enabled = !call.muted));
+    if (this.send) this.send.enabled = !call.muted;
 
     if (call.deafened !== this.deafened) {
       this.deafened = call.deafened;
@@ -182,43 +209,83 @@ class CallEngine {
     if (el.setSinkId) void el.setSinkId(this.speaker).catch(() => {});
   }
 
+  // loadDenoiser builds the DeepFilterNet3 node the first time ai mode is
+  // used: mic source -> model -> a MediaStream track for the senders (and the
+  // speaking meter). The model is compiled here and handed to the worklet,
+  // which has no fetch. A failed load is retried the next time.
+  loadDenoiser(): Promise<Denoiser> {
+    if (!this.denoiser) {
+      this.denoiser = (async () => {
+        const [wasmModule] = await Promise.all([
+          fetch(dfWasmUrl).then(async (r) => {
+            if (!r.ok) throw new Error(`denoiser model: HTTP ${r.status}`);
+            return WebAssembly.compile(await r.arrayBuffer());
+          }),
+          // The shim must run first: the worklet scope has no TextDecoder.
+          this.ctx.audioWorklet.addModule(workletShimUrl).then(() => this.ctx.audioWorklet.addModule(dfWorkletUrl)),
+        ]);
+        const node = new AudioWorkletNode(this.ctx, "deepfilternet-processor", {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          channelCount: 1,
+          channelCountMode: "explicit",
+          outputChannelCount: [1],
+          processorOptions: { wasmModule, attenuationLimit: 100 },
+        });
+        const out = this.ctx.createMediaStreamDestination();
+        out.channelCount = 1;
+        node.connect(out);
+        node.connect(this.micBus);
+        return { node, out };
+      })();
+      this.denoiser.catch(() => (this.denoiser = null));
+    }
+    return this.denoiser;
+  }
+
   // ensureMic (re)opens the microphone when the device or noise suppression
-  // changes, swapping the new track into every connection in place.
-  async ensureMic(device: string, ns: boolean) {
-    const key = `${device}|${ns}`;
+  // mode changes, swapping the new track into every connection in place.
+  async ensureMic(device: string, mode: string) {
+    const key = `${device}|${mode}`;
     if (this.mic && key === this.micKey) return;
     this.micKey = key;
+    // ai mode turns Chromium's suppressor off (the model does that job) but
+    // keeps echo cancellation and auto gain, which run before the model. If
+    // the model can't load, fall back to Chromium's suppressor.
+    const den = mode === "ai" ? await this.loadDenoiser().catch(() => null) : null;
+    const constraints = {
+      echoCancellation: true,
+      autoGainControl: true,
+      noiseSuppression: den ? false : mode !== "off",
+      channelCount: 1,
+    };
     let next: MediaStream;
     try {
       next = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: device ? { exact: device } : undefined,
-          echoCancellation: true,
-          autoGainControl: true,
-          noiseSuppression: ns,
-          channelCount: 1,
-        },
+        audio: { deviceId: device ? { exact: device } : undefined, ...constraints },
       });
     } catch {
       // The chosen device is gone: fall back to the default one.
-      next = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, autoGainControl: true, noiseSuppression: ns, channelCount: 1 },
-      });
+      next = await navigator.mediaDevices.getUserMedia({ audio: constraints });
     }
     const track = next.getAudioTracks()[0];
-    track.enabled = !this.muted;
     const old = this.mic;
     this.mic = next;
+    this.micSource?.disconnect();
+    this.micSource = this.ctx.createMediaStreamSource(next);
+    this.micSource.connect(den ? den.node : this.micBus);
+    const send = den ? den.out.stream.getAudioTracks()[0] : track;
+    track.enabled = send.enabled = !this.muted;
+    this.send = send;
     this.peers.forEach((p) => {
       const sender = p.pc.getSenders().find((s) => s.track?.kind === "audio" || s.track === null);
-      if (sender) void sender.replaceTrack(track);
+      if (sender) void sender.replaceTrack(send);
     });
     old?.getTracks().forEach((t) => t.stop());
-    this.micSource?.disconnect();
-    this.micMeter?.disconnect();
-    await this.workletReady;
-    this.micSource = this.ctx.createMediaStreamSource(next);
-    this.micMeter = this.meter(this.self, this.micSource);
+    if (!this.micMeter) {
+      await this.workletReady;
+      this.micMeter = this.meter(this.self, this.micBus);
+    }
   }
 
   newPeer(id: string, initiator: boolean): Peer {
@@ -230,8 +297,7 @@ class CallEngine {
     this.setSink(audio);
     document.body.appendChild(audio);
     const peer: Peer = { id, pc, initiator, audio };
-    const track = this.mic?.getAudioTracks()[0];
-    if (track && this.mic) pc.addTrack(track, this.mic);
+    if (this.send && this.mic) pc.addTrack(this.send, this.mic);
     else pc.addTransceiver("audio", { direction: "sendrecv" });
     pc.ontrack = (e) => {
       const ms = e.streams[0] ?? new MediaStream([e.track]);
@@ -336,6 +402,7 @@ class CallEngine {
     window.clearInterval(this.reportTimer);
     for (const id of [...this.peers.keys()]) this.drop(id);
     this.mic?.getTracks().forEach((t) => t.stop());
+    this.send?.stop();
     void this.ctx.close();
   }
 }

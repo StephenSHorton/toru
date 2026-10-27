@@ -46,6 +46,61 @@ func EnumAudioSessions() []AudioSession {
 	}
 	defer comRelease(device)
 
+	var out []AudioSession
+	for _, pid := range deviceSessionPIDs(device, map[uint32]bool{}) {
+		if name := processName(pid); name != "" {
+			out = append(out, AudioSession{PID: pid, Name: name})
+		}
+	}
+	return out
+}
+
+// renderSessionPIDs returns the PIDs owning an audio session on ANY active
+// render endpoint (not just the default: a game can play straight to a
+// headset while the default is a mixer's virtual device). Expired sessions
+// (app streams closed for now) are kept, so a paused app keeps its place.
+// Skips the system-sounds session. Best-effort, like EnumAudioSessions.
+func renderSessionPIDs() []uint32 {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if hr, _, _ := procCoInitializeEx.Call(0, coinitMultithreaded); int32(hr) < 0 && uint32(hr) != 0x80010106 {
+		return nil
+	}
+	var enumerator *comObject
+	if hr, _, _ := procCoCreateInst.Call(
+		uintptr(unsafe.Pointer(&clsidMMDeviceEnumerator)), 0, clsctxAll,
+		uintptr(unsafe.Pointer(&iidIMMDeviceEnumerator)),
+		uintptr(unsafe.Pointer(&enumerator)),
+	); int32(hr) < 0 || enumerator == nil {
+		return nil
+	}
+	defer comRelease(enumerator)
+
+	var coll *comObject // EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE) = vtbl 3
+	if hr := int32(comCall(enumerator, 3, 0, 1, uintptr(unsafe.Pointer(&coll)))); hr < 0 || coll == nil {
+		return nil
+	}
+	defer comRelease(coll)
+	var count uint32 // IMMDeviceCollection::GetCount = vtbl 3
+	if hr := int32(comCall(coll, 3, uintptr(unsafe.Pointer(&count)))); hr < 0 {
+		return nil
+	}
+	seen := map[uint32]bool{}
+	var out []uint32
+	for i := uint32(0); i < count; i++ {
+		var dev *comObject // IMMDeviceCollection::Item = vtbl 4
+		if hr := int32(comCall(coll, 4, uintptr(i), uintptr(unsafe.Pointer(&dev)))); hr < 0 || dev == nil {
+			continue
+		}
+		out = append(out, deviceSessionPIDs(dev, seen)...)
+		comRelease(dev)
+	}
+	return out
+}
+
+// deviceSessionPIDs lists the PIDs (not already in seen, which it updates)
+// owning a non-system audio session on one render endpoint.
+func deviceSessionPIDs(device *comObject, seen map[uint32]bool) []uint32 {
 	var mgr *comObject // IMMDevice::Activate = vtbl 3
 	if hr := int32(comCall(device, 3, uintptr(unsafe.Pointer(&iidIAudioSessionManager2)), clsctxAll, 0, uintptr(unsafe.Pointer(&mgr)))); hr < 0 || mgr == nil {
 		return nil
@@ -63,8 +118,7 @@ func EnumAudioSessions() []AudioSession {
 		return nil
 	}
 
-	seen := map[uint32]bool{}
-	var out []AudioSession
+	var out []uint32
 	for i := int32(0); i < count; i++ {
 		var ctl *comObject // GetSession = vtbl 4
 		if hr := int32(comCall(sessEnum, 4, uintptr(i), uintptr(unsafe.Pointer(&ctl)))); hr < 0 || ctl == nil {
@@ -85,12 +139,8 @@ func EnumAudioSessions() []AudioSession {
 		if isSystem || hrPID < 0 || pid == 0 || seen[pid] {
 			continue
 		}
-		name := processName(pid)
-		if name == "" {
-			continue
-		}
 		seen[pid] = true
-		out = append(out, AudioSession{PID: pid, Name: name})
+		out = append(out, pid)
 	}
 	return out
 }

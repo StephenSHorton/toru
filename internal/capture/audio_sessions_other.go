@@ -16,3 +16,17 @@ func startProcessLoopbackAudio(uint32, string) (audioSource, error) {
 func startExcludeProcessLoopbackAudio(uint32, string) (audioSource, error) {
 	return startLoopbackAudio("")
 }
+
+// runningAudioMixers is Windows-only; see audio_mixers_windows.go.
+func runningAudioMixers() []audioMixer { return nil }
+
+// audioMixer is one running mixer root process.
+type audioMixer struct {
+	name string
+	pid  uint32
+}
+
+// startAppMixAudio is Windows-only; see audio_appmix_windows.go.
+func startAppMixAudio([]uint32, string) (audioSource, error) {
+	return startLoopbackAudio("")
+}

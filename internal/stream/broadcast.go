@@ -111,6 +111,10 @@ type LiveStatus struct {
 	SentFPS   int          `json:"sentFps"`
 	Error     string       `json:"error"`
 	StartedAt int64        `json:"startedAt"` // unix ms
+
+	// AudioWarning is set while the stream has no desktop audio because Toru
+	// couldn't keep its own call audio out of it.
+	AudioWarning string `json:"audioWarning"`
 }
 
 type viewer struct {
@@ -213,6 +217,7 @@ func (b *broadcaster) setup(cfg Settings) error {
 	b.video, b.audio = vf, af
 	b.status.Encoder = enc
 	b.status.Info = b.infoLocked()
+	b.status.AudioWarning = "" // a new audio supervisor (or none) owns it now
 	b.vRuns = 0
 	b.vStop, b.vDone, b.vKick = make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
 	go b.superviseVideo(b.vStop, b.vDone, b.vKick)
@@ -249,11 +254,8 @@ func (b *broadcaster) teardown() {
 }
 
 func (b *broadcaster) infoLocked() LiveInfo {
-	w, h := b.cfg.Width, b.cfg.Height
-	if w == 0 || h == 0 {
-		w, h = b.screenW, b.screenH
-	}
-	return LiveInfo{Width: w, Height: h, FPS: b.cfg.FPS, BitrateKbps: b.cfg.BitrateKbps, Codec: b.cfg.Codec, Audio: b.cfg.Audio}
+	w, h := b.cfg.OutputSize(b.screenW, b.screenH)
+	return LiveInfo{Width: w, Height: h, FPS: b.cfg.FPS, BitrateKbps: b.cfg.VideoKbps(w, h), Codec: b.cfg.Codec, Audio: b.cfg.Audio}
 }
 
 // Info is what the room is told about this stream.
@@ -299,16 +301,33 @@ func (b *broadcaster) update(cfg Settings) error {
 		return err
 	}
 	b.mu.Lock()
+	// Switching Auto <-> Manual at the same resolved rate (the UI's Manual
+	// starts from the Auto value) changes nothing the encoder sees, so it
+	// does not restart it.
+	sameVideo := sameEncode(old, cfg, b.screenW, b.screenH)
 	b.cfg = cfg
 	b.status.Info = b.infoLocked()
 	vKick, aKick := b.vKick, b.aKick
 	b.mu.Unlock()
-	kick(vKick)
+	if !sameVideo {
+		kick(vKick)
+	}
 	if cfg.AudioKbps != old.AudioKbps {
 		kick(aKick)
 	}
 	b.changed()
 	return nil
+}
+
+// sameEncode reports whether a and b give the video encoder the same
+// command: equal apart from how the bitrate was chosen.
+func sameEncode(a, b Settings, screenW, screenH int) bool {
+	if a.VideoKbps(a.OutputSize(screenW, screenH)) != b.VideoKbps(b.OutputSize(screenW, screenH)) {
+		return false
+	}
+	a.AutoBitrate, a.BitrateKbps = false, 0
+	b.AutoBitrate, b.BitrateKbps = false, 0
+	return a == b
 }
 
 func kick(ch chan struct{}) {
@@ -379,7 +398,7 @@ func (b *broadcaster) superviseVideo(stop, done, kickCh chan struct{}) {
 	failures := 0
 	for {
 		b.mu.Lock()
-		cfg, enc, vf := b.cfg, b.enc, b.video
+		cfg, enc, vf, screenW, screenH := b.cfg, b.enc, b.video, b.screenW, b.screenH
 		native := cfg.Width == 0 || (cfg.Width == b.screenW && cfg.Height == b.screenH)
 		b.mu.Unlock()
 
@@ -394,7 +413,7 @@ func (b *broadcaster) superviseVideo(stop, done, kickCh chan struct{}) {
 			var errs []error
 			for _, zc := range candidates {
 				vf.newSource()
-				p, err = b.spawn(videoArgs(ddaIdx, cfg, enc, zc, vf.url()))
+				p, err = b.spawn(videoArgs(ddaIdx, cfg, screenW, screenH, enc, zc, vf.url()))
 				if err == nil {
 					zero = zc
 					break
@@ -449,7 +468,9 @@ func (b *broadcaster) superviseVideo(stop, done, kickCh chan struct{}) {
 
 // superviseAudio is superviseVideo for desktop audio: a loopback capture of
 // everything except Toru itself (so a call's audio never echoes back into a
-// stream) piped into an Opus encoder.
+// stream) piped into an Opus encoder. If that exclusion can't be set up the
+// stream goes without desktop audio and says so: it never falls back to the
+// whole mix, which would carry the call's voices.
 func (b *broadcaster) superviseAudio(stop, done, kickCh chan struct{}) {
 	defer close(done)
 	failures := 0
@@ -458,9 +479,17 @@ func (b *broadcaster) superviseAudio(stop, done, kickCh chan struct{}) {
 		cfg, af := b.cfg, b.audio
 		b.mu.Unlock()
 
-		src, err := capture.StartDesktopAudio(uint32(os.Getpid()), fmt.Sprintf("toru-stream-audio-%d", time.Now().UnixNano()))
+		mixers := map[uint32]bool{}
+		for _, pid := range capture.AudioMixerPIDs() {
+			mixers[pid] = true
+		}
+		src, how, err := capture.StartDesktopAudio(uint32(os.Getpid()), fmt.Sprintf("toru-stream-audio-%d", time.Now().UnixNano()))
 		var p *proc
-		if err == nil {
+		if err != nil {
+			logf("desktop audio OFF so the call's voices can't leak into the stream: %v", err)
+			b.setAudioWarning("No desktop audio: Toru couldn't keep the call's voices out of it (" + err.Error() + ")")
+		} else {
+			logf("desktop audio: %s", how)
 			in := src.Input()
 			af.newSource()
 			p, err = b.spawn(audioArgs(in.SampleFmt, in.SampleRate, in.Channels, cfg.AudioKbps, in.PipePath, af.url()))
@@ -481,6 +510,7 @@ func (b *broadcaster) superviseAudio(stop, done, kickCh chan struct{}) {
 			continue
 		}
 		failures = 0
+		b.setAudioWarning("")
 
 		select {
 		case <-stop:
@@ -488,6 +518,10 @@ func (b *broadcaster) superviseAudio(stop, done, kickCh chan struct{}) {
 			src.Stop()
 			return
 		case <-kickCh:
+			p.kill()
+			src.Stop()
+		case <-newAudioMixer(mixers, p.done):
+			logf("desktop audio: an audio mixer started; rebuilding the capture so it stays out")
 			p.kill()
 			src.Stop()
 		case <-p.done:
@@ -498,6 +532,33 @@ func (b *broadcaster) superviseAudio(stop, done, kickCh chan struct{}) {
 			}
 		}
 	}
+}
+
+// newAudioMixer returns a channel that closes when a known audio mixer runs
+// whose pid isn't in known (one that started after the capture was chosen),
+// polling until done closes. The capture must then be rebuilt: an
+// exclude-Toru capture, or a per-app mix that doesn't ban the new pid, would
+// carry that mixer's microphone feed into the stream.
+func newAudioMixer(known map[uint32]bool, done <-chan struct{}) <-chan struct{} {
+	ch := make(chan struct{})
+	go func() {
+		t := time.NewTicker(3 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+			}
+			for _, pid := range capture.AudioMixerPIDs() {
+				if !known[pid] {
+					close(ch)
+					return
+				}
+			}
+		}
+	}()
+	return ch
 }
 
 // wait sleeps d, returning true if stop closed meanwhile (a kick cuts it short).
@@ -549,6 +610,16 @@ func (b *broadcaster) spawn(args []string) (*proc, error) {
 		return nil, fmt.Errorf("ffmpeg exited during startup: %v", p.err)
 	case <-time.After(startupGrace):
 		return p, nil
+	}
+}
+
+func (b *broadcaster) setAudioWarning(msg string) {
+	b.mu.Lock()
+	changed := b.status.AudioWarning != msg
+	b.status.AudioWarning = msg
+	b.mu.Unlock()
+	if changed {
+		b.changed()
 	}
 }
 

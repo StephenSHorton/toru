@@ -7,6 +7,7 @@ package stream
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,15 @@ import (
 const (
 	CodecH264 = "h264"
 	CodecAV1  = "av1"
+)
+
+// Call noise suppression modes. Standard is Chromium's own (WebRTC's) noise
+// suppressor; AI is DeepFilterNet3 running in the call window, which also
+// takes out sudden sounds like key presses.
+const (
+	NoiseOff      = "off"
+	NoiseStandard = "standard"
+	NoiseAI       = "ai"
 )
 
 // Limits on what Settings accepts. They are sanity bounds, not quality caps.
@@ -42,7 +52,8 @@ type Settings struct {
 	Width       int    `json:"width"`       // output size; 0 x 0 = the monitor's own
 	Height      int    `json:"height"`      //
 	FPS         int    `json:"fps"`         // capture + encode framerate
-	BitrateKbps int    `json:"bitrateKbps"` // constant video bitrate
+	AutoBitrate bool   `json:"autoBitrate"` // follow size × fps × codec (AutoBitrateKbps)
+	BitrateKbps int    `json:"bitrateKbps"` // constant video bitrate when AutoBitrate is off
 	Codec       string `json:"codec"`       // CodecH264 | CodecAV1
 	Cursor      bool   `json:"cursor"`      // draw the mouse pointer
 	KeyframeSec int    `json:"keyframeSec"` // a full frame this often; new viewers wait up to this long
@@ -56,9 +67,62 @@ type Settings struct {
 	ShowPreview bool `json:"showPreview"`
 
 	// Voice call. Devices are WebView2 device ids; "" = the system default.
-	NoiseSuppression bool   `json:"noiseSuppression"`
-	MicDevice        string `json:"micDevice"`
-	SpeakerDevice    string `json:"speakerDevice"`
+	NoiseMode     string `json:"noiseMode"` // NoiseOff | NoiseStandard | NoiseAI
+	MicDevice     string `json:"micDevice"`
+	SpeakerDevice string `json:"speakerDevice"`
+	// NoiseSuppression is the 0.11.0 on/off switch, kept in step with
+	// NoiseMode (on = not off) so an older Toru reading this file still
+	// works. A file with only this field gets its NoiseMode from it.
+	NoiseSuppression bool `json:"noiseSuppression"`
+}
+
+// legacyDefaultKbps was the fixed default before Auto bitrate existed. It is
+// still the manual value a new install starts from.
+const legacyDefaultKbps = 20_000
+
+// Auto bitrate: bits per pixel per frame for each codec (AV1 holds the same
+// picture on about 40% fewer bits), clamped to a range that stays watchable
+// at tiny sizes without asking a home upload for the impossible.
+const (
+	autoBPPH264    = 0.1
+	autoBPPAV1     = 0.06
+	MinAutoKbps    = 1_500
+	MaxAutoKbps    = 150_000
+	fallbackWidth  = 1920 // output size while the monitor isn't known
+	fallbackHeight = 1080
+)
+
+// AutoBitrateKbps is the bitrate Auto picks for an output size, frame rate
+// and codec: pixels × fps × bits per pixel, so doubling the frame rate
+// doubles the bitrate. The frontend mirrors it (autoBitrateKbps in
+// StreamPage.tsx); TestAutoBitrateKbps pins the numbers both must give.
+func AutoBitrateKbps(w, h, fps int, codec string) int {
+	if w <= 0 || h <= 0 {
+		w, h = fallbackWidth, fallbackHeight
+	}
+	bpp := autoBPPH264
+	if codec == CodecAV1 {
+		bpp = autoBPPAV1
+	}
+	kbps := int(math.Round(float64(w) * float64(h) * float64(max(fps, 1)) * bpp / 1000))
+	return clamp(kbps, MinAutoKbps, MaxAutoKbps)
+}
+
+// VideoKbps is the bitrate to encode at for an output of w × h, the resolved
+// size (see OutputSize).
+func (s Settings) VideoKbps(w, h int) int {
+	if s.AutoBitrate {
+		return AutoBitrateKbps(w, h, s.FPS, s.Codec)
+	}
+	return s.BitrateKbps
+}
+
+// OutputSize resolves Width/Height against the captured monitor's size.
+func (s Settings) OutputSize(screenW, screenH int) (int, int) {
+	if s.Width == 0 || s.Height == 0 {
+		return screenW, screenH
+	}
+	return s.Width, s.Height
 }
 
 // DefaultSettings is the first-run setup: the main monitor as-is at 60 fps.
@@ -67,13 +131,15 @@ func DefaultSettings() Settings {
 		Name:             defaultName(),
 		MonitorID:        -1,
 		FPS:              60,
-		BitrateKbps:      20_000,
+		AutoBitrate:      true,
+		BitrateKbps:      legacyDefaultKbps,
 		Codec:            CodecH264,
 		Cursor:           true,
 		KeyframeSec:      2,
 		Audio:            true,
 		AudioKbps:        160,
 		NotifyLive:       true,
+		NoiseMode:        NoiseStandard,
 		NoiseSuppression: true,
 	}
 }
@@ -136,6 +202,17 @@ func Normalize(s Settings) Settings {
 		s.AudioKbps = d.AudioKbps
 	}
 	s.AudioKbps = clamp(s.AudioKbps, 32, 510)
+	switch s.NoiseMode {
+	case NoiseOff, NoiseStandard, NoiseAI:
+	case "":
+		s.NoiseMode = NoiseOff
+		if s.NoiseSuppression {
+			s.NoiseMode = NoiseStandard
+		}
+	default:
+		s.NoiseMode = d.NoiseMode
+	}
+	s.NoiseSuppression = s.NoiseMode != NoiseOff
 	return s
 }
 
@@ -178,7 +255,23 @@ func loadSettings() Settings {
 	if err != nil {
 		return s
 	}
-	_ = json.Unmarshal(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), &s)
+	return parseSettings(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")))
+}
+
+// parseSettings reads stream.json over the defaults. A file from before Auto
+// bitrate has no autoBitrate key: it moves to Auto unless its bitrate differs
+// from the old fixed default, which means someone picked it by hand.
+func parseSettings(data []byte) Settings {
+	s := DefaultSettings()
+	s.NoiseMode = "" // a file from before noiseMode: Normalize derives it from noiseSuppression
+	_ = json.Unmarshal(data, &s)
+	var probe struct {
+		AutoBitrate *bool `json:"autoBitrate"`
+	}
+	if json.Unmarshal(data, &probe) == nil && probe.AutoBitrate == nil {
+		// 0 is what Normalize turns into the default.
+		s.AutoBitrate = s.BitrateKbps == legacyDefaultKbps || s.BitrateKbps == 0
+	}
 	return Normalize(s)
 }
 
