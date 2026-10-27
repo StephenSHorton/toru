@@ -66,7 +66,7 @@ func TestBindingLabel(t *testing.T) {
 		{hotkey.DefaultClickerToggle, "Ctrl + Shift + Y"},
 		{hotkey.Binding{Ctrl: true, Shift: true, Sides: hotkey.SideLCtrl, Key: 'A', Extra: [4]rune{'S'}}, "LCtrl + Shift + A + S"},
 		{hotkey.Binding{Alt: true, Sides: hotkey.SideRAlt, Key: hotkey.FKey(10)}, "RAlt + F10"},
-		{hotkey.Binding{Win: true, Sides: hotkey.SideLWin | hotkey.SideRWin, Key: 'K'}, "Win + K"},
+		{hotkey.Binding{Win: true, Sides: hotkey.SideLWin | hotkey.SideRWin, Key: 'K'}, "LWin + RWin + K"},
 	}
 	for _, c := range cases {
 		if got := bindingLabel(c.b); got != c.want {

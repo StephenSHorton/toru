@@ -52,7 +52,7 @@ export function DeletePreset(id: string): $CancellablePromise<$models.Settings> 
 }
 
 /**
- * DuplicatePreset copies a preset under a free "(copy)" name.
+ * DuplicatePreset copies a preset as "Name (2)", "Name (3)", ...
  */
 export function DuplicatePreset(id: string): $CancellablePromise<$models.Settings> {
     return $Call.ByID(352310643, id).then(($result: any) => {
@@ -62,6 +62,7 @@ export function DuplicatePreset(id: string): $CancellablePromise<$models.Setting
 
 /**
  * ExportPreset writes a preset file chosen in a save dialog; "" when cancelled.
+ * Allowed while running (it changes nothing).
  */
 export function ExportPreset(id: string): $CancellablePromise<string> {
     return $Call.ByID(704541362, id);
@@ -78,7 +79,8 @@ export function GetSettings(): $CancellablePromise<$models.Settings> {
 
 /**
  * ImportPreset reads a Toru or Blur AutoClicker preset file chosen in an open
- * dialog and adds it as a preset.
+ * dialog and adds it as a preset (not made active). A cancelled dialog returns
+ * the settings unchanged.
  */
 export function ImportPreset(): $CancellablePromise<$models.Settings> {
     return $Call.ByID(2877941785).then(($result: any) => {
@@ -87,7 +89,9 @@ export function ImportPreset(): $CancellablePromise<$models.Settings> {
 }
 
 /**
- * ListProcesses returns the apps with visible windows plus saved list entries.
+ * ListProcesses returns the apps with visible windows plus saved list entries
+ * (Running=false when they are not running now). Running apps come first in
+ * the order Windows lists them; saved-only entries follow, sorted.
  */
 export function ListProcesses(): $CancellablePromise<$models.ProcessInfo[]> {
     return $Call.ByID(228837084).then(($result: any) => {
@@ -96,7 +100,8 @@ export function ListProcesses(): $CancellablePromise<$models.ProcessInfo[]> {
 }
 
 /**
- * PreviewSafety flashes the failsafe areas on screen for a few seconds.
+ * PreviewSafety flashes the failsafe areas on screen for a few seconds (even
+ * with ShowSafetyOverlay off: the user asked for it).
  */
 export function PreviewSafety(): $CancellablePromise<void> {
     return $Call.ByID(1145431551);
@@ -112,7 +117,7 @@ export function RenamePreset(id: string, name: string): $CancellablePromise<$mod
 }
 
 /**
- * ResetSettings restores defaults, keeping presets.
+ * ResetSettings restores defaults, keeping presets (none is active after).
  */
 export function ResetSettings(): $CancellablePromise<$models.Settings> {
     return $Call.ByID(1367616431).then(($result: any) => {
@@ -130,7 +135,7 @@ export function ResetStats(): $CancellablePromise<$models.Stats> {
 }
 
 /**
- * SavePreset stores the current profile as a new preset.
+ * SavePreset stores the current profile as a new preset and makes it active.
  */
 export function SavePreset(name: string): $CancellablePromise<$models.Settings> {
     return $Call.ByID(234388901, name).then(($result: any) => {
@@ -158,6 +163,9 @@ export function SetPaused(paused: boolean): $CancellablePromise<$models.Status> 
 
 /**
  * SetSettings normalizes, saves and applies next, returning what was stored.
+ * Presets and the active preset are kept as stored (they change only through
+ * the preset methods, which honour the running lock). When the failsafe
+ * geometry or the click points changed, they flash on screen.
  */
 export function SetSettings(next: $models.Settings): $CancellablePromise<$models.Settings> {
     return $Call.ByID(2722959540, next).then(($result: any) => {
@@ -166,7 +174,8 @@ export function SetSettings(next: $models.Settings): $CancellablePromise<$models
 }
 
 /**
- * Start starts a run from the page, after StartDelayMs of countdown.
+ * Start starts a run from the page, after StartDelayMs of countdown (Esc or
+ * Stop cancels it), so the run does not click the Start button itself.
  */
 export function Start(): $CancellablePromise<$models.Status> {
     return $Call.ByID(4115523897).then(($result: any) => {
@@ -175,15 +184,17 @@ export function Start(): $CancellablePromise<$models.Status> {
 }
 
 /**
- * StartPointPick starts picking click points on screen. Results arrive as
- * clicker:settings and clicker:pick events.
+ * StartPointPick starts picking click points on screen: right click adds a
+ * point (Shift keeps picking), Ctrl+right click deletes the nearest one, Esc
+ * ends. Results arrive as clicker:settings and clicker:pick events.
  */
 export function StartPointPick(): $CancellablePromise<void> {
     return $Call.ByID(3991205544);
 }
 
 /**
- * StartZonePick starts drawing a zone; zoneID "" adds a new one.
+ * StartZonePick starts drawing a zone with a right-drag; zoneID "" (or an id
+ * that no longer exists) adds a new one.
  */
 export function StartZonePick(zoneID: string): $CancellablePromise<void> {
     return $Call.ByID(3995785798, zoneID);

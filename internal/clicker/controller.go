@@ -93,6 +93,11 @@ func (r *run) elapsed(now time.Time) time.Duration {
 // begin validates and starts a run. Caller must not hold s.mu.
 func (s *ClickerService) begin(src runSource, holdVK uint16, startZone int) (Status, error) {
 	s.mu.Lock()
+	if s.closed {
+		st := s.statusLocked()
+		s.mu.Unlock()
+		return st, clickerErr(ErrAlreadyRunning, "Toru is shutting down")
+	}
 	if s.cur != nil {
 		st := s.statusLocked()
 		s.mu.Unlock()
@@ -249,6 +254,11 @@ func (s *ClickerService) drive(r *run) engine.Verdict {
 		r.warnSetup = warn
 	}
 	stopped := r.stopReq != ""
+	// A pause that landed before the clock existed could not interrupt it;
+	// deliver it now so the engine pauses on its first wait.
+	if r.paused.Load() {
+		clk.Interrupt()
+	}
 	s.mu.Unlock()
 	if stopped {
 		return engine.Verdict{Kind: engine.Stop, Code: engine.CodeInterrupted}

@@ -1,7 +1,6 @@
 package clicker
 
 import (
-	"strings"
 
 	"github.com/StephenSHorton/toru/internal/hotkey"
 )
@@ -73,33 +72,4 @@ func conflictErr(combo, action string) error {
 
 // bindingLabel renders b for the page and tray: "Ctrl + Shift + Y",
 // "LCtrl + Shift + A + S". "" when unbound.
-func bindingLabel(b hotkey.Binding) string {
-	if b.Key == 0 {
-		return ""
-	}
-	var parts []string
-	mod := func(on bool, name string, left, right hotkey.SideMask) {
-		if !on {
-			return
-		}
-		switch {
-		case b.Sides&left != 0 && b.Sides&right == 0:
-			parts = append(parts, "L"+name)
-		case b.Sides&right != 0 && b.Sides&left == 0:
-			parts = append(parts, "R"+name)
-		default:
-			parts = append(parts, name)
-		}
-	}
-	mod(b.Win, "Win", hotkey.SideLWin, hotkey.SideRWin)
-	mod(b.Ctrl, "Ctrl", hotkey.SideLCtrl, hotkey.SideRCtrl)
-	mod(b.Alt, "Alt", hotkey.SideLAlt, hotkey.SideRAlt)
-	mod(b.Shift, "Shift", hotkey.SideLShift, hotkey.SideRShift)
-	parts = append(parts, hotkey.KeyName(b.Key))
-	for _, x := range b.Extra {
-		if x != 0 {
-			parts = append(parts, hotkey.KeyName(x))
-		}
-	}
-	return strings.Join(parts, " + ")
-}
+func bindingLabel(b hotkey.Binding) string { return hotkey.ComboLabel(b) }

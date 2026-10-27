@@ -164,22 +164,11 @@ func (t *trayController) addReplayItems(menu *application.Menu) {
 	})
 }
 
-// comboLabel renders a binding as "Ctrl+Shift+S" / "Alt+F10" for menu labels.
+// comboLabel renders a binding compactly for menu labels: "Ctrl+Shift+S",
+// "Alt+F10", chords and sides included ("LCtrl+A+S").
 func comboLabel(b hotkey.Binding) string {
-	var parts []string
-	if b.Win {
-		parts = append(parts, "⊞")
-	}
-	if b.Ctrl {
-		parts = append(parts, "Ctrl")
-	}
-	if b.Alt {
-		parts = append(parts, "Alt")
-	}
-	if b.Shift {
-		parts = append(parts, "Shift")
-	}
-	return strings.Join(append(parts, hotkey.KeyName(b.Key)), "+")
+	label := strings.ReplaceAll(hotkey.ComboLabel(b), " + ", "+")
+	return strings.Replace(label, "Win", "⊞", 1)
 }
 
 // openRecent re-opens a capture from history: screenshots go to the annotation

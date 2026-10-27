@@ -45,6 +45,10 @@ type ClickerService struct {
 	// start-zone monitor (monitor.go)
 	monStop chan struct{}
 
+	// closed is set by Shutdown so a late hotkey or page call cannot start a
+	// run after the final stop.
+	closed bool
+
 	// runs counts live run goroutines, detached ones included, so Shutdown
 	// can give them a bounded moment to release held input.
 	runs sync.WaitGroup
@@ -150,6 +154,9 @@ func (s *ClickerService) Init() {
 //
 //wails:ignore
 func (s *ClickerService) Shutdown() {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
 	s.stopMonitor()
 	s.CancelPick()
 	s.stopRun(0, StopShutdown)
@@ -282,6 +289,7 @@ func (s *ClickerService) SetSettings(next Settings) (Settings, error) {
 			s.stopRun(0, StopDisarmed)
 		}
 		s.applyArmed(next.Armed)
+		s.publish(s.Status(), true)
 		s.changed()
 	}
 	s.syncMonitor()
