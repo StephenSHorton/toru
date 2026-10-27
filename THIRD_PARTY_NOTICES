@@ -203,9 +203,11 @@ clsx 2.1.1
 tailwind-merge 3.x
   License: MIT. Copyright (c) 2021 Dany Castillo.
 @wailsio/runtime
-  License: MIT (per its package.json). Copyright (c) 2018-Present Lea Anthony.
+  License: MIT (per its package.json; the npm package has no license file).
+  Copyright the Wails authors (https://github.com/wailsapp/wails).
 shadcn/ui components (copied into frontend/src/components/ui)
-  License: MIT. Copyright (c) 2023 shadcn.
+  License: MIT, per the upstream repository (https://github.com/shadcn-ui/ui);
+  not read from a local license file. Copyright the shadcn/ui authors.
 Inter font (frontend/public/Inter-Medium.ttf)
   License: SIL Open Font License 1.1 (https://openfontlicense.org).
   Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter).

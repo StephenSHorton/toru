@@ -105,8 +105,10 @@ openssl rand -base64 32 > /etc/toru-relay/secret
 chgrp toru-relay /etc/toru-relay/secret && chmod 0640 /etc/toru-relay/secret
 ```
 
-A certificate for `turns:` and the HTTPS endpoint, e.g. with certbot
-(standalone, before the relay holds port 443 — or use DNS validation):
+A certificate for `turns:` and the HTTPS endpoint, e.g. with certbot.
+Standalone mode answers the HTTP-01 challenge on TCP 80, which the relay
+doesn't use, so it works alongside it as long as port 80 is open (renewals
+too); DNS validation needs no port at all:
 
 ```sh
 certbot certonly --standalone -d relay.example.com
@@ -173,6 +175,7 @@ ufw allow 3478/tcp
 ufw allow 443/tcp
 ufw allow 8443/tcp
 ufw allow 49152:65535/udp
+ufw allow 80/tcp   # only for certbot standalone (HTTP-01)
 ```
 
 Keep everything else on the public IP closed. The relay already refuses to
