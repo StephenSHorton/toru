@@ -109,6 +109,9 @@ type testNode struct {
 	addr netip.Addr
 	net  *netstack.Net
 	inj  *injectTUN
+	priv [32]byte
+	sig  func(string, api.SignalBlob) // delivers to the other node
+	mu   *sync.Mutex                  // guards Node against the delivery goroutines
 }
 
 // pair builds two connected nodes, a and b, whose Signal funcs deliver to each
@@ -129,7 +132,7 @@ func pairWith(t *testing.T, servers []api.ICEServer) (a, b *testNode) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return &testNode{name: name, addr: addr, net: tnet, inj: newInjectTUN(dev)}, priv
+		return &testNode{name: name, addr: addr, net: tnet, inj: newInjectTUN(dev), priv: priv}, priv
 	}
 	// A also owns 100.96.255.255 as a local address: CreateNetTUN gives /32
 	// addresses, so without it gVisor wouldn't accept a subnet broadcast. A
@@ -144,29 +147,36 @@ func pairWith(t *testing.T, servers []api.ICEServer) (a, b *testNode) {
 			go func() {
 				mu.Lock()
 				dead := closed
+				n := (*to).Node
 				mu.Unlock()
-				if !dead && (*to).Node != nil {
-					(*to).HandleSignal(from, blob)
+				if !dead && n != nil {
+					n.HandleSignal(from, blob)
 				}
 			}()
 		}
 	}
-	var err error
-	a.Node, err = NewNode(a.inj, Config{PrivateKey: privA, Addr: a.addr, ICEServers: servers, Signal: deliver(&b, "a"), Logf: logTo(t, "a")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b.Node, err = NewNode(b.inj, Config{PrivateKey: privB, Addr: b.addr, ICEServers: servers, Signal: deliver(&a, "b"), Logf: logTo(t, "b")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
+	a.sig, b.sig = deliver(&b, "a"), deliver(&a, "b")
+	a.mu, b.mu = &mu, &mu
+	for _, x := range []struct {
+		n    *testNode
+		priv [32]byte
+	}{{a, privA}, {b, privB}} {
+		n, err := NewNode(x.n.inj, Config{PrivateKey: x.priv, Addr: x.n.addr, ICEServers: servers, Signal: x.n.sig, Logf: logTo(t, x.n.name)})
+		if err != nil {
+			t.Fatal(err)
+		}
 		mu.Lock()
-		closed = true
+		x.n.Node = n
 		mu.Unlock()
-		a.Close()
-		b.Close()
-	})
+		t.Cleanup(func() {
+			mu.Lock()
+			closed = true
+			cur := x.n.Node
+			mu.Unlock()
+			n.Close()
+			cur.Close() // a restarted node (TestNodeRestartOneSide)
+		})
+	}
 	go a.HandleSignal("b", b.Hello())
 	go b.HandleSignal("a", a.Hello())
 	waitFor(t, 20*time.Second, "both peers connected", func() bool {

@@ -145,6 +145,7 @@ func (h *host) start() error {
 	n, err := h.newNode(ad.Device(), lan.Config{
 		PrivateKey: key.Private,
 		Addr:       addr,
+		Salt:       key.Salt,
 		ICEServers: up.ICEServers,
 		Policy:     up.Policy,
 		Signal:     func(peer string, blob api.SignalBlob) { h.signal(gen, peer, blob) },

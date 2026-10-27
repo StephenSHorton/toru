@@ -341,6 +341,13 @@ func (p *peer) onState(s *session, st ice.ConnectionState) {
 	switch st {
 	case ice.ConnectionStateConnected, ice.ConnectionStateCompleted:
 		if s.connected {
+			// Back from Disconnected on the same pair: pion fires no pair
+			// change, so this is the only place the peer turns connected
+			// again (and broadcast fan-out to it resumes). publish
+			// coalesces a repeat.
+			if s == p.main {
+				p.publish(api.PeerConnected, s.path)
+			}
 			return
 		}
 		s.connected = true

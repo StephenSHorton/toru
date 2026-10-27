@@ -174,6 +174,9 @@ type SignalBlob struct {
 	Cand  string `json:"cand,omitempty"` // one ICE candidate, ice.Candidate.Marshal()
 	WGPub string `json:"wgPub,omitempty"`
 	IP    string `json:"ip,omitempty"`
+	// Salt is the address salt in a Hello: IP must be AddrFromKey(WGPub,
+	// Salt), so an address is bound to the key that claims it.
+	Salt uint32 `json:"salt,omitempty"`
 	// Direct marks the second, relay-less agent built to upgrade a relayed
 	// path (make-before-break); it runs alongside the working one.
 	Direct bool `json:"direct,omitempty"`

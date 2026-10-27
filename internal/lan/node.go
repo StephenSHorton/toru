@@ -34,7 +34,8 @@ import (
 // Config is what the service knows when it brings LAN up.
 type Config struct {
 	PrivateKey [32]byte   // WireGuard static private key
-	Addr       netip.Addr // this node's overlay address
+	Addr       netip.Addr // this node's overlay address: AddrFromKey(public key, Salt)
+	Salt       uint32     // the address salt (sent in Hello so peers can check Addr)
 	ICEServers []api.ICEServer
 	Policy     api.Policy
 	// Signal sends a blob to a room peer (via the GUI). It is called from
@@ -58,6 +59,7 @@ type Node struct {
 	ice      []api.ICEServer
 	peers    map[string]*peer
 	early    map[string][]api.SignalBlob // creds/cands from peers we have no Hello from yet
+	blocked  map[string]blockedHello     // Hellos held back by a live peer's claim (see hello)
 	gen      uint32
 	closed   bool
 	onChange func()
@@ -75,6 +77,7 @@ type peer struct {
 	ip          netip.Addr
 	ep          *iceEndpoint
 	controlling bool
+	added       time.Time
 
 	events  chan any
 	done    chan struct{}
@@ -93,13 +96,38 @@ type peer struct {
 	// published
 	state, path string
 	agentRef    *session
+	helloBoot   uint32 // the boot of the last Hello seen (Node.mu)
 }
+
+// blockedHello is a Hello that claimed a key or address a live peer holds.
+// It is retried until it expires, so a legitimate claim (a reinstall, a
+// fresh Toru install id) wins once the old holder has gone quiet.
+type blockedHello struct {
+	blob api.SignalBlob
+	at   time.Time
+}
+
+const (
+	// maxSalt bounds the address salt a Hello may carry. The GUI counts
+	// Readdress salts up from 1, one per collision.
+	maxSalt = 1 << 16
+	// holdNew is how long a new peer counts as live while it connects.
+	holdNew = 45 * time.Second
+	// holdHandshake: a peer with a WireGuard handshake this recent is live.
+	// WireGuard rekeys every 2 minutes on a working tunnel.
+	holdHandshake = 3 * time.Minute
+	// blockedTTL is how long a held-back Hello is retried.
+	blockedTTL = 5 * time.Minute
+)
 
 // NewNode starts the WireGuard device on dev behind the shim. The Node owns
 // dev from here on: Close closes it.
 func NewNode(dev tun.Device, cfg Config) (*Node, error) {
 	if !overlay.Contains(cfg.Addr) || !validHost(cfg.Addr) {
 		return nil, fmt.Errorf("lan: %v is not an overlay host address", cfg.Addr)
+	}
+	if want := AddrFromKey(PublicKey(cfg.PrivateKey), cfg.Salt); cfg.Addr != want || cfg.Salt > maxSalt {
+		return nil, fmt.Errorf("lan: %v is not this key's address with salt %d (%v)", cfg.Addr, cfg.Salt, want)
 	}
 	if cfg.Logf == nil {
 		cfg.Logf = func(string, ...any) {}
@@ -113,6 +141,7 @@ func NewNode(dev tun.Device, cfg Config) (*Node, error) {
 		ice:     slices.Clone(cfg.ICEServers),
 		peers:   map[string]*peer{},
 		early:   map[string][]api.SignalBlob{},
+		blocked: map[string]blockedHello{},
 		changed: make(chan struct{}, 1),
 		done:    make(chan struct{}),
 	}
@@ -154,6 +183,7 @@ func (n *Node) Hello() api.SignalBlob {
 		Gen:   n.boot,
 		WGPub: base64.StdEncoding.EncodeToString(n.pub[:]),
 		IP:    n.cfg.Addr.String(),
+		Salt:  n.cfg.Salt,
 	}
 }
 
@@ -163,6 +193,13 @@ func (n *Node) HandleSignal(id string, b api.SignalBlob) {
 	case api.KindHello:
 		n.hello(id, b)
 	case api.KindBye:
+		// The room's From is not authenticated, so a bye can be forged: it
+		// only removes a peer whose tunnel isn't working anyway. Presence
+		// (the GUI's Drop) handles real departures.
+		if n.live(id) {
+			n.logf("lan: %s: bye ignored, its tunnel is up", id)
+			return
+		}
 		n.Drop(id)
 	case api.KindCreds, api.KindCand:
 		n.mu.Lock()
@@ -200,27 +237,69 @@ func (n *Node) hello(id string, b api.SignalBlob) {
 		n.logf("lan: %s: bad hello address %q", id, b.IP)
 		return
 	}
+	// The address must be the one this key derives, so a member can't claim
+	// another's address with its own key.
+	if b.Salt > maxSalt || ip != AddrFromKey(pub, b.Salt) {
+		n.logf("lan: %s: hello address %v is not its key's (salt %d)", id, ip, b.Salt)
+		return
+	}
 
 	n.helloMu.Lock()
 	defer n.helloMu.Unlock()
+	var hs map[[32]byte]wgPeerStats // read only when there is a conflict
+	now := time.Now()
 	n.mu.Lock()
 	if n.closed {
 		n.mu.Unlock()
 		return
 	}
 	if p := n.peers[id]; p != nil && p.pub == pub && p.ip == ip {
+		reply := p.helloBoot != b.Gen
+		p.helloBoot = b.Gen
+		delete(n.blocked, id)
 		n.mu.Unlock()
 		p.post(evHello{b.Gen})
+		if reply {
+			// The peer restarted with an empty peer list: it needs our Hello
+			// again, or it never adds us.
+			n.signal(id, n.Hello())
+		}
 		return
 	}
 	// A changed key or address under this id, or this key or address under
-	// another id: the old entry goes.
-	var stale []string
-	for oid, op := range n.peers {
-		if oid == id || op.pub == pub || op.ip == ip {
-			stale = append(stale, oid)
+	// another id. A holder whose tunnel is live keeps its claim: room From
+	// ids are not authenticated, and evicting it would hand its address (and
+	// the traffic for it) to whoever asked. The claim is retried, so it wins
+	// once the holder has gone quiet.
+	if n.conflictLocked(id, pub, ip) {
+		n.mu.Unlock()
+		hs = n.wgStats()
+		n.mu.Lock()
+		if n.closed {
+			n.mu.Unlock()
+			return
 		}
 	}
+	var stale []string
+	for oid, op := range n.peers {
+		if oid != id && op.pub != pub && op.ip != ip {
+			continue
+		}
+		if liveLocked(op, now, hs) {
+			bh, already := n.blocked[id]
+			if !already || bh.blob != b {
+				bh = blockedHello{blob: b, at: now} // a retry keeps its first time, so it expires
+			}
+			n.blocked[id] = bh
+			n.mu.Unlock()
+			if !already {
+				n.logf("lan: %s: hello for %v held back: %s holds that key or address and is live", id, ip, oid)
+			}
+			return
+		}
+		stale = append(stale, oid)
+	}
+	delete(n.blocked, id)
 	n.mu.Unlock()
 	for _, oid := range stale {
 		n.removePeer(oid, false)
@@ -229,7 +308,9 @@ func (n *Node) hello(id string, b api.SignalBlob) {
 	p := &peer{
 		n: n, id: id, pub: pub, ip: ip,
 		controlling: bytes.Compare(n.pub[:], pub[:]) < 0,
+		added:       now,
 		boot:        b.Gen,
+		helloBoot:   b.Gen,
 		events:      make(chan any, 64),
 		done:        make(chan struct{}),
 		stopped:     make(chan struct{}),
@@ -269,6 +350,58 @@ func (n *Node) hello(id string, b api.SignalBlob) {
 	n.signal(id, n.Hello())
 }
 
+// conflictLocked reports whether a Hello from id for pub and ip collides with
+// any peer we have. n.mu held.
+func (n *Node) conflictLocked(id string, pub [32]byte, ip netip.Addr) bool {
+	for oid, op := range n.peers {
+		if oid == id || op.pub == pub || op.ip == ip {
+			return true
+		}
+	}
+	return false
+}
+
+// liveLocked reports whether p's tunnel is in use or about to be: connected,
+// added moments ago, or a recent WireGuard handshake. n.mu held.
+func liveLocked(p *peer, now time.Time, hs map[[32]byte]wgPeerStats) bool {
+	if p.state == api.PeerConnected || now.Sub(p.added) < holdNew {
+		return true
+	}
+	if w, ok := hs[p.pub]; ok && w.handshake > 0 {
+		return now.Sub(time.Unix(w.handshake, 0)) < holdHandshake
+	}
+	return false
+}
+
+// live reports whether peer id is live (see liveLocked).
+func (n *Node) live(id string) bool {
+	hs := n.wgStats()
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	p := n.peers[id]
+	return p != nil && liveLocked(p, time.Now(), hs)
+}
+
+// retryBlocked re-runs the Hellos a live peer held back; those whose holder
+// has gone quiet (or left) go through now.
+func (n *Node) retryBlocked() {
+	now := time.Now()
+	n.mu.Lock()
+	var ids []string
+	var blobs []api.SignalBlob
+	for id, bh := range n.blocked {
+		if now.Sub(bh.at) > blockedTTL {
+			delete(n.blocked, id)
+			continue
+		}
+		ids, blobs = append(ids, id), append(blobs, bh.blob)
+	}
+	n.mu.Unlock()
+	for i, id := range ids {
+		n.hello(id, blobs[i])
+	}
+}
+
 // Drop removes a peer (left the room, timed out, or said bye).
 func (n *Node) Drop(id string) { n.removePeer(id, true) }
 
@@ -277,9 +410,16 @@ func (n *Node) removePeer(id string, notify bool) {
 	p := n.peers[id]
 	delete(n.peers, id)
 	delete(n.early, id)
+	if notify {
+		delete(n.blocked, id) // left the room: its claim goes too
+	}
+	retry := len(n.blocked) > 0
 	n.mu.Unlock()
 	if p == nil {
 		return
+	}
+	if retry {
+		defer func() { go n.retryBlocked() }()
 	}
 	close(p.done)
 	<-p.stopped
@@ -486,6 +626,12 @@ func (n *Node) notifyLoop() {
 			last = statsKey(n.Peers())
 			fire()
 		case <-t.C:
+			n.mu.Lock()
+			retry := len(n.blocked) > 0
+			n.mu.Unlock()
+			if retry {
+				n.retryBlocked()
+			}
 			cur := statsKey(n.Peers())
 			if !slices.Equal(cur, last) {
 				last = cur
