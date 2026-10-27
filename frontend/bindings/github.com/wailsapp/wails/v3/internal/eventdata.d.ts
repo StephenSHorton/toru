@@ -16,6 +16,9 @@ import type * as clicker$0 from "../../../../StephenSHorton/toru/internal/clicke
 import type * as overlay$0 from "../../../../StephenSHorton/toru/internal/overlay/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import type * as stream$0 from "../../../../StephenSHorton/toru/internal/stream/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import type * as transfer$0 from "../../../../StephenSHorton/toru/internal/transfer/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -32,6 +35,9 @@ declare module "@wailsio/runtime" {
             "overlay:edit": overlay$0.OverlayEditPayload;
             "overlay:engage": overlay$0.MonitorSession;
             "overlay:ui": overlay$0.OverlayUi;
+            "stream:host": stream$0.HostEvent;
+            "stream:offer": stream$0.Offer;
+            "stream:state": stream$0.State;
             "transfer:receive": transfer$0.ReceiveState;
             "transfer:send": transfer$0.SendState;
             "update:status": update$0.Status;

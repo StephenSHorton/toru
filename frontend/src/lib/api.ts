@@ -44,6 +44,9 @@
 //   ClickerService.StartPointPick / StartZonePick(id|"") / CancelPick / PreviewSafety / CursorPosition  ("clicker:pick")
 //   ClickerService.ListProcesses / SavePreset / ApplyPreset / UpdatePreset / RenamePreset / DuplicatePreset / DeletePreset / ExportPreset / ImportPreset / Stats / ResetStats
 //   Errors read "clicker: <CODE>: message" (codes in internal/clicker/types.go).
+//   StreamService.GetState / GetSettings / SetSettings(s) -> normalized StreamSettings  ("stream:state" on any change)
+//   StreamService.CreateRoom / JoinRoom(code) / LeaveRoom / GoLive / StopLive / OpenWatch(host) / ListMonitors / EncoderSupport
+//   StreamService.WatchStart(host, session) / WatchAnswer(host, session, sdp) / WatchStop  (watch window; "stream:offer", "stream:host")
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
@@ -86,6 +89,16 @@ import {
   SendState,
   ReceiveState,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/transfer/models.js";
+import * as StreamService from "../../bindings/github.com/StephenSHorton/toru/internal/stream/streamservice.js";
+import {
+  Settings as StreamSettings,
+  State as StreamState,
+  Member as StreamMember,
+  Monitor as StreamMonitor,
+  LiveInfo as StreamLiveInfo,
+  Offer as StreamOffer,
+  HostEvent as StreamHostEvent,
+} from "../../bindings/github.com/StephenSHorton/toru/internal/stream/models.js";
 import * as ClickerService from "../../bindings/github.com/StephenSHorton/toru/internal/clicker/clickerservice.js";
 import {
   Settings as ClickerSettings,
@@ -145,5 +158,13 @@ export {
   ClickerStats,
   PickEvent,
   ClickerPoint,
+  StreamService,
+  StreamSettings,
+  StreamState,
+  StreamMember,
+  StreamMonitor,
+  StreamLiveInfo,
+  StreamOffer,
+  StreamHostEvent,
 };
 export type { CaptureItem };

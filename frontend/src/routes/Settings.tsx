@@ -14,6 +14,7 @@ import {
   Video,
   LayoutGrid,
   MousePointerClick,
+  Radio,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -24,6 +25,7 @@ import { ReplayPanel } from "@/replay/ReplayPanel";
 import { NotificationsPanel } from "@/notifications/NotificationsPanel";
 import SendFiles from "@/transfer/SendFiles";
 import ClickerPage from "@/clicker/ClickerPage";
+import StreamPage from "@/stream/StreamPage";
 import { errText, reportLocalSendError } from "@/transfer/useTransfer";
 import {
   TransferService,
@@ -42,8 +44,8 @@ import { cn } from "@/lib/utils";
 // recent screenshots & recordings; Settings is a navigable panel (shortcuts,
 // launch-at-login, freeze, updater).
 
-type Page = "library" | "send" | "clicker" | "settings";
-const PAGES: readonly Page[] = ["library", "send", "clicker", "settings"];
+type Page = "library" | "send" | "stream" | "clicker" | "settings";
+const PAGES: readonly Page[] = ["library", "send", "stream", "clicker", "settings"];
 
 // initialPage honours `?page=` so the tray's "Send files…" can open the hub
 // straight onto Send Files (windows.go OpenSendFiles); anything else lands on Library.
@@ -100,6 +102,12 @@ export default function Settings() {
           onClick={() => setPage("send")}
         />
         <NavBtn
+          active={page === "stream"}
+          icon={Radio}
+          label="Stream"
+          onClick={() => setPage("stream")}
+        />
+        <NavBtn
           active={page === "clicker"}
           icon={MousePointerClick}
           label="Auto Clicker"
@@ -138,6 +146,8 @@ export default function Settings() {
           <LibraryPage onSendItem={sendItem} />
         ) : page === "send" ? (
           <SendFiles />
+        ) : page === "stream" ? (
+          <StreamPage />
         ) : page === "clicker" ? (
           <ClickerPage />
         ) : (

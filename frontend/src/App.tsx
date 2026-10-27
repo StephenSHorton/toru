@@ -6,6 +6,7 @@ import Recording from "@/routes/Recording";
 import RecFrame from "@/routes/RecFrame";
 import Share from "@/routes/Share";
 import Timeline from "@/routes/Timeline";
+import Watch from "@/routes/Watch";
 
 // Each Wails window opens with a `?view=` query param (see windows.go). We route
 // on that rather than the path so the embedded SPA needs no server fallback.
@@ -28,6 +29,8 @@ export default function App() {
       return <RecFrame />;
     case "timeline":
       return <Timeline />;
+    case "watch":
+      return <Watch />;
     case "settings":
     default:
       return <Settings />;

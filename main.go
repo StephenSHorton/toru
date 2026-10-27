@@ -27,6 +27,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/replay"
 	"github.com/StephenSHorton/toru/internal/share"
 	"github.com/StephenSHorton/toru/internal/shot"
+	"github.com/StephenSHorton/toru/internal/stream"
 	"github.com/StephenSHorton/toru/internal/toast"
 	"github.com/StephenSHorton/toru/internal/transfer"
 	"github.com/StephenSHorton/toru/internal/update"
@@ -84,6 +85,9 @@ func init() {
 	application.RegisterEvent[clicker.Status](clicker.EventStatus)
 	application.RegisterEvent[clicker.Settings](clicker.EventSettings)
 	application.RegisterEvent[clicker.PickEvent](clicker.EventPick)
+	application.RegisterEvent[stream.State](stream.EventState)
+	application.RegisterEvent[stream.Offer](stream.EventOffer)
+	application.RegisterEvent[stream.HostEvent](stream.EventHost)
 }
 
 func main() {
@@ -163,6 +167,7 @@ func main() {
 	// seconds. Nothing runs until the user enables it in Settings.
 	replaySvc = replay.NewService()
 	uploadSvc := upload.New()
+	streamSvc := stream.NewService()
 
 	app := application.New(application.Options{
 		Name:        "Toru",
@@ -181,6 +186,7 @@ func main() {
 			application.NewService(uploadSvc),
 			application.NewService(transferSvc),
 			application.NewService(clickerSvc),
+			application.NewService(streamSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -197,6 +203,8 @@ func main() {
 		// opens no window). Keep the app alive across a fully-windowless moment.
 		Windows: application.WindowsOptions{
 			DisableQuitOnLastWindowClosed: true,
+			// Watch windows start a stream's sound without a click first.
+			AdditionalBrowserArgs: []string{"--autoplay-policy=no-user-gesture-required"},
 		},
 		// Toru is a single-instance tray app. Without this, launching it again
 		// (e.g. the user double-clicks the desktop icon while the login-started
@@ -229,6 +237,8 @@ func main() {
 	windowsSvc.transfer = transferSvc // file drops on the hub window start a send
 	clickerSvc.SetApp(app)
 	clickerSvc.SetHotkeys(keys)
+	streamSvc.SetApp(app)
+	streamSvc.SetWatchOpener(windowsSvc.OpenWatch)
 	// Recording a shortcut stops the clicker first, so its input can't land in
 	// the recorder.
 	hotkeySvc.SetOnRecordStart(func() { clickerSvc.StopFor(clicker.StopKeyCapture) })
@@ -440,6 +450,9 @@ func main() {
 
 		// Auto clicker: load settings, arm its hotkeys.
 		go clickerSvc.Init()
+
+		// Stream: rejoin the saved room so friends see we're around.
+		go streamSvc.Init()
 	})
 
 	// Best-effort: close the reused overlay windows on app shutdown. Process exit
@@ -457,6 +470,7 @@ func main() {
 		clickerSvc.Shutdown() // stop a run and release any held button or key
 		replaySvc.Shutdown()  // stop ffmpeg + delete the rolling segments
 		transferSvc.Shutdown()
+		streamSvc.Shutdown() // end a live stream, tell the room we left
 		updateSvc.InstallOnExit()
 	})
 

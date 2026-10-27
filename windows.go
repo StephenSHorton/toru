@@ -300,6 +300,29 @@ func (w *WindowsService) OpenTrim(videoPath string) {
 	w.openTrimWindow("Toru — Trim Recording", videoPath, servedFileURL(videoPath))
 }
 
+// OpenWatch opens a window watching a room member's live stream, sized to a
+// 16:9 picture at most 1280 wide inside the primary work area.
+//
+//wails:ignore
+func (w *WindowsService) OpenWatch(host, name string) {
+	if w.app == nil {
+		return
+	}
+	width, height := 1280, 720
+	if screen := w.app.Screen.GetPrimary(); screen != nil && screen.WorkArea.Width > 0 {
+		width = min(width, screen.WorkArea.Width*9/10)
+		height = min(width*9/16, screen.WorkArea.Height*9/10)
+	}
+	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:            "Toru — " + name,
+		URL:              "/?view=watch&host=" + url.QueryEscape(host) + "&name=" + url.QueryEscape(name),
+		Width:            width,
+		Height:           height,
+		BackgroundColour: application.NewRGB(0, 0, 0),
+	})
+	win.Center()
+}
+
 // OpenTimeline opens a session recording in the timeline viewer.
 //
 //wails:ignore
