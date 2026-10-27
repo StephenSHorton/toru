@@ -62,7 +62,10 @@ import {
 } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
 import * as SettingsService from "../../bindings/github.com/StephenSHorton/toru/settingsservice.js";
 import * as HistoryService from "../../bindings/github.com/StephenSHorton/toru/internal/history/historyservice.js";
-import { Item as CaptureItem } from "../../bindings/github.com/StephenSHorton/toru/internal/history/models.js";
+import {
+  Item as CaptureItem,
+  Retention as LibraryRetention,
+} from "../../bindings/github.com/StephenSHorton/toru/internal/history/models.js";
 import * as UploadService from "../../bindings/github.com/StephenSHorton/toru/internal/upload/uploadservice.js";
 import * as ReplayService from "../../bindings/github.com/StephenSHorton/toru/internal/replay/replayservice.js";
 import {
@@ -111,6 +114,7 @@ export {
   AudioSession,
   SettingsService,
   HistoryService,
+  LibraryRetention,
   ReplayService,
   UploadService,
   ReplaySettings,

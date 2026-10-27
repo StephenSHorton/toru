@@ -14,7 +14,62 @@ var prefsMu sync.Mutex
 // libraryPrefs is the on-disk shape of %AppData%/toru/library.json.
 // Dir is an absolute path to the captures/library folder; empty means default.
 type libraryPrefs struct {
-	Dir string `json:"dir"`
+	Dir       string    `json:"dir"`
+	Retention Retention `json:"retention"`
+}
+
+// readPrefsLocked loads library.json (zero value when it does not exist yet
+// or is corrupt). Any other read failure is returned, so a save never
+// rewrites the file from a blank struct and wipes the other setting.
+// Caller holds prefsMu.
+func readPrefsLocked() (libraryPrefs, string, error) {
+	path, err := libraryPrefsPath()
+	if err != nil {
+		return libraryPrefs{}, "", err
+	}
+	var p libraryPrefs
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return p, path, nil
+		}
+		return p, path, err
+	}
+	_ = json.Unmarshal(raw, &p)
+	return p, path, nil
+}
+
+// writePrefsLocked saves library.json atomically. Caller holds prefsMu.
+func writePrefsLocked(path string, p libraryPrefs) error {
+	raw, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// loadRetention returns the saved auto-delete choice (off when unset).
+func loadRetention() Retention {
+	prefsMu.Lock()
+	defer prefsMu.Unlock()
+	p, _, _ := readPrefsLocked()
+	return p.Retention.normalized()
+}
+
+// saveRetention persists r, keeping the saved library path.
+func saveRetention(r Retention) error {
+	prefsMu.Lock()
+	defer prefsMu.Unlock()
+	p, path, err := readPrefsLocked()
+	if err != nil {
+		return err
+	}
+	p.Retention = r.normalized()
+	return writePrefsLocked(path, p)
 }
 
 func libraryPrefsPath() (string, error) {
@@ -69,25 +124,17 @@ func loadPreferredDir() (string, error) {
 func savePreferredDir(dir string) error {
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
-	path, err := libraryPrefsPath()
+	p, path, err := readPrefsLocked()
 	if err != nil {
 		return err
 	}
-	p := libraryPrefs{Dir: strings.TrimSpace(dir)}
+	p.Dir = strings.TrimSpace(dir)
 	// If the user is on the default path, store empty so resets stay portable
 	// across machines that share the config shape.
 	if def, err := DefaultDir(); err == nil && samePath(p.Dir, def) {
 		p.Dir = ""
 	}
-	raw, err := json.MarshalIndent(p, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writePrefsLocked(path, p)
 }
 
 func samePath(a, b string) bool {

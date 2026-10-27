@@ -56,3 +56,38 @@ export class Item {
         return new Item($$parsedSource as Partial<Item>);
     }
 }
+
+/**
+ * Retention is the user's library auto-delete choice. Off keeps every capture
+ * until the user deletes it; on, a capture goes once it falls past KeepCount
+ * (newest first) or is older than KeepDays. A zero limit means "no limit" on
+ * that axis.
+ */
+export class Retention {
+    "autoDelete": boolean;
+    "keepCount": number;
+    "keepDays": number;
+
+    /** Creates a new Retention instance. */
+    constructor($$source: Partial<Retention> = {}) {
+        if (!("autoDelete" in $$source)) {
+            this["autoDelete"] = false;
+        }
+        if (!("keepCount" in $$source)) {
+            this["keepCount"] = 0;
+        }
+        if (!("keepDays" in $$source)) {
+            this["keepDays"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Retention instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Retention {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Retention($$parsedSource as Partial<Retention>);
+    }
+}

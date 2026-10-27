@@ -592,7 +592,7 @@ export default function Trim() {
             keep {fmtSec(Math.max(0, outSec - inSec))} of {fmtSec(duration)}
           </span>
           {note ? <span className="text-xs text-primary">{note}</span> : null}
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
             <Button
               size="sm"
               variant={cropMode ? "default" : cropActive ? "secondary" : "ghost"}
@@ -897,7 +897,9 @@ function fitWindowToVideo(vw: number, vh: number, pane: HTMLElement | null) {
   const screenH = window.screen?.availHeight || 1000;
   const maxW = Math.min(1280, Math.round(screenW * 0.95));
   const maxH = Math.min(960, Math.round(screenH * 0.92));
-  const minW = 520;
+  // Wide enough for the action row on one line, so a portrait or small clip
+  // does not squeeze the buttons (they wrap as a fallback on small screens).
+  const minW = Math.min(maxW, 820);
 
   const size = (chromeH: number) => {
     let dispW = Math.min(vw, maxW - SIDE_PAD);

@@ -86,6 +86,9 @@ func (t *trayController) rebuildMenu() {
 	items := []history.Item{}
 	if t.history != nil {
 		items = t.history.List()
+		if len(items) > history.MaxItems {
+			items = items[:history.MaxItems]
+		}
 	}
 	if len(items) == 0 {
 		empty := menu.Add("No recent captures")

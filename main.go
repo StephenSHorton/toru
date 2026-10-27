@@ -376,7 +376,20 @@ func main() {
 			openClicker:   windowsSvc.OpenClicker,
 			update:        updateSvc,
 		}
-		tray.rebuildMenu()                                         // initial menu (includes any persisted recents)
+		tray.rebuildMenu() // initial menu (includes any persisted recents)
+
+		// Housekeeping, now and then every few hours for a tray app that stays
+		// up for weeks: clear day-old capture leftovers out of %TEMP%\toru, and
+		// apply the library's "delete after N days" (a no-op unless the user
+		// turned auto-delete on). Started here, after tray and replaySvc are
+		// set, because Expire fires the history onChange that reads them.
+		go func() {
+			for {
+				capture.SweepTemp(capture.TempDir(), capture.TempMaxAge, time.Now())
+				hist.Expire()
+				time.Sleep(6 * time.Hour)
+			}
+		}()
 		systray.OnClick(func() { windowsSvc.OpenSettings() })      // left-click = open home (menu-bar feel)
 		systray.OnDoubleClick(func() { windowsSvc.OpenOverlay() }) // double-click = quick capture
 		// Right-click opens the menu automatically (Wails smart default).
