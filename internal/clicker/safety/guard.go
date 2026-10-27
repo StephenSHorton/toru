@@ -34,9 +34,11 @@ func NewGuard(cfg Config, sys System) Guard {
 			}
 		}
 	}
-	// StartZoneIndex is a settings-list position (Zone.Index). It only counts
-	// when it names a start zone: a zero-value Config (StartZoneIndex 0) must
-	// not turn zone 0 into "the zone that started the run".
+	// StartZoneIndex is matched against Zone.Index (the settings-list
+	// position), not the Zones slice index. It only arms zoneLeft when it names
+	// a start zone. This does not protect a zero value: a Config left at
+	// StartZoneIndex 0 while zone 0 is a start zone stops the run as soon as
+	// the cursor is outside it, so runs not started by a zone must pass -1.
 	if cfg.StartZoneIndex >= 0 {
 		for i, z := range cfg.Zones {
 			if z.Index == cfg.StartZoneIndex && z.Action == ZoneStart {
@@ -82,6 +84,8 @@ func (g *guard) Check(int64, int64) engine.Verdict {
 		}
 	}
 
+	// TODO(S5): hotkey.PhysicallyDown is still the S0 stub (always false), so
+	// until S5 lands every hold-mode run stops here on its first Check.
 	if g.cfg.HoldTriggerVK != 0 && !g.sys.PhysicallyDown(g.cfg.HoldTriggerVK) {
 		return stop(codeHoldRelease, "Hotkey released")
 	}

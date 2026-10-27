@@ -118,8 +118,7 @@ func TestGuardStartZoneLeft(t *testing.T) {
 	if v := g.Check(0, 0); v.Code != "zoneLeft" || v.Reason != "Left start zone 4" {
 		t.Fatalf("left start zone: %+v", v)
 	}
-	// StartZoneIndex naming a zone that is not a start zone (or a zero-value
-	// Config's 0) does nothing.
+	// StartZoneIndex naming a zone that is not a start zone does nothing.
 	cfg.StartZoneIndex = 0
 	if v := NewGuard(cfg, sys).Check(0, 0); v.Kind != engine.Continue {
 		t.Fatalf("non-start zone index: %+v", v)
@@ -127,6 +126,16 @@ func TestGuardStartZoneLeft(t *testing.T) {
 	cfg.StartZoneIndex = 7
 	if v := NewGuard(cfg, sys).Check(0, 0); v.Kind != engine.Continue {
 		t.Fatalf("missing zone index: %+v", v)
+	}
+	// A zero StartZoneIndex is not "unset": when zone 0 is a start zone it arms
+	// zoneLeft, so callers whose run was not started by a zone must pass -1.
+	zero := Config{Zones: []Zone{{Rect: Rect{0, 0, 10, 10}, Action: ZoneStart, Index: 0}}}
+	if v := NewGuard(zero, sys).Check(0, 0); v.Code != "zoneLeft" || v.Reason != "Left start zone 1" {
+		t.Fatalf("zero StartZoneIndex with start zone 0: %+v", v)
+	}
+	zero.StartZoneIndex = -1
+	if v := NewGuard(zero, sys).Check(0, 0); v.Kind != engine.Continue {
+		t.Fatalf("StartZoneIndex -1: %+v", v)
 	}
 	// An unknown cursor never stops a run.
 	cfg.StartZoneIndex = 3

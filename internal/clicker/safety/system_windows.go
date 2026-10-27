@@ -141,6 +141,9 @@ func (s *winSystem) TaskSwitcherActive() bool {
 	if fg := s.Foreground(); fg.OK && isTaskSwitcherClass(fg.Class) {
 		return true
 	}
+	// TODO(S5): hotkey.PhysicallyDown is the S0 stub (always false), so only
+	// the foreground-class check trips today. S5 must answer the generic
+	// VK_MENU (0x12) as well as the sided 0xA4/0xA5 queried here.
 	altDown := hotkey.PhysicallyDown(vkAlt) || hotkey.PhysicallyDown(vkLAlt) || hotkey.PhysicallyDown(vkRAlt)
 	return altDown && hotkey.PhysicallyDown(vkTab)
 }
