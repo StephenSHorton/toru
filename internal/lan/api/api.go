@@ -26,7 +26,7 @@ const PipeName = `\\.\pipe\ProtectedPrefix\Administrators\Toru\lan`
 // read and write (connect), nobody else.
 const PipeSDDL = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)"
 
-// ServiceName is the Windows service; the setup exe registers it demand-start
+// ServiceName is the Windows service; "toru-lan.exe install" registers it demand-start
 // with a security descriptor that lets interactive users start and stop it.
 const (
 	ServiceName        = "ToruLan"
@@ -56,16 +56,20 @@ const (
 	FrameMarker     = "TEF1" // reserved for whole Ethernet frames (future L2 backend)
 )
 
-// Install layout (machine-wide; written only by the elevated setup exe).
+// Install layout (machine-wide; written only by the elevated installer).
 const (
 	InstallSubdir = `Toru\lan` // under %ProgramFiles%
 	DataSubdir    = `Toru\lan` // under %ProgramData%, SYSTEM-only ACL
-	ServiceExe    = "toru-lan-svc.exe"
-	SetupExe      = "toru-lan-setup.exe"
-	WintunDLL     = "wintun.dll"
+	// LanExe is both the elevated installer ("toru-lan.exe install" /
+	// "uninstall", run once with UAC) and the service binary itself.
+	LanExe    = "toru-lan.exe"
+	WintunDLL = "wintun.dll"
+	// WintunSHA256 is the vendored build/windows/wintun/wintun.dll (0.14.1
+	// amd64); install refuses any other file.
+	WintunSHA256 = "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
 )
 
-// Firewall rule names the setup exe creates (and removes on uninstall).
+// Firewall rule names the installer creates (and removes on uninstall).
 const (
 	FirewallRuleInbound = "Toru LAN (inbound)"
 	FirewallRuleICMP    = "Toru LAN ICMP"
