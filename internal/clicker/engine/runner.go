@@ -135,6 +135,13 @@ func (r *runner) wait(deadline int64) step {
 			return r.stop(CodeTimeLimit, "Time limit reached")
 		}
 		if now >= deadline {
+			// Already due (a catch-up fire, a resume, or send and hold used
+			// the interval up): still poll the clock so a Stop or Pause that
+			// came in during Send, Teleport or the guard is seen before the
+			// next press rather than after up to two catch-up presses.
+			if !r.clk.WaitUntil(now) {
+				return r.interrupted()
+			}
 			return stepOK
 		}
 		until := min(deadline, now+guardSliceNs)
@@ -251,7 +258,8 @@ func (r *runner) stop(code, reason string) step {
 // nothing without points or when it already sits on a scatter-free point, a
 // glide when the point changed and the run is slow enough, else a teleport.
 // The glide uses glideDuration(drawn) of the cycle and waits like any other
-// wait, so it can be paused or stopped part way.
+// wait, so it can be paused or stopped part way. Whenever it moved the cursor
+// it asks the guard once more before returning stepOK.
 func (r *runner) moveToPoint(drawn int64) step {
 	if !r.pts.active() {
 		return stepOK
@@ -279,6 +287,14 @@ func (r *runner) moveToPoint(drawn int64) step {
 	}
 	if err := r.inj.Teleport(x, y); err != nil {
 		return r.stop(CodeError, "Could not move the cursor: "+err.Error())
+	}
+	// The guard reads the live cursor (zones, corners, edges), so the check
+	// before the cycle judged where the cursor was. Ask again now that it sits
+	// on the point, before anything is pressed there. A point the guard turns
+	// away is not marked placed, so a resume moves back onto it and asks again
+	// rather than pressing wherever the user left the cursor.
+	if s := r.check(r.clk.Now()); s != stepOK {
+		return s
 	}
 	r.pts.placedAt()
 	return stepOK

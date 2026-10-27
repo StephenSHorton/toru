@@ -240,8 +240,10 @@ func benchRunner(mode RunMode) *runner {
 
 func BenchmarkClickLoop(b *testing.B) {
 	r := benchRunner(ModeClick)
+	c := r.clk.(*fakeClock)
 	b.ReportAllocs()
 	for b.Loop() {
+		c.waits = 0 // the runaway guard is for tests, not a long benchmark
 		r.clickCycle()
 	}
 }
