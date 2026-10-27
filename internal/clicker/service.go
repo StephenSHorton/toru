@@ -1,9 +1,14 @@
 package clicker
 
 import (
-	"fmt"
+	"log"
+	"os"
+	"sort"
+	"strings"
 	"sync"
+	"time"
 
+	"github.com/StephenSHorton/toru/internal/clicker/safety"
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -15,18 +20,44 @@ import (
 type ClickerService struct {
 	mu       sync.Mutex
 	app      *application.App
-	keys     *hotkey.Manager
+	keys     bindingSource
 	onChange func()
+	emit     func(name string, data any) // nil until SetApp (tests install a recorder)
+	d        deps
+
 	settings Settings
+	stats    Stats
+
+	// run controller (controller.go)
+	cur          *run   // the countdown or run in progress, nil when idle
+	gen          uint64 // bumped per run; a stale run's late result is dropped
+	state        RunState
+	countdownEnd time.Time
+	last         Status // the last run's totals and stop reason
+	lastEmit     time.Time
+	lastPill     string
+	injectRefs   int
+
+	// pickers (picks.go)
+	picking    bool
+	pickCancel func()
+
+	// start-zone monitor (monitor.go)
+	monStop chan struct{}
+
+	// runs counts live run goroutines, detached ones included, so Shutdown
+	// can give them a bounded moment to release held input.
+	runs sync.WaitGroup
 }
 
-// NewService returns an idle service holding the persisted settings.
+// NewService returns an idle service holding the default settings; Init loads
+// the persisted ones.
 func NewService() *ClickerService {
-	return &ClickerService{settings: Normalize(DefaultSettings())}
+	return newService(realDeps())
 }
 
-func notImplemented(what string) error {
-	return fmt.Errorf("clicker: %s: %s is not built yet", ErrNotImplemented, what)
+func newService(d deps) *ClickerService {
+	return &ClickerService{d: d, settings: Normalize(DefaultSettings()), state: StateIdle}
 }
 
 // SetApp injects the running app (event emits, dialogs).
@@ -34,8 +65,41 @@ func notImplemented(what string) error {
 //wails:ignore
 func (s *ClickerService) SetApp(app *application.App) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.app = app
-	s.mu.Unlock()
+	if app == nil {
+		return
+	}
+	s.emit = func(name string, data any) { app.Event.Emit(name, data) }
+	s.d.saveDialog = func(_, suggested string) (string, error) {
+		dlg := app.Dialog.SaveFile().SetFilename(suggested).
+			AddFilter("Auto clicker preset", "*.json").
+			AddFilter("All Files", "*.*")
+		if win := app.Window.Current(); win != nil {
+			dlg = dlg.AttachToWindow(win)
+		}
+		path, err := dlg.PromptForSingleSelection()
+		if err != nil {
+			return "", nil // cancel is not an error for the page
+		}
+		return path, nil
+	}
+	s.d.openDialog = func(title string) (string, error) {
+		dlg := app.Dialog.OpenFile().
+			CanChooseFiles(true).
+			CanChooseDirectories(false).
+			SetTitle(title).
+			AddFilter("Auto clicker preset", "*.json").
+			AddFilter("All Files", "*.*")
+		if win := app.Window.Current(); win != nil {
+			dlg = dlg.AttachToWindow(win)
+		}
+		path, err := dlg.PromptForSingleSelection()
+		if err != nil {
+			return "", nil
+		}
+		return path, nil
+	}
 }
 
 // SetHotkeys gives the service the shared hotkey Manager (conflict checks, the
@@ -44,7 +108,11 @@ func (s *ClickerService) SetApp(app *application.App) {
 //wails:ignore
 func (s *ClickerService) SetHotkeys(m *hotkey.Manager) {
 	s.mu.Lock()
-	s.keys = m
+	if m == nil {
+		s.keys = nil
+	} else {
+		s.keys = m
+	}
 	s.mu.Unlock()
 }
 
@@ -60,33 +128,128 @@ func (s *ClickerService) SetOnChange(fn func()) {
 // Init loads settings and arms the hotkeys; called once from ApplicationStarted.
 //
 //wails:ignore
-func (s *ClickerService) Init() {}
+func (s *ClickerService) Init() {
+	set := loadSettings()
+	stats := loadStats()
+	s.mu.Lock()
+	s.settings = set
+	s.stats = stats
+	st := s.statusLocked()
+	emit := s.emit
+	s.mu.Unlock()
+	s.applyArmed(set.Armed)
+	s.syncMonitor()
+	if emit != nil {
+		emit(EventSettings, set)
+		emit(EventStatus, st)
+	}
+	s.changed()
+}
 
 // Shutdown stops any run, releases held input and closes overlays.
 //
 //wails:ignore
-func (s *ClickerService) Shutdown() {}
+func (s *ClickerService) Shutdown() {
+	s.stopMonitor()
+	s.CancelPick()
+	s.stopRun(0, StopShutdown)
+	waited := make(chan struct{})
+	go func() { s.runs.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(shutdownWait):
+	}
+	if s.d.indicatorHide != nil {
+		s.d.indicatorHide()
+	}
+	if s.d.overlayShutdown != nil {
+		s.d.overlayShutdown()
+	}
+}
 
-// HotkeyToggle is the clickerToggle hotkey callback (press edge).
+// HotkeyToggle is the clickerToggle hotkey callback (press edge). In toggle
+// mode a press starts or stops; in hold mode a press starts and the guard stops
+// the run once the key is released. Ignored while picking.
 //
 //wails:ignore
-func (s *ClickerService) HotkeyToggle() {}
+func (s *ClickerService) HotkeyToggle() {
+	s.mu.Lock()
+	active, picking, armed, mode := s.cur != nil, s.picking, s.settings.Armed, s.settings.HotkeyMode
+	keys := s.keys
+	s.mu.Unlock()
+	if picking || !armed {
+		return
+	}
+	if active {
+		s.stopRun(0, StopHotkey)
+		return
+	}
+	var holdVK uint16
+	if mode == HotkeyHold && keys != nil && s.d.triggerVK != nil {
+		if b, ok := keys.Binding(actionToggle); ok {
+			holdVK = s.d.triggerVK(b)
+		}
+	}
+	if _, err := s.begin(srcHotkey, holdVK, -1); err != nil {
+		s.notifyStartError(err)
+	}
+}
 
 // HotkeyArm is the clickerArm hotkey callback.
 //
 //wails:ignore
-func (s *ClickerService) HotkeyArm() {}
+func (s *ClickerService) HotkeyArm() {
+	s.mu.Lock()
+	armed := s.settings.Armed
+	s.mu.Unlock()
+	if _, err := s.SetArmed(!armed); err != nil {
+		log.Printf("clicker: arm hotkey: %v", err)
+	}
+}
 
 // StopFor stops a run (or countdown) for a host reason such as the capture
 // overlay opening or a shortcut being recorded. No-op when idle.
 //
 //wails:ignore
-func (s *ClickerService) StopFor(code StopCode) {}
+func (s *ClickerService) StopFor(code StopCode) {
+	s.stopRun(0, code)
+}
 
 // TrayToggle starts or stops a run from the tray (no countdown).
 //
 //wails:ignore
-func (s *ClickerService) TrayToggle() {}
+func (s *ClickerService) TrayToggle() {
+	s.mu.Lock()
+	active := s.cur != nil
+	s.mu.Unlock()
+	if active {
+		s.stopRun(0, StopTray)
+		return
+	}
+	if _, err := s.begin(srcTray, 0, -1); err != nil {
+		s.notifyStartError(err)
+	}
+}
+
+// notifyStartError shows why a hotkey or tray start failed: there is no page
+// to show it on.
+func (s *ClickerService) notifyStartError(err error) {
+	log.Printf("clicker: start: %v", err)
+	if s.d.toast != nil {
+		s.d.toast("Auto clicker didn't start", userMessage(err), false)
+	}
+}
+
+// userMessage strips the "clicker: CODE: " prefix.
+func userMessage(err error) string {
+	msg := err.Error()
+	if rest, ok := strings.CutPrefix(msg, "clicker: "); ok {
+		if i := strings.Index(rest, ": "); i >= 0 {
+			return rest[i+2:]
+		}
+	}
+	return msg
+}
 
 // GetSettings returns the current settings.
 func (s *ClickerService) GetSettings() Settings {
@@ -96,121 +259,329 @@ func (s *ClickerService) GetSettings() Settings {
 }
 
 // SetSettings normalizes, saves and applies next, returning what was stored.
+// Presets and the active preset are kept as stored (they change only through
+// the preset methods, which honour the running lock). When the failsafe
+// geometry or the click points changed, they flash on screen.
 func (s *ClickerService) SetSettings(next Settings) (Settings, error) {
-	return Settings{}, notImplemented("SetSettings")
+	s.mu.Lock()
+	prev := s.settings
+	next.Presets = prev.Presets
+	next.ActivePresetID = prev.ActivePresetID
+	next = Normalize(next)
+	s.settings = next
+	s.mu.Unlock()
+
+	err := saveSettings(next)
+	if prev.Armed != next.Armed {
+		if !next.Armed {
+			s.stopRun(0, StopDisarmed)
+		}
+		s.applyArmed(next.Armed)
+		s.changed()
+	}
+	s.syncMonitor()
+	s.previewChanges(prev, next)
+	if err != nil {
+		return next, clickerErrf(ErrWinAPI, "Couldn't save the clicker settings: %v", err)
+	}
+	return next, nil
+}
+
+// previewChanges flashes the failsafe areas and click points that changed.
+func (s *ClickerService) previewChanges(prev, next Settings) {
+	if !next.ShowSafetyOverlay {
+		return
+	}
+	if safetyGeometryChanged(prev, next) && s.d.showSafety != nil {
+		s.d.showSafety(safetyScene(next, s.monitors()), false)
+	}
+	cp := next.Profile.ClickPoints
+	if cp.Enabled && len(cp.Points) > 0 && pointsChanged(prev.Profile.ClickPoints, cp) && s.d.showPoints != nil {
+		s.d.showPoints(scenePoints(cp.Points), false)
+	}
+}
+
+// PreviewSafety flashes the failsafe areas on screen for a few seconds (even
+// with ShowSafetyOverlay off: the user asked for it).
+func (s *ClickerService) PreviewSafety() {
+	s.mu.Lock()
+	set := s.settings
+	s.mu.Unlock()
+	if s.d.showSafety != nil {
+		s.d.showSafety(safetyScene(set, s.monitors()), false)
+	}
+}
+
+// monitors returns the display rects (nil when unknown).
+func (s *ClickerService) monitors() []safety.Rect {
+	if s.d.newSystem == nil {
+		return nil
+	}
+	sysq := s.d.newSystem()
+	if sysq == nil {
+		return nil
+	}
+	return sysq.Monitors()
 }
 
 // ResetSettings restores defaults, keeping presets.
 func (s *ClickerService) ResetSettings() (Settings, error) {
-	return Settings{}, notImplemented("ResetSettings")
+	s.mu.Lock()
+	def := DefaultSettings()
+	def.Presets = s.settings.Presets
+	s.mu.Unlock()
+	return s.SetSettings(def)
+}
+
+// commitFromGo stores settings changed by Go (preset ops, pickers, arming),
+// saves them and emits clicker:settings.
+func (s *ClickerService) commitFromGo(next Settings) error {
+	s.mu.Lock()
+	s.settings = next
+	emit := s.emit
+	s.mu.Unlock()
+	err := saveSettings(next)
+	if emit != nil {
+		emit(EventSettings, next)
+	}
+	if err != nil {
+		return clickerErrf(ErrWinAPI, "Couldn't save the clicker settings: %v", err)
+	}
+	return nil
 }
 
 // Status returns the live run state.
 func (s *ClickerService) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return Status{State: StateIdle, ActivePoint: -1, Armed: s.settings.Armed}
+	return s.statusLocked()
 }
 
-// Start starts a run from the page, after StartDelayMs of countdown.
+// Start starts a run from the page, after StartDelayMs of countdown (Esc or
+// Stop cancels it), so the run does not click the Start button itself.
 func (s *ClickerService) Start() (Status, error) {
-	return Status{}, notImplemented("Start")
+	return s.begin(srcPage, 0, -1)
 }
 
 // Stop stops a run or cancels a countdown.
 func (s *ClickerService) Stop() Status {
-	return s.Status()
+	return s.stopAndWait(StopUser, shutdownWait)
 }
 
 // Toggle starts (without countdown) or stops a run.
 func (s *ClickerService) Toggle() (Status, error) {
-	return Status{}, notImplemented("Toggle")
+	s.mu.Lock()
+	active := s.cur != nil
+	s.mu.Unlock()
+	if active {
+		return s.stopAndWait(StopUser, shutdownWait), nil
+	}
+	return s.begin(srcToggle, 0, -1)
 }
 
 // SetPaused pauses or resumes a running clicker.
 func (s *ClickerService) SetPaused(paused bool) Status {
-	return s.Status()
+	return s.setPaused(paused)
 }
 
 // SetArmed arms or disarms the clicker hotkeys; disarming stops a run.
 func (s *ClickerService) SetArmed(armed bool) (Settings, error) {
-	return Settings{}, notImplemented("SetArmed")
+	s.mu.Lock()
+	changed := s.settings.Armed != armed
+	next := s.settings
+	next.Armed = armed
+	s.mu.Unlock()
+	if !changed {
+		return next, nil
+	}
+	if !armed {
+		s.stopRun(0, StopDisarmed)
+	}
+	err := s.commitFromGo(next)
+	s.applyArmed(armed)
+	s.syncMonitor()
+	s.publish(s.Status(), true)
+	s.changed()
+	return next, err
 }
 
-// StartPointPick starts picking click points on screen. Results arrive as
-// clicker:settings and clicker:pick events.
-func (s *ClickerService) StartPointPick() error {
-	return notImplemented("StartPointPick")
+// applyArmed turns the toggle combo's interception on or off. clickerArm
+// always stays active so the user can re-arm.
+func (s *ClickerService) applyArmed(armed bool) {
+	s.mu.Lock()
+	keys := s.keys
+	s.mu.Unlock()
+	if keys == nil {
+		return
+	}
+	keys.SetActive(actionToggle, armed)
+	keys.SetActive(actionArm, true)
 }
-
-// StartZonePick starts drawing a zone; zoneID "" adds a new one.
-func (s *ClickerService) StartZonePick(zoneID string) error {
-	return notImplemented("StartZonePick")
-}
-
-// CancelPick ends an active pick without changes.
-func (s *ClickerService) CancelPick() {}
-
-// PreviewSafety flashes the failsafe areas on screen for a few seconds.
-func (s *ClickerService) PreviewSafety() {}
 
 // CursorPosition returns the cursor in physical virtual-desktop px.
 func (s *ClickerService) CursorPosition() (Point, error) {
-	return Point{}, notImplemented("CursorPosition")
+	x, y, ok := s.d.cursorPos()
+	if !ok {
+		return Point{}, clickerErr(ErrWinAPI, "Couldn't read the cursor position")
+	}
+	return Point{X: x, Y: y}, nil
 }
 
-// ListProcesses returns the apps with visible windows plus saved list entries.
+// ListProcesses returns the apps with visible windows plus saved list entries
+// (Running=false when they are not running now). Running apps come first in
+// the order Windows lists them; saved-only entries follow, sorted.
 func (s *ClickerService) ListProcesses() ([]ProcessInfo, error) {
-	return nil, notImplemented("ListProcesses")
+	live, err := s.d.listProcesses()
+	if err != nil {
+		return nil, clickerErrf(ErrWinAPI, "Couldn't list running apps: %v", err)
+	}
+	s.mu.Lock()
+	saved := s.settings.Profile.ProcessList.Entries
+	s.mu.Unlock()
+	out := make([]ProcessInfo, 0, len(live)+len(saved))
+	seen := map[string]bool{}
+	for _, p := range live {
+		exe := normalizeExe(p.Exe)
+		if exe == "" || seen[exe] {
+			continue
+		}
+		seen[exe] = true
+		out = append(out, ProcessInfo{Exe: exe, Title: clipTitle(p.Title), IconURL: p.IconURL, Running: true})
+	}
+	var extra []ProcessInfo
+	for _, e := range saved {
+		if !seen[e.Exe] {
+			seen[e.Exe] = true
+			extra = append(extra, ProcessInfo{Exe: e.Exe})
+		}
+	}
+	sort.Slice(extra, func(i, j int) bool { return extra[i].Exe < extra[j].Exe })
+	return append(out, extra...), nil
 }
 
-// SavePreset stores the current profile as a new preset.
+// clipTitle cuts a window title to 35 characters.
+func clipTitle(t string) string {
+	r := []rune(strings.TrimSpace(t))
+	if len(r) > 35 {
+		return string(r[:34]) + "…"
+	}
+	return string(r)
+}
+
+// presetOp runs a preset mutation under the running lock and commits it.
+func (s *ClickerService) presetOp(op func(Settings) (Settings, error)) (Settings, error) {
+	s.mu.Lock()
+	cur := s.settings
+	locked := s.cur != nil
+	s.mu.Unlock()
+	if locked {
+		return cur, clickerErr(ErrPresetLocked, "Presets can't be changed while the clicker is running")
+	}
+	next, err := op(cur)
+	if err != nil {
+		return cur, err
+	}
+	err = s.commitFromGo(next)
+	s.syncMonitor()
+	s.previewChanges(cur, next)
+	return next, err
+}
+
+// SavePreset stores the current profile as a new preset and makes it active.
 func (s *ClickerService) SavePreset(name string) (Settings, error) {
-	return Settings{}, notImplemented("SavePreset")
+	return s.presetOp(func(c Settings) (Settings, error) { return savePreset(c, name, s.d.now()) })
 }
 
 // ApplyPreset loads a preset's profile.
 func (s *ClickerService) ApplyPreset(id string) (Settings, error) {
-	return Settings{}, notImplemented("ApplyPreset")
+	return s.presetOp(func(c Settings) (Settings, error) { return applyPreset(c, id) })
 }
 
 // UpdatePreset overwrites a preset with the current profile.
 func (s *ClickerService) UpdatePreset(id string) (Settings, error) {
-	return Settings{}, notImplemented("UpdatePreset")
+	return s.presetOp(func(c Settings) (Settings, error) { return updatePreset(c, id, s.d.now()) })
 }
 
 // RenamePreset renames a preset.
 func (s *ClickerService) RenamePreset(id, name string) (Settings, error) {
-	return Settings{}, notImplemented("RenamePreset")
+	return s.presetOp(func(c Settings) (Settings, error) { return renamePreset(c, id, name, s.d.now()) })
 }
 
-// DuplicatePreset copies a preset under a free "(copy)" name.
+// DuplicatePreset copies a preset as "Name (2)", "Name (3)", ...
 func (s *ClickerService) DuplicatePreset(id string) (Settings, error) {
-	return Settings{}, notImplemented("DuplicatePreset")
+	return s.presetOp(func(c Settings) (Settings, error) { return duplicatePreset(c, id, s.d.now()) })
 }
 
 // DeletePreset removes a preset.
 func (s *ClickerService) DeletePreset(id string) (Settings, error) {
-	return Settings{}, notImplemented("DeletePreset")
+	return s.presetOp(func(c Settings) (Settings, error) { return deletePreset(c, id) })
 }
 
 // ExportPreset writes a preset file chosen in a save dialog; "" when cancelled.
+// Allowed while running (it changes nothing).
 func (s *ClickerService) ExportPreset(id string) (string, error) {
-	return "", notImplemented("ExportPreset")
+	s.mu.Lock()
+	i := presetIndex(s.settings.Presets, id)
+	var p Preset
+	if i >= 0 {
+		p = s.settings.Presets[i]
+	}
+	s.mu.Unlock()
+	if i < 0 {
+		return "", clickerErr(ErrPresetNotFound, "That preset no longer exists")
+	}
+	data, err := exportPresetJSON(p)
+	if err != nil {
+		return "", clickerErrf(ErrWinAPI, "Couldn't write the preset: %v", err)
+	}
+	path, err := s.d.saveDialog("Export preset", exportFileName(p.Name))
+	if err != nil || path == "" {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return "", clickerErrf(ErrWinAPI, "Couldn't write the preset: %v", err)
+	}
+	return path, nil
 }
 
 // ImportPreset reads a Toru or Blur AutoClicker preset file chosen in an open
-// dialog and adds it as a preset.
+// dialog and adds it as a preset (not made active). A cancelled dialog returns
+// the settings unchanged.
 func (s *ClickerService) ImportPreset() (Settings, error) {
-	return Settings{}, notImplemented("ImportPreset")
+	s.mu.Lock()
+	cur, locked := s.settings, s.cur != nil
+	s.mu.Unlock()
+	if locked {
+		return cur, clickerErr(ErrPresetLocked, "Presets can't be changed while the clicker is running")
+	}
+	path, err := s.d.openDialog("Import preset")
+	if err != nil || path == "" {
+		return cur, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return cur, clickerErrf(ErrImportFormat, "Couldn't read that file: %v", err)
+	}
+	return s.presetOp(func(c Settings) (Settings, error) {
+		next, _, err := importPresetJSON(c, data, s.d.now())
+		return next, err
+	})
 }
 
 // Stats returns lifetime totals.
 func (s *ClickerService) Stats() Stats {
-	return Stats{}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stats
 }
 
 // ResetStats zeroes the lifetime totals.
 func (s *ClickerService) ResetStats() Stats {
+	s.mu.Lock()
+	s.stats = Stats{}
+	s.mu.Unlock()
+	if err := saveStats(Stats{}); err != nil {
+		log.Printf("clicker: save stats: %v", err)
+	}
 	return Stats{}
 }

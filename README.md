@@ -26,6 +26,7 @@ Press <kbd>⊞</kbd> <kbd>Shift</kbd> <kbd>S</kbd> → pick a **region**, **wind
 - **Freeze or live** overlay while selecting
 - **Tray recents**, game-recording toggle, Send files…, auto-copy on capture; updates download in the background and announce themselves — restart when you like, or they install when you quit Toru
 - **Send Files** — send any file, folder or capture peer-to-peer with a short spoken code like `7-guitarist-revenge`, end-to-end encrypted; the receiver uses Toru or `wormhole receive`, files land in Downloads by default, and the code doubles as a QR for phones
+- **Auto Clicker** — click a mouse button or press a key at up to 500 (or 1,000) a second, at the cursor or through a list of picked screen points; Ctrl+Shift+Y starts and stops it (toggle or hold). Stops by itself at screen corners and edges, in stop zones you draw, on Alt+Tab or when the wrong app is in front; presets, including import from Blur AutoClicker. See [`docs/clicker.md`](docs/clicker.md)
 
 ## Download
 
