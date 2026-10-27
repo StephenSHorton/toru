@@ -392,10 +392,14 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
           <h1 className="text-xl font-semibold tracking-tight">Library</h1>
           <p className="text-sm text-muted-foreground">
             {view === "sessions"
-              ? "Background and manual recordings. Open one to scrub its timeline and cut clips"
+              ? "Game sessions from background and hotkey recording. Open one to scrub its timeline and cut clips"
               : view === "clips"
-              ? "Instant replays you saved with the hotkey, sorted by game"
-              : "Screenshots save here when you hit Done; recordings save when they finish"}
+              ? "Clips saved from instant replay or cut from a game session, sorted by game"
+              : view === "recordings"
+              ? "Screen recordings you made with Record in the capture overlay"
+              : view === "shots"
+              ? "Screenshots save here when you hit Done"
+              : "Screenshots and screen recordings from the capture overlay, plus game clips"}
           </p>
         </div>
         <div className="flex gap-2">
@@ -463,9 +467,9 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
             [
               ["all", "All", items.length + clips.length],
               ["shots", "Screenshots", shots.length],
-              ["recordings", "Recordings", recordings.length],
+              ["recordings", "Screen recordings", recordings.length],
               ["clips", "Clips", clips.length],
-              ["sessions", "Recordings", sessions.length],
+              ["sessions", "Game sessions", sessions.length],
             ] as const
           ).map(([id, label, count]) => (
             <Button
@@ -640,10 +644,10 @@ function EmptySessions() {
     <div className="frost flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
       <Film className="size-10 text-muted-foreground" />
       <div>
-        <p className="font-medium">No recordings yet</p>
+        <p className="font-medium">No game sessions yet</p>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">
           In Settings → Game recording, choose Background recording to keep your whole play
-          sessions, or Manual recording to record with a hotkey.
+          sessions, or Hotkey recording to start and stop one with a hotkey.
         </p>
       </div>
     </div>
@@ -659,7 +663,7 @@ function formatDuration(sec: number): string {
   return `${s}s`;
 }
 
-// SessionCard is one background/manual recording; click opens the timeline.
+// SessionCard is one background/hotkey recording; click opens the timeline.
 function SessionCard({
   session,
   onOpen,
@@ -670,7 +674,7 @@ function SessionCard({
   onDelete: () => void;
 }) {
   const [thumbFailed, setThumbFailed] = useState(false);
-  const title = session.game || (session.mode === "manual" ? "Manual recording" : "Desktop");
+  const title = session.game || (session.mode === "manual" ? "Hotkey recording" : "Desktop");
   return (
     <div
       className={cn(
@@ -701,7 +705,7 @@ function SessionCard({
         <span className="pointer-events-none absolute inset-0 bg-primary/0 transition-colors duration-150 group-hover:bg-primary/10" />
         <span className="absolute left-1.5 top-1.5 flex max-w-[85%] items-center gap-1 bg-black/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-white">
           {session.live ? <Circle className="size-2.5 shrink-0 fill-red-500 text-red-500" /> : <Film className="size-3 shrink-0" />}
-          <span className="truncate">{session.live ? "Recording" : session.mode === "manual" ? "Manual" : "Background"}</span>
+          <span className="truncate">{session.live ? "Recording" : session.mode === "manual" ? "Hotkey" : "Background"}</span>
         </span>
         <span className="absolute bottom-1.5 right-1.5 bg-black/60 px-1.5 py-0.5 text-[10px] tabular-nums text-white">
           {formatDuration(session.durationSec)}
@@ -1206,7 +1210,7 @@ function SettingsPage() {
 
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "general", label: "General" },
-    { id: "recording", label: "Recording" },
+    { id: "recording", label: "Game recording" },
     { id: "shortcuts", label: "Shortcuts" },
     { id: "about", label: "About" },
   ];

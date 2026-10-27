@@ -515,8 +515,8 @@ export default function Trim() {
               variant="ghost"
               disabled={duration <= 0}
               onClick={() => jumpTo(inSec)}
-              title="Jump to clip start (Home)"
-              aria-label="Jump to clip start"
+              title="Jump to the start of the selection (Home)"
+              aria-label="Jump to the start of the selection"
             >
               <SkipBack />
             </Button>
@@ -525,8 +525,8 @@ export default function Trim() {
               variant="ghost"
               disabled={duration <= 0}
               onClick={() => jumpTo(outSec)}
-              title="Jump to clip end (End)"
-              aria-label="Jump to clip end"
+              title="Jump to the end of the selection (End)"
+              aria-label="Jump to the end of the selection"
             >
               <SkipForward />
             </Button>
@@ -535,8 +535,8 @@ export default function Trim() {
               variant="ghost"
               disabled={duration <= 0}
               onClick={setInHere}
-              title="Set clip start at the playhead (I)"
-              aria-label="Set clip start at the playhead"
+              title="Start the selection at the playhead (I)"
+              aria-label="Start the selection at the playhead"
             >
               <ArrowLeftToLine /> Start here
             </Button>
@@ -545,8 +545,8 @@ export default function Trim() {
               variant="ghost"
               disabled={duration <= 0}
               onClick={setOutHere}
-              title="Set clip end at the playhead (O)"
-              aria-label="Set clip end at the playhead"
+              title="End the selection at the playhead (O)"
+              aria-label="End the selection at the playhead"
             >
               <ArrowRightToLine /> End here
             </Button>

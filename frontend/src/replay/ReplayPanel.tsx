@@ -37,7 +37,7 @@ const MODES: { value: string; label: string; icon: React.ReactNode; summary: str
   },
   {
     value: "manual",
-    label: "Manual recording",
+    label: "Hotkey recording",
     icon: <Circle className="size-4" />,
     summary: "Press a hotkey to start and stop recording.",
     detail: "Recordings are kept until you delete them.",
@@ -743,7 +743,7 @@ export function ReplayPanel() {
                       recording time, not how long ago: 20 minutes a night fills an hour in three nights.
                       Older footage goes the next time recording runs, so lowering this while nothing is
                       recording takes effect at the next session. Until storage is full: sessions stay until
-                      the storage limit below needs the space. Manual recordings are never counted or
+                      the storage limit below needs the space. Hotkey recordings are never counted or
                       deleted. To keep something for good, save it as a clip.
                     </InfoTip>
                   </>
@@ -775,8 +775,8 @@ export function ReplayPanel() {
                 Storage limit
                 <InfoTip>
                   {settings.mode === "background"
-                    ? "Sessions are kept until recordings reach this size. Then the oldest sessions are deleted to make room. Manual recordings are never deleted automatically. To keep something for good, save it as a clip."
-                    : "Manual recordings are never deleted automatically. Delete old ones from the Library's Recordings tab."}
+                    ? "Sessions are kept until recordings reach this size. Then the oldest sessions are deleted to make room. Hotkey recordings are never deleted automatically. To keep something for good, save it as a clip."
+                    : "Hotkey recordings are never deleted automatically. Delete old ones from the Library's Game sessions tab."}
                 </InfoTip>
               </>
             }
@@ -806,7 +806,7 @@ export function ReplayPanel() {
             </span>
           </div>
           <FolderRow
-            label="Recordings folder"
+            label="Game sessions folder"
             path={recordingsDir}
             onChange={() => void pickRecordingsDir()}
             onReset={settings.recordingsDir ? () => void ReplayService.ResetRecordingsDir().then(refreshRecorder) : undefined}
@@ -942,7 +942,7 @@ export function ReplayPanel() {
               const why = noGPU
                 ? "Your graphics card can't encode this."
                 : noSession
-                  ? "Not available for background or manual recording."
+                  ? "Not available for background or hotkey recording."
                   : `${c.plays}. ${c.size}.`;
               return (
                 <Tooltip key={c.value} content={why} side="bottom" className="max-w-[18rem]">

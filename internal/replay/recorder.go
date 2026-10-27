@@ -94,7 +94,7 @@ func dirSegmentBytes(dir string) int64 {
 func (s *ReplayService) ToggleRecording() (bool, error) {
 	st := s.GetSettings()
 	if !st.Enabled || st.Mode != ModeManual {
-		return false, errors.New("manual recording is off: choose Manual recording in Settings")
+		return false, errors.New("hotkey recording is off: choose Hotkey recording in Settings → Game recording")
 	}
 	s.mu.Lock()
 	s.manualOn = !s.manualOn

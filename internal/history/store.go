@@ -409,10 +409,10 @@ func (s *Store) pruneMissingLocked() {
 }
 
 func formatLabel(kind string, t time.Time) string {
-	// e.g. "Screenshot  ·  3:04 PM" / "Recording  ·  3:04 PM"
+	// e.g. "Screenshot  ·  3:04 PM" / "Screen recording  ·  3:04 PM"
 	prefix := "Screenshot"
 	if kind == KindVideo {
-		prefix = "Recording"
+		prefix = "Screen recording"
 	}
 	return prefix + "  ·  " + t.Format("3:04 PM")
 }
@@ -441,6 +441,11 @@ func loadIndex(path string) []Item {
 	var f indexFile
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return nil
+	}
+	// Labels derive from kind + time; rebuild them so entries saved under an
+	// older wording ("Recording · …") read like new ones.
+	for i := range f.Items {
+		f.Items[i].Label = formatLabel(f.Items[i].Kind, f.Items[i].TakenAt)
 	}
 	return f.Items
 }

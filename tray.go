@@ -162,7 +162,7 @@ func (t *trayController) addReplayItems(menu *application.Menu) {
 		next.Enabled = !next.Enabled
 		go func() { _, _ = t.replay.SetSettings(next) }() // SetOnChange rebuilds the menu
 	})
-	menu.Add("Open replays folder…").OnClick(func(*application.Context) {
+	menu.Add("Open clips folder…").OnClick(func(*application.Context) {
 		_ = t.replay.OpenSaveDir()
 	})
 }
