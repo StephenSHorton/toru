@@ -582,10 +582,16 @@ func multicastCheck(r *report, dev tun.Device, peer netip.Addr) {
 
 // outboundCheck: a game's broadcast to 255.255.255.255 must leave through
 // Toru LAN (metric 1 plus the /32 route). Information only: another metric-1
-// adapter (Radmin VPN) can tie.
+// adapter (Radmin VPN) can tie. It also records what Windows' route lookup
+// picks and checks unicast to a peer as a control, so a miss says why.
 func outboundCheck(r *report, dev tun.Device, self netip.Addr) {
-	payload := []byte("toru-selftest outbound")
-	seen := make(chan struct{}, 1)
+	peer := netip.MustParseAddr("100.96.200.200")
+	type key struct {
+		dst  netip.Addr
+		port uint16
+	}
+	var mu sync.Mutex
+	seen := map[key]bool{}
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
@@ -603,34 +609,59 @@ func outboundCheck(r *report, dev tun.Device, self netip.Addr) {
 			}
 			for i := 0; i < n; i++ {
 				p := bufs[i][:sizes[i]]
-				if len(p) >= 28 && p[0]>>4 == 4 && p[9] == 17 && netip.AddrFrom4([4]byte(p[16:20])) == netip.MustParseAddr("255.255.255.255") &&
-					binary.BigEndian.Uint16(p[22:24]) == 6112 && strings.Contains(string(p[28:]), string(payload)) {
-					select {
-					case seen <- struct{}{}:
-					default:
-					}
+				if len(p) < 28 || p[0]>>4 != 4 || p[9] != 17 {
+					continue
 				}
+				ihl := int(p[0]&0x0f) * 4
+				if len(p) < ihl+8 {
+					continue
+				}
+				k := key{netip.AddrFrom4([4]byte(p[16:20])), binary.BigEndian.Uint16(p[ihl+2 : ihl+4])}
+				mu.Lock()
+				seen[k] = true
+				mu.Unlock()
 			}
 		}
 	}()
-	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4bcast, Port: 6112})
-	if err != nil {
-		r.add("outbound 255.255.255.255 leaves through Toru LAN", false, err, "")
-		return
-	}
-	defer conn.Close()
-	var res error = errors.New("not seen on the adapter (another adapter won the route)")
-	for i := 0; i < 10; i++ {
-		conn.Write(payload)
-		select {
-		case <-seen:
-			res = nil
-		case <-time.After(300 * time.Millisecond):
-			continue
+
+	route := func(dst string) string {
+		out, err := exec.Command("powershell", "-NoProfile", "-Command",
+			"(Find-NetRoute -RemoteIPAddress "+dst+" -ErrorAction Stop | Select-Object -First 1 -ExpandProperty InterfaceAlias)").CombinedOutput()
+		if err != nil {
+			return "route lookup failed: " + strings.TrimSpace(string(out))
 		}
-		break
+		return "route picks " + strings.TrimSpace(string(out))
 	}
-	r.add("outbound 255.255.255.255 leaves through Toru LAN", false, res, "")
+	send := func(name string, laddr *net.UDPAddr, dst netip.Addr, port uint16, gate bool) {
+		k := key{dst, port}
+		info := route(dst.String())
+		conn, err := net.DialUDP("udp4", laddr, &net.UDPAddr{IP: dst.AsSlice(), Port: int(port)})
+		if err != nil {
+			r.add(name, gate, err, info)
+			return
+		}
+		defer conn.Close()
+		var werr error
+		ok := false
+		for i := 0; i < 10 && !ok; i++ {
+			if _, err := conn.Write([]byte("toru-selftest outbound")); err != nil {
+				werr = err
+			}
+			time.Sleep(300 * time.Millisecond)
+			mu.Lock()
+			ok = seen[k]
+			mu.Unlock()
+		}
+		var res error
+		if !ok {
+			res = fmt.Errorf("not seen on the adapter (write error: %v)", werr)
+		}
+		r.add(name, gate, res, info)
+	}
+	send("outbound unicast to a peer leaves through Toru LAN (control)", nil, peer, 6113, false)
+	send("outbound 255.255.255.255 leaves through Toru LAN", nil, netip.MustParseAddr("255.255.255.255"), 6112, false)
+	send("outbound 100.96.255.255 leaves through Toru LAN", nil, netip.MustParseAddr(api.OverlayBcast), 6114, false)
+	send("outbound 255.255.255.255 from a socket bound to the Toru address", &net.UDPAddr{IP: self.AsSlice()}, netip.MustParseAddr("255.255.255.255"), 6115, false)
 }
 
 // udpPacket builds an IPv4/UDP packet with valid checksums, TTL 1 (like

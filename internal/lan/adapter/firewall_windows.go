@@ -408,7 +408,13 @@ func readRule(rule *ole.IDispatch) (*FirewallRule, error) {
 }
 
 // PinnedTo reports whether a rule is pinned to exactly the interface named
-// iface (api.AdapterName for the real rules).
+// iface (api.AdapterName for the real rules). The firewall stores the
+// interface by GUID once it resolves the name (seen on Windows 11 26200), so
+// for the Toru LAN adapter its fixed GUID counts as the same interface.
 func (r *FirewallRule) PinnedTo(iface string) bool {
-	return len(r.Interfaces) == 1 && strings.EqualFold(r.Interfaces[0], iface)
+	if len(r.Interfaces) != 1 {
+		return false
+	}
+	got := r.Interfaces[0]
+	return strings.EqualFold(got, iface) || (strings.EqualFold(iface, api.AdapterName) && strings.EqualFold(got, api.AdapterGUID))
 }
