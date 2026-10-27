@@ -171,10 +171,13 @@ func (p *picker) requestEnd(cancelled bool) {
 func (p *picker) run(ready chan<- bool) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	defer func() {
+	// finish frees the pick slot. It runs before OnEnd so OnEnd may start a
+	// new pick or call Shutdown without waiting on itself.
+	finish := sync.OnceFunc(func() {
 		curPick.CompareAndSwap(p, nil)
 		close(p.done)
-	}()
+	})
+	defer finish()
 
 	p.tid.Store(windows.GetCurrentThreadId())
 	mh, _, _ := procSetWindowsHookExW.Call(whMouseLL, mouseCB, 0, 0)
@@ -208,6 +211,7 @@ func (p *picker) run(ready chan<- bool) {
 	}
 	p.flush()
 	post(func() { hidePick(p.kind == PickPoint && !cancelled) })
+	finish()
 	if p.cb.OnEnd != nil {
 		p.cb.OnEnd(cancelled)
 	}

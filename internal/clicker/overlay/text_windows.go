@@ -32,11 +32,14 @@ func textMask(text string, sizeDip float64, weight int32, scale float64) *Mask {
 		w32.DeleteObject(w32.HGDIOBJ(font))
 	}()
 
-	u := windows.StringToUTF16(text)
+	u, err := windows.UTF16FromString(text) // fails on an embedded NUL
+	if err != nil {
+		return &Mask{}
+	}
 	u = u[:len(u)-1]
 	const format = w32.DT_SINGLELINE | w32.DT_NOPREFIX
 	var rc w32.RECT
-	w32.DrawText(dc, u, -1, &rc, format|w32.DT_CALCRECT)
+	w32.DrawText(dc, u, len(u), &rc, format|w32.DT_CALCRECT)
 	w, h := int(rc.Right-rc.Left), int(rc.Bottom-rc.Top)
 	if w <= 0 || h <= 0 {
 		return &Mask{}
@@ -51,7 +54,7 @@ func textMask(text string, sizeDip float64, weight int32, scale float64) *Mask {
 	w32.SetBkMode(s.dc, w32.TRANSPARENT)
 	w32.SetTextColor(s.dc, w32.COLORREF(w32.RGB(255, 255, 255)))
 	rc = w32.RECT{Right: int32(w), Bottom: int32(h)}
-	w32.DrawText(s.dc, u, -1, &rc, format)
+	w32.DrawText(s.dc, u, len(u), &rc, format)
 	_, _, _ = procGdiFlush.Call() // GDI batches; finish before reading the bits
 	w32.SelectObject(s.dc, tmpFont)
 

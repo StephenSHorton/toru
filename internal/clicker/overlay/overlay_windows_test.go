@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wailsapp/wails/v3/pkg/w32"
 	"golang.org/x/sys/windows"
 )
 
@@ -28,6 +29,9 @@ func TestTextMask(t *testing.T) {
 	}
 	if big := textMask("Paused", pillTextSz, 600, 2); big.H <= m.H {
 		t.Errorf("200 %% text should be taller: %d vs %d", big.H, m.H)
+	}
+	if n := textMask("a\x00b", pillTextSz, 600, 1); n.W != 0 {
+		t.Error("text with a NUL should give an empty mask")
 	}
 	if e := textMask("", pillTextSz, 600, 1); e.W != 0 {
 		t.Error("empty text should give an empty mask")
@@ -119,4 +123,24 @@ func TestOverlaySmoke(t *testing.T) {
 		t.Fatalf("safety preview should have faded out: %+v", c)
 	}
 	focusKept("fade")
+}
+
+// TestHMonitorAt checks the packed-POINT MonitorFromPoint call finds each
+// monitor at its centre, agreeing with MonitorFromRect. Read-only.
+func TestHMonitorAt(t *testing.T) {
+	mons := monitors()
+	if len(mons) == 0 {
+		t.Skip("no monitors")
+	}
+	for _, m := range mons {
+		cx, cy := (m.L+m.R)/2, (m.T+m.B)/2
+		got := hmonitorAt(cx, cy)
+		want := w32.MonitorFromRect(&w32.RECT{Left: cx, Top: cy, Right: cx + 1, Bottom: cy + 1}, w32.MONITOR_DEFAULTTONEAREST)
+		if got == 0 || got != want {
+			t.Errorf("monitor %+v: hmonitorAt = %#x, MonitorFromRect = %#x", m, got, want)
+		}
+		if s := scaleFor(m); s < 1 {
+			t.Errorf("monitor %+v: scale %v", m, s)
+		}
+	}
 }

@@ -391,6 +391,10 @@ func Shutdown() {
 	}
 	post(func() {
 		destroyAll()
+		// DestroyWindow kills the timer too, but timerOn must follow or a
+		// restarted UI thread would never tick again.
+		w32.KillTimer(hwnd, timerTick)
+		st.timerOn = false
 		w32.DestroyWindow(hwnd)
 	})
 	select {

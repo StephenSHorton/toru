@@ -26,6 +26,7 @@ var (
 	procGetMessageW         = user32.NewProc("GetMessageW")
 	procPostThreadMessageW  = user32.NewProc("PostThreadMessageW")
 	procGetAsyncKeyState    = user32.NewProc("GetAsyncKeyState")
+	procMonitorFromPoint    = user32.NewProc("MonitorFromPoint")
 	procGdiFlush            = gdi32.NewProc("GdiFlush")
 	procGetDpiForMonitor    = shcore.NewProc("GetDpiForMonitor")
 	// RtlMoveMemory copies a hook struct out of lParam without turning a
@@ -262,10 +263,17 @@ func scaleOf(hmon w32.HMONITOR) float64 {
 	return 1
 }
 
-// scaleAt returns the DPI scale of the monitor nearest (x, y).
-func scaleAt(x, y int32) float64 {
-	return scaleOf(w32.MonitorFromPoint(int(x), int(y), w32.MONITOR_DEFAULTTONEAREST))
+// hmonitorAt returns the monitor nearest (x, y). MonitorFromPoint takes its
+// POINT by value, which on x64 is one register holding both coordinates; the
+// wails wrapper passes them as two arguments, so call it directly.
+func hmonitorAt(x, y int32) w32.HMONITOR {
+	pt := uintptr(uint32(x)) | uintptr(uint32(y))<<32
+	r, _, _ := procMonitorFromPoint.Call(pt, w32.MONITOR_DEFAULTTONEAREST)
+	return w32.HMONITOR(r)
 }
+
+// scaleAt returns the DPI scale of the monitor nearest (x, y).
+func scaleAt(x, y int32) float64 { return scaleOf(hmonitorAt(x, y)) }
 
 // scaleFor returns the DPI scale of the monitor at m's centre.
 func scaleFor(m Monitor) float64 { return scaleAt((m.L+m.R)/2, (m.T+m.B)/2) }
