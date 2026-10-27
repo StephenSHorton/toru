@@ -12,6 +12,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/lan/pipe"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
+	"golang.org/x/sys/windows/svc/eventlog"
 )
 
 // service_windows.go is the service process: the pipe server and the host
@@ -36,6 +37,12 @@ func runService(console bool) error {
 
 func (s *lanService) Execute(args []string, req <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
 	status <- svc.Status{State: svc.StartPending}
+	// The data folders are checked before anything is opened in them: the
+	// log is created as SYSTEM, so it must not land where a junction says.
+	if err := checkDataDirs(); err != nil && !s.console {
+		eventLogf("toru-lan %s not starting: %v", version, err)
+		return true, 1
+	}
 	logf, closeLog := s.openLog()
 	defer closeLog()
 	logf("toru-lan %s starting (pid %d)", version, os.Getpid())
@@ -92,20 +99,45 @@ func (s *lanService) openLog() (func(string, ...any), func()) {
 	return l.Logf, func() { l.Close() }
 }
 
+// checkDataDirs: install created %ProgramData%\Toru and ...\lan as
+// Administrators-owned real folders. Refuse ones a user created first (they
+// could hold planted keys) and junctions or links in their place (they would
+// send SYSTEM's writes elsewhere); each is checked on the folder itself.
+// The keys folder is created if missing, under the same checks.
+func checkDataDirs() error {
+	p, err := machinePaths()
+	if err != nil {
+		return err
+	}
+	for _, d := range []string{filepath.Dir(p.dataDir), p.dataDir} {
+		if err := pipe.CheckTrustedDir(d); err != nil {
+			return fmt.Errorf("data folder not trusted (re-run install): %w", err)
+		}
+	}
+	if err := pipe.MakeTrustedDir(p.keysDir(), pipe.KeySDDL); err != nil {
+		return fmt.Errorf("keys folder not trusted (re-run install): %w", err)
+	}
+	return nil
+}
+
+// eventLogf reports to the Windows event log (Application, source ToruLan),
+// for failures before the service log can be trusted.
+func eventLogf(format string, args ...any) {
+	l, err := eventlog.Open(api.ServiceName)
+	if err != nil {
+		return
+	}
+	defer l.Close()
+	_ = l.Error(1, fmt.Sprintf(format, args...))
+}
+
 func start(logf func(string, ...any)) (*pipe.Server, *host, <-chan struct{}, error) {
 	p, err := machinePaths()
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	// Install created both folders as Administrators-owned; refuse to run
-	// on ones a user created first (they could hold planted keys).
-	for _, d := range []string{filepath.Dir(p.dataDir), p.dataDir} {
-		if err := pipe.CheckOwner(d); err != nil {
-			return nil, nil, nil, fmt.Errorf("data folder not trusted (re-run install): %w", err)
-		}
-	}
-	if err := pipe.MakeSecureDir(p.keysDir(), pipe.KeySDDL); err != nil {
-		return nil, nil, nil, fmt.Errorf("keys folder: %w", err)
+	if err := checkDataDirs(); err != nil {
+		return nil, nil, nil, err
 	}
 	dir, err := selfDir()
 	if err != nil {

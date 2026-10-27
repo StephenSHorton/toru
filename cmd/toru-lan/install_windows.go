@@ -212,26 +212,29 @@ func stopService(s *mgr.Service) error {
 	return nil
 }
 
-// prepareDataDir makes %ProgramData%\Toru and ...\Toru\lan Administrators-
-// owned and SYSTEM/Administrators-only. Any user can create folders in
-// ProgramData, so one that already exists under another owner is moved
-// aside rather than trusted.
+// prepareDataDir makes %ProgramData%\Toru, ...\Toru\lan and its keys folder
+// Administrators-owned and SYSTEM/Administrators-only, top down, so each
+// level is locked before the next is looked at. Any user can create folders
+// in ProgramData, so one that already exists under another owner, or a
+// junction or link in its place, is moved aside rather than trusted (a
+// rename moves a junction itself, not its target). Every check and the
+// DACL change act on the folder itself, never through a junction.
 func prepareDataDir(p paths) error {
-	for _, d := range []string{filepath.Dir(p.dataDir), p.dataDir} {
-		if _, err := os.Stat(d); err == nil {
-			if err := pipe.CheckOwner(d); err != nil {
-				aside := fmt.Sprintf("%s.untrusted-%d", d, time.Now().Unix())
-				fmt.Printf("%v; moving it to %s\n", err, aside)
-				if err := os.Rename(d, aside); err != nil {
-					return fmt.Errorf("move untrusted %s aside: %w", d, err)
-				}
+	for _, d := range []string{filepath.Dir(p.dataDir), p.dataDir, p.keysDir()} {
+		err := pipe.MakeTrustedDir(d, pipe.KeySDDL)
+		if errors.Is(err, pipe.ErrUntrusted) {
+			aside := fmt.Sprintf("%s.untrusted-%d", d, time.Now().Unix())
+			fmt.Printf("%v; moving it to %s\n", err, aside)
+			if err := os.Rename(d, aside); err != nil {
+				return fmt.Errorf("move untrusted %s aside: %w", d, err)
 			}
+			err = pipe.MakeTrustedDir(d, pipe.KeySDDL)
 		}
-		if err := pipe.MakeSecureDir(d, pipe.KeySDDL); err != nil {
+		if err != nil {
 			return fmt.Errorf("%s: %w", d, err)
 		}
 	}
-	return pipe.MakeSecureDir(p.keysDir(), pipe.KeySDDL)
+	return nil
 }
 
 // copyInto copies src to dst through a temporary file and a rename, so an

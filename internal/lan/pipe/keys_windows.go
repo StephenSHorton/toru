@@ -187,39 +187,122 @@ func writeSecure(p string, data []byte, sddl string) error {
 	return f.Close()
 }
 
-// CheckOwner fails unless path is owned by SYSTEM or Administrators. Any user
-// can create folders in %ProgramData%, and an owner can always rewrite the
-// DACL, so a folder or file squatted before install is not trusted.
-func CheckOwner(path string) error {
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+// ErrUntrusted marks a path the service must not use: a junction or other
+// reparse point, the wrong kind of object, or not owned by SYSTEM or
+// Administrators. Install moves such a path aside; the service refuses it.
+var ErrUntrusted = errors.New("not trusted")
+
+// Paths are checked and changed through a handle opened on the path itself
+// (FILE_FLAG_OPEN_REPARSE_POINT): a name lookup such as GetNamedSecurityInfo
+// follows a junction, so a junction a user planted at %ProgramData%\Toru
+// would show its target's trusted owner and have the target re-ACLed. The
+// handle shares no delete access, so the object can't be renamed or replaced
+// while it is checked and changed.
+func openNoFollow(path string, access uint32) (windows.Handle, error) {
+	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		return fmt.Errorf("owner of %s: %w", path, err)
+		return 0, err
 	}
-	owner, _, err := sd.Owner()
-	if err != nil {
-		return fmt.Errorf("owner of %s: %w", path, err)
+	return windows.CreateFile(p, access, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil,
+		windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+}
+
+// checkHandle rejects a reparse point, a file where a folder is wanted (or
+// the reverse), and, with owner, an owner other than SYSTEM or
+// Administrators. An owner can always rewrite the DACL, so a folder or file
+// squatted before install is not trusted.
+func checkHandle(h windows.Handle, path string, dir, owner bool) error {
+	var fi windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(h, &fi); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
 	}
-	if owner.IsWellKnown(windows.WinLocalSystemSid) || owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) {
+	if fi.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return fmt.Errorf("%s is a junction or link: %w", path, ErrUntrusted)
+	}
+	if isDir := fi.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0; isDir != dir {
+		return fmt.Errorf("%s is not a %s: %w", path, map[bool]string{true: "folder", false: "file"}[dir], ErrUntrusted)
+	}
+	if !owner {
 		return nil
 	}
-	return fmt.Errorf("%s is owned by %s, not SYSTEM or Administrators", path, owner)
+	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		return fmt.Errorf("owner of %s: %w", path, err)
+	}
+	o, _, err := sd.Owner()
+	if err != nil {
+		return fmt.Errorf("owner of %s: %w", path, err)
+	}
+	if o.IsWellKnown(windows.WinLocalSystemSid) || o.IsWellKnown(windows.WinBuiltinAdministratorsSid) {
+		return nil
+	}
+	return fmt.Errorf("%s is owned by %s, not SYSTEM or Administrators: %w", path, o, ErrUntrusted)
+}
+
+// CheckOwner fails unless path itself (never a junction's target) is owned
+// by SYSTEM or Administrators and is not a reparse point.
+func CheckOwner(path string) error {
+	h, err := openNoFollow(path, windows.READ_CONTROL|windows.FILE_READ_ATTRIBUTES)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer windows.CloseHandle(h)
+	var fi windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(h, &fi); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return checkHandle(h, path, fi.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0, true)
+}
+
+// CheckTrustedDir is CheckOwner for a folder: a real folder (no junction),
+// owned by SYSTEM or Administrators.
+func CheckTrustedDir(dir string) error {
+	h, err := openNoFollow(dir, windows.READ_CONTROL|windows.FILE_READ_ATTRIBUTES)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", dir, err)
+	}
+	defer windows.CloseHandle(h)
+	return checkHandle(h, dir, true, true)
 }
 
 // MakeSecureDir creates dir (and parents) and sets its DACL to sddl,
 // protected from inheritance. An existing folder is re-ACLed, which also
-// fixes one a user loosened.
-func MakeSecureDir(dir, sddl string) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
+// fixes one a user loosened; a junction or link there is refused
+// (ErrUntrusted), never followed.
+func MakeSecureDir(dir, sddl string) error { return makeDir(dir, sddl, false) }
+
+// MakeTrustedDir is MakeSecureDir that also refuses (ErrUntrusted) an
+// existing folder not owned by SYSTEM or Administrators.
+func MakeTrustedDir(dir, sddl string) error { return makeDir(dir, sddl, true) }
+
+func makeDir(dir, sddl string, owner bool) error {
 	sd, err := windows.SecurityDescriptorFromString(sddl)
 	if err != nil {
 		return fmt.Errorf("SDDL %q: %w", sddl, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return err
+	}
+	// A new folder is created with the parent's inherited ACL and locked
+	// below, through the handle. (Created with sddl directly, an unelevated
+	// owner, as in the tests, could no longer open it to check it.) Callers
+	// lock each level before making the next, so nothing can be planted in
+	// between that the next level's check would miss.
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("create %s: %w", dir, err)
+	}
+	h, err := openNoFollow(dir, windows.READ_CONTROL|windows.WRITE_DAC|windows.FILE_READ_ATTRIBUTES)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", dir, err)
+	}
+	defer windows.CloseHandle(h)
+	if err := checkHandle(h, dir, true, owner); err != nil {
+		return err
 	}
 	dacl, _, err := sd.DACL()
 	if err != nil {
 		return err
 	}
-	return windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT,
+	return windows.SetSecurityInfo(h, windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
 }
