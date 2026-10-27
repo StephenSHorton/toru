@@ -62,11 +62,10 @@ func (s *ReplayService) announce(from, to capture.ReplayConfig) {
 // Game session (background or hotkey recording) ended. A restart with a new
 // config is neither.
 func transition(from, to capture.ReplayConfig) (started, saved bool) {
-	zero := capture.ReplayConfig{}
-	switch {
-	case from == to:
+	if from == to {
 		return false, false
-	case from == zero:
+	}
+	if from == (capture.ReplayConfig{}) {
 		return true, false
 	}
 	return false, from.Persist && !to.Persist
