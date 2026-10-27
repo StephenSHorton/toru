@@ -101,7 +101,45 @@ try {
   # Windows PowerShell turns each such line into a terminating error, so
   # relax it for this one call and pass the lines through as plain text.
   $ErrorActionPreference = 'Continue'
-  & $testExe -test.v -test.run '^TestSelftest$' -test.timeout 15m 2>&1 |
+  # Quoted name=value flags: Windows PowerShell 5.1 splits a bare -test.v
+  # into "-test" ".v" for native commands, and the test exe rejects -test.
+  & $testExe '-test.v=true' '-test.run=^TestSelftest
+    ForEach-Object { "$_" } | Tee-Object -FilePath (Join-Path $out 'test.log')
+  $exit = $LASTEXITCODE
+  $ErrorActionPreference = 'Stop'
+}
+catch {
+  Write-Host "selftest script failed: $_" -ForegroundColor Red
+  $exit = 1
+}
+finally {
+  # Leave nothing behind, whatever happened above.
+  if (Get-Service -Name ToruLan -ErrorAction SilentlyContinue) {
+    Write-Host 'Toru LAN still installed: uninstalling'
+    if (Test-Path $lanExe) { & $lanExe uninstall }
+  }
+  Get-NetFirewallRule -DisplayName $tempRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+  foreach ($name in $disabledRadmin) {
+    Enable-NetAdapter -Name $name -Confirm:$false
+    Write-Host "Re-enabled $name"
+  }
+  Stop-Transcript | Out-Null
+}
+
+$txt = Join-Path $out 'report.txt'
+if (-not (Test-Path $txt)) {
+  Write-Host 'No report was written: the selftest did not run. See test.log.' -ForegroundColor Red
+  if ($exit -eq 0) { $exit = 1 }
+}
+if (Test-Path $txt) {
+  Write-Host ''
+  Get-Content $txt
+}
+Write-Host ''
+Write-Host "Report: $txt (and report.json, test.log, run.log)"
+if ($Elevated) { Read-Host 'Press Enter to close' | Out-Null }
+exit $exit
+ '-test.timeout=15m' 2>&1 |
     ForEach-Object { "$_" } | Tee-Object -FilePath (Join-Path $out 'test.log')
   $exit = $LASTEXITCODE
   $ErrorActionPreference = 'Stop'
