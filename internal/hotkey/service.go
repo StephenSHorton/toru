@@ -122,6 +122,11 @@ func (s *HotkeyService) RecordShortcut() (Shortcut, error) {
 // CancelRecording ends a pending RecordShortcut (it returns an empty Key).
 func (s *HotkeyService) CancelRecording() { s.mgr.CancelRecord() }
 
+// ComboLabel renders b for display outside the Shortcuts UI (tray menu
+// labels): "Ctrl + Alt + F10", "LCtrl + Shift + A + S", "Mouse4". It covers
+// sides and chords; empty when b is unbound (cleared or never set).
+func ComboLabel(b Binding) string { return comboLabel(b) }
+
 // comboLabel renders b like the UI does: "Ctrl + Alt + F10",
 // "LCtrl + Shift + A + S", "Mouse4". Empty when unbound.
 func comboLabel(b Binding) string {

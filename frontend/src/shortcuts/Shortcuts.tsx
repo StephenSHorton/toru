@@ -29,6 +29,31 @@ function sideOf(sc: Shortcut, mod: Modifier): Side {
   return "either";
 }
 
+// Keys RegisterHotKey can't take as a shortcut's key: mouse buttons and a
+// modifier used alone. Mirrors hookOnly in internal/hotkey/match.go.
+const HOOK_ONLY_KEYS = new Set([
+  "MouseMiddle",
+  "Mouse4",
+  "Mouse5",
+  "LCtrl",
+  "RCtrl",
+  "LShift",
+  "RShift",
+  "LAlt",
+  "RAlt",
+]);
+
+// hookOnly reports whether only Toru's keyboard/mouse hooks can match the
+// shortcut, so it doesn't fire while an administrator window is focused.
+function hookOnly(sc: Shortcut): boolean {
+  return (
+    (sc.sides ?? []).length > 0 ||
+    sc.loose ||
+    (sc.extra ?? []).length > 0 ||
+    HOOK_ONLY_KEYS.has(sc.key)
+  );
+}
+
 // isSnip reports whether a combo is Win+Shift+S (the Snipping Tool combo we
 // override). Shown as a small note so the behavior is never a surprise.
 function isSnip(sc: Shortcut): boolean {
@@ -200,7 +225,7 @@ export function ShortcutRow({
   }
 
   const heldMods = MODIFIERS.filter((m) => sc[m.id]);
-  const extended = (sc.sides ?? []).length > 0 || sc.loose || (sc.extra ?? []).length > 0;
+  const extended = hookOnly(sc);
 
   return (
     <div className="flex flex-col gap-1.5 border-t border-border pt-2 first:border-t-0 first:pt-0">
@@ -278,8 +303,8 @@ export function ShortcutRow({
           </div>
           {extended && (
             <p className="text-xs text-muted-foreground">
-              Chords, left/right-only and loose shortcuts don't work while a window running as
-              administrator is focused.
+              This shortcut doesn't work while a window running as administrator is focused
+              (true of chords, left/right-only, loose, mouse-button and modifier-only shortcuts).
             </p>
           )}
           {onClear && sc.key && (

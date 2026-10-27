@@ -75,6 +75,23 @@ func recording() bool {
 	return recCh != nil
 }
 
+// recordNeedsMouseHook reports whether recording still needs the mouse hook:
+// a Record is waiting, or a recorded Middle/Mouse4/Mouse5 is still held and
+// its up must be swallowed. A recording that ends on the gather timeout with
+// Mouse4 held would otherwise unhook before the up, and that unpaired up would
+// reach the focused window (Toru's own WebView navigates Back on it).
+func recordNeedsMouseHook() bool {
+	actMu.Lock()
+	defer actMu.Unlock()
+	return recCh != nil || mouseUpPendingLocked()
+}
+
+// mouseUpPendingLocked reports whether a recorded mouse button's up is still
+// owed a swallow. Caller holds actMu.
+func mouseUpPendingLocked() bool {
+	return recSwallow[vkMButton] || recSwallow[vkXButton1] || recSwallow[vkXButton2]
+}
+
 // commitChordLocked ends the recording with the gathered chord.
 func commitChordLocked() {
 	if len(recBest) == 0 {
@@ -208,6 +225,8 @@ func recordMouse(vk uint32, down bool) bool {
 		delete(recSwallow, vk)
 		if recCh != nil {
 			releaseChordKeyLocked(key)
+		} else if !mouseUpPendingLocked() {
+			requestSync() // the last owed up is in: the hook may go now
 		}
 		return true
 	}

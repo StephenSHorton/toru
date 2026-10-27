@@ -719,3 +719,38 @@ func TestRecordChordAndModifiers(t *testing.T) {
 		t.Fatal("the fifth key should end the recording")
 	}
 }
+
+// A recording that times out with Mouse4 still held keeps the mouse hook
+// wanted until that button's up has been swallowed.
+func TestRecordMouseHeldKeepsHook(t *testing.T) {
+	s := newSim(t, nil)
+	if s.m.wantsMouseHook() {
+		t.Fatal("no mouse binding and no recording: hook not wanted")
+	}
+	actMu.Lock()
+	ch := startRecordLocked()
+	actMu.Unlock()
+	if !s.m.wantsMouseHook() {
+		t.Fatal("a recording wants the mouse hook")
+	}
+	if !s.mouse(vkXButton1, true) {
+		t.Fatal("recorded Mouse4 down must be swallowed")
+	}
+	select {
+	case r := <-ch:
+		if !r.ok || r.b != (Binding{Key: namedKeyBase + vkXButton1}) {
+			t.Fatalf("held Mouse4 recorded %+v", r)
+		}
+	case <-time.After(chordGather + time.Second):
+		t.Fatal("the gather window should end the recording")
+	}
+	if !s.m.wantsMouseHook() {
+		t.Fatal("Mouse4 is still held: the hook must stay to swallow its up")
+	}
+	if !s.mouse(vkXButton1, false) {
+		t.Fatal("the up of a recorded Mouse4 must be swallowed after the recording")
+	}
+	if s.m.wantsMouseHook() {
+		t.Fatal("the owed up is in: hook no longer wanted")
+	}
+}

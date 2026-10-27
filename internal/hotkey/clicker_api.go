@@ -20,6 +20,12 @@ import "fmt"
 //   - Otherwise GetAsyncKeyState. This keeps working while an elevated window
 //     has focus and the hooks are not called (a release there is still seen).
 //
+// Limitation: a hook-only binding's swallowed key (Mouse4, a chord's last key)
+// released while an elevated window has focus stays down here until that key
+// is pressed and released again, because neither the hook nor
+// GetAsyncKeyState saw the release. A hold-mode run on such a binding keeps
+// going until then.
+//
 // The clicker's hold-mode guard polls PhysicallyDown(TriggerVK(binding)); the
 // conflict guard makes sure the clicker never injects that key.
 func PhysicallyDown(vk uint16) bool { return phys.physicallyDown(uint32(vk)) }

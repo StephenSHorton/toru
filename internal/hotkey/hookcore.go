@@ -258,9 +258,9 @@ func (m *Manager) signal(action string) {
 
 // wantsMouseHook reports whether the mouse hook should be installed: some
 // active binding uses a mouse button, or a recording is waiting (so the user
-// can record Mouse4).
+// can record Mouse4) or still owes a recorded button's up a swallow.
 func (m *Manager) wantsMouseHook() bool {
-	if recording() {
+	if recordNeedsMouseHook() {
 		return true
 	}
 	m.mu.Lock()

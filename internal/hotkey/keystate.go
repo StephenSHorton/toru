@@ -21,6 +21,18 @@ import "sync/atomic"
 //
 // Everything else reads GetAsyncKeyState, which also keeps plain bindings
 // exactly as they matched before the table existed.
+//
+// This differs from PLAN §4.2/§4.4 ("table only while injecting, otherwise
+// table OR GetAsyncKeyState"). Both agree on the injected-modifier case; this
+// rule also sees a release made while an elevated window had focus, which the
+// OR rule would miss for every key.
+//
+// Known gap: a swallowed key (a hook-only binding's trigger, e.g. Mouse4 or a
+// chord's last key) released while an elevated window has focus never reaches
+// our hook, and GetAsyncKeyState never saw its down, so the table keeps it
+// "down" until that key is next pressed and released. A hold-mode clicker run
+// started from such a binding keeps going until then. No timeout can fix this without also cutting off a
+// genuine long hold, since a swallowed down never shows in the async state.
 type keyTable struct {
 	down      [256]atomic.Bool // physical (untagged) state, sided VKs
 	swallowed [256]atomic.Bool // our hook swallowed the current down
