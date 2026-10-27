@@ -194,9 +194,10 @@ func (s *StreamService) GetSettings() Settings {
 // themselves.
 func (s *StreamService) SetSettings(in Settings) (Settings, error) {
 	s.mu.Lock()
-	in.RoomCode = s.settings.RoomCode                 // the room is changed by Join/Leave only
-	in.ShowPreview = s.settings.ShowPreview           // and the preview by SetPreview
-	in.NoiseSuppression = s.settings.NoiseSuppression // voice settings go through SetVoice
+	in.RoomCode = s.settings.RoomCode       // the room is changed by Join/Leave only
+	in.ShowPreview = s.settings.ShowPreview // and the preview by SetPreview
+	in.NoiseMode = s.settings.NoiseMode     // voice settings go through SetVoice
+	in.NoiseSuppression = s.settings.NoiseSuppression
 	in.MicDevice, in.SpeakerDevice = s.settings.MicDevice, s.settings.SpeakerDevice
 	next := Normalize(in)
 	prev := s.settings

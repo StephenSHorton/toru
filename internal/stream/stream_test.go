@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -58,6 +59,33 @@ func TestNormalizeSettings(t *testing.T) {
 	}
 	if n := Normalize(Settings{RoomCode: "nope"}); n.RoomCode != "" {
 		t.Errorf("bad room code kept: %q", n.RoomCode)
+	}
+}
+
+// TestNoiseModeFromOldSettings: a 0.11.0 stream.json only has the
+// noiseSuppression bool; it maps to standard/off, and the bool keeps
+// following the mode so an older Toru still reads something sensible.
+func TestNoiseModeFromOldSettings(t *testing.T) {
+	for _, c := range []struct {
+		json string
+		mode string
+		on   bool
+	}{
+		{`{"noiseSuppression": true}`, NoiseStandard, true},
+		{`{"noiseSuppression": false}`, NoiseOff, false},
+		{`{}`, NoiseStandard, true},
+		{`{"noiseMode": "ai", "noiseSuppression": false}`, NoiseAI, true},
+		{`{"noiseMode": "off", "noiseSuppression": true}`, NoiseOff, false},
+		{`{"noiseMode": "krisp"}`, NoiseStandard, true},
+	} {
+		s := DefaultSettings()
+		s.NoiseMode = "" // as loadSettings does
+		if err := json.Unmarshal([]byte(c.json), &s); err != nil {
+			t.Fatal(err)
+		}
+		if n := Normalize(s); n.NoiseMode != c.mode || n.NoiseSuppression != c.on {
+			t.Errorf("%s: got %q/%v, want %q/%v", c.json, n.NoiseMode, n.NoiseSuppression, c.mode, c.on)
+		}
 	}
 }
 

@@ -180,11 +180,12 @@ export function SetSettings($in: $models.Settings): $CancellablePromise<$models.
 }
 
 /**
- * SetVoice saves the voice preferences: noise suppression and devices. The
- * call window applies them at once.
+ * SetVoice saves the voice preferences: the noise suppression mode
+ * (NoiseOff, NoiseStandard or NoiseAI) and devices. The call window applies
+ * them at once.
  */
-export function SetVoice(noiseSuppression: boolean, micDevice: string, speakerDevice: string): $CancellablePromise<$models.State> {
-    return $Call.ByID(2559477025, noiseSuppression, micDevice, speakerDevice).then(($result: any) => {
+export function SetVoice(noiseMode: string, micDevice: string, speakerDevice: string): $CancellablePromise<$models.State> {
+    return $Call.ByID(2559477025, noiseMode, micDevice, speakerDevice).then(($result: any) => {
         return $$createType0($result);
     });
 }

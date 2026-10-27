@@ -88,7 +88,11 @@ export class CallState {
      */
     "deafened": boolean;
     "speaking": boolean;
-    "noiseSuppression": boolean;
+
+    /**
+     * NoiseOff | NoiseStandard | NoiseAI
+     */
+    "noiseMode": string;
 
     /**
      * WebView deviceId; "" = system default
@@ -120,8 +124,8 @@ export class CallState {
         if (!("speaking" in $$source)) {
             this["speaking"] = false;
         }
-        if (!("noiseSuppression" in $$source)) {
-            this["noiseSuppression"] = false;
+        if (!("noiseMode" in $$source)) {
+            this["noiseMode"] = "";
         }
         if (!("micDevice" in $$source)) {
             this["micDevice"] = "";
@@ -587,10 +591,18 @@ export class Settings {
 
     /**
      * Voice call. Devices are WebView2 device ids; "" = the system default.
+     * NoiseOff | NoiseStandard | NoiseAI
      */
-    "noiseSuppression": boolean;
+    "noiseMode": string;
     "micDevice": string;
     "speakerDevice": string;
+
+    /**
+     * NoiseSuppression is the 0.11.0 on/off switch, kept in step with
+     * NoiseMode (on = not off) so an older Toru reading this file still
+     * works. A file with only this field gets its NoiseMode from it.
+     */
+    "noiseSuppression": boolean;
 
     /** Creates a new Settings instance. */
     constructor($$source: Partial<Settings> = {}) {
@@ -639,14 +651,17 @@ export class Settings {
         if (!("showPreview" in $$source)) {
             this["showPreview"] = false;
         }
-        if (!("noiseSuppression" in $$source)) {
-            this["noiseSuppression"] = false;
+        if (!("noiseMode" in $$source)) {
+            this["noiseMode"] = "";
         }
         if (!("micDevice" in $$source)) {
             this["micDevice"] = "";
         }
         if (!("speakerDevice" in $$source)) {
             this["speakerDevice"] = "";
+        }
+        if (!("noiseSuppression" in $$source)) {
+            this["noiseSuppression"] = false;
         }
 
         Object.assign(this, $$source);
