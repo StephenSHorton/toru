@@ -21,6 +21,14 @@ export function CloseRecordingFrame(): $CancellablePromise<void> {
 }
 
 /**
+ * OpenClicker surfaces the Auto Clicker page of the hub, the same way
+ * OpenSendFiles does (clicker:open for a live hub, ?page=clicker otherwise).
+ */
+export function OpenClicker(): $CancellablePromise<void> {
+    return $Call.ByID(2504822147);
+}
+
+/**
  * OpenEditor opens Developer 1's screenshot annotation editor for imagePath.
  * 
  * The SPA routes on the ?view= query param (App.tsx) and the embedded asset

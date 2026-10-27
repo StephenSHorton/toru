@@ -11,6 +11,9 @@ import { Create as $Create } from "@wailsio/runtime";
 import * as capture$0 from "../../../../StephenSHorton/toru/internal/capture/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as clicker$0 from "../../../../StephenSHorton/toru/internal/clicker/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as overlay$0 from "../../../../StephenSHorton/toru/internal/overlay/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -22,24 +25,30 @@ import * as update$0 from "../../../../StephenSHorton/toru/internal/update/model
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
         "capture:done": $$createType0,
-        "overlay:cropRect": $$createType1,
-        "overlay:edit": $$createType2,
-        "overlay:engage": $$createType3,
-        "overlay:ui": $$createType4,
-        "transfer:receive": $$createType5,
-        "transfer:send": $$createType6,
-        "update:status": $$createType7,
+        "clicker:pick": $$createType1,
+        "clicker:settings": $$createType2,
+        "clicker:status": $$createType3,
+        "overlay:cropRect": $$createType4,
+        "overlay:edit": $$createType5,
+        "overlay:engage": $$createType6,
+        "overlay:ui": $$createType7,
+        "transfer:receive": $$createType8,
+        "transfer:send": $$createType9,
+        "update:status": $$createType10,
     }));
 }
 
 // Private type creation functions
 const $$createType0 = capture$0.CaptureResult.createFrom;
-const $$createType1 = capture$0.Rect.createFrom;
-const $$createType2 = overlay$0.OverlayEditPayload.createFrom;
-const $$createType3 = overlay$0.MonitorSession.createFrom;
-const $$createType4 = overlay$0.OverlayUi.createFrom;
-const $$createType5 = transfer$0.ReceiveState.createFrom;
-const $$createType6 = transfer$0.SendState.createFrom;
-const $$createType7 = update$0.Status.createFrom;
+const $$createType1 = clicker$0.PickEvent.createFrom;
+const $$createType2 = clicker$0.Settings.createFrom;
+const $$createType3 = clicker$0.Status.createFrom;
+const $$createType4 = capture$0.Rect.createFrom;
+const $$createType5 = overlay$0.OverlayEditPayload.createFrom;
+const $$createType6 = overlay$0.MonitorSession.createFrom;
+const $$createType7 = overlay$0.OverlayUi.createFrom;
+const $$createType8 = transfer$0.ReceiveState.createFrom;
+const $$createType9 = transfer$0.SendState.createFrom;
+const $$createType10 = update$0.Status.createFrom;
 
 configure();

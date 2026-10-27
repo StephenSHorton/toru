@@ -40,7 +40,31 @@ const escapeAction = "__overlay_escape"
 type Binding struct {
 	Ctrl, Shift, Alt, Win bool
 	Key                   rune
+	// Sides narrows required modifiers to one side (LCtrl, RShift, ...). A set
+	// bit implies its generic flag above is also set. Zero = either side.
+	Sides SideMask
+	// Extra are more keys held together with Key (a chord, up to 5 keys in
+	// all), sorted ascending, 0 = unused. Kept as an array so Binding stays
+	// comparable with ==.
+	Extra [4]rune
+	// Loose lets the combo fire while other, unlisted modifiers are also held
+	// (default: the modifiers must match exactly).
+	Loose bool
 }
+
+// SideMask bits for Binding.Sides.
+type SideMask uint8
+
+const (
+	SideLCtrl SideMask = 1 << iota
+	SideRCtrl
+	SideLShift
+	SideRShift
+	SideLAlt
+	SideRAlt
+	SideLWin
+	SideRWin
+)
 
 // fKeyBase maps F1-F24 into the Unicode private-use area so a function key
 // fits the same rune-typed Binding.Key as letters and digits: FKey(n) ==
@@ -112,6 +136,11 @@ var (
 	// add a timeline marker.
 	DefaultRecordToggle   = Binding{Ctrl: true, Key: FKey(11)}
 	DefaultTimelineMarker = Binding{Ctrl: true, Key: FKey(12)}
+
+	// Auto clicker: start/stop (Ctrl+Shift+Y, close to Blur AutoClicker's
+	// Ctrl+Y without eating Redo) and arm/disarm (unbound by default).
+	DefaultClickerToggle = Binding{Ctrl: true, Shift: true, Key: 'Y'}
+	DefaultClickerArm    = Binding{}
 )
 
 // actionMeta maps a stable action id to its human label + default binding. It
@@ -126,6 +155,8 @@ var actionMeta = map[string]struct {
 	"replaySave":     {"Save instant replay", DefaultReplaySave},
 	"recordToggle":   {"Start / stop recording", DefaultRecordToggle},
 	"timelineMarker": {"Add timeline marker", DefaultTimelineMarker},
+	"clickerToggle":  {"Start / stop auto clicker", DefaultClickerToggle},
+	"clickerArm":     {"Arm / disarm auto clicker", DefaultClickerArm},
 }
 
 // shortcutRow is the internal snapshot row used by service.go's GetShortcuts. It

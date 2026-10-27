@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/StephenSHorton/toru/internal/clicker"
 	"github.com/StephenSHorton/toru/internal/history"
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/StephenSHorton/toru/internal/replay"
@@ -31,6 +32,9 @@ type trayController struct {
 	openSendFiles func()
 	// update supplies the "Restart to update to vX" item while an update is ready.
 	update *update.UpdateService
+	// clicker backs the "Auto clicker" check item; openClicker opens its hub page.
+	clicker     *clicker.ClickerService
+	openClicker func()
 }
 
 // rebuildMenu constructs a fresh tray menu and installs it. Safe to call from
@@ -72,6 +76,8 @@ func (t *trayController) rebuildMenu() {
 			t.openSendFiles()
 		}
 	})
+
+	t.addClickerItems(menu)
 
 	menu.AddSeparator()
 
@@ -207,4 +213,26 @@ func (t *trayController) openCapturesFolder() {
 		return
 	}
 	_ = exec.Command("xdg-open", dir).Start()
+}
+
+// addClickerItems adds the auto clicker toggle (checked while a run is active)
+// and a shortcut to its settings page.
+func (t *trayController) addClickerItems(menu *application.Menu) {
+	if t.clicker == nil {
+		return
+	}
+	label := "Auto clicker"
+	st := t.clicker.Status()
+	if st.Hotkey != "" {
+		label += " (" + st.Hotkey + ")"
+	}
+	running := st.State != clicker.StateIdle
+	menu.AddCheckbox(label, running).OnClick(func(*application.Context) {
+		go t.clicker.TrayToggle()
+	})
+	menu.Add("Auto clicker settings…").OnClick(func(*application.Context) {
+		if t.openClicker != nil {
+			t.openClicker()
+		}
+	})
 }

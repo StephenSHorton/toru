@@ -37,6 +37,11 @@
 //   TransferService.PickSendFile / PickSendFolder(): Promise<string>  ("" === cancelled; does NOT start the send)
 //   TransferService.GetReceiveDir / IsDefaultReceiveDir / PickReceiveDir / ResetReceiveDir / OpenReceiveDir / RevealReceived
 //   TransferService.CodeQR(code): Promise<string>  (base64 PNG, no data: prefix)
+//   ClickerService.GetSettings / SetSettings(s) -> normalized ClickerSettings / ResetSettings  ("clicker:settings" when Go changes them)
+//   ClickerService.Status / Start (page countdown) / Stop / Toggle / SetPaused / SetArmed  ("clicker:status")
+//   ClickerService.StartPointPick / StartZonePick(id|"") / CancelPick / PreviewSafety / CursorPosition  ("clicker:pick")
+//   ClickerService.ListProcesses / SavePreset / ApplyPreset / UpdatePreset / RenamePreset / DuplicatePreset / DeletePreset / ExportPreset / ImportPreset / Stats / ResetStats
+//   Errors read "clicker: <CODE>: message" (codes in internal/clicker/types.go).
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
@@ -75,6 +80,20 @@ import {
   SendState,
   ReceiveState,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/transfer/models.js";
+import * as ClickerService from "../../bindings/github.com/StephenSHorton/toru/internal/clicker/clickerservice.js";
+import {
+  Settings as ClickerSettings,
+  Status as ClickerStatus,
+  Profile as ClickerProfile,
+  ClickPoint,
+  StopZone,
+  Preset as ClickerPreset,
+  ProcessInfo,
+  ProcessEntry,
+  Stats as ClickerStats,
+  PickEvent,
+  Point as ClickerPoint,
+} from "../../bindings/github.com/StephenSHorton/toru/internal/clicker/models.js";
 
 export {
   ExportService,
@@ -106,5 +125,17 @@ export {
   TransferService,
   SendState,
   ReceiveState,
+  ClickerService,
+  ClickerSettings,
+  ClickerStatus,
+  ClickerProfile,
+  ClickPoint,
+  StopZone,
+  ClickerPreset,
+  ProcessInfo,
+  ProcessEntry,
+  ClickerStats,
+  PickEvent,
+  ClickerPoint,
 };
 export type { CaptureItem };

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/clicker"
 	"github.com/StephenSHorton/toru/internal/dpi"
 	"github.com/StephenSHorton/toru/internal/export"
 	"github.com/StephenSHorton/toru/internal/history"
@@ -76,6 +77,12 @@ func init() {
 	// update:status carries the updater's phase (downloading / ready / installing)
 	// so the hub can show the "Toru vX is ready" banner.
 	application.RegisterEvent[update.Status](update.EventUpdateStatus)
+	// Auto clicker: run state, settings changed from Go (tray, hotkeys, pickers,
+	// presets) and picker lifecycle. clicker:open carries no payload and is
+	// deliberately NOT registered.
+	application.RegisterEvent[clicker.Status](clicker.EventStatus)
+	application.RegisterEvent[clicker.Settings](clicker.EventSettings)
+	application.RegisterEvent[clicker.PickEvent](clicker.EventPick)
 }
 
 func main() {
@@ -134,6 +141,10 @@ func main() {
 	// in-process). The app is injected after application.New like the others.
 	transferSvc := transfer.NewService()
 
+	// Auto clicker: clicks or presses a key at a set rate, with click points,
+	// failsafes and presets (internal/clicker). Nothing runs until started.
+	clickerSvc := clicker.NewService()
+
 	// Global hotkeys. The Manager owns a low-level keyboard hook (WH_KEYBOARD_LL)
 	// so it can capture AND swallow Win-key combos — the default is Win+Shift+S,
 	// which RegisterHotKey can't claim from the Snipping Tool. HotkeyService
@@ -163,6 +174,7 @@ func main() {
 			application.NewService(replaySvc),
 			application.NewService(uploadSvc),
 			application.NewService(transferSvc),
+			application.NewService(clickerSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -209,6 +221,11 @@ func main() {
 	histSvc.SetOpeners(windowsSvc.OpenLibraryEditor, windowsSvc.OpenTrim)
 	transferSvc.SetApp(app)           // transfer:send / transfer:receive emits
 	windowsSvc.transfer = transferSvc // file drops on the hub window start a send
+	clickerSvc.SetApp(app)
+	clickerSvc.SetHotkeys(keys)
+	// Recording a shortcut stops the clicker first, so its input can't land in
+	// the recorder.
+	hotkeySvc.SetOnRecordStart(func() { clickerSvc.StopFor(clicker.StopKeyCapture) })
 	// Suspend alt-tab-cancels while a native Save dialog is up (dialog steals
 	// focus but the user is still mid-edit).
 	exportSvc.SetBeforeDialog(func() (restore func()) {
@@ -253,7 +270,14 @@ func main() {
 	// armed Escape press fires Cancel. The hook never SWALLOWS Escape, so this can't
 	// affect Escape anywhere else. Wire BOTH before Register so the action exists the
 	// instant the hook installs.
-	overlaySvc.SetEscapeArmer(keys.ArmEscape)
+	// The capture overlay is not click-through, so a running auto clicker would
+	// click it: engaging the overlay (which arms Escape) stops the clicker first.
+	overlaySvc.SetEscapeArmer(func(on bool) {
+		if on {
+			clickerSvc.StopFor(clicker.StopOverlay)
+		}
+		keys.ArmEscape(on)
+	})
 	keys.SetEscapeAction(func() { _ = overlaySvc.Cancel() })
 
 	// Install the global hotkey hook AFTER injection (windowsSvc.overlay is set
@@ -284,6 +308,19 @@ func main() {
 	})
 	_ = keys.Register("timelineMarker", hotkey.LoadBinding("timelineMarker", hotkey.DefaultTimelineMarker), func() {
 		go func() { _ = replaySvc.AddMarker() }()
+	})
+	// Auto clicker hotkeys. The service decides what a press means (toggle or
+	// hold mode, armed or not) and gates the combos with SetActive itself.
+	_ = keys.Register("clickerToggle", hotkey.LoadBinding("clickerToggle", hotkey.DefaultClickerToggle), func() {
+		go clickerSvc.HotkeyToggle()
+	})
+	_ = keys.Register("clickerArm", hotkey.LoadBinding("clickerArm", hotkey.DefaultClickerArm), func() {
+		go clickerSvc.HotkeyArm()
+	})
+	clickerSvc.SetOnChange(func() {
+		if tray != nil {
+			tray.rebuildMenu()
+		}
 	})
 	armRecordingKeys := func(st replay.Settings) {
 		keys.SetActive("replaySave", st.Enabled)
@@ -332,6 +369,8 @@ func main() {
 			replay:        replaySvc,
 			keys:          keys,
 			openSendFiles: windowsSvc.OpenSendFiles,
+			clicker:       clickerSvc,
+			openClicker:   windowsSvc.OpenClicker,
 			update:        updateSvc,
 		}
 		tray.rebuildMenu()                                         // initial menu (includes any persisted recents)
@@ -367,6 +406,9 @@ func main() {
 		// Start the instant-replay buffer if the user enabled it. Off the main
 		// thread: the hardware-encoder probe takes about a second.
 		go replaySvc.Init()
+
+		// Auto clicker: load settings, arm its hotkeys.
+		go clickerSvc.Init()
 	})
 
 	// Best-effort: close the reused overlay windows on app shutdown. Process exit
@@ -381,7 +423,8 @@ func main() {
 	// exits; it waits for toru.exe to unlock, installs, and does not relaunch.
 	app.OnShutdown(func() {
 		overlaySvc.Teardown()
-		replaySvc.Shutdown() // stop ffmpeg + delete the rolling segments
+		clickerSvc.Shutdown() // stop a run and release any held button or key
+		replaySvc.Shutdown()  // stop ffmpeg + delete the rolling segments
 		transferSvc.Shutdown()
 		updateSvc.InstallOnExit()
 	})

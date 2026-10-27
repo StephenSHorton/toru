@@ -18,7 +18,14 @@ type Shortcut struct {
 	Shift  bool   `json:"shift"`
 	Alt    bool   `json:"alt"`
 	Win    bool   `json:"win"`
-	Key    string `json:"key"` // "A".."Z", "0".."9", "F1".."F24" or a named key ("PageUp", "Num5", "[")
+	Key    string `json:"key"` // "A".."Z", "0".."9", "F1".."F24" or a named key ("PageUp", "Num5", "[", "Mouse4"); "" = unbound
+	// Sides narrows modifiers to one side: any of "lctrl", "rctrl", "lshift",
+	// "rshift", "lalt", "ralt", "lwin", "rwin" (the generic flag must be set too).
+	Sides []string `json:"sides"`
+	// Extra are more chord keys held with Key (KeyName spellings, up to 4).
+	Extra []string `json:"extra"`
+	// Loose: fire even when other modifiers are held too.
+	Loose bool `json:"loose"`
 	// IsDefault is true when the combo is the action's default (output only).
 	IsDefault bool `json:"isDefault"`
 }

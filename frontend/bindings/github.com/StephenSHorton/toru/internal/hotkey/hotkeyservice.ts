@@ -26,6 +26,14 @@ export function CancelRecording(): $CancellablePromise<void> {
 }
 
 /**
+ * ClearShortcut unbinds action (persisted as an empty key) so its combo is
+ * no longer intercepted.
+ */
+export function ClearShortcut(action: string): $CancellablePromise<void> {
+    return $Call.ByID(1011025126, action);
+}
+
+/**
  * GetShortcuts returns every configured action's current combo for the UI.
  */
 export function GetShortcuts(): $CancellablePromise<$models.Shortcut[]> {

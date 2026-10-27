@@ -13,6 +13,7 @@ import {
   Trash2,
   Video,
   LayoutGrid,
+  MousePointerClick,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -21,6 +22,7 @@ import { UpdateBanner } from "@/updater/UpdateBanner";
 import { Shortcuts } from "@/shortcuts/Shortcuts";
 import { ReplayPanel } from "@/replay/ReplayPanel";
 import SendFiles from "@/transfer/SendFiles";
+import ClickerPage from "@/clicker/ClickerPage";
 import { errText, reportLocalSendError } from "@/transfer/useTransfer";
 import {
   TransferService,
@@ -38,8 +40,8 @@ import { cn } from "@/lib/utils";
 // recent screenshots & recordings; Settings is a navigable panel (shortcuts,
 // launch-at-login, freeze, updater).
 
-type Page = "library" | "send" | "settings";
-const PAGES: readonly Page[] = ["library", "send", "settings"];
+type Page = "library" | "send" | "clicker" | "settings";
+const PAGES: readonly Page[] = ["library", "send", "clicker", "settings"];
 
 // initialPage honours `?page=` so the tray's "Send files…" can open the hub
 // straight onto Send Files (windows.go OpenSendFiles); anything else lands on Library.
@@ -56,8 +58,10 @@ export default function Settings() {
   // transfer UI.
   useEffect(() => {
     const off = WailsEvents.On("transfer:open", () => setPage("send"));
+    const offClicker = WailsEvents.On("clicker:open", () => setPage("clicker"));
     return () => {
       off();
+      offClicker();
     };
   }, []);
 
@@ -93,6 +97,12 @@ export default function Settings() {
           label="Send Files"
           onClick={() => setPage("send")}
         />
+        <NavBtn
+          active={page === "clicker"}
+          icon={MousePointerClick}
+          label="Auto Clicker"
+          onClick={() => setPage("clicker")}
+        />
 
         <div
           className="flex min-h-0 flex-1 items-center justify-center overflow-hidden"
@@ -126,6 +136,8 @@ export default function Settings() {
           <LibraryPage onSendItem={sendItem} />
         ) : page === "send" ? (
           <SendFiles />
+        ) : page === "clicker" ? (
+          <ClickerPage />
         ) : (
           <SettingsPage />
         )}
