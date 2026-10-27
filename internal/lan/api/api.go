@@ -88,7 +88,11 @@ const (
 // Firewall rule names the installer creates (and removes on uninstall).
 const (
 	FirewallRuleInbound = "Toru LAN (inbound)"
-	FirewallRuleICMP    = "Toru LAN ICMP"
+	// FirewallRuleBlockRPC prefixes the block rules (one per program) that
+	// keep Windows' own RPC servers on the dynamic port range closed to room
+	// members, whatever the allow rule says.
+	FirewallRuleBlockRPC = "Toru LAN (block system RPC)"
+	FirewallRuleICMP     = "Toru LAN ICMP"
 )
 
 // Message is one JSON line on the pipe, either direction. Type picks which

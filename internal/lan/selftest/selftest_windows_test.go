@@ -223,6 +223,15 @@ func checkInstall(r *report, installDir, dataDir string) {
 			(want.icmp == "" || fr.IcmpTypes == want.icmp)
 		r.add("firewall rule "+want.name+" settings", true, boolErr(ok, fmt.Sprintf("%+v", *fr)), fmt.Sprintf("%+v", *fr))
 	}
+	for _, name := range adapter.BlockRuleNames() {
+		fr, err := adapter.LookupFirewallRule(name)
+		if !r.add("firewall rule "+name+" exists", true, err, "") {
+			continue
+		}
+		ok := fr.Enabled && fr.Direction == 1 && fr.Action == 0 && fr.Protocol == 6 && fr.PinnedTo(api.AdapterName) &&
+			strings.Contains(fr.RemoteAddresses, "100.96.0.0") && fr.LocalPorts == "49152-65535" && fr.ApplicationName != ""
+		r.add("firewall rule "+name+" settings", true, boolErr(ok, fmt.Sprintf("%+v", *fr)), fmt.Sprintf("%+v", *fr))
+	}
 }
 
 func errOr(a, b error) error {
@@ -681,7 +690,7 @@ func checkCleanup(r *report, installDir, dataDir string) {
 		r.add("service deleted", true, boolErr(err != nil, "still registered"), "")
 		m.Disconnect()
 	}
-	for _, name := range []string{api.FirewallRuleInbound, api.FirewallRuleICMP} {
+	for _, name := range adapter.FirewallRuleNames() {
 		_, err := adapter.LookupFirewallRule(name)
 		r.add("firewall rule "+name+" removed", true, boolErr(err != nil, "still present"), "")
 	}

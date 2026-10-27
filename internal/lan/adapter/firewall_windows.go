@@ -3,6 +3,7 @@ package adapter
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unsafe"
 
@@ -12,13 +13,19 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// firewall_windows.go creates and removes the two Windows Firewall rules
+// firewall_windows.go creates and removes the Windows Firewall rules
 // through INetFwPolicy2 (COM; no netsh fallback, since netsh cannot pin a
-// rule to an interface alias). Both rules are pinned to the Toru LAN
+// rule to an interface alias). Every rule is pinned to the Toru LAN
 // adapter, so a physical NIC never gets them, and to the overlay range:
 //
 //   - Toru LAN (inbound): allow, all programs, any protocol, all profiles.
 //   - Toru LAN ICMP: echo requests, so Ping works.
+//   - Toru LAN (block system RPC) <program>: block inbound TCP to the
+//     dynamic RPC range (49152-65535) for each Windows process that serves
+//     RPC there (svchost, lsass, wininit, services, spoolsv). Those endpoints
+//     need no endpoint mapper, so the shim's port 135 block alone leaves them
+//     open; a game's own server on those ports is another program and is
+//     unaffected. Block rules win over the allow rule.
 //
 // Changing the policy needs an elevated or SYSTEM caller; building rule
 // objects does not, which is what the unprivileged tests rely on.
@@ -26,11 +33,71 @@ import (
 // Rule values from icftypes.h.
 const (
 	fwDirIn         = 1
+	fwActionBlock   = 0
 	fwActionAllow   = 1
 	fwProfilesAll   = 0x7fffffff
 	fwProtocolAny   = 256
 	fwProtocolICMP4 = 1
+	fwProtocolTCP   = 6
 )
+
+// dynamicRPCPorts is Windows' dynamic RPC range (the IANA ephemeral range).
+const dynamicRPCPorts = "49152-65535"
+
+// systemRPCHosts are the System32 programs that serve RPC on the dynamic range.
+var systemRPCHosts = []string{"svchost.exe", "lsass.exe", "wininit.exe", "services.exe", "spoolsv.exe"}
+
+// ruleSpec is one rule to create.
+type ruleSpec struct {
+	name       string
+	protocol   int32
+	icmp       string // ICMP types and codes ("" = none)
+	block      bool
+	localPorts string // "" = any
+	app        string // full program path ("" = all programs)
+}
+
+// ruleSpecs are every rule EnsureFirewallRules creates.
+func ruleSpecs() []ruleSpec {
+	specs := []ruleSpec{
+		{name: api.FirewallRuleInbound, protocol: fwProtocolAny},
+		{name: api.FirewallRuleICMP, protocol: fwProtocolICMP4, icmp: "8:*"},
+	}
+	sys, err := windows.GetSystemDirectory()
+	if err != nil {
+		sys = `C:\Windows\System32`
+	}
+	for _, exe := range systemRPCHosts {
+		specs = append(specs, ruleSpec{
+			name: BlockRuleName(exe), protocol: fwProtocolTCP, block: true,
+			localPorts: dynamicRPCPorts, app: filepath.Join(sys, exe),
+		})
+	}
+	return specs
+}
+
+// BlockRuleName is the name of the system-RPC block rule for exe.
+func BlockRuleName(exe string) string {
+	return api.FirewallRuleBlockRPC + " " + strings.TrimSuffix(exe, ".exe")
+}
+
+// FirewallRuleNames lists every rule the installer creates.
+func FirewallRuleNames() []string {
+	var out []string
+	for _, s := range ruleSpecs() {
+		out = append(out, s.name)
+	}
+	return out
+}
+
+// BlockRuleNames lists the system-RPC block rules.
+func BlockRuleNames() []string {
+	var out []string
+	for _, exe := range systemRPCHosts {
+		out = append(out, BlockRuleName(exe))
+	}
+	return out
+}
 
 // remoteRange is the overlay in the mask form the firewall echoes back.
 const remoteRange = "100.96.0.0/255.255.0.0"
@@ -44,6 +111,7 @@ type FirewallRule struct {
 	Protocol        int32
 	Profiles        int32
 	RemoteAddresses string
+	LocalPorts      string
 	IcmpTypes       string
 	Interfaces      []string
 	ApplicationName string
@@ -67,7 +135,7 @@ var (
 	procSafeArrayPutElement = oleaut32.NewProc("SafeArrayPutElement")
 )
 
-// EnsureFirewallRules replaces both rules with fresh copies (idempotent; a
+// EnsureFirewallRules replaces every rule with a fresh copy (idempotent; a
 // re-run fixes a rule a user edited). The firewall resolves Interfaces when
 // the rule is built, so the adapter must exist when this runs: install
 // brings it up briefly for this, and the service repairs missing rules on
@@ -80,17 +148,21 @@ func EnsureFirewallRules() error {
 			return err
 		}
 		defer release()
-		for _, name := range []string{api.FirewallRuleInbound, api.FirewallRuleICMP} {
-			removeAll(rules, name)
+		specs := ruleSpecs()
+		for _, s := range specs {
+			removeAll(rules, s.name)
 		}
-		if err := addRule(rules, api.FirewallRuleInbound, fwProtocolAny, ""); err != nil {
-			return err
+		// Block rules first, so the allow rule never stands without them.
+		for i := len(specs) - 1; i >= 0; i-- {
+			if err := addRule(rules, specs[i]); err != nil {
+				return err
+			}
 		}
-		return addRule(rules, api.FirewallRuleICMP, fwProtocolICMP4, "8:*")
+		return nil
 	})
 }
 
-// RulesPresent reports whether both rules exist (no repair).
+// RulesPresent reports whether every rule exists (no repair).
 func RulesPresent() (bool, error) {
 	ok := true
 	err := withCOM(func() error {
@@ -99,7 +171,7 @@ func RulesPresent() (bool, error) {
 			return err
 		}
 		defer release()
-		for _, name := range []string{api.FirewallRuleInbound, api.FirewallRuleICMP} {
+		for _, name := range FirewallRuleNames() {
 			v, err := oleutil.CallMethod(rules, "Item", name)
 			if err != nil {
 				ok = false
@@ -112,7 +184,7 @@ func RulesPresent() (bool, error) {
 	return ok, err
 }
 
-// RemoveFirewallRules deletes both rules (every copy, if a user duplicated
+// RemoveFirewallRules deletes every rule (every copy, if a user duplicated
 // one). Missing rules are not an error.
 func RemoveFirewallRules() error {
 	return withCOM(func() error {
@@ -121,7 +193,7 @@ func RemoveFirewallRules() error {
 			return err
 		}
 		defer release()
-		for _, name := range []string{api.FirewallRuleInbound, api.FirewallRuleICMP} {
+		for _, name := range FirewallRuleNames() {
 			removeAll(rules, name)
 		}
 		return nil
@@ -183,45 +255,54 @@ func removeAll(rules *ole.IDispatch, name string) {
 	}
 }
 
-func addRule(rules *ole.IDispatch, name string, protocol int32, icmp string) error {
-	rule, err := newRule(name, protocol, icmp, api.AdapterName)
+func addRule(rules *ole.IDispatch, spec ruleSpec) error {
+	rule, err := newRule(spec, api.AdapterName)
 	if err != nil {
 		return err
 	}
 	defer rule.Release()
 	if _, err := oleutil.CallMethod(rules, "Add", rule); err != nil {
-		return fmt.Errorf("add rule %q: %w", name, err)
+		return fmt.Errorf("add rule %q: %w", spec.name, err)
 	}
 	return nil
 }
 
 // newRule builds (but does not add) one rule object pinned to the interface
-// named iface. Protocol goes before IcmpTypesAndCodes, which the firewall
-// validates against it. Setting Interfaces fails with "Element not found"
-// unless an interface by that name exists right now.
-func newRule(name string, protocol int32, icmp, iface string) (*ole.IDispatch, error) {
+// named iface. Protocol goes before IcmpTypesAndCodes and LocalPorts, which
+// the firewall validates against it. Setting Interfaces fails with "Element
+// not found" unless an interface by that name exists right now.
+func newRule(spec ruleSpec, iface string) (*ole.IDispatch, error) {
+	name := spec.name
 	rule, err := createDispatch("HNetCfg.FWRule")
 	if err != nil {
 		return nil, err
 	}
-	props := []struct {
+	type prop struct {
 		name string
 		val  any
-	}{
+	}
+	action, desc := int32(fwActionAllow), "Toru LAN: lets room members reach this PC over the Toru LAN adapter only."
+	if spec.block {
+		action, desc = fwActionBlock, "Toru LAN: keeps Windows' own RPC services closed to room members."
+	}
+	props := []prop{
 		{"Name", name},
-		{"Description", "Toru LAN: lets room members reach this PC over the Toru LAN adapter only."},
+		{"Description", desc},
 		{"Grouping", "Toru LAN"},
-		{"Protocol", protocol},
+		{"Protocol", spec.protocol},
 		{"Direction", int32(fwDirIn)},
-		{"Action", int32(fwActionAllow)},
+		{"Action", action},
 		{"Profiles", int32(fwProfilesAll)},
 		{"RemoteAddresses", remoteRange},
 	}
-	if icmp != "" {
-		props = append(props, struct {
-			name string
-			val  any
-		}{"IcmpTypesAndCodes", icmp})
+	if spec.icmp != "" {
+		props = append(props, prop{"IcmpTypesAndCodes", spec.icmp})
+	}
+	if spec.localPorts != "" {
+		props = append(props, prop{"LocalPorts", spec.localPorts})
+	}
+	if spec.app != "" {
+		props = append(props, prop{"ApplicationName", spec.app})
 	}
 	for _, p := range props {
 		if _, err := oleutil.PutProperty(rule, p.name, p.val); err != nil {
@@ -304,7 +385,7 @@ func readRule(rule *ole.IDispatch) (*FirewallRule, error) {
 	strs := []struct {
 		name string
 		dst  *string
-	}{{"RemoteAddresses", &r.RemoteAddresses}, {"IcmpTypesAndCodes", &r.IcmpTypes}, {"ApplicationName", &r.ApplicationName}}
+	}{{"RemoteAddresses", &r.RemoteAddresses}, {"LocalPorts", &r.LocalPorts}, {"IcmpTypesAndCodes", &r.IcmpTypes}, {"ApplicationName", &r.ApplicationName}}
 	for _, p := range strs {
 		if v := get(p.name); v != nil {
 			if v.VT == ole.VT_BSTR {

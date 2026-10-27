@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -118,7 +119,7 @@ func install() error {
 	if err := adapter.WithBareAdapter(adapter.EnsureFirewallRules); err != nil {
 		return fmt.Errorf("firewall rules: %w", err)
 	}
-	fmt.Println("firewall rules:", api.FirewallRuleInbound+",", api.FirewallRuleICMP)
+	fmt.Println("firewall rules:", strings.Join(adapter.FirewallRuleNames(), ", "))
 
 	if wasRunning {
 		s, err := m.OpenService(api.ServiceName)

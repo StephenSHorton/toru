@@ -56,10 +56,16 @@ var (
 )
 
 // servicePorts are the Windows services the shim closes between members unless
-// Policy.AllowServices: SMB, RPC, NetBIOS, RDP and WinRM, TCP and UDP alike.
+// Policy.AllowServices: SMB, RPC, NetBIOS, RDP and WinRM, plus UPnP device
+// hosting (2869), unicast LLMNR (5355) and WS-Discovery (5357/5358), TCP and
+// UDP alike. The dynamic RPC range is closed by the firewall's block rules
+// for the system's RPC servers (adapter/firewall_windows.go), since games
+// listen on those ports too. Unicast mDNS (5353) follows Policy.MDNS with
+// the multicast, so it is not listed here.
 func servicePort(port uint16) bool {
 	switch {
-	case port == 445, port == 135, port >= 137 && port <= 139, port == 3389, port == 5985, port == 5986:
+	case port == 445, port == 135, port >= 137 && port <= 139, port == 3389, port == 5985, port == 5986,
+		port == 2869, port == 5355, port == 5357, port == 5358:
 		return true
 	}
 	return false

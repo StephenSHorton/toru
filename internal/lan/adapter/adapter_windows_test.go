@@ -119,19 +119,24 @@ func TestNLMVtable(t *testing.T) {
 	}
 }
 
-// TestBuildRule builds both rules without adding them and reads them back,
+// TestBuildRule builds every rule without adding them and reads them back,
 // which checks the put_Interfaces vtable slot and the SAFEARRAY encoding.
 // The real alias does not exist unelevated, so the rule is pinned to an
-// interface that does.
+// interface that does. Nothing is added to the firewall.
 func TestBuildRule(t *testing.T) {
 	iface := anyInterfaceAlias(t)
+	specs := ruleSpecs()
+	if len(specs) != 2+len(systemRPCHosts) {
+		t.Fatalf("%d rule specs", len(specs))
+	}
 	err := withCOM(func() error {
-		for _, c := range []struct {
-			name  string
-			proto int32
-			icmp  string
-		}{{api.FirewallRuleInbound, fwProtocolAny, ""}, {api.FirewallRuleICMP, fwProtocolICMP4, "8:*"}} {
-			rule, err := newRule(c.name, c.proto, c.icmp, iface)
+		for _, spec := range specs {
+			c := struct {
+				name  string
+				proto int32
+				icmp  string
+			}{spec.name, spec.protocol, spec.icmp}
+			rule, err := newRule(spec, iface)
 			if err != nil {
 				return err
 			}
@@ -141,8 +146,18 @@ func TestBuildRule(t *testing.T) {
 				return err
 			}
 			t.Logf("%+v", *r)
-			if r.Name != c.name || !r.Enabled || r.Direction != fwDirIn || r.Action != fwActionAllow || r.Protocol != c.proto {
+			action := int32(fwActionAllow)
+			if spec.block {
+				action = fwActionBlock
+			}
+			if r.Name != c.name || !r.Enabled || r.Direction != fwDirIn || r.Action != action || r.Protocol != c.proto {
 				t.Errorf("rule %q read back wrong: %+v", c.name, *r)
+			}
+			if spec.block {
+				if r.LocalPorts != dynamicRPCPorts || !strings.EqualFold(r.ApplicationName, spec.app) || !strings.HasSuffix(strings.ToLower(r.ApplicationName), `\system32\`+strings.ToLower(strings.TrimPrefix(spec.name, api.FirewallRuleBlockRPC+" "))+".exe") {
+					t.Errorf("block rule %q: ports %q app %q", c.name, r.LocalPorts, r.ApplicationName)
+				}
+				continue
 			}
 			if r.Profiles != fwProfilesAll {
 				t.Errorf("rule %q profiles %#x", c.name, r.Profiles)
