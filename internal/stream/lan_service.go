@@ -146,7 +146,17 @@ type LanService struct {
 	helloPending bool                   // the last room-wide send failed (no broker)
 	helloSent    map[string]time.Time   // last resend per member
 	holds        map[string]*time.Timer // timed-out members whose tunnel still works
+
+	restarts []time.Time // service restarts after a disconnect, within restartWindow
 }
+
+// A service that keeps stopping under the pipe is restarted at most
+// restartMax times per restartWindow; then the card shows the error, as the
+// service manager's own recovery would give up.
+const (
+	restartMax    = 3
+	restartWindow = time.Minute
+)
 
 // NewLanService returns the LAN card's service for s; appVersion is this
 // Toru's version, shown on the card (updates go by protocol, not version).
@@ -452,6 +462,7 @@ func (l *LanService) setWanted(on bool) {
 	l.wanted = on
 	if on {
 		l.errCode, l.errDetail = "", ""
+		l.restarts = nil
 	}
 	l.mu.Unlock()
 	l.s.mu.Lock()
@@ -652,13 +663,29 @@ func (l *LanService) handlers(gen int) client.Handlers {
 			// The service stopped under a live pipe (stopped from
 			// services.msc, an idle stop racing Enable, a crash): the pipe
 			// redials, but nothing would start the service again.
-			restart := l.wanted && l.room != "" && l.info.installed && !l.updateLocked() && l.busy == ""
+			restart := l.wanted && l.room != "" && l.info.installed && !l.updateLocked() && l.busy == "" && l.errCode == ""
+			giveUp := false
 			if restart {
-				l.armWatchdogLocked()
+				now := time.Now()
+				recent := l.restarts[:0]
+				for _, at := range l.restarts {
+					if now.Sub(at) < restartWindow {
+						recent = append(recent, at)
+					}
+				}
+				if l.restarts = recent; len(recent) >= restartMax {
+					restart, giveUp = false, true
+				} else {
+					l.restarts = append(l.restarts, now)
+					l.armWatchdogLocked()
+				}
 			}
 			ip, pub := l.hello.IP, l.hello.PubKey
 			l.mu.Unlock()
 			l.s.setLanInfo(lanInfo(ip, pub, false))
+			if giveUp {
+				l.fail(LanErrService, "the LAN service keeps stopping")
+			}
 			if restart {
 				if err := l.os.start(); err != nil {
 					l.mu.Lock()

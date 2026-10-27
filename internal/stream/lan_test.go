@@ -856,6 +856,19 @@ func TestLanServiceRestartsStoppedService(t *testing.T) {
 		t.Fatal("watchdog not re-armed")
 	}
 
+	// One that keeps stopping is restarted a few times, then the card says so.
+	for i := 0; i < restartMax; i++ {
+		p.h.Connected(api.Hello{Major: api.ProtocolMajor, Minor: api.ProtocolMinor, Version: "0.13.0"})
+		p.h.Disconnected(errors.New("crashed"))
+	}
+	if st := l.GetState(); st.State != LanFailed || st.Error != LanErrService || starts() != before+restartMax {
+		t.Fatalf("crash loop: state %+v, starts %d (want %d)", st, starts(), before+restartMax)
+	}
+	// Turning LAN on again resets the budget.
+	if _, err := l.Enable(); err != nil {
+		t.Fatal(err)
+	}
+
 	// It can't be started: the card says so instead of hanging at Starting.
 	o.mu.Lock()
 	o.startErr = errors.New("access denied")
