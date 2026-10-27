@@ -128,7 +128,7 @@ export default function Timeline() {
         }
         sessionRef.current = s;
         setSession(s);
-        void Window.SetTitle(`Toru — ${s.game || (s.mode === "manual" ? "Recording" : "Desktop")} · ${new Date(s.startMs).toLocaleString()}`).catch(() => {});
+        void Window.SetTitle(`Toru — ${s.game || (s.mode === "manual" ? "Hotkey recording" : "Desktop")} · ${new Date(s.startMs).toLocaleString()}`).catch(() => {});
       })
       .catch(async (e) => {
         // Gone under this ID: the session may live on under a later run.
@@ -553,7 +553,7 @@ export default function Timeline() {
         {/* Header: what this is + its retention state */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-sm font-medium">
-            {session?.game || (session?.mode === "manual" ? "Manual recording" : "Desktop")}
+            {session?.game || (session?.mode === "manual" ? "Hotkey recording" : "Desktop")}
           </span>
           {session ? (
             <span className="text-muted-foreground">
@@ -743,8 +743,8 @@ export default function Timeline() {
               size="sm"
               variant="ghost"
               onClick={() => setConfirmDelete(true)}
-              title="Delete this recording"
-              aria-label="Delete this recording"
+              title="Delete this game session"
+              aria-label="Delete this game session"
             >
               <Trash2 />
             </Button>
@@ -754,7 +754,7 @@ export default function Timeline() {
 
       <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)}>
         <div className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium">Delete this recording?</h2>
+          <h2 className="text-sm font-medium">Delete this game session?</h2>
           <p className="text-xs text-muted-foreground">
             {fmt(session?.durationSec ?? 0)} of footage will be deleted from disk. Clips you already
             saved from it are kept. This can't be undone.

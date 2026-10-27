@@ -255,7 +255,7 @@ func (b *ReplayBuffer) prunePersistent(cfg ReplayConfig) {
 	// bytes left on disk: that is how an open viewer learns that footage was
 	// trimmed from a finished session, which otherwise changes silently.
 	b.setStatus(func(s *ReplayStatus) {
-		const capMsg = "Recording storage is full of manual recordings; delete some or raise the limit"
+		const capMsg = "Recording storage is full of hotkey recordings; delete some or raise the limit"
 		const driveMsg = "Your drive is almost full, so recording is paused. Free up space or delete recordings"
 		s.DiskBytes = total
 		switch {
