@@ -11,7 +11,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/clicker/engine"
 )
 
-var errNotBuilt = errors.New("clicker/sys: not built yet")
+var errNotBuilt = errors.New("clicker/sys: windows only")
 
 func NewInjector() engine.Injector                       { return nil }
 func NewClock() (engine.Clock, func(), error)            { return nil, func() {}, errNotBuilt }
