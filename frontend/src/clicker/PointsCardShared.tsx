@@ -121,6 +121,8 @@ export function NumField({
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();
           else if (e.key === "Escape") {
+            // Keep Esc here: the cards' window listeners would also end a pick.
+            e.stopPropagation();
             reverting.current = true;
             setDraft(null);
             e.currentTarget.blur();

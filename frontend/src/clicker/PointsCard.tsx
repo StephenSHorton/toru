@@ -120,17 +120,20 @@ export default function PointsCard({ settings, status, update }: CardProps) {
     update((s) => withPoints(s, () => []));
   };
 
-  // --- drag reorder (pointer capture on the handle, not HTML5 DnD) ---
+  // --- drag reorder (pointer capture, not HTML5 DnD) ---
+  // The capture goes on the list container, not the handle: rows re-render in
+  // the new order mid-drag, and moving the dragged row's own node (a downward
+  // drag) would drop a capture held by its handle.
 
   const onHandleDown = (e: React.PointerEvent<HTMLButtonElement>, index: number) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || !listRef.current) return;
     e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
+    listRef.current.setPointerCapture(e.pointerId);
     drag.current = { from: index, pointerY: e.clientY, raf: 0 };
     setOrder(points.map((_, i) => i));
   };
 
-  const onHandleMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+  const onDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const d = drag.current;
     if (!d) return;
     d.pointerY = e.clientY;
@@ -145,6 +148,7 @@ export default function PointsCard({ settings, status, update }: CardProps) {
       else if (d.pointerY > box.bottom - 32) list.scrollTop += 8;
 
       const rows = Array.from(list.querySelectorAll<HTMLElement>("[data-point-row]"));
+      // rows is in DOM order, which is the current `order`.
       // Insertion slot: the first row (other than the dragged one) whose
       // vertical midpoint is below the pointer.
       setOrder((cur) => {
@@ -245,7 +249,14 @@ export default function PointsCard({ settings, status, update }: CardProps) {
               <span>Radius</span>
               <span />
             </div>
-            <div ref={listRef} className="flex max-h-80 flex-col overflow-y-auto">
+            <div
+              ref={listRef}
+              className="flex max-h-80 flex-col overflow-y-auto"
+              onPointerMove={onDragMove}
+              onPointerUp={() => drag.current && endDrag(true)}
+              onPointerCancel={() => drag.current && endDrag(false)}
+              onLostPointerCapture={() => drag.current && endDrag(true)}
+            >
               {rows.map((pi, pos) => {
                 const p = points[pi];
                 if (!p) return null;
@@ -271,10 +282,6 @@ export default function PointsCard({ settings, status, update }: CardProps) {
                         title="Drag to reorder"
                         className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
                         onPointerDown={(e) => onHandleDown(e, pi)}
-                        onPointerMove={onHandleMove}
-                        onPointerUp={() => endDrag(true)}
-                        onPointerCancel={() => endDrag(false)}
-                        onLostPointerCapture={() => drag.current && endDrag(true)}
                       >
                         <GripVertical className="size-4" />
                       </button>

@@ -40,9 +40,19 @@ export default function SafetyCard({ settings, update }: CardProps) {
   return (
     <section className="frost flex flex-col gap-4 border border-border p-4" aria-label="Safety">
       <CardHeader title="Safety" caption="Failsafes that stop a run when the cursor reaches them.">
-        <Button size="sm" variant="secondary" onClick={preview} title="Show the failsafe areas on screen">
-          <Eye /> Preview
-        </Button>
+        {/* PreviewSafety only draws when Show safety overlay is on (PLAN 2.7).
+            The title sits on a wrapper because a disabled button gets no hover. */}
+        <span
+          title={
+            settings.showSafetyOverlay
+              ? "Show the failsafe areas on screen"
+              : "Turn on Show safety overlay to preview"
+          }
+        >
+          <Button size="sm" variant="secondary" onClick={preview} disabled={!settings.showSafetyOverlay}>
+            <Eye /> Preview
+          </Button>
+        </span>
       </CardHeader>
       {err && <p className="text-xs text-destructive">{err}</p>}
 
