@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { ClickerSettings, ClickerStatus, PickEvent } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -50,8 +50,10 @@ export function usePickActive(kind: "point" | "zone"): [PickEvent | null, (on: b
   }, [kind]);
   // A local setter so a button can show the pick at once (or roll it back
   // when the call rejects) without waiting for the event.
-  const set = (on: boolean) =>
-    setActive(on ? new PickEvent({ kind, phase: "active", index: -1 }) : null);
+  const set = useCallback(
+    (on: boolean) => setActive(on ? new PickEvent({ kind, phase: "active", index: -1 }) : null),
+    [kind],
+  );
   return [active, set];
 }
 
@@ -86,9 +88,17 @@ export function NumField({
   className?: string;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  // Set by Esc so the blur it triggers (which runs before React re-renders,
+  // with the old draft) drops the draft instead of committing it.
+  const reverting = useRef(false);
   const shown = draft ?? String(value);
 
   const commit = () => {
+    if (reverting.current) {
+      reverting.current = false;
+      setDraft(null);
+      return;
+    }
     if (draft === null) return;
     setDraft(null);
     const n = Math.trunc(Number(draft.trim()));
@@ -111,6 +121,7 @@ export function NumField({
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();
           else if (e.key === "Escape") {
+            reverting.current = true;
             setDraft(null);
             e.currentTarget.blur();
           }
