@@ -343,9 +343,17 @@ join; it takes the adapter down after the same 60 s rule.
 - **Windows services stay closed by default, in the data path.** The rule
   above opens SMB (445), RPC (135), NetBIOS (137-139), RDP (3389) and WinRM
   (5985-5986) to every member, whatever the profile. The shim drops inbound
-  TCP and UDP to those ports unless the room's **Allow file sharing and remote
-  desktop** toggle is on. Because it sits in the service, it holds even if the
-  user's firewall is wide open.
+  TCP and UDP to those ports, plus UPnP device hosting (2869), unicast LLMNR
+  (5355) and WS-Discovery (5357-5358), unless the room's **Allow file sharing
+  and remote desktop** toggle is on. Because it sits in the service, it holds
+  even if the user's firewall is wide open.
+- **The dynamic RPC range stays closed, in the firewall.** Windows' own RPC
+  servers listen on TCP 49152-65535 and need no endpoint mapper, but games
+  listen there too, so the shim can't close those ports. Block rules
+  `Toru LAN (block system RPC) <program>`, one each for svchost, lsass,
+  wininit, services and spoolsv (System32), block inbound TCP 49152-65535 from
+  the overlay on the Toru LAN interface. Block beats allow; the toggle above
+  does not open them.
 - **Known limit:** if the user once clicked *Don't allow* on a game's firewall
   prompt, Windows keeps a per-exe block rule, and block beats allow. The doc
   and the card's help link say how to remove it.
@@ -740,7 +748,7 @@ Toru stays MIT (`LICENSE`).
 | Windows service | `ToruLan` (demand-start, LocalSystem) |
 | Pipe | `\\.\pipe\ProtectedPrefix\Administrators\Toru\lan` |
 | Adapter | **Toru LAN** (Wintun, tunnel type `Toru`) |
-| Firewall rules | `Toru LAN (inbound)`, `Toru LAN ICMP` |
+| Firewall rules | `Toru LAN (inbound)`, `Toru LAN ICMP`, `Toru LAN (block system RPC) <program>` (5) |
 | Code | `internal/lan/`, `cmd/toru-lan/`, `cmd/toru-relay/` |
 
 Back to the [README](../README.md).
