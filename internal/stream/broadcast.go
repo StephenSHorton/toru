@@ -20,13 +20,6 @@ import (
 // when capture is lost), the shared tracks they feed, and one WebRTC peer
 // connection per viewer.
 
-// iceServers are public STUN servers (no account) for finding each PC's
-// public address. Video never passes through them.
-var iceServers = []webrtc.ICEServer{
-	{URLs: []string{"stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"}},
-	{URLs: []string{"stun:stun.cloudflare.com:3478"}},
-}
-
 // Payload types and codec lines offered to viewers. Every viewer is a Toru
 // WebView2, which decodes all of them.
 var (
@@ -130,6 +123,7 @@ type broadcaster struct {
 	ffmpeg   string
 	send     func(to, typ string, body any) error
 	onChange func()
+	ice      func() []ICEServer // the shared ICE list (ice.go), read per viewer
 
 	mu      sync.Mutex
 	cfg     Settings
@@ -150,7 +144,7 @@ type broadcaster struct {
 	statsDone    chan struct{}
 }
 
-func startBroadcast(cfg Settings, send func(to, typ string, body any) error, onChange func()) (*broadcaster, error) {
+func startBroadcast(cfg Settings, send func(to, typ string, body any) error, onChange func(), ice func() []ICEServer) (*broadcaster, error) {
 	bin, err := capture.LocateFFmpeg()
 	if err != nil {
 		return nil, err
@@ -160,7 +154,7 @@ func startBroadcast(cfg Settings, send func(to, typ string, body any) error, onC
 		return nil, err
 	}
 	b := &broadcaster{
-		api: api, ffmpeg: bin, send: send, onChange: onChange,
+		api: api, ffmpeg: bin, send: send, onChange: onChange, ice: ice,
 		viewers: map[string]*viewer{}, quit: make(chan struct{}), statsDone: make(chan struct{}),
 	}
 	if err := b.setup(cfg); err != nil {
@@ -327,7 +321,7 @@ func sameEncode(a, b Settings, screenW, screenH int) bool {
 	}
 	a.AutoBitrate, a.BitrateKbps = false, 0
 	b.AutoBitrate, b.BitrateKbps = false, 0
-	return a == b
+	return a.live() == b.live()
 }
 
 func kick(ch chan struct{}) {
@@ -680,7 +674,7 @@ func (b *broadcaster) addViewer(peer, session, name string) error {
 	vf, af := b.video, b.audio
 	b.mu.Unlock()
 
-	pc, err := b.api.NewPeerConnection(webrtc.Configuration{ICEServers: iceServers})
+	pc, err := b.api.NewPeerConnection(webrtc.Configuration{ICEServers: webrtcICE(b.ice())})
 	if err != nil {
 		return err
 	}
