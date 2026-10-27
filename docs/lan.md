@@ -713,6 +713,16 @@ Toru stays MIT (`LICENSE`).
 - The `INetworkListManager` CLSID (`{DCB00C01-570F-4A9B-8D69-199FDBA5723B}`)
   against Tailscale's `util/winutil/winnet`.
 - Raising the MTU from 1280 to about 1380 on real paths.
+- Relay credential lifetime against long relayed sessions. Every TURN
+  Refresh, CreatePermission and ChannelBind needs an unexpired credential, so
+  with the 10-minute default a relayed link drops about 10-15 minutes in
+  unless the client fetches a fresh credential and moves to a new allocation
+  (LAN: `SetICE` plus the make-before-break agent). Either the LAN agent and
+  Call do that, or `toru-relay -cred-ttl` goes up. See
+  [`cmd/toru-relay`](../cmd/toru-relay/README.md#known-gaps).
+- The relay's 10-minute allocation lifetime is the default, not a hard cap:
+  pion/turn v5 honours a client-requested `LIFETIME` under one hour. The
+  credential expiry is what bounds it today.
 
 ## Where things will live
 
