@@ -540,7 +540,12 @@ export class Settings {
     "fps": number;
 
     /**
-     * constant video bitrate
+     * follow size × fps × codec (AutoBitrateKbps)
+     */
+    "autoBitrate": boolean;
+
+    /**
+     * constant video bitrate when AutoBitrate is off
      */
     "bitrateKbps": number;
 
@@ -606,6 +611,9 @@ export class Settings {
         }
         if (!("fps" in $$source)) {
             this["fps"] = 0;
+        }
+        if (!("autoBitrate" in $$source)) {
+            this["autoBitrate"] = false;
         }
         if (!("bitrateKbps" in $$source)) {
             this["bitrateKbps"] = 0;

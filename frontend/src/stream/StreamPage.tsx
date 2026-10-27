@@ -724,6 +724,8 @@ function VideoCard({
   const outW = native ? (monitor?.w ?? 0) : settings.width;
   const outH = native ? (monitor?.h ?? 0) : settings.height;
   const fpsPreset = (FPS_PRESETS as readonly number[]).includes(settings.fps) ? String(settings.fps) : "custom";
+  const autoKbps = autoBitrateKbps(outW, outH, settings.fps, settings.codec);
+  const kbps = settings.autoBitrate ? autoKbps : settings.bitrateKbps;
 
   const resOptions = [
     { value: "native", label: monitor ? `Same as monitor (${monitor.w}×${monitor.h})` : "Same as monitor" },
@@ -785,17 +787,38 @@ function VideoCard({
         </div>
       </Row>
 
-      <Row label="Bitrate" caption={bitrateHint(settings.bitrateKbps, outW, outH, settings.fps)}>
-        <NumberInput
-          value={settings.bitrateKbps / 1000}
-          min={0.5}
-          max={500}
-          step={1}
-          decimals={1}
-          suffix="Mbps"
-          onChange={(mbps) => update({ bitrateKbps: Math.round(mbps * 1000) })}
-          boxClassName="w-28"
-        />
+      <Row
+        label="Bitrate"
+        caption={
+          settings.autoBitrate
+            ? `${formatMbps(kbps)} Mbps, follows resolution, frame rate and codec`
+            : bitrateHint(kbps, outW, outH, settings.fps, settings.codec)
+        }
+      >
+        <div className="flex items-center gap-2">
+          <Segmented
+            size="xs"
+            value={settings.autoBitrate ? "auto" : "manual"}
+            options={[
+              { value: "auto", label: "Auto" },
+              { value: "manual", label: "Manual" },
+            ]}
+            // Manual starts from what Auto was giving, so the switch alone
+            // changes nothing.
+            onChange={(v) => update(v === "auto" ? { autoBitrate: true } : { autoBitrate: false, bitrateKbps: autoKbps })}
+            aria-label="Bitrate mode"
+          />
+          <NumberInput
+            value={kbps / 1000}
+            min={0.5}
+            max={500}
+            step={1}
+            decimals={1}
+            suffix="Mbps"
+            onChange={(mbps) => update({ autoBitrate: false, bitrateKbps: Math.round(mbps * 1000) })}
+            boxClassName="w-28"
+          />
+        </div>
       </Row>
 
       <Row label="Codec" caption={settings.codec === "av1" ? "Sharper per bit; viewers need a recent GPU" : "Plays on every PC"}>
@@ -822,11 +845,28 @@ function VideoCard({
   );
 }
 
+// autoBitrateKbps mirrors stream.AutoBitrateKbps (internal/stream/settings.go),
+// which is what the encoder actually uses; TestAutoBitrateKbps pins the
+// numbers. Pixels × fps × bits per pixel, clamped; an unknown size counts as
+// 1080p.
+function autoBitrateKbps(w: number, h: number, fps: number, codec: string): number {
+  if (w <= 0 || h <= 0) [w, h] = [1920, 1080];
+  const bpp = codec === "av1" ? 0.06 : 0.1;
+  const kbps = Math.round((w * h * Math.max(fps, 1) * bpp) / 1000);
+  return Math.min(Math.max(kbps, 1_500), 150_000);
+}
+
+function formatMbps(kbps: number): string {
+  const mbps = kbps / 1000;
+  return mbps >= 10 ? String(Math.round(mbps)) : mbps.toFixed(1);
+}
+
 // bitrateHint puts the bitrate in context: bits per pixel per frame, where
-// ~0.05 is soft for games and ~0.1+ holds up in fast motion.
-function bitrateHint(kbps: number, w: number, h: number, fps: number): string {
+// ~0.05 is soft for games and ~0.1+ holds up in fast motion with H.264. AV1
+// needs about 40% fewer bits for the same picture.
+function bitrateHint(kbps: number, w: number, h: number, fps: number, codec: string): string {
   if (!w || !h || !fps) return "";
-  const bpp = (kbps * 1000) / (w * h * fps);
+  const bpp = ((kbps * 1000) / (w * h * fps)) * (codec === "av1" ? 1 / 0.6 : 1);
   if (bpp < 0.03) return "Low for this size and frame rate: fast motion will blur";
   if (bpp < 0.07) return "Good for most things";
   return "Plenty, even for fast games";

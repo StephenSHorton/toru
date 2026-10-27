@@ -254,11 +254,8 @@ func (b *broadcaster) teardown() {
 }
 
 func (b *broadcaster) infoLocked() LiveInfo {
-	w, h := b.cfg.Width, b.cfg.Height
-	if w == 0 || h == 0 {
-		w, h = b.screenW, b.screenH
-	}
-	return LiveInfo{Width: w, Height: h, FPS: b.cfg.FPS, BitrateKbps: b.cfg.BitrateKbps, Codec: b.cfg.Codec, Audio: b.cfg.Audio}
+	w, h := b.cfg.OutputSize(b.screenW, b.screenH)
+	return LiveInfo{Width: w, Height: h, FPS: b.cfg.FPS, BitrateKbps: b.cfg.VideoKbps(w, h), Codec: b.cfg.Codec, Audio: b.cfg.Audio}
 }
 
 // Info is what the room is told about this stream.
@@ -304,16 +301,33 @@ func (b *broadcaster) update(cfg Settings) error {
 		return err
 	}
 	b.mu.Lock()
+	// Switching Auto <-> Manual at the same resolved rate (the UI's Manual
+	// starts from the Auto value) changes nothing the encoder sees, so it
+	// does not restart it.
+	sameVideo := sameEncode(old, cfg, b.screenW, b.screenH)
 	b.cfg = cfg
 	b.status.Info = b.infoLocked()
 	vKick, aKick := b.vKick, b.aKick
 	b.mu.Unlock()
-	kick(vKick)
+	if !sameVideo {
+		kick(vKick)
+	}
 	if cfg.AudioKbps != old.AudioKbps {
 		kick(aKick)
 	}
 	b.changed()
 	return nil
+}
+
+// sameEncode reports whether a and b give the video encoder the same
+// command: equal apart from how the bitrate was chosen.
+func sameEncode(a, b Settings, screenW, screenH int) bool {
+	if a.VideoKbps(a.OutputSize(screenW, screenH)) != b.VideoKbps(b.OutputSize(screenW, screenH)) {
+		return false
+	}
+	a.AutoBitrate, a.BitrateKbps = false, 0
+	b.AutoBitrate, b.BitrateKbps = false, 0
+	return a == b
 }
 
 func kick(ch chan struct{}) {
@@ -384,7 +398,7 @@ func (b *broadcaster) superviseVideo(stop, done, kickCh chan struct{}) {
 	failures := 0
 	for {
 		b.mu.Lock()
-		cfg, enc, vf := b.cfg, b.enc, b.video
+		cfg, enc, vf, screenW, screenH := b.cfg, b.enc, b.video, b.screenW, b.screenH
 		native := cfg.Width == 0 || (cfg.Width == b.screenW && cfg.Height == b.screenH)
 		b.mu.Unlock()
 
@@ -399,7 +413,7 @@ func (b *broadcaster) superviseVideo(stop, done, kickCh chan struct{}) {
 			var errs []error
 			for _, zc := range candidates {
 				vf.newSource()
-				p, err = b.spawn(videoArgs(ddaIdx, cfg, enc, zc, vf.url()))
+				p, err = b.spawn(videoArgs(ddaIdx, cfg, screenW, screenH, enc, zc, vf.url()))
 				if err == nil {
 					zero = zc
 					break
