@@ -13,7 +13,9 @@ or use **Auto clicker settings…** in the tray menu.
 
 - **Ctrl+Shift+Y** starts and stops the clicker from anywhere. Change it in
   Settings → Shortcuts, or on the Auto Clicker page. Chords, left/right-only
-  modifiers and the mouse buttons Middle, Mouse4 and Mouse5 work too.
+  modifiers, loose matching, a modifier on its own and the mouse buttons
+  Middle, Mouse4 and Mouse5 work too (but see
+  [Apps running as administrator](#apps-running-as-administrator)).
 - **Toggle / Hold**: in Toggle mode a press starts and the next press stops. In
   Hold mode the clicker runs only while you hold the shortcut down.
 - **Start** on the page counts down first (3 seconds by default, set in the
@@ -37,7 +39,9 @@ first, so its clicks never land in Toru itself.
 
 - **Rate or interval**: set clicks per second, minute, hour or day, or the time
   between clicks (h / m / s / ms). The two always agree. The fastest rate is
-  500 clicks a second, or 1,000 with *Allow up to 1,000 clicks per second*.
+  500 clicks a second, or 1,000 with *Allow up to 1,000 clicks a second*. The
+  rate box takes at most that number in any unit (500 a minute, 500 an hour),
+  so for more than that per minute or hour use a shorter unit or the interval.
 - **Mouse**: left, right, middle, back (Mouse4) or forward (Mouse5).
 - **Keyboard**: any key Toru knows, sent the way a real keyboard sends it (by
   scan code), so games that read raw keys see it. Letters can be forced upper
@@ -47,11 +51,12 @@ first, so its clicks never land in Toru itself.
   interval, lets go, and waits the gap you set. With a key, *Hold* keeps the key
   down and repeats it at Windows' own key-repeat speed (Settings → Keyboard in
   Windows), ignoring the rate.
-- **Double click** turns each click into a double click. It is off above 10
-  clicks a second and in Hold mode, where it cannot work.
+- **Double click** turns each click into a double click. It is off at 11
+  clicks a second and above, and in Hold mode, where it cannot work.
 - **Randomize timing** spreads each interval around the set value (the % is
   how wide the spread is), so the rhythm is less mechanical.
-- **Limits**: stop after a number of clicks or after an amount of time.
+- **Limits**: stop after a number of clicks (up to 100,000,000) or after an
+  amount of time (up to 1,000 hours).
 
 ## Click points
 
@@ -66,8 +71,9 @@ screen:
 - **Esc** ends the pick.
 
 *Stop after one pass* ends the run after the last point; *Glide* moves the
-cursor smoothly between points when there is time. The page warns when a point
-sits inside a corner or edge failsafe (the run would stop there).
+cursor smoothly between points when there is time. A warning sign next to a
+point's number means it sits inside a corner or edge failsafe on your current
+screens: a run stops as soon as the cursor gets there.
 
 ## Failsafes
 
@@ -84,8 +90,9 @@ The clicker stops by itself when:
 - a click or time limit is reached, or the click points are done.
 
 When a failsafe or a limit stops the run, a small toast says why (turn off with
-*Toast on stop*). *Preview* flashes the corners, edges and zones on screen, and
-they also flash briefly whenever you change them.
+*Notify on stop*). *Preview* flashes the corners, edges and zones on screen.
+With *Show safety overlay* on (the default) they also flash briefly whenever
+you change them, and so do the click points.
 
 ### Zones
 
@@ -105,9 +112,24 @@ When zones overlap, stop beats start and start beats pause.
 Windows does not let a normal program send input into a program running as
 administrator. Toru runs as a normal program, so clicks and keys aimed at an
 elevated window (some games, launchers, Task Manager) are dropped. The page
-shows a warning when that happens. Hotkeys made of chords or left/right-only
-modifiers also do not fire while such a window is in front; a plain shortcut
-like Ctrl+Shift+Y does.
+shows a warning when that happens.
+
+Toru's keyboard and mouse hooks are not called while an elevated window is in
+front either, so shortcuts that only the hooks can see do nothing there:
+
+- A start/stop shortcut that is a chord, uses left/right-only modifiers or
+  loose matching, is a modifier on its own, or uses Middle, Mouse4 or Mouse5.
+  A plain shortcut like Ctrl+Shift+Y is registered with Windows instead and
+  does work, unless another app already owns that combo (Toru then falls back
+  to the hook).
+- The start/stop shortcut while a run is going: during a run Toru matches it
+  with the hook (the run's own Shift presses would confuse Windows' matching),
+  so to stop a run over an elevated window use the tray or the page, or move
+  the cursor into a failsafe.
+- The *Arm / disarm auto clicker* shortcut, whatever it is.
+- In Hold mode, letting go of the shortcut over an elevated window is not seen,
+  so the run keeps clicking until you press and release the shortcut again
+  with a normal window in front, or a failsafe stops it.
 
 ## Presets
 

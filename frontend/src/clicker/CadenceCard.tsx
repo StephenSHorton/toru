@@ -12,7 +12,6 @@ import {
   PressMode,
   RATE_UNITS,
   RateUnit,
-  UNIT_MS,
   UNIT_WORD,
   formatInterval,
   formatRate,
@@ -68,7 +67,8 @@ export default function CadenceCard({ settings, update }: CardProps) {
   }
 
   const parts = splitMs(c.intervalMs);
-  const rateMax = (ceiling * UNIT_MS[c.unit]) / 1000;
+  // Go caps the rate at the same number in every unit (see maxCps).
+  const rateMax = ceiling;
   const preview = rateForInterval(c.intervalMs, settings.highRate);
 
   return (

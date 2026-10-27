@@ -4,6 +4,7 @@
 // renders what Go sent (or previews an edit until Go's answer lands).
 
 import type { ClickerProfile } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 // The generated string enums. lib/api re-exports the clicker classes but not
 // these, and comparing a string enum to a bare literal does not type-check, so
 // the page takes them from here.
@@ -57,7 +58,10 @@ export const RATE_UNITS = [RateUnit.UnitSecond, RateUnit.UnitMinute, RateUnit.Un
 /** Double click is switched off by Go at this rate and above. */
 export const DOUBLE_CLICK_MAX_CPS = 11;
 
-/** maxCps is the clicks-per-second ceiling: 500, or 1000 with HighRate. */
+/**
+ * maxCps is the rate ceiling: 500, or 1000 with HighRate. Like Go's
+ * rateCeiling it caps the rate field in every unit (500/s, 500/m, 500/h).
+ */
 export function maxCps(highRate: boolean): number {
   return highRate ? 1000 : 500;
 }
@@ -80,15 +84,18 @@ export function cpsOf(c: { mode: CadenceMode; rate: number; unit: RateUnit; inte
 }
 
 /**
- * rateForInterval previews the rate form of a period: each unit is tried with
- * its rate rounded to a whole number, and the one with the smallest timing
- * error wins (40 ms -> 25/s, 90 s -> 1/m). Go does the stored conversion.
+ * rateForInterval previews the rate form of a period, the way Go's
+ * rateForInterval stores it: each unit is tried with its rate rounded to a
+ * whole number and held to 1..maxCps (the ceiling is the same number in every
+ * unit, like the rate field allows), and the one with the smallest timing
+ * error wins, ties to the shorter unit (40 ms -> 25/s, 33 ms -> 30/s,
+ * 90 s -> 40/h).
  */
 export function rateForInterval(ms: number, highRate: boolean): { rate: number; unit: RateUnit } {
   let best = { rate: 1, unit: RateUnit.UnitSecond as RateUnit, err: Infinity };
   if (!(ms > 0)) return best;
+  const ceiling = maxCps(highRate);
   for (const unit of RATE_UNITS) {
-    const ceiling = (maxCps(highRate) * UNIT_MS[unit]) / 1000;
     const rate = Math.min(ceiling, Math.max(1, Math.round(UNIT_MS[unit] / ms)));
     const err = Math.abs(UNIT_MS[unit] / rate - ms);
     if (err < best.err) best = { rate, unit, err };
@@ -239,11 +246,12 @@ export interface ClickerError {
 
 /**
  * parseError reads a rejected ClickerService call. Go errors look like
- * "clicker: CODE: message" (the message is already user-facing); anything else
- * is shown as is.
+ * "clicker: CODE: message" (the message is already user-facing) once
+ * errorMessage has unwrapped the transport's JSON; anything else is shown as
+ * is.
  */
 export function parseError(e: unknown): ClickerError {
-  const raw = (e instanceof Error ? e.message : String(e ?? "")).replace(/^Error:\s*/, "").trim();
+  const raw = errorMessage(e);
   const m = /clicker:\s*([A-Z_]+):\s*([\s\S]*)$/.exec(raw);
   if (m) return { code: m[1], message: m[2].trim() || m[1] };
   return { code: "", message: raw || "Something went wrong" };

@@ -18,6 +18,8 @@ const KINDS = [
 
 type TimeUnit = "s" | "m" | "h";
 const TIME_UNIT_S: Record<TimeUnit, number> = { s: 1, m: 60, h: 3600 };
+// MAX_LIMIT_S is Go's ceiling on Limit.Seconds (maxTimeLimitSec: 1,000 hours).
+const MAX_LIMIT_S = 1000 * 3600;
 const TIME_UNITS = [
   { value: "s" as TimeUnit, label: "seconds" },
   { value: "m" as TimeUnit, label: "minutes" },
@@ -65,7 +67,7 @@ export default function LimitsCard({ settings, update }: CardProps) {
               aria-label="Time limit"
               value={l.seconds / TIME_UNIT_S[unit]}
               min={unit === "s" ? 1 : 0.1}
-              max={(365 * 86_400) / TIME_UNIT_S[unit]}
+              max={MAX_LIMIT_S / TIME_UNIT_S[unit]}
               decimals={unit === "s" ? 0 : 2}
               boxClassName="w-28"
               onChange={(v) => setLimit({ seconds: Math.max(1, Math.round(v * TIME_UNIT_S[unit])) })}

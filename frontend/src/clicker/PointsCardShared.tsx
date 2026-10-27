@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { ClickerSettings, ClickerStatus, PickEvent } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { parseError } from "./cadence";
 
 // Small pieces shared by the Points, Safety, Zones and Process list cards.
 // NumField and the input/select class strings are local stand-ins: they can
@@ -22,9 +23,7 @@ export function eventData<T>(data: unknown): T {
 
 /** errText turns a rejected binding call into display text, dropping the "clicker: CODE: " prefix. */
 export function errText(e: unknown): string {
-  const raw = e instanceof Error ? e.message : typeof e === "string" ? e : String(e ?? "");
-  const m = /^clicker: [A-Z_]+: (.*)$/s.exec(raw.trim());
-  return m ? m[1] : raw || "Something went wrong";
+  return parseError(e).message;
 }
 
 /**

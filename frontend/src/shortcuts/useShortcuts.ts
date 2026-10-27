@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { HotkeyService, Shortcut } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 
 export interface ShortcutsState {
   shortcuts: Shortcut[];
@@ -54,7 +55,7 @@ export function useShortcuts(): ShortcutsState {
         await reload();
         return "";
       } catch (e) {
-        return String(e);
+        return errorMessage(e) || "Something went wrong";
       }
     },
     [reload],
@@ -66,7 +67,7 @@ export function useShortcuts(): ShortcutsState {
         await HotkeyService.ResetShortcut(action);
         await reload();
       } catch (e) {
-        setError(String(e));
+        setError(errorMessage(e) || "Something went wrong");
       }
     },
     [reload],
@@ -79,7 +80,7 @@ export function useShortcuts(): ShortcutsState {
         await reload();
         return "";
       } catch (e) {
-        return String(e);
+        return errorMessage(e) || "Something went wrong";
       }
     },
     [reload],

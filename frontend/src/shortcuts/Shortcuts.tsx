@@ -4,6 +4,7 @@ import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Switch } from "@/components/ui/switch";
 import { Keyboard, SlidersHorizontal } from "lucide-react";
 import { HotkeyService, Shortcut } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { useShortcuts } from "./useShortcuts";
 
@@ -196,7 +197,7 @@ export function ShortcutRow({
       // A new combo starts with either-side modifiers; keep the loose choice.
       await save({ ...got, sides: [], loose: sc.loose });
     } catch (e) {
-      setErr(String(e).replace(/^Error:\s*/, ""));
+      setErr(errorMessage(e) || "Something went wrong");
     } finally {
       recordingRef.current = false;
       setRecording(false);

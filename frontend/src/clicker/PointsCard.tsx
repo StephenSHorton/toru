@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Crosshair, GripVertical, MousePointerClick, Trash2, X } from "lucide-react";
+import { AlertTriangle, Crosshair, GripVertical, MousePointerClick, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ClickerService, ClickPoint, ClickerSettings } from "@/lib/api";
@@ -17,6 +17,11 @@ import {
 // are added on screen by the picker (Go owns adding/deleting during a pick and
 // sends the new list as clicker:settings); this card edits, reorders and
 // removes them.
+
+// Point failsafe warnings are re-read from Go this long after the points or
+// the corner/edge sizes change: past the page's save debounce, so Go answers
+// for the saved list.
+const WARN_REFRESH_MS = 600;
 
 const INT32_MIN = -2147483648;
 const INT32_MAX = 2147483647;
@@ -58,6 +63,39 @@ export default function PointsCard({ settings, status, update }: CardProps) {
   };
   const drag = useRef<{ from: number; pointerY: number; raf: number } | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+
+  // Points that sit inside a corner or edge failsafe (a run would stop on
+  // reaching them), by id. Go owns the monitor rects, so it is asked again
+  // whenever the points or the failsafe sizes change.
+  const [warned, setWarned] = useState<ReadonlySet<string>>(() => new Set());
+  const warnKey = JSON.stringify([
+    cp.enabled,
+    points.map((p) => [p.id, p.x, p.y]),
+    settings.profile.corners,
+    settings.profile.edges,
+  ]);
+  useEffect(() => {
+    if (!cp.enabled || points.length === 0) {
+      setWarned(new Set());
+      return;
+    }
+    let gone = false;
+    const t = window.setTimeout(() => {
+      void ClickerService.PointWarnings()
+        .then((idx) => {
+          if (gone) return;
+          // Go's indexes are into its saved list, which is this one by now.
+          setWarned(new Set((idx ?? []).map((i) => points[i]?.id).filter((id): id is string => !!id)));
+        })
+        .catch(() => {});
+    }, WARN_REFRESH_MS);
+    return () => {
+      gone = true;
+      window.clearTimeout(t);
+    };
+    // warnKey stands for cp.enabled, the points and the failsafe sizes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warnKey]);
 
   const startPick = useCallback(async () => {
     setErr("");
@@ -286,10 +324,16 @@ export default function PointsCard({ settings, status, update }: CardProps) {
                         <GripVertical className="size-4" />
                       </button>
                       <span className="text-xs tabular-nums text-muted-foreground">{pos + 1}</span>
-                      {/* TODO(clicker): warn on points inside a corner/edge failsafe.
-                          That needs the monitor rects, which the page has no bound
-                          API for (ReplayService.ListMonitors has no origin); see
-                          safety.PointInFailsafe on the Go side. */}
+                      {warned.has(p.id) && (
+                        <span
+                          role="img"
+                          aria-label={`Point ${pos + 1} is inside a corner or edge failsafe`}
+                          title="Inside a corner or edge failsafe: a run stops when the cursor gets here."
+                          className="shrink-0 text-amber-400"
+                        >
+                          <AlertTriangle className="size-3.5" />
+                        </span>
+                      )}
                     </div>
                     <NumField
                       label={`Point ${pos + 1} X`}
