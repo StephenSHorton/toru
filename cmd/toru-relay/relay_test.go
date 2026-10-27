@@ -292,3 +292,110 @@ func TestParseConfig(t *testing.T) {
 		t.Error("IPv6 public IP accepted")
 	}
 }
+
+// TestRelayCapsPerIP: one client IP minting fresh peer ids can't get past
+// the per-IP allocation cap (all on loopback, so all one IP).
+func TestRelayCapsPerIP(t *testing.T) {
+	c := testConfig()
+	c.MaxPerUser, c.MaxPerIP, c.MaxAllocs = 4, 2, 100
+	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := newRelayGen(c, newOwnAddrs(nil, nil, c.RelayMinPort, c.RelayMaxPort))
+	srv, err := newServer(c, gen, permitPeers, []net.PacketConn{pc}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	addr := pc.LocalAddr().String()
+
+	alloc := func(peer string) error {
+		user, pass, err := turn.GenerateLongTermTURNRESTCredentials(c.Secret, peer, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc, err := newClient(t, addr, user, pass).Allocate()
+		if err == nil {
+			t.Cleanup(func() { _ = rc.Close() })
+		}
+		return err
+	}
+	for _, peer := range []string{"a1", "a2"} {
+		if err := alloc(peer); err != nil {
+			t.Fatalf("allocation for %s: %v", peer, err)
+		}
+	}
+	if err := alloc("a3"); err == nil {
+		t.Fatal("a third peer id from one IP got an allocation past -max-allocs-per-ip 2")
+	}
+	gen.mu.Lock()
+	ips, total := len(gen.ips), gen.total
+	gen.mu.Unlock()
+	if ips != 1 || total != 2 {
+		t.Fatalf("ips %d total %d, want 1 and 2", ips, total)
+	}
+}
+
+func TestRelayGenPerIP(t *testing.T) {
+	c := testConfig()
+	c.MaxPerUser, c.MaxPerIP, c.MaxAllocs = 2, 3, 100
+	gen := newRelayGen(c, newOwnAddrs(nil, nil, c.RelayMinPort, c.RelayMaxPort))
+	if err := gen.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	alloc := func(id string) (net.PacketConn, error) {
+		pc, _, err := gen.AllocatePacketConn(turn.AllocateListenerConfig{Network: "udp4", UserID: id})
+		return pc, err
+	}
+	var open []net.PacketConn
+	for _, id := range []string{"a|198.51.100.1", "b|198.51.100.1", "c|198.51.100.1"} {
+		pc, err := alloc(id)
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		open = append(open, pc)
+	}
+	if _, err := alloc("d|198.51.100.1"); !errors.Is(err, errIPQuota) {
+		t.Fatalf("fourth id from one IP: %v, want errIPQuota", err)
+	}
+	pc, err := alloc("d|198.51.100.2")
+	if err != nil {
+		t.Fatalf("another IP: %v", err)
+	}
+	open = append(open, pc)
+	// The same peer id from two IPs is one user.
+	if _, err := alloc("a|198.51.100.2"); err != nil {
+		t.Fatalf("a's second allocation: %v", err)
+	}
+	if _, err := alloc("a|198.51.100.3"); !errors.Is(err, errUserQuota) {
+		t.Fatalf("a's third allocation: %v, want errUserQuota", err)
+	}
+	if lc := open[0].(*limitedConn); lc.ipBW == nil || lc.ipBW != open[1].(*limitedConn).ipBW {
+		t.Fatal("two users on one IP don't share the IP's bandwidth bucket")
+	}
+	for _, pc := range open {
+		_ = pc.Close()
+	}
+	if _, err := alloc("e|198.51.100.1"); err != nil {
+		t.Fatalf("after closing: %v", err)
+	}
+}
+
+func TestAuthHandlerAddsIP(t *testing.T) {
+	user, _, err := turn.GenerateLongTermTURNRESTCredentials(testSecret, "peer:with|odd", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := authHandler(testSecret)
+	id, key, ok := h(&turn.RequestAttributes{Username: user, Realm: "toru", SrcAddr: &net.UDPAddr{IP: net.ParseIP("203.0.113.7"), Port: 5000}})
+	if !ok || len(key) == 0 {
+		t.Fatal("valid credential refused")
+	}
+	if u, ip := splitUser(id); ip != "203.0.113.7" || !strings.HasPrefix(u, "peer") {
+		t.Fatalf("id %q split to %q, %q", id, u, ip)
+	}
+	if _, _, ok := h(&turn.RequestAttributes{Username: "1:peer", Realm: "toru", SrcAddr: &net.TCPAddr{IP: net.ParseIP("203.0.113.7")}}); ok {
+		t.Fatal("expired credential accepted")
+	}
+}

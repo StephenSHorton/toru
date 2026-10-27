@@ -28,7 +28,9 @@ type config struct {
 	CredTTL       time.Duration
 	AllocLifetime time.Duration
 	UserKbps      int // per-user relay bandwidth, both directions together; 0 = unlimited
+	IPKbps        int // per-client-IP relay bandwidth (all its users); 0 = unlimited
 	MaxPerUser    int
+	MaxPerIP      int
 	MaxAllocs     int
 	CredPerMin    int
 	CredBurst     int
@@ -62,11 +64,8 @@ func (c *config) validate() error {
 
 // newRelayGen builds the generator shared by every listener.
 func newRelayGen(c *config, own *ownAddrs) *relayGen {
-	rate := float64(c.UserKbps) * 1000 / 8
-	burst := rate // one second's worth...
-	if burst < 64*1024 {
-		burst = 64 * 1024 // ...but never below a few full-size packets' worth of slack
-	}
+	rate, burst := bucketFor(c.UserKbps)
+	ipRate, ipBurst := bucketFor(c.IPKbps)
 	return &relayGen{
 		inner: &turn.RelayAddressGeneratorPortRange{
 			RelayAddress: c.PublicIP,
@@ -77,11 +76,25 @@ func newRelayGen(c *config, own *ownAddrs) *relayGen {
 		own:        own,
 		userRate:   rate,
 		userBurst:  burst,
+		ipRate:     ipRate,
+		ipBurst:    ipBurst,
 		maxPerUser: c.MaxPerUser,
+		maxPerIP:   c.MaxPerIP,
 		maxAll:     c.MaxAllocs,
 		users:      map[string]*userState{},
+		ips:        map[string]*userState{},
 		now:        time.Now,
 	}
+}
+
+// bucketFor turns a kbit/s cap into a token bucket's rate and burst.
+func bucketFor(kbps int) (rate, burst float64) {
+	rate = float64(kbps) * 1000 / 8
+	burst = rate // one second's worth...
+	if burst < 64*1024 {
+		burst = 64 * 1024 // ...but never below a few full-size packets' worth of slack
+	}
+	return rate, burst
 }
 
 // newServer starts pion/turn on the given sockets. permit decides peer IPs
@@ -90,10 +103,13 @@ func newServer(c *config, gen *relayGen, permit turn.PermissionHandler,
 	udp []net.PacketConn, listeners []net.Listener) (*turn.Server, error) {
 	sc := turn.ServerConfig{
 		Realm:       c.Realm,
-		AuthHandler: turn.LongTermTURNRESTAuthHandler(c.Secret, nil),
+		AuthHandler: authHandler(c.Secret),
 		// The server's default and what it answers when the client asks for
 		// nothing. pion honours a client-requested LIFETIME below one hour,
-		// so this is not a hard cap; the short credential ttl is (see README).
+		// so this is not a hard cap. An allocation lasts at most one lifetime
+		// past its credential's expiry (every Refresh needs a valid one);
+		// the allocation caps per user, per client IP and in total bound how
+		// many there are (see README).
 		AllocationLifetime: c.AllocLifetime,
 	}
 	for _, pc := range udp {

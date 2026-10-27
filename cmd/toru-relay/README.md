@@ -24,7 +24,10 @@ proxy, so it:
   host's public IP, so that has to work; SSH, the TURN listeners and the
   credential endpoint on the same IP stay out of reach;
 - caps **bandwidth per user** (`-user-kbps`, both directions together; packets
-  over the budget are dropped) and **allocations** per user and in total;
+  over the budget are dropped) and **per client IP** (`-ip-kbps`), and
+  **allocations** per user, per client IP and in total. The user is the peer
+  id the caller put in its credential request, so it is the per-IP caps that
+  stop one host from minting ids to fill the relay or multiply its bandwidth;
 - refuses **TCP relay allocations** (RFC 6062). Clients can still *reach* the
   relay over TCP and TLS; only the relayed leg is UDP;
 - rate-limits the credential endpoint **per client IP**.
@@ -60,7 +63,8 @@ line wins.
 | `-cred-ttl` | `12h` | how long each credential is valid; a relayed session lasts at most this long |
 | `-alloc-lifetime` | `10m` | allocation lifetime the server grants by default (at most 10m) |
 | `-user-kbps` | 20000 | relay bandwidth per user, kbit/s (0 = unlimited) |
-| `-max-allocs-per-user`, `-max-allocs` | 16, 2000 | allocation caps (0 = unlimited) |
+| `-ip-kbps` | 40000 | relay bandwidth per client IP, all its users together, kbit/s (0 = unlimited) |
+| `-max-allocs-per-user`, `-max-allocs-per-ip`, `-max-allocs` | 16, 64, 2000 | allocation caps (0 = unlimited) |
 | `-cred-rate`, `-cred-burst` | 20/min, 10 | credential requests per client IP |
 
 ## The credential endpoint
@@ -216,7 +220,8 @@ local test binary has to open a socket.
   new agents), and the endpoint is open anyway, so a short lifetime buys
   little. Lowering it needs that client work first.
 - **The credential endpoint is open.** Anyone who can reach it gets a
-  credential; the per-IP rate limit and the per-user caps are the gate. A
+  credential; the per-IP rate limit and the per-IP allocation and bandwidth
+  caps are the gate (the per-user caps key on a peer id the caller picks). A
   proof of room membership can be added later without changing clients much.
 - **IPv4 only.** The relay hands out IPv4 relay addresses; IPv6 allocations
   fail.
