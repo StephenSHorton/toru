@@ -29,7 +29,7 @@ func TestJunctionNotFollowed(t *testing.T) {
 	if out, err := exec.Command("cmd", "/d", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
 		t.Skipf("mklink /J: %v %s", err, out)
 	}
-	t.Cleanup(func() { os.Remove(link) })
+	t.Cleanup(func() { _ = os.Remove(link) })
 
 	for name, fn := range map[string]func(string) error{
 		"MakeSecureDir":   func(d string) error { return MakeSecureDir(d, KeySDDL) },

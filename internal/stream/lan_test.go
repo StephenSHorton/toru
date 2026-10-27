@@ -114,7 +114,7 @@ func TestPeerVolumes(t *testing.T) {
 	if _, err := s.SetPeerVolume("", 50); err == nil {
 		t.Error("set an empty peer's volume")
 	}
-	s.SetPeerVolume("b", 0)
+	_, _ = s.SetPeerVolume("b", 0)
 	s.Shutdown() // flushes the pending save
 	if v := readStreamJSON(t)["peerVolumes"].(map[string]any); v["b"] != float64(0) {
 		t.Errorf("saved volumes %v", v)

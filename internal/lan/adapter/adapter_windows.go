@@ -83,7 +83,7 @@ func VerifySHA256(path, want string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return err
@@ -139,7 +139,7 @@ func Up(cfg Config) (*Adapter, error) {
 	}
 	nt, ok := dev.(*tun.NativeTun)
 	if !ok {
-		dev.Close()
+		_ = dev.Close()
 		return nil, errors.New("not a Wintun device")
 	}
 	a := &Adapter{
@@ -151,7 +151,7 @@ func Up(cfg Config) (*Adapter, error) {
 		done: make(chan struct{}),
 	}
 	if err := a.configure(); err != nil {
-		dev.Close()
+		_ = dev.Close()
 		return nil, err
 	}
 	go a.privateLoop()
@@ -269,7 +269,7 @@ func removeStaleAddress(addr netip.Addr) {
 		}
 		for u := iface.FirstUnicastAddress; u != nil; u = u.Next {
 			if ip, ok := netip.AddrFromSlice(u.Address.IP()); ok && ip.Unmap() == addr {
-				iface.LUID.DeleteIPAddress(netip.PrefixFrom(addr, int(u.OnLinkPrefixLength)))
+				_ = iface.LUID.DeleteIPAddress(netip.PrefixFrom(addr, int(u.OnLinkPrefixLength)))
 			}
 		}
 	}
@@ -376,7 +376,7 @@ func WithBareAdapter(fn func() error) error {
 		if err != nil {
 			return fmt.Errorf("create adapter: %w", err)
 		}
-		defer ad.Close()
+		defer func() { _ = ad.Close() }()
 	}
 	var err error
 	for try := 0; try < 20; try++ {
@@ -406,7 +406,7 @@ func Remove() error {
 		if err != nil {
 			return fmt.Errorf("open leftover adapter: %w", err)
 		}
-		ad.Close()
+		_ = ad.Close()
 	}
 	if Exists() {
 		return errors.New("adapter still present after removal")

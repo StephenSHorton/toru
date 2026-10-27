@@ -95,7 +95,7 @@ func TestBindSendReceiveSwap(t *testing.T) {
 	if got := <-relayFar.rx; string(got) != "via relay" {
 		t.Fatalf("relay got %q", got)
 	}
-	relayFar.Write([]byte("from relay"))
+	_, _ = relayFar.Write([]byte("from relay"))
 	if got, from := recvOne(t, fns[0]); string(got) != "from relay" || from != e {
 		t.Fatalf("got %q from %v", got, from)
 	}
@@ -111,7 +111,7 @@ func TestBindSendReceiveSwap(t *testing.T) {
 	if got := <-directFar.rx; string(got) != "via direct" {
 		t.Fatalf("direct got %q", got)
 	}
-	directFar.Write([]byte("from direct"))
+	_, _ = directFar.Write([]byte("from direct"))
 	if got, from := recvOne(t, fns[0]); string(got) != "from direct" || from != e {
 		t.Fatalf("got %q from %v", got, from)
 	}
@@ -123,7 +123,7 @@ func TestBindSendReceiveSwap(t *testing.T) {
 		done <- err
 	}()
 	time.Sleep(20 * time.Millisecond)
-	b.Close()
+	_ = b.Close()
 	if err := <-done; !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("receive after Close: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestBindSendReceiveSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	directFar.Write([]byte("after reopen"))
+	_, _ = directFar.Write([]byte("after reopen"))
 	if got, _ := recvOne(t, fns[0]); string(got) != "after reopen" {
 		t.Fatalf("got %q", got)
 	}

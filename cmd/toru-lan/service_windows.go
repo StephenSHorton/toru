@@ -73,7 +73,7 @@ loop:
 	}
 
 	status <- svc.Status{State: svc.StopPending}
-	srv.Close()
+	_ = srv.Close()
 	if err := h.stop(); err != nil {
 		logf("stop: %v", err)
 	}
@@ -96,7 +96,7 @@ func (s *lanService) openLog() (func(string, ...any), func()) {
 	if err != nil {
 		return stderr, func() {}
 	}
-	return l.Logf, func() { l.Close() }
+	return l.Logf, func() { _ = l.Close() }
 }
 
 // checkDataDirs: install created %ProgramData%\Toru and ...\lan as
@@ -127,7 +127,7 @@ func eventLogf(format string, args ...any) {
 	if err != nil {
 		return
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	_ = l.Error(1, fmt.Sprintf(format, args...))
 }
 

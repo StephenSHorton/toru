@@ -34,7 +34,7 @@ func (l *rotLog) open() error {
 	}
 	st, err := f.Stat()
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	l.f, l.size = f, st.Size()
@@ -48,9 +48,9 @@ func (l *rotLog) Write(p []byte) (int, error) {
 		return 0, os.ErrClosed
 	}
 	if l.size > 0 && l.size+int64(len(p)) > l.max {
-		l.f.Close()
-		os.Remove(l.path + ".1")
-		os.Rename(l.path, l.path+".1")
+		_ = l.f.Close()
+		_ = os.Remove(l.path + ".1")
+		_ = os.Rename(l.path, l.path+".1")
 		if err := l.open(); err != nil {
 			l.f = nil
 			return 0, err
@@ -63,7 +63,7 @@ func (l *rotLog) Write(p []byte) (int, error) {
 
 // Logf writes one timestamped line.
 func (l *rotLog) Logf(format string, args ...any) {
-	fmt.Fprintf(l, "%s %s\n", time.Now().Format("2006-01-02 15:04:05.000"), fmt.Sprintf(format, args...))
+	_, _ = fmt.Fprintf(l, "%s %s\n", time.Now().Format("2006-01-02 15:04:05.000"), fmt.Sprintf(format, args...))
 }
 
 func (l *rotLog) Close() error {

@@ -27,7 +27,7 @@ func openLanService(access uint32) (windows.Handle, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer windows.CloseServiceHandle(m)
+	defer func() { _ = windows.CloseServiceHandle(m) }()
 	name, err := windows.UTF16PtrFromString(api.ServiceName)
 	if err != nil {
 		return 0, err
@@ -46,7 +46,7 @@ func (winLanOS) query() lanSvcInfo {
 		logf("LAN service query: %v", err)
 		return lanSvcInfo{}
 	}
-	defer windows.CloseServiceHandle(h)
+	defer func() { _ = windows.CloseServiceHandle(h) }()
 	info := lanSvcInfo{installed: true}
 	var st windows.SERVICE_STATUS
 	if windows.QueryServiceStatus(h, &st) == nil {
@@ -54,7 +54,7 @@ func (winLanOS) query() lanSvcInfo {
 	}
 	// Starting it is the right that matters; check we have it.
 	if hs, err := openLanService(windows.SERVICE_START); err == nil {
-		windows.CloseServiceHandle(hs)
+		_ = windows.CloseServiceHandle(hs)
 	} else if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 		info.denied = true
 	}
@@ -65,11 +65,11 @@ func (winLanOS) start() error {
 	h, err := openLanService(windows.SERVICE_START)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
-			return errors.New("Windows won't let Toru start the LAN service; run Update LAN")
+			return errors.New("starting the LAN service was refused by Windows; run Update LAN")
 		}
 		return fmt.Errorf("open the LAN service: %w", err)
 	}
-	defer windows.CloseServiceHandle(h)
+	defer func() { _ = windows.CloseServiceHandle(h) }()
 	if err := windows.StartService(h, 0, nil); err != nil && !errors.Is(err, windows.ERROR_SERVICE_ALREADY_RUNNING) {
 		return fmt.Errorf("start the LAN service: %w", err)
 	}
@@ -148,7 +148,7 @@ func runElevated(file, args, dir string) (uint32, error) {
 	if info.hProcess == 0 {
 		return 0, errors.New("run " + filepath.Base(file) + ": no process")
 	}
-	defer windows.CloseHandle(info.hProcess)
+	defer func() { _ = windows.CloseHandle(info.hProcess) }()
 	if _, err := windows.WaitForSingleObject(info.hProcess, windows.INFINITE); err != nil {
 		return 0, err
 	}

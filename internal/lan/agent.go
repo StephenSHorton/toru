@@ -207,13 +207,13 @@ func (p *peer) newSession(gen uint32, direct bool) *session {
 	ufrag, pwd, err := a.GetLocalUserCredentials()
 	if err != nil {
 		p.n.logf("lan: %s: ICE credentials: %v", p.id, err)
-		go a.Close()
+		go func() { _ = a.Close() }()
 		return nil
 	}
 	p.n.signal(p.id, api.SignalBlob{Kind: api.KindCreds, Gen: gen, Ufrag: ufrag, Pwd: pwd, Direct: direct})
 	if err := a.GatherCandidates(); err != nil {
 		p.n.logf("lan: %s: gather: %v", p.id, err)
-		go a.Close()
+		go func() { _ = a.Close() }()
 		return nil
 	}
 	s.deadline = time.AfterFunc(connectTimeout, func() { p.post(evTimeout{s}) })
@@ -466,7 +466,7 @@ func (p *peer) closeSession(s *session) {
 	}
 	s.dead = true
 	stopTimer(s.deadline)
-	go s.agent.Close()
+	go func() { _ = s.agent.Close() }()
 }
 
 func stopTimer(t *time.Timer) {

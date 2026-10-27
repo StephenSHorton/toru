@@ -65,7 +65,7 @@ func install() error {
 	if err != nil {
 		return fmt.Errorf("service manager: %w", err)
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 
 	// Update: stop a running service first so its files can be replaced.
 	wasRunning := false
@@ -74,11 +74,11 @@ func install() error {
 			wasRunning = true
 			fmt.Println("stopping the running service")
 			if err := stopService(s); err != nil {
-				s.Close()
+				_ = s.Close()
 				return err
 			}
 		}
-		s.Close()
+		_ = s.Close()
 	}
 
 	if err := prepareDataDir(p); err != nil {
@@ -126,7 +126,7 @@ func install() error {
 		if err != nil {
 			return err
 		}
-		defer s.Close()
+		defer func() { _ = s.Close() }()
 		if err := s.Start(); err != nil {
 			return fmt.Errorf("restart service: %w", err)
 		}
@@ -148,14 +148,14 @@ func registerService(m *mgr.Mgr, exe string) error {
 	if err == nil {
 		old, err := s.Config()
 		if err != nil {
-			s.Close()
+			_ = s.Close()
 			return err
 		}
 		cfg.BinaryPathName = syscall.EscapeArg(exe)
 		cfg.ServiceStartName = "LocalSystem"
 		cfg.Dependencies = old.Dependencies
 		if err := s.UpdateConfig(cfg); err != nil {
-			s.Close()
+			_ = s.Close()
 			return fmt.Errorf("update service: %w", err)
 		}
 	} else {
@@ -163,7 +163,7 @@ func registerService(m *mgr.Mgr, exe string) error {
 			return fmt.Errorf("create service: %w", err)
 		}
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	// Restart on failure (crash or a non-zero exit); a clean idle stop exits 0.
 	actions := []mgr.RecoveryAction{
 		{Type: mgr.ServiceRestart, Delay: 2 * time.Second},
@@ -248,25 +248,25 @@ func copyInto(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	tmp := dst + ".new"
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(tmp)
+		_ = out.Close()
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := out.Close(); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return err
 	}
 	from, _ := windows.UTF16PtrFromString(tmp)
 	to, _ := windows.UTF16PtrFromString(dst)
 	if err := windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return fmt.Errorf("replace %s: %w", dst, err)
 	}
 	return nil
@@ -327,7 +327,7 @@ func uninstall() error {
 	}
 	removeIfEmpty(filepath.Dir(p.dataDir))
 
-	os.RemoveAll(p.installDir) // fails on this exe (and DLL) if they are running from there
+	_ = os.RemoveAll(p.installDir) // fails on this exe (and DLL) if they are running from there
 	if _, err := os.Stat(p.installDir); err == nil {
 		if err := deleteAfterExit(p.installDir); err != nil {
 			errs = append(errs, err)
@@ -346,22 +346,22 @@ func removeService() error {
 	if err != nil {
 		return fmt.Errorf("service manager: %w", err)
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	s, err := m.OpenService(api.ServiceName)
 	if err != nil {
 		return nil // not installed
 	}
 	if st, err := s.Query(); err == nil && st.State != svc.Stopped {
 		if err := stopService(s); err != nil {
-			s.Close()
+			_ = s.Close()
 			return err
 		}
 	}
 	if err := s.Delete(); err != nil {
-		s.Close()
+		_ = s.Close()
 		return fmt.Errorf("delete service: %w", err)
 	}
-	s.Close()
+	_ = s.Close()
 	// Deletion completes once the last handle closes; wait for it so a
 	// re-install right after works.
 	for i := 0; i < 40; i++ {
@@ -370,7 +370,7 @@ func removeService() error {
 			fmt.Println("removed service", api.ServiceName)
 			return nil
 		}
-		s.Close()
+		_ = s.Close()
 		time.Sleep(250 * time.Millisecond)
 	}
 	return errors.New("service still registered (marked for deletion; it goes at next reboot)")
@@ -378,7 +378,7 @@ func removeService() error {
 
 func removeIfEmpty(dir string) {
 	if entries, err := os.ReadDir(dir); err == nil && len(entries) == 0 {
-		os.Remove(dir)
+		_ = os.Remove(dir)
 	}
 }
 
@@ -399,10 +399,10 @@ func deleteAfterExit(dir string) error {
 	if entries, rerr := os.ReadDir(dir); rerr == nil {
 		for _, e := range entries {
 			name, _ := windows.UTF16PtrFromString(filepath.Join(dir, e.Name()))
-			windows.MoveFileEx(name, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
+			_ = windows.MoveFileEx(name, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
 		}
 		name, _ := windows.UTF16PtrFromString(dir)
-		windows.MoveFileEx(name, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
+		_ = windows.MoveFileEx(name, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
 	}
 	if err != nil {
 		return fmt.Errorf("schedule removal of %s (it goes at next reboot): %w", dir, err)

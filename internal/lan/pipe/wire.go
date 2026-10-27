@@ -178,7 +178,7 @@ func checkPeerID(id string) error {
 		return badRequest("peer id of %d bytes", len(id))
 	}
 	for _, c := range id {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 			return badRequest("peer id %q has a disallowed character", id)
 		}
 	}

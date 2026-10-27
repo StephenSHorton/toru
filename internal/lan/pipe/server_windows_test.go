@@ -120,7 +120,7 @@ func TestPipeSDDL(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { windows.CloseHandle(h) })
+		t.Cleanup(func() { _ = windows.CloseHandle(h) })
 		return n
 	}
 
@@ -128,7 +128,7 @@ func TestPipeSDDL(t *testing.T) {
 	second, err := windows.CreateNamedPipe(n, windows.PIPE_ACCESS_DUPLEX,
 		windows.PIPE_TYPE_BYTE, windows.PIPE_UNLIMITED_INSTANCES, 4096, 4096, 0, nil)
 	if err == nil {
-		windows.CloseHandle(second)
+		_ = windows.CloseHandle(second)
 		t.Fatal("a non-admin created a second server instance")
 	}
 	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
@@ -142,7 +142,7 @@ func TestPipeSDDL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("open with %#x: %v", access, err)
 		}
-		windows.CloseHandle(h)
+		_ = windows.CloseHandle(h)
 	}
 }
 
@@ -170,7 +170,7 @@ func newServer(t *testing.T, b *fakeBackend, idle time.Duration, onIdle func(), 
 		t.Fatal(err)
 	}
 	b.srv = s
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	return s, name
 }
 
@@ -188,7 +188,7 @@ func dial(t *testing.T, name string) *client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 4096), MaxLine*2)
 	return &client{t: t, conn: conn, sc: sc}
@@ -212,7 +212,7 @@ func (c *client) sendRaw(s string) {
 // recv returns the next message, or ok=false on EOF/timeout.
 func (c *client) recv() (api.Message, bool) {
 	c.t.Helper()
-	c.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = c.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	if !c.sc.Scan() {
 		return api.Message{}, false
 	}
@@ -279,7 +279,7 @@ func TestRealIdentity(t *testing.T) {
 		t.Errorf("client pid %d, want %d", got.PID, os.Getpid())
 	}
 	var sess uint32
-	windows.ProcessIdToSessionId(uint32(os.Getpid()), &sess)
+	_ = windows.ProcessIdToSessionId(uint32(os.Getpid()), &sess)
 	if got.Session != sess {
 		t.Errorf("client session %d, want %d", got.Session, sess)
 	}
@@ -494,7 +494,7 @@ func TestOwnerGone(t *testing.T) {
 	c.hello()
 	c.send(upMsg("r"))
 	c.expect(api.TypeStatus)
-	c.conn.Close()
+	_ = c.conn.Close()
 	select {
 	case <-idle:
 	case <-time.After(5 * time.Second):
@@ -518,7 +518,7 @@ func TestOwnerReconnects(t *testing.T) {
 	c.hello()
 	c.send(upMsg("r"))
 	c.expect(api.TypeStatus)
-	c.conn.Close()
+	_ = c.conn.Close()
 	time.Sleep(100 * time.Millisecond)
 	c2 := dial(t, name)
 	c2.hello()
@@ -556,7 +556,9 @@ func TestTooLongLine(t *testing.T) {
 	c := dial(t, name)
 	c.hello()
 	// The server may hang up before reading it all, so the write can fail.
-	go c.conn.Write([]byte(`{"type":"status","x":"` + strings.Repeat("x", MaxLine+10) + "\"}\n"))
+	go func() {
+		_, _ = c.conn.Write([]byte(`{"type":"status","x":"` + strings.Repeat("x", MaxLine+10) + "\"}\n"))
+	}()
 	c.expectError(api.ErrBadRequest)
 	if _, ok := c.recv(); ok {
 		t.Fatal("connection still open after an oversized line")

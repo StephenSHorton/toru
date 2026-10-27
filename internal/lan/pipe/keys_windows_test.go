@@ -79,10 +79,10 @@ func TestProductionACL(t *testing.T) {
 	// cleanup needs in order to delete them.
 	t.Cleanup(func() {
 		mine := "D:P(A;OICI;FA;;;" + currentSID(t) + ")"
-		MakeSecureDir(dir, mine)
+		_ = MakeSecureDir(dir, mine)
 		if sd, err := windows.SecurityDescriptorFromString(fileSDDL(mine)); err == nil {
 			dacl, _, _ := sd.DACL()
-			windows.SetNamedSecurityInfo(file, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+			_ = windows.SetNamedSecurityInfo(file, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
 		}
 	})
 	if err := MakeSecureDir(dir, KeySDDL); err != nil {
@@ -105,7 +105,7 @@ func TestProductionACL(t *testing.T) {
 		t.Error("a non-admin user could read the key file")
 	}
 	if f, err := os.Create(filepath.Join(dir, "planted.key")); err == nil {
-		f.Close()
+		_ = f.Close()
 		t.Error("a non-admin user could create a file in the keys folder")
 	}
 	// A normal user's file is never trusted as a key.

@@ -140,7 +140,7 @@ type onceCloseTUN struct {
 }
 
 func (d *onceCloseTUN) Close() error {
-	d.once.Do(func() { d.Device.Close() })
+	d.once.Do(func() { _ = d.Device.Close() })
 	return nil
 }
 
@@ -226,7 +226,7 @@ func TestHostUpDown(t *testing.T) {
 		t.Fatalf("no hello announcement: %+v", msgs)
 	}
 	var blob api.SignalBlob
-	json.Unmarshal(hello.Blob, &blob)
+	_ = json.Unmarshal(hello.Blob, &blob)
 	if blob.Kind != api.KindHello {
 		t.Fatalf("announced %+v", blob)
 	}
@@ -240,9 +240,9 @@ func TestHostUpDown(t *testing.T) {
 		t.Fatal(err)
 	}
 	hs.nodes[0].EmitSignal("peerA", api.SignalBlob{Kind: api.KindCand, Cand: "c"})
-	hs.h.Drop("peerA")
-	hs.h.SetICE(nil)
-	hs.h.SetPolicy(api.Policy{AllowServices: true})
+	_ = hs.h.Drop("peerA")
+	_ = hs.h.SetICE(nil)
+	_ = hs.h.SetPolicy(api.Policy{AllowServices: true})
 	n := hs.nodes[0]
 	if len(n.Signals) != 1 || n.Signals[0] != "peerA creds" || len(n.Dropped) != 1 || len(n.ICE) != 1 || len(n.Policy) != 1 {
 		t.Fatalf("node saw %+v", n)
@@ -299,7 +299,7 @@ func TestHostRealNode(t *testing.T) {
 	var hello api.SignalBlob
 	for _, m := range hs.out.take() {
 		if m.Type == api.TypeSignal && m.Signal.Peer == "" {
-			json.Unmarshal(m.Signal.Blob, &hello)
+			_ = json.Unmarshal(m.Signal.Blob, &hello)
 		}
 	}
 	if hello.Kind != api.KindHello || hello.IP != addr.String() || hello.WGPub == "" {

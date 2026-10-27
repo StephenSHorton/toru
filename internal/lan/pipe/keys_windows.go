@@ -141,14 +141,14 @@ func (k *KeyStore) write(p string, key Key) error {
 		return err
 	}
 	tmp := p + ".tmp"
-	os.Remove(tmp)
+	_ = os.Remove(tmp)
 	if err := writeSecure(tmp, b, fileSDDL(k.SDDL)); err != nil {
 		return err
 	}
 	from, _ := windows.UTF16PtrFromString(tmp)
 	to, _ := windows.UTF16PtrFromString(p)
 	if err := windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return fmt.Errorf("store key: %w", err)
 	}
 	return nil
@@ -177,11 +177,11 @@ func writeSecure(p string, data []byte, sddl string) error {
 	}
 	f := os.NewFile(uintptr(h), p)
 	if _, err := f.Write(data); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	return f.Close()
@@ -246,7 +246,7 @@ func CheckOwner(path string) error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", path, err)
 	}
-	defer windows.CloseHandle(h)
+	defer func() { _ = windows.CloseHandle(h) }()
 	var fi windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(h, &fi); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
@@ -261,7 +261,7 @@ func CheckTrustedDir(dir string) error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", dir, err)
 	}
-	defer windows.CloseHandle(h)
+	defer func() { _ = windows.CloseHandle(h) }()
 	return checkHandle(h, dir, true, true)
 }
 
@@ -295,7 +295,7 @@ func makeDir(dir, sddl string, owner bool) error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", dir, err)
 	}
-	defer windows.CloseHandle(h)
+	defer func() { _ = windows.CloseHandle(h) }()
 	if err := checkHandle(h, dir, true, owner); err != nil {
 		return err
 	}

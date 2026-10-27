@@ -112,10 +112,10 @@ func (c *Client) Send(m api.Message) error {
 	}
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+	_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	_, err = c.conn.Write(b)
 	if err != nil {
-		c.conn.Close()
+		_ = c.conn.Close()
 	}
 	return err
 }
@@ -171,7 +171,7 @@ func (s *Server) Close() error {
 	}
 	s.closed = true
 	for c := range s.clients {
-		c.conn.Close()
+		_ = c.conn.Close()
 	}
 	stopTimer(s.ownerIdle)
 	stopTimer(s.allIdle)
@@ -258,7 +258,7 @@ func (s *Server) acceptLoop() {
 
 func (s *Server) serve(conn net.Conn) {
 	defer s.wg.Done()
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	id, err := s.cfg.Identify(conn)
 	if err != nil {
 		s.cfg.Logf("pipe: identify client: %v", err)
@@ -268,7 +268,7 @@ func (s *Server) serve(conn net.Conn) {
 	s.mu.Lock()
 	if s.closed || len(s.clients) >= s.cfg.MaxClients {
 		s.mu.Unlock()
-		c.Send(errMsg(0, &CodeError{Code: api.ErrBadRequest, Detail: "too many clients"}))
+		_ = c.Send(errMsg(0, &CodeError{Code: api.ErrBadRequest, Detail: "too many clients"}))
 		return
 	}
 	s.clients[c] = struct{}{}
@@ -288,14 +288,14 @@ func (s *Server) serve(conn net.Conn) {
 	for sc.Scan() {
 		m, blob, err := Decode(sc.Bytes())
 		if err != nil {
-			c.Send(errMsg(m.ID, err))
+			_ = c.Send(errMsg(m.ID, err))
 			if !c.hello {
 				return
 			}
 			continue
 		}
 		if !c.hello && m.Type != api.TypeHello {
-			c.Send(errMsg(m.ID, &CodeError{Code: api.ErrProtocol, Detail: "hello first"}))
+			_ = c.Send(errMsg(m.ID, &CodeError{Code: api.ErrProtocol, Detail: "hello first"}))
 			return
 		}
 		if !s.handle(c, m, blob) {
@@ -303,7 +303,7 @@ func (s *Server) serve(conn net.Conn) {
 		}
 	}
 	if err := sc.Err(); errors.Is(err, bufio.ErrTooLong) {
-		c.Send(errMsg(0, badRequest("message over %d bytes", MaxLine)))
+		_ = c.Send(errMsg(0, badRequest("message over %d bytes", MaxLine)))
 	}
 }
 
@@ -330,7 +330,7 @@ func (s *Server) handle(c *Client, m api.Message, blob *api.SignalBlob) bool {
 
 	reply := func(err error) {
 		if err != nil {
-			c.Send(errMsg(m.ID, err))
+			_ = c.Send(errMsg(m.ID, err))
 		}
 	}
 	// Anything that touches a running LAN needs to be its owner.
@@ -355,7 +355,7 @@ func (s *Server) handle(c *Client, m api.Message, blob *api.SignalBlob) bool {
 			// client's business.
 			st = api.Status{State: st.State, Version: st.Version, Error: api.ErrWrongSession}
 		}
-		c.Send(api.Message{Type: api.TypeStatus, ID: m.ID, Status: &st})
+		_ = c.Send(api.Message{Type: api.TypeStatus, ID: m.ID, Status: &st})
 
 	case api.TypeUp:
 		if up && !mine {
@@ -452,15 +452,15 @@ func (s *Server) hello(c *Client, m api.Message) bool {
 	out := api.Hello{Major: api.ProtocolMajor, Minor: api.ProtocolMinor, Version: s.cfg.Version}
 	if m.Hello.Major != api.ProtocolMajor {
 		// Say who we are anyway, so the GUI can show "Update LAN".
-		c.Send(api.Message{Type: api.TypeHello, ID: m.ID, Hello: &out})
-		c.Send(errMsg(m.ID, &CodeError{Code: api.ErrProtocol,
+		_ = c.Send(api.Message{Type: api.TypeHello, ID: m.ID, Hello: &out})
+		_ = c.Send(errMsg(m.ID, &CodeError{Code: api.ErrProtocol,
 			Detail: fmt.Sprintf("service speaks %d.%d, GUI %d.%d", api.ProtocolMajor, api.ProtocolMinor, m.Hello.Major, m.Hello.Minor)}))
 		return false
 	}
 	pub, addr, err := b.Identity(c.SID)
 	if err != nil {
 		s.cfg.Logf("pipe: identity for %s: %v", c.SID, err)
-		c.Send(errMsg(m.ID, err))
+		_ = c.Send(errMsg(m.ID, err))
 		return false
 	}
 	out.PubKey = base64.StdEncoding.EncodeToString(pub[:])
@@ -469,7 +469,7 @@ func (s *Server) hello(c *Client, m api.Message) bool {
 	c.hello = true
 	s.armTimersLocked() // the owner's GUI may just have reconnected
 	s.mu.Unlock()
-	c.Send(api.Message{Type: api.TypeHello, ID: m.ID, Hello: &out})
+	_ = c.Send(api.Message{Type: api.TypeHello, ID: m.ID, Hello: &out})
 	return true
 }
 
@@ -583,12 +583,12 @@ func processUserSID(pid uint32) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open client process %d: %w", pid, err)
 	}
-	defer windows.CloseHandle(p)
+	defer func() { _ = windows.CloseHandle(p) }()
 	var tok windows.Token
 	if err := windows.OpenProcessToken(p, windows.TOKEN_QUERY, &tok); err != nil {
 		return "", fmt.Errorf("client token: %w", err)
 	}
-	defer tok.Close()
+	defer func() { _ = tok.Close() }()
 	u, err := tok.GetTokenUser()
 	if err != nil {
 		return "", fmt.Errorf("client user: %w", err)

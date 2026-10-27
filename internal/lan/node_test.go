@@ -173,8 +173,8 @@ func pairWith(t *testing.T, servers []api.ICEServer) (a, b *testNode) {
 			closed = true
 			cur := x.n.Node
 			mu.Unlock()
-			n.Close()
-			cur.Close() // a restarted node (TestNodeRestartOneSide)
+			_ = n.Close()
+			_ = cur.Close() // a restarted node (TestNodeRestartOneSide)
 		})
 	}
 	go a.HandleSignal("b", b.Hello())
@@ -217,7 +217,7 @@ func recvUDP(t *testing.T, l net.PacketConn, send func(), d time.Duration) (stri
 	buf := make([]byte, 2048)
 	for time.Now().Before(deadline) {
 		send()
-		l.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		_ = l.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 		n, from, err := l.ReadFrom(buf)
 		if err == nil {
 			ap, _ := netip.ParseAddrPort(from.String())
@@ -239,13 +239,13 @@ func TestNodeAcceptance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer l.Close()
+		defer func() { _ = l.Close() }()
 		c, err := b.net.DialUDPAddrPort(netip.AddrPort{}, netip.AddrPortFrom(a.addr, 9000))
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer c.Close()
-		got, from, ok := recvUDP(t, l, func() { c.Write([]byte("unicast")) }, 10*time.Second)
+		defer func() { _ = c.Close() }()
+		got, from, ok := recvUDP(t, l, func() { _, _ = c.Write([]byte("unicast")) }, 10*time.Second)
 		if !ok || got != "unicast" || from.Addr() != b.addr {
 			t.Fatalf("got %q from %v (ok=%v)", got, from, ok)
 		}
@@ -260,15 +260,15 @@ func TestNodeAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer game.Close()
+	defer func() { _ = game.Close() }()
 
 	t.Run("subnet broadcast", func(t *testing.T) {
 		c, err := b.net.DialUDPAddrPort(netip.AddrPort{}, netip.AddrPortFrom(subnetBcast, 6112))
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer c.Close()
-		got, from, ok := recvUDP(t, game, func() { c.Write([]byte("wc3 game")) }, 10*time.Second)
+		defer func() { _ = c.Close() }()
+		got, from, ok := recvUDP(t, game, func() { _, _ = c.Write([]byte("wc3 game")) }, 10*time.Second)
 		if !ok {
 			t.Logf("b shim %s; a shim %s", b.shim.stats.String(), a.shim.stats.String())
 		}
@@ -298,7 +298,7 @@ func TestNodeAcceptance(t *testing.T) {
 		w := (&shim{self: b.addr}).wrap(a.addr, spoof)
 		b.inj.inject <- w
 		waitFor(t, 5*time.Second, "a to drop the spoof", func() bool { return a.shim.stats.Spoofed.Load() > before })
-		game.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+		_ = game.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
 		if n, from, err := game.ReadFrom(make([]byte, 100)); err == nil {
 			t.Fatalf("spoofed broadcast delivered: %d bytes from %v", n, from)
 		}
@@ -309,15 +309,15 @@ func TestNodeAcceptance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer l.Close()
+		defer func() { _ = l.Close() }()
 		go func() {
 			for {
 				c, err := l.Accept()
 				if err != nil {
 					return
 				}
-				c.Write([]byte("smb"))
-				c.Close()
+				_, _ = c.Write([]byte("smb"))
+				_ = c.Close()
 			}
 		}()
 		dial := func(d time.Duration) error {
@@ -327,7 +327,7 @@ func TestNodeAcceptance(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			c.Close()
+			_ = c.Close()
 			return nil
 		}
 		if err := dial(2 * time.Second); err == nil {
@@ -366,13 +366,13 @@ func TestNodeAcceptance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer l.Close()
+		defer func() { _ = l.Close() }()
 		c, err := b.net.DialUDPAddrPort(netip.AddrPort{}, netip.AddrPortFrom(a.addr, 9001))
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer c.Close()
-		if got, from, ok := recvUDP(t, l, func() { c.Write([]byte("after drop")) }, time.Second); ok {
+		defer func() { _ = c.Close() }()
+		if got, from, ok := recvUDP(t, l, func() { _, _ = c.Write([]byte("after drop")) }, time.Second); ok {
 			t.Fatalf("received %q from %v after Drop", got, from)
 		}
 	})

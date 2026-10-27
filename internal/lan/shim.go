@@ -132,7 +132,11 @@ func (s *shim) setPolicy(p api.Policy) { s.policy.Store(&p) }
 
 // addPeer adds ip with its path not up yet (a known peer keeps its state).
 func (s *shim) addPeer(ip netip.Addr) {
-	s.update(func(m map[netip.Addr]bool) { m[ip] = m[ip] })
+	s.update(func(m map[netip.Addr]bool) {
+		if _, ok := m[ip]; !ok {
+			m[ip] = false
+		}
+	})
 }
 
 // setUp records whether ip's ICE path is up (broadcast goes to up peers only).

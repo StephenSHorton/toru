@@ -21,7 +21,7 @@ import (
 func TestNodeRestartOneSide(t *testing.T) {
 	a, b := pair(t)
 	old := b.Node
-	old.Close()
+	_ = old.Close()
 	dev, tnet, err := netstack.CreateNetTUN([]netip.Addr{b.addr}, nil, api.MTU)
 	if err != nil {
 		t.Fatal(err)
@@ -44,13 +44,13 @@ func TestNodeRestartOneSide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	c, err := tnet.DialUDPAddrPort(netip.AddrPort{}, netip.AddrPortFrom(a.addr, 9100))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
-	if got, _, ok := recvUDP(t, l, func() { c.Write([]byte("after restart")) }, 10*time.Second); !ok || got != "after restart" {
+	defer func() { _ = c.Close() }()
+	if got, _, ok := recvUDP(t, l, func() { _, _ = c.Write([]byte("after restart")) }, 10*time.Second); !ok || got != "after restart" {
 		t.Fatalf("got %q (ok=%v)", got, ok)
 	}
 }
@@ -92,7 +92,7 @@ func soloNode(t *testing.T) *Node {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { n.Close() })
+	t.Cleanup(func() { _ = n.Close() })
 	return n
 }
 

@@ -70,9 +70,9 @@ func TestNLMVtable(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer v.Clear()
+		defer func() { _ = v.Clear() }()
 		return oleutil.ForEach(v.ToIDispatch(), func(item *ole.VARIANT) error {
-			defer item.Clear()
+			defer func() { _ = item.Clear() }()
 			nc, err := item.ToIUnknown().QueryInterface(iidINetworkConnection)
 			if err != nil {
 				return err

@@ -64,7 +64,7 @@ func (p paths) logFile() string { return filepath.Join(p.dataDir, "service.log")
 func machinePaths() (paths, error) {
 	pf, err := windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
 	if err != nil {
-		return paths{}, fmt.Errorf("Program Files: %w", err)
+		return paths{}, fmt.Errorf("find the Program Files folder: %w", err)
 	}
 	pd, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
 	if err != nil {

@@ -152,7 +152,7 @@ func (h *host) start() error {
 		Logf:       h.logf,
 	})
 	if err != nil {
-		ad.Close()
+		_ = ad.Close()
 		return h.fail(&pipe.CodeError{Code: api.ErrAdapter, Detail: "node: " + err.Error()})
 	}
 	n.OnChange(func() { h.peersChanged(gen) })

@@ -49,7 +49,7 @@ func TestLogRotates(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		l.Logf("line %02d with some padding", i)
 	}
-	l.Close()
+	_ = l.Close()
 	cur, _ := os.ReadFile(p)
 	old, _ := os.ReadFile(p + ".1")
 	if len(cur) > 100 || len(old) == 0 || len(old) > 100 {
@@ -63,8 +63,8 @@ func TestLogRotates(t *testing.T) {
 func TestCopyInto(t *testing.T) {
 	d := t.TempDir()
 	src, dst := filepath.Join(d, "a"), filepath.Join(d, "b")
-	os.WriteFile(src, []byte("one"), 0o644)
-	os.WriteFile(dst, []byte("old"), 0o644)
+	_ = os.WriteFile(src, []byte("one"), 0o644)
+	_ = os.WriteFile(dst, []byte("old"), 0o644)
 	if err := copyInto(src, dst); err != nil {
 		t.Fatal(err)
 	}

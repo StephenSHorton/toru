@@ -99,7 +99,7 @@ func networkOf(g windows.GUID) (*ole.IDispatch, error) {
 	if err != nil {
 		return nil, fmt.Errorf("GetNetworkConnections: %w", err)
 	}
-	defer v.Clear()
+	defer func() { _ = v.Clear() }()
 	enum := v.ToIDispatch()
 	if enum == nil {
 		return nil, errors.New("GetNetworkConnections: not IDispatch")
@@ -107,7 +107,7 @@ func networkOf(g windows.GUID) (*ole.IDispatch, error) {
 	want := strings.ToUpper(g.String())
 	var found *ole.IDispatch
 	err = oleutil.ForEach(enum, func(item *ole.VARIANT) error {
-		defer item.Clear() // ForEach hands over a reference and never releases it
+		defer func() { _ = item.Clear() }() // ForEach hands over a reference and never releases it
 		if found != nil {
 			return nil
 		}

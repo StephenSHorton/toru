@@ -275,7 +275,7 @@ func (r *relay) fetch() (turnCreds, error) {
 	if err != nil {
 		return c, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return c, fmt.Errorf("credential server: HTTP %d", resp.StatusCode)
 	}

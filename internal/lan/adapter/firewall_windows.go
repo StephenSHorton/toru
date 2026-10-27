@@ -177,7 +177,7 @@ func RulesPresent() (bool, error) {
 				ok = false
 				continue
 			}
-			v.Clear()
+			_ = v.Clear()
 		}
 		return nil
 	})
@@ -213,7 +213,7 @@ func LookupFirewallRule(name string) (*FirewallRule, error) {
 		if err != nil {
 			return fmt.Errorf("rule %q: %w", name, err)
 		}
-		defer v.Clear()
+		defer func() { _ = v.Clear() }()
 		out, err = readRule(v.ToIDispatch())
 		return err
 	})
@@ -230,7 +230,7 @@ func fwRules() (*ole.IDispatch, func(), error) {
 		policy.Release()
 		return nil, nil, fmt.Errorf("FwPolicy2.Rules: %w", err)
 	}
-	return v.ToIDispatch(), func() { v.Clear(); policy.Release() }, nil
+	return v.ToIDispatch(), func() { _ = v.Clear(); policy.Release() }, nil
 }
 
 func createDispatch(progID string) (*ole.IDispatch, error) {
@@ -248,7 +248,7 @@ func removeAll(rules *ole.IDispatch, name string) {
 		if err != nil {
 			return // not found
 		}
-		v.Clear()
+		_ = v.Clear()
 		if _, err := oleutil.CallMethod(rules, "Remove", name); err != nil {
 			return
 		}
@@ -337,12 +337,12 @@ func putInterfaces(rule *ole.IDispatch, names []string) error {
 		return errors.New("SafeArrayCreateVector failed")
 	}
 	arr := ole.NewVariant(ole.VT_ARRAY|ole.VT_VARIANT, int64(psa))
-	defer ole.VariantClear(&arr) // frees the array and the BSTR copies in it
+	defer func() { _ = ole.VariantClear(&arr) }() // frees the array and the BSTR copies in it
 	for i, n := range names {
 		elem := ole.NewVariant(ole.VT_BSTR, int64(uintptr(unsafe.Pointer(ole.SysAllocStringLen(n)))))
 		idx := int32(i)
 		r, _, _ := procSafeArrayPutElement.Call(psa, uintptr(unsafe.Pointer(&idx)), uintptr(unsafe.Pointer(&elem)))
-		ole.VariantClear(&elem) // SafeArrayPutElement copied it
+		_ = ole.VariantClear(&elem) // SafeArrayPutElement copied it
 		if err := hresult(r); err != nil {
 			return fmt.Errorf("SafeArrayPutElement: %w", err)
 		}
@@ -366,11 +366,11 @@ func readRule(rule *ole.IDispatch) (*FirewallRule, error) {
 	}
 	if v := get("Name"); v != nil {
 		r.Name = v.ToString()
-		v.Clear()
+		_ = v.Clear()
 	}
 	if v := get("Enabled"); v != nil {
 		r.Enabled, _ = v.Value().(bool)
-		v.Clear()
+		_ = v.Clear()
 	}
 	ints := []struct {
 		name string
@@ -379,7 +379,7 @@ func readRule(rule *ole.IDispatch) (*FirewallRule, error) {
 	for _, p := range ints {
 		if v := get(p.name); v != nil {
 			*p.dst = int32(v.Val)
-			v.Clear()
+			_ = v.Clear()
 		}
 	}
 	strs := []struct {
@@ -391,7 +391,7 @@ func readRule(rule *ole.IDispatch) (*FirewallRule, error) {
 			if v.VT == ole.VT_BSTR {
 				*p.dst = v.ToString()
 			}
-			v.Clear()
+			_ = v.Clear()
 		}
 	}
 	if v := get("Interfaces"); v != nil {
@@ -402,7 +402,7 @@ func readRule(rule *ole.IDispatch) (*FirewallRule, error) {
 				}
 			}
 		}
-		v.Clear()
+		_ = v.Clear()
 	}
 	return r, nil
 }

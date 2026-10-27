@@ -38,7 +38,7 @@ func TestNodeRelayUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	old := upgradeBackoffMin
 	upgradeBackoffMin = 2 * time.Second
@@ -76,12 +76,12 @@ func TestNodeRelayUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	c, err := b.net.DialUDPAddrPort(netip.AddrPort{}, netip.AddrPortFrom(a.addr, 9100))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	stop := make(chan struct{})
 	sent := 0
 	go func() {
@@ -92,7 +92,7 @@ func TestNodeRelayUpgrade(t *testing.T) {
 			case <-stop:
 				return
 			case <-tk.C:
-				c.Write([]byte("tick"))
+				_, _ = c.Write([]byte("tick"))
 				mu.Lock()
 				sent++
 				mu.Unlock()
