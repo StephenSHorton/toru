@@ -28,7 +28,9 @@ or use **Auto clicker settings…** in the tray menu.
 - **Armed**: while the clicker is disarmed its shortcut is handed back to other
   apps (Ctrl+Shift+Y does whatever the app in front does with it) and nothing
   can start a run. Disarming stops a running clicker. An optional *Arm / disarm
-  auto clicker* shortcut flips this from anywhere.
+  auto clicker* shortcut flips this from anywhere. A new install starts
+  disarmed, so Toru doesn't take Ctrl+Shift+Y from other apps until you first
+  open the Auto Clicker page, which arms it.
 
 While it runs a small pill near the top of the screen shows the click count and
 the stop shortcut (turn it off with *Show indicator*). Opening Toru's capture

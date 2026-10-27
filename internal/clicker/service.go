@@ -290,6 +290,7 @@ func (s *ClickerService) SetSettings(next Settings) (Settings, error) {
 	prev := s.settings
 	next.Presets = prev.Presets
 	next.ActivePresetID = prev.ActivePresetID
+	next.Introduced = prev.Introduced || next.Introduced
 	next = Normalize(next)
 	s.settings = next
 	s.mu.Unlock()
@@ -428,6 +429,25 @@ func (s *ClickerService) Toggle() (Status, error) {
 // SetPaused pauses or resumes a running clicker.
 func (s *ClickerService) SetPaused(paused bool) Status {
 	return s.setPaused(paused)
+}
+
+// PageOpened is called by the Auto Clicker page on mount. The first time ever
+// it arms the clicker (fresh installs start disarmed, see Settings.Introduced);
+// after that it changes nothing.
+func (s *ClickerService) PageOpened() (Settings, error) {
+	s.mu.Lock()
+	if s.settings.Introduced {
+		next := s.settings
+		s.mu.Unlock()
+		return next, nil
+	}
+	s.settings.Introduced = true
+	next, armed := s.settings, s.settings.Armed
+	s.mu.Unlock()
+	if armed { // armed from the tray or a hotkey before the page was opened
+		return next, s.commitFromGo(next)
+	}
+	return s.SetArmed(true)
 }
 
 // SetArmed arms or disarms the clicker hotkeys; disarming stops a run.

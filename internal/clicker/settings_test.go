@@ -270,3 +270,24 @@ func TestBuildEngineConfig(t *testing.T) {
 		t.Fatalf("double gap = %d", cfg.DoubleGapNs)
 	}
 }
+
+func TestFreshInstallDisarmedUntilPageOpened(t *testing.T) {
+	if DefaultSettings().Armed {
+		t.Fatal("a fresh install must start disarmed")
+	}
+	s := newRig(t).s // the rig has opened the page once already
+	if got := s.GetSettings(); !got.Armed || !got.Introduced {
+		t.Fatalf("first PageOpened arms and introduces: %+v", got)
+	}
+	if _, err := s.SetArmed(false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.PageOpened(); got.Armed {
+		t.Fatal("later page opens must not re-arm a clicker the user disarmed")
+	}
+	next := s.GetSettings()
+	next.Introduced = false // a stale page payload
+	if got, _ := s.SetSettings(next); !got.Introduced {
+		t.Fatal("SetSettings must not clear Introduced")
+	}
+}

@@ -250,7 +250,9 @@ export function useClicker(): Clicker {
         if (!gone && !gotStatus && s) setStatus(s);
       })
       .catch(() => {});
-    void ClickerService.GetSettings()
+    // PageOpened is GetSettings that also arms the clicker the first time the
+    // page is ever opened (fresh installs start disarmed).
+    void ClickerService.PageOpened()
       .then((s) => {
         if (!gone && !gotSettings && s && !base.current) rebase(s);
       })

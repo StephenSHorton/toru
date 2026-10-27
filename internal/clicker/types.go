@@ -238,6 +238,10 @@ type Settings struct {
 	NewPointRadius     int        `json:"newPointRadius"`
 	Presets            []Preset   `json:"presets"`
 	ActivePresetID     string     `json:"activePresetId"` // "" = none
+	// Introduced is set the first time the Auto Clicker page opens. Until
+	// then the clicker stays disarmed, so a fresh install doesn't claim its
+	// start/stop combo from other apps for a feature nobody has used.
+	Introduced bool `json:"introduced"`
 }
 
 // RunState is the controller's phase.
@@ -368,7 +372,7 @@ const (
 func DefaultSettings() Settings {
 	return Settings{
 		Version:            1,
-		Armed:              true,
+		Armed:              false, // armed by PageOpened on first use
 		HotkeyMode:         HotkeyToggle,
 		Profile:            DefaultProfile(),
 		StopZones:          []StopZone{},

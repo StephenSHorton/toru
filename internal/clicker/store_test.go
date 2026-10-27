@@ -27,7 +27,7 @@ func TestLoadMissingSeedsFactoryPresets(t *testing.T) {
 	if r := s.Presets[1].Profile; r.Cadence.Rate != 100 || r.DutyPercent != 20 || r.Limit.Kind != LimitClicks || r.Limit.Clicks != 5000 {
 		t.Fatalf("rapid fire = %+v", r)
 	}
-	if !s.Armed || s.Profile.Cadence.Rate != 25 {
+	if s.Armed || s.Introduced || s.Profile.Cadence.Rate != 25 { // fresh installs start disarmed
 		t.Fatalf("defaults not loaded: %+v", s)
 	}
 }

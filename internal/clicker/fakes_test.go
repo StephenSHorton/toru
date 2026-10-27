@@ -249,6 +249,11 @@ func newRig(t *testing.T) *rig {
 	}
 	r.s.Init()
 	t.Cleanup(r.s.Shutdown)
+	// Fresh installs start disarmed until the page opens; the rig acts as a
+	// user who has opened it.
+	if _, err := r.s.PageOpened(); err != nil {
+		t.Fatal(err)
+	}
 	return r
 }
 

@@ -100,6 +100,17 @@ export function ListProcesses(): $CancellablePromise<$models.ProcessInfo[]> {
 }
 
 /**
+ * PageOpened is called by the Auto Clicker page on mount. The first time ever
+ * it arms the clicker (fresh installs start disarmed, see Settings.Introduced);
+ * after that it changes nothing.
+ */
+export function PageOpened(): $CancellablePromise<$models.Settings> {
+    return $Call.ByID(2826212665).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
  * PointWarnings returns the indexes of click points that sit inside an active
  * corner or edge failsafe on the current displays: a run would stop as soon
  * as the cursor reached them. Empty when none do (or the displays are unknown).

@@ -909,6 +909,13 @@ export class Settings {
      */
     "activePresetId": string;
 
+    /**
+     * Introduced is set the first time the Auto Clicker page opens. Until
+     * then the clicker stays disarmed, so a fresh install doesn't claim its
+     * start/stop combo from other apps for a feature nobody has used.
+     */
+    "introduced": boolean;
+
     /** Creates a new Settings instance. */
     constructor($$source: Partial<Settings> = {}) {
         if (!("version" in $$source)) {
@@ -955,6 +962,9 @@ export class Settings {
         }
         if (!("activePresetId" in $$source)) {
             this["activePresetId"] = "";
+        }
+        if (!("introduced" in $$source)) {
+            this["introduced"] = false;
         }
 
         Object.assign(this, $$source);
