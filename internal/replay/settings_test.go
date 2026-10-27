@@ -133,7 +133,7 @@ func TestUniquePath(t *testing.T) {
 	}
 }
 
-// The save sounds themselves are internal/toast's (its tests check them).
+// The save sounds themselves are go-toast's (its tests check them).
 func TestFormatClipLength(t *testing.T) {
 	if got := formatClipLength(90); got != "1:30" {
 		t.Errorf("formatClipLength(90) = %q", got)

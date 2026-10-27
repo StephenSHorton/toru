@@ -3,7 +3,7 @@ package export
 import (
 	"path/filepath"
 
-	"github.com/StephenSHorton/toru/internal/toast"
+	toast "github.com/StephenSHorton/go-toast"
 )
 
 // noticeID is shared by every copy notice, so copying again replaces the

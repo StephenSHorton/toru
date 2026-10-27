@@ -3,12 +3,12 @@ package clicker
 import (
 	"time"
 
+	toast "github.com/StephenSHorton/go-toast"
 	"github.com/StephenSHorton/toru/internal/clicker/engine"
 	"github.com/StephenSHorton/toru/internal/clicker/overlay"
 	"github.com/StephenSHorton/toru/internal/clicker/safety"
 	"github.com/StephenSHorton/toru/internal/clicker/sys"
 	"github.com/StephenSHorton/toru/internal/hotkey"
-	"github.com/StephenSHorton/toru/internal/toast"
 )
 
 // bindingSource is the part of hotkey.Manager the clicker uses. *hotkey.Manager

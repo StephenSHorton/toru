@@ -3,7 +3,7 @@ package replay
 import (
 	"time"
 
-	"github.com/StephenSHorton/toru/internal/toast"
+	toast "github.com/StephenSHorton/go-toast"
 )
 
 // saveToastID makes a save's result card replace its "Saving clip…" card.

@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	toast "github.com/StephenSHorton/go-toast"
 	"github.com/StephenSHorton/toru/internal/clicker/engine"
 	"github.com/StephenSHorton/toru/internal/clicker/overlay"
 	"github.com/StephenSHorton/toru/internal/clicker/safety"
 	"github.com/StephenSHorton/toru/internal/hotkey"
-	"github.com/StephenSHorton/toru/internal/toast"
 )
 
 // isolateConfig points os.UserConfigDir at a temp dir (APPDATA on Windows,

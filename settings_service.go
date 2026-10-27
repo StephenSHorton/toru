@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/StephenSHorton/toru/internal/toast"
+	toast "github.com/StephenSHorton/go-toast"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

@@ -85,3 +85,5 @@ Tag push runs [`.github/workflows/release.yml`](.github/workflows/release.yml): 
 ## License
 
 [MIT](LICENSE) © Stephen Horton and the Toru contributors.
+
+Notifications use [go-toast](https://github.com/StephenSHorton/go-toast) (MIT). Its three notification sounds come from the s&box editor, Copyright (c) 2025 Facepunch Studios Ltd, MIT; see go-toast's [sounds/NOTICE.md](https://github.com/StephenSHorton/go-toast/blob/v0.1.0/sounds/NOTICE.md).

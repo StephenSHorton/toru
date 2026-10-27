@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
+	toast "github.com/StephenSHorton/go-toast"
 	"github.com/StephenSHorton/toru/internal/clicker/safety"
 	"github.com/StephenSHorton/toru/internal/hotkey"
-	"github.com/StephenSHorton/toru/internal/toast"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
