@@ -604,7 +604,7 @@ func (b *broadcaster) addViewer(peer, session, name string) error {
 	}
 	if old := b.viewers[key]; old != nil {
 		delete(b.viewers, key)
-		go old.pc.Close()
+		go func() { _ = old.pc.Close() }()
 	}
 	vf, af := b.video, b.audio
 	b.mu.Unlock()
@@ -641,7 +641,7 @@ func (b *broadcaster) addViewer(peer, session, name string) error {
 				delete(b.viewers, key)
 			}
 			b.mu.Unlock()
-			go pc.Close()
+			go func() { _ = pc.Close() }()
 		default:
 			v.connected.Store(false)
 		}

@@ -29,9 +29,13 @@ const (
 
 // Member is someone else in the room.
 type Member struct {
-	ID   string    `json:"id"`
-	Name string    `json:"name"`
-	Live *LiveInfo `json:"live"`
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Live     *LiveInfo `json:"live"`
+	InCall   bool      `json:"inCall"`
+	Muted    bool      `json:"muted"`
+	Deafened bool      `json:"deafened"`
+	Speaking bool      `json:"speaking"` // as heard by our call window
 }
 
 // RoomState is the room as the page shows it.
@@ -48,6 +52,7 @@ type State struct {
 	Preview bool       `json:"preview"` // "Show my stream" is on
 	Room    *RoomState `json:"room"`    // nil when not in a room
 	Live    LiveStatus `json:"live"`
+	Call    CallState  `json:"call"`
 }
 
 // Offer is a streamer's WebRTC offer for one watch window.
@@ -95,6 +100,12 @@ type StreamService struct {
 	bc        *broadcaster
 	sessions  map[string]string // watch session → host peer (this app watching)
 	openWatch func(host, name string)
+	openCall  func()
+	inCall    bool
+	muted     bool
+	deafened  bool
+	speaking  map[string]bool   // call peers talking now (call window reports)
+	callPeers map[string]string // call peer → connection state
 	quit      chan struct{}
 
 	emitMu   sync.Mutex
@@ -183,8 +194,10 @@ func (s *StreamService) GetSettings() Settings {
 // themselves.
 func (s *StreamService) SetSettings(in Settings) (Settings, error) {
 	s.mu.Lock()
-	in.RoomCode = s.settings.RoomCode       // the room is changed by Join/Leave only
-	in.ShowPreview = s.settings.ShowPreview // and the preview by SetPreview
+	in.RoomCode = s.settings.RoomCode                 // the room is changed by Join/Leave only
+	in.ShowPreview = s.settings.ShowPreview           // and the preview by SetPreview
+	in.NoiseSuppression = s.settings.NoiseSuppression // voice settings go through SetVoice
+	in.MicDevice, in.SpeakerDevice = s.settings.MicDevice, s.settings.SpeakerDevice
 	next := Normalize(in)
 	prev := s.settings
 	s.settings = next
@@ -243,7 +256,7 @@ func (s *StreamService) GetState() State {
 }
 
 func (s *StreamService) stateLocked() State {
-	st := State{Self: s.self, Preview: s.settings.ShowPreview}
+	st := State{Self: s.self, Preview: s.settings.ShowPreview, Call: s.callStateLocked()}
 	if s.bc != nil {
 		st.Live = s.bc.Status()
 	} else {
@@ -252,7 +265,9 @@ func (s *StreamService) stateLocked() State {
 	if s.room != nil {
 		rs := &RoomState{Code: s.room.Code(), Connected: s.room.Connected(), Relays: len(brokerSets), Members: []Member{}}
 		for _, m := range s.members {
-			rs.Members = append(rs.Members, m.Member)
+			mm := m.Member
+			mm.Speaking = s.inCall && mm.InCall && s.speaking[mm.ID] && !mm.Muted
+			rs.Members = append(rs.Members, mm)
 		}
 		sort.Slice(rs.Members, func(i, j int) bool {
 			if rs.Members[i].Name != rs.Members[j].Name {
@@ -306,7 +321,7 @@ func (s *StreamService) JoinRoom(code string) (State, error) {
 
 // LeaveRoom leaves the room (ending a live stream) and forgets its code.
 func (s *StreamService) LeaveRoom() State {
-	s.StopLive()
+	s.LeaveCall()
 	s.leave()
 	s.mu.Lock()
 	s.settings.RoomCode = ""
@@ -353,7 +368,7 @@ func (s *StreamService) send(to, typ string, body any) error {
 func (s *StreamService) announce() {
 	s.mu.Lock()
 	room := s.room
-	body := presenceBody{Name: s.settings.Name}
+	body := presenceBody{Name: s.settings.Name, InCall: s.inCall, Muted: s.muted || s.deafened, Deafened: s.deafened}
 	if s.bc != nil {
 		info := s.bc.Info()
 		body.Live = &info
@@ -411,6 +426,7 @@ func (s *StreamService) onMessage(env Envelope) {
 			s.members[env.From] = m
 		}
 		m.ID, m.Name, m.Live, m.seen = env.From, clipName(p.Name), p.Live, time.Now()
+		m.InCall, m.Muted, m.Deafened = p.InCall, p.Muted, p.Deafened
 		notify := s.settings.NotifyLive && p.Live != nil && !wasLive
 		name := m.Name
 		s.mu.Unlock()
@@ -476,6 +492,9 @@ func (s *StreamService) onMessage(env Envelope) {
 			bc.removeViewer(env.From, u.Session)
 		}
 
+	case msgCall:
+		s.onCallMessage(env)
+
 	case msgOffer:
 		o, err := decodeBody[offerBody](env)
 		if err != nil {
@@ -510,10 +529,12 @@ func (s *StreamService) notifyLive(host, name string) {
 	toast.Post(toast.Note{
 		ID:    "stream-live-" + host,
 		Title: name + " is live",
-		Body:  "Watch from Toru's Stream page",
+		Body:  "They're sharing their screen in the call",
 		Kind:  toast.Info,
-		Actions: []toast.Action{{Label: "Watch", Run: func() {
-			_ = s.OpenWatch(host)
+		Actions: []toast.Action{{Label: "Join & watch", Run: func() {
+			if _, err := s.JoinCall(); err == nil {
+				_ = s.OpenWatch(host)
+			}
 		}}},
 	})
 }
@@ -523,9 +544,9 @@ func (s *StreamService) notifyLive(host, name string) {
 // GoLive starts streaming to the room with the current settings.
 func (s *StreamService) GoLive() (State, error) {
 	s.mu.Lock()
-	if s.room == nil {
+	if !s.inCall {
 		s.mu.Unlock()
-		return s.GetState(), errors.New("join or create a room first")
+		return s.GetState(), errors.New("join the call to share your screen")
 	}
 	if s.bc != nil {
 		st := s.stateLocked()
@@ -585,7 +606,11 @@ func (s *StreamService) OpenWatch(host string) error {
 	} else if m := s.members[host]; m != nil {
 		name, live = m.Name, m.Live != nil
 	}
+	inCall := s.inCall
 	s.mu.Unlock()
+	if !inCall {
+		return errors.New("join the call to watch")
+	}
 	if !live {
 		return errors.New("they aren't live right now")
 	}

@@ -38,6 +38,9 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := st.Room.Code
+	if _, err := host.JoinCall(); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := host.GoLive(); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +85,7 @@ func TestEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pc.Close()
+	defer func() { _ = pc.Close() }()
 	var frames, bytes, audioPkts atomic.Int64
 	pc.OnTrack(func(tr *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		t.Logf("track %s %s", tr.Kind(), tr.Codec().MimeType)

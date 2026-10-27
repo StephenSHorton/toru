@@ -18,6 +18,21 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 /**
+ * CallReport (call window) reports who is speaking and how each peer
+ * connection is doing.
+ */
+export function CallReport(r: $models.CallReport): $CancellablePromise<void> {
+    return $Call.ByID(2509297961, r);
+}
+
+/**
+ * CallSend (call window) relays one signaling message to peer to.
+ */
+export function CallSend(to: string, kind: string, sdp: string): $CancellablePromise<void> {
+    return $Call.ByID(1316887233, to, kind, sdp);
+}
+
+/**
  * CreateRoom makes a new room and joins it.
  */
 export function CreateRoom(): $CancellablePromise<$models.State> {
@@ -71,10 +86,29 @@ export function HostName(host: string): $CancellablePromise<string> {
 }
 
 /**
+ * JoinCall joins the room's voice call.
+ */
+export function JoinCall(): $CancellablePromise<$models.State> {
+    return $Call.ByID(4075659255).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
  * JoinRoom leaves the current room (if any) and joins the one for code.
  */
 export function JoinRoom(code: string): $CancellablePromise<$models.State> {
     return $Call.ByID(344349456, code).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
+ * LeaveCall hangs up: stops sharing, closes streams being watched, and
+ * closes the call window.
+ */
+export function LeaveCall(): $CancellablePromise<$models.State> {
+    return $Call.ByID(2105851894).then(($result: any) => {
         return $$createType0($result);
     });
 }
@@ -106,6 +140,24 @@ export function OpenWatch(host: string): $CancellablePromise<void> {
 }
 
 /**
+ * SetDeafened silences everyone else (and mutes the mic while on).
+ */
+export function SetDeafened(on: boolean): $CancellablePromise<$models.State> {
+    return $Call.ByID(3816099419, on).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
+ * SetMuted mutes or unmutes the mic. Unmuting also undeafens.
+ */
+export function SetMuted(on: boolean): $CancellablePromise<$models.State> {
+    return $Call.ByID(2926166920, on).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
  * SetPreview turns "Show my stream" on or off, opening or closing the
  * preview window right away while live.
  */
@@ -124,6 +176,16 @@ export function SetPreview(on: boolean): $CancellablePromise<$models.State> {
 export function SetSettings($in: $models.Settings): $CancellablePromise<$models.Settings> {
     return $Call.ByID(576412512, $in).then(($result: any) => {
         return $$createType2($result);
+    });
+}
+
+/**
+ * SetVoice saves the voice preferences: noise suppression and devices. The
+ * call window applies them at once.
+ */
+export function SetVoice(noiseSuppression: boolean, micDevice: string, speakerDevice: string): $CancellablePromise<$models.State> {
+    return $Call.ByID(2559477025, noiseSuppression, micDevice, speakerDevice).then(($result: any) => {
+        return $$createType0($result);
     });
 }
 

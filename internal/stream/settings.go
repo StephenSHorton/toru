@@ -54,21 +54,27 @@ type Settings struct {
 	// ShowPreview opens a window watching our own stream while live. Off by
 	// default: decoding your own stream costs GPU time for nothing.
 	ShowPreview bool `json:"showPreview"`
+
+	// Voice call. Devices are WebView2 device ids; "" = the system default.
+	NoiseSuppression bool   `json:"noiseSuppression"`
+	MicDevice        string `json:"micDevice"`
+	SpeakerDevice    string `json:"speakerDevice"`
 }
 
 // DefaultSettings is the first-run setup: the main monitor as-is at 60 fps.
 func DefaultSettings() Settings {
 	return Settings{
-		Name:        defaultName(),
-		MonitorID:   -1,
-		FPS:         60,
-		BitrateKbps: 20_000,
-		Codec:       CodecH264,
-		Cursor:      true,
-		KeyframeSec: 2,
-		Audio:       true,
-		AudioKbps:   160,
-		NotifyLive:  true,
+		Name:             defaultName(),
+		MonitorID:        -1,
+		FPS:              60,
+		BitrateKbps:      20_000,
+		Codec:            CodecH264,
+		Cursor:           true,
+		KeyframeSec:      2,
+		Audio:            true,
+		AudioKbps:        160,
+		NotifyLive:       true,
+		NoiseSuppression: true,
 	}
 }
 

@@ -14,7 +14,7 @@ import {
   Video,
   LayoutGrid,
   MousePointerClick,
-  Radio,
+  Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -103,8 +103,8 @@ export default function Settings() {
         />
         <NavBtn
           active={page === "stream"}
-          icon={Radio}
-          label="Stream"
+          icon={Headphones}
+          label="Call"
           onClick={() => setPage("stream")}
         />
         <NavBtn

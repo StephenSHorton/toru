@@ -6,7 +6,13 @@ import {
   Copy,
   DoorOpen,
   Eye,
+  HeadphoneOff,
+  Headphones,
+  Mic,
+  MicOff,
   MonitorUp,
+  Phone,
+  PhoneOff,
   Radio,
   Square,
   Users,
@@ -118,13 +124,16 @@ export default function StreamPage() {
   const inRoom = !!state.room;
   const monitor = monitors.find((m) => m.id === settings.monitorId) ?? monitors.find((m) => m.primary) ?? monitors[0];
 
+  const inCall = state.call.inCall;
+  const watch = (id: string) => void StreamService.OpenWatch(id).catch((e: unknown) => setError(errText(e)));
+
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Stream</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Call</h1>
         <p className="text-sm text-muted-foreground">
-          Share your screen with friends at any resolution, frame rate and bitrate. It goes straight from
-          your PC to theirs.
+          Talk with friends and share your screen at any resolution, frame rate and bitrate. Everything goes
+          straight from PC to PC.
         </p>
       </div>
 
@@ -141,11 +150,25 @@ export default function StreamPage() {
           onCreate={() => void run(() => StreamService.CreateRoom())}
           onJoin={(code) => void run(() => StreamService.JoinRoom(code))}
           onLeave={() => void run(() => StreamService.LeaveRoom())}
-          onWatch={(id) => void StreamService.OpenWatch(id).catch((e: unknown) => setError(errText(e)))}
         />
+        {inRoom ? (
+          <CallCard
+            state={state}
+            name={settings.name}
+            busy={busy}
+            onJoin={() => void run(() => StreamService.JoinCall())}
+            onLeave={() => void run(() => StreamService.LeaveCall())}
+            onMute={(on) => void run(() => StreamService.SetMuted(on))}
+            onDeafen={(on) => void run(() => StreamService.SetDeafened(on))}
+            onShare={() => void run(() => StreamService.GoLive())}
+            onStopShare={() => void run(() => StreamService.StopLive())}
+            onWatch={watch}
+          />
+        ) : null}
+        <VoiceCard state={state} onChange={(ns, mic, speaker) => void run(() => StreamService.SetVoice(ns, mic, speaker))} />
         <LiveCard
           state={state}
-          inRoom={inRoom}
+          inCall={inCall}
           busy={busy}
           onGoLive={() => void run(() => StreamService.GoLive())}
           onStop={() => void run(() => StreamService.StopLive())}
@@ -170,7 +193,6 @@ function RoomCard({
   onCreate,
   onJoin,
   onLeave,
-  onWatch,
 }: {
   state: StreamState;
   settings: StreamSettings;
@@ -179,7 +201,6 @@ function RoomCard({
   onCreate: () => void;
   onJoin: (code: string) => void;
   onLeave: () => void;
-  onWatch: (id: string) => void;
 }) {
   const [code, setCode] = useState("");
   const [copied, setCopied] = useState(false);
@@ -257,7 +278,7 @@ function RoomCard({
         </Row>
       </div>
 
-      {room ? <MemberList members={room.members} onWatch={onWatch} /> : null}
+      {room ? <MemberList members={room.members} /> : null}
     </Card>
   );
 }
@@ -300,7 +321,7 @@ function NameInput({ value, onCommit }: { value: string; onCommit: (v: string) =
   );
 }
 
-function MemberList({ members, onWatch }: { members: StreamMember[]; onWatch: (id: string) => void }) {
+function MemberList({ members }: { members: StreamMember[] }) {
   if (members.length === 0) {
     return <Note>No one else is here yet. Send them the room code.</Note>;
   }
@@ -308,20 +329,250 @@ function MemberList({ members, onWatch }: { members: StreamMember[]; onWatch: (i
     <ul className="flex flex-col divide-y divide-border border border-border">
       {members.map((m) => (
         <li key={m.id} className="flex items-center gap-3 px-3 py-2">
-          <span className={cn("size-2 shrink-0 rounded-full", m.live ? "bg-red-500" : "bg-emerald-400")} />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-sm font-medium">{m.name}</span>
-            <span className="truncate text-xs text-muted-foreground">{m.live ? describeLive(m.live) : "In the room"}</span>
-          </div>
-          {m.live ? (
-            <Button size="sm" onClick={() => onWatch(m.id)}>
+          <span className={cn("size-2 shrink-0 rounded-full", m.inCall ? "bg-sky-400" : "bg-emerald-400")} />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">{m.name}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {m.live ? "Sharing in the call" : m.inCall ? "In the call" : "Online"}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Call
+// ---------------------------------------------------------------------------
+
+interface Tile {
+  id: string;
+  name: string;
+  self: boolean;
+  speaking: boolean;
+  muted: boolean;
+  deafened: boolean;
+  live: StreamLiveInfo | null;
+  link: string; // our connection to them ("" for us)
+}
+
+function CallCard({
+  state,
+  name,
+  busy,
+  onJoin,
+  onLeave,
+  onMute,
+  onDeafen,
+  onShare,
+  onStopShare,
+  onWatch,
+}: {
+  state: StreamState;
+  name: string;
+  busy: boolean;
+  onJoin: () => void;
+  onLeave: () => void;
+  onMute: (on: boolean) => void;
+  onDeafen: (on: boolean) => void;
+  onShare: () => void;
+  onStopShare: () => void;
+  onWatch: (id: string) => void;
+}) {
+  const call = state.call;
+  const others = (state.room?.members ?? []).filter((m) => m.inCall);
+  const tiles: Tile[] = others.map((m) => ({
+    id: m.id,
+    name: m.name,
+    self: false,
+    speaking: m.speaking,
+    muted: m.muted,
+    deafened: m.deafened,
+    live: m.live,
+    link: call.peers?.[m.id] ?? "",
+  }));
+  if (call.inCall) {
+    tiles.unshift({
+      id: state.self,
+      name,
+      self: true,
+      speaking: call.speaking,
+      muted: call.muted,
+      deafened: call.deafened,
+      live: state.live.live ? state.live.info : null,
+      link: "",
+    });
+  }
+
+  return (
+    <Card label="Call" wide>
+      <CardHead
+        icon={Headphones}
+        title="Voice call"
+        caption={
+          call.inCall
+            ? "You're in the call"
+            : others.length > 0
+              ? `${others.length} ${others.length === 1 ? "person is" : "people are"} talking`
+              : "No one's in the call yet"
+        }
+      />
+
+      {tiles.length > 0 ? (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+          {tiles.map((t) => (
+            <CallTile key={t.id} tile={t} canWatch={call.inCall} onWatch={onWatch} />
+          ))}
+        </div>
+      ) : null}
+
+      {call.inCall ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant={call.muted ? "destructive" : "outline"}
+            onClick={() => onMute(!call.muted)}
+            title={call.muted ? "Unmute" : "Mute"}
+          >
+            {call.muted ? <MicOff /> : <Mic />}
+            {call.muted ? "Unmute" : "Mute"}
+          </Button>
+          <Button
+            variant={call.deafened ? "destructive" : "outline"}
+            onClick={() => onDeafen(!call.deafened)}
+            title={call.deafened ? "Undeafen" : "Deafen: hear no one, and mute your mic"}
+          >
+            {call.deafened ? <HeadphoneOff /> : <Headphones />}
+            {call.deafened ? "Undeafen" : "Deafen"}
+          </Button>
+          {state.live.live ? (
+            <Button variant="outline" disabled={busy} onClick={onStopShare}>
+              <Square />
+              Stop sharing
+            </Button>
+          ) : (
+            <Button variant="outline" disabled={busy} onClick={onShare}>
+              <MonitorUp />
+              Share screen
+            </Button>
+          )}
+          <div className="flex-1" />
+          <Button variant="destructive" disabled={busy} onClick={onLeave}>
+            <PhoneOff />
+            Leave
+          </Button>
+        </div>
+      ) : (
+        <div>
+          <Button disabled={busy} onClick={onJoin}>
+            <Phone />
+            Join call
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function CallTile({ tile, canWatch, onWatch }: { tile: Tile; canWatch: boolean; onWatch: (id: string) => void }) {
+  const connecting = !tile.self && canWatch && tile.link !== "" && tile.link !== "connected";
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-center gap-2 border bg-background/40 px-2 py-3 transition-colors",
+        tile.speaking ? "border-emerald-400 shadow-[0_0_0_1px_rgb(52_211_153)]" : "border-border",
+      )}
+    >
+      <div
+        className={cn(
+          "flex size-12 items-center justify-center rounded-full bg-muted text-lg font-semibold",
+          tile.speaking && "ring-2 ring-emerald-400 ring-offset-2 ring-offset-background",
+        )}
+      >
+        {tile.name.slice(0, 1).toUpperCase()}
+      </div>
+      <div className="flex max-w-full items-center gap-1 text-sm">
+        <span className="truncate">{tile.self ? `${tile.name} (you)` : tile.name}</span>
+        {tile.deafened ? (
+          <HeadphoneOff className="size-3.5 shrink-0 text-destructive" />
+        ) : tile.muted ? (
+          <MicOff className="size-3.5 shrink-0 text-destructive" />
+        ) : null}
+      </div>
+      {tile.live ? (
+        <div className="flex flex-col items-center gap-1">
+          <span className="inline-flex items-center gap-1 bg-red-600 px-1.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+            Live
+          </span>
+          {!tile.self && canWatch ? (
+            <Button size="sm" onClick={() => onWatch(tile.id)}>
               <Eye />
               Watch
             </Button>
           ) : null}
-        </li>
-      ))}
-    </ul>
+        </div>
+      ) : connecting ? (
+        <span className="text-[11px] text-muted-foreground">{tile.link === "failed" ? "Can't connect" : "Connecting…"}</span>
+      ) : null}
+    </div>
+  );
+}
+
+// VoiceCard: noise suppression and the mic and speaker devices. The hidden
+// call window applies changes at once.
+function VoiceCard({
+  state,
+  onChange,
+}: {
+  state: StreamState;
+  onChange: (noiseSuppression: boolean, mic: string, speaker: string) => void;
+}) {
+  const call = state.call;
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  useEffect(() => {
+    const load = () =>
+      void navigator.mediaDevices
+        .enumerateDevices()
+        .then(setDevices)
+        .catch(() => {});
+    load();
+    navigator.mediaDevices.addEventListener("devicechange", load);
+    return () => navigator.mediaDevices.removeEventListener("devicechange", load);
+  }, [call.inCall]);
+
+  const list = (kind: MediaDeviceKind, fallback: string) => [
+    { value: "", label: "System default" },
+    ...devices
+      .filter((d) => d.kind === kind && d.deviceId && d.deviceId !== "default" && d.deviceId !== "communications")
+      .map((d, i) => ({ value: d.deviceId, label: d.label || `${fallback} ${i + 1}` })),
+  ];
+  const mics = list("audioinput", "Microphone");
+  const speakers = list("audiooutput", "Speakers");
+
+  return (
+    <Card label="Voice">
+      <CardHead icon={Mic} title="Voice" caption="Applies right away, even mid-call" />
+      <Row label="Noise suppression" caption="Filters out fans, keyboards and background noise">
+        <Switch
+          checked={call.noiseSuppression}
+          onCheckedChange={(ns) => onChange(ns, call.micDevice, call.speakerDevice)}
+        />
+      </Row>
+      <Row label="Microphone">
+        <Select
+          value={mics.some((m) => m.value === call.micDevice) ? call.micDevice : ""}
+          options={mics}
+          onChange={(mic) => onChange(call.noiseSuppression, mic, call.speakerDevice)}
+          boxClassName="w-56"
+        />
+      </Row>
+      <Row label="Speakers">
+        <Select
+          value={speakers.some((m) => m.value === call.speakerDevice) ? call.speakerDevice : ""}
+          options={speakers}
+          onChange={(speaker) => onChange(call.noiseSuppression, call.micDevice, speaker)}
+          boxClassName="w-56"
+        />
+      </Row>
+    </Card>
   );
 }
 
@@ -331,14 +582,14 @@ function MemberList({ members, onWatch }: { members: StreamMember[]; onWatch: (i
 
 function LiveCard({
   state,
-  inRoom,
+  inCall,
   busy,
   onGoLive,
   onStop,
   onPreview,
 }: {
   state: StreamState;
-  inRoom: boolean;
+  inCall: boolean;
   busy: boolean;
   onGoLive: () => void;
   onStop: () => void;
@@ -353,11 +604,11 @@ function LiveCard({
     </Row>
   );
   return (
-    <Card label="Go live">
+    <Card label="Share screen">
       <CardHead
         icon={Radio}
-        title="Go live"
-        caption={inRoom ? "Everyone in the room can watch" : "Join a room first"}
+        title="Share screen"
+        caption={inCall ? "Everyone in the call can watch" : "Join the call to share your screen"}
       >
         {live.live ? (
           <span className="inline-flex items-center gap-1.5 border border-red-500/60 bg-red-500/10 px-2 py-0.5 text-xs text-red-300">
@@ -401,7 +652,7 @@ function LiveCard({
           <div>
             <Button variant="destructive" disabled={busy} onClick={onStop}>
               <Square />
-              Stop
+              Stop sharing
             </Button>
           </div>
         </>
@@ -413,9 +664,9 @@ function LiveCard({
           {live.error ? <Note warn>{live.error}</Note> : null}
           {previewRow}
           <div>
-            <Button disabled={busy || !inRoom} onClick={onGoLive}>
+            <Button disabled={busy || !inCall} onClick={onGoLive}>
               <MonitorUp />
-              Go live
+              Share screen
             </Button>
           </div>
         </>

@@ -27,6 +27,8 @@ import type * as update$0 from "../../../../StephenSHorton/toru/internal/update/
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "call:end": void;
+            "call:signal": stream$0.CallSignal;
             "capture:done": capture$0.CaptureResult;
             "clicker:pick": clicker$0.PickEvent;
             "clicker:settings": clicker$0.Settings;

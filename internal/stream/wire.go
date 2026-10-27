@@ -14,8 +14,11 @@ const (
 )
 
 type presenceBody struct {
-	Name string    `json:"name"`
-	Live *LiveInfo `json:"live,omitempty"`
+	Name     string    `json:"name"`
+	Live     *LiveInfo `json:"live,omitempty"`
+	InCall   bool      `json:"inCall,omitempty"`
+	Muted    bool      `json:"muted,omitempty"`
+	Deafened bool      `json:"deafened,omitempty"`
 }
 
 type watchBody struct {

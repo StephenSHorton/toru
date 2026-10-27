@@ -300,6 +300,31 @@ func (w *WindowsService) OpenTrim(videoPath string) {
 	w.openTrimWindow("Toru — Trim Recording", videoPath, servedFileURL(videoPath))
 }
 
+// OpenCall opens the hidden window that runs the voice call (mic, peer
+// connections, playback). It closes itself when the call ends; the call keeps
+// going while every visible window is closed.
+//
+//wails:ignore
+func (w *WindowsService) OpenCall() {
+	if w.app == nil {
+		return
+	}
+	for _, win := range w.app.Window.GetAll() {
+		if win.Name() == "toru-call" {
+			return // already in a call
+		}
+	}
+	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:             "toru-call",
+		Title:            "Toru — Call",
+		URL:              "/?view=call",
+		Width:            320,
+		Height:           200,
+		Hidden:           true,
+		BackgroundColour: dark,
+	})
+}
+
 // OpenWatch opens a window watching a room member's live stream, sized to a
 // 16:9 picture at most 1280 wide inside the primary work area.
 //

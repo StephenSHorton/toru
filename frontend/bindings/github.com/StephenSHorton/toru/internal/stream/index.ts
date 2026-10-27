@@ -7,6 +7,9 @@ export {
 };
 
 export {
+    CallReport,
+    CallSignal,
+    CallState,
     HostEvent,
     LiveInfo,
     LiveStatus,

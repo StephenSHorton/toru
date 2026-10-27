@@ -88,6 +88,8 @@ func init() {
 	application.RegisterEvent[stream.State](stream.EventState)
 	application.RegisterEvent[stream.Offer](stream.EventOffer)
 	application.RegisterEvent[stream.HostEvent](stream.EventHost)
+	application.RegisterEvent[stream.CallSignal](stream.EventCallSignal)
+	application.RegisterEvent[application.Void](stream.EventCallEnd)
 }
 
 func main() {
@@ -239,6 +241,7 @@ func main() {
 	clickerSvc.SetHotkeys(keys)
 	streamSvc.SetApp(app)
 	streamSvc.SetWatchOpener(windowsSvc.OpenWatch)
+	streamSvc.SetCallOpener(windowsSvc.OpenCall)
 	// Recording a shortcut stops the clicker first, so its input can't land in
 	// the recorder.
 	hotkeySvc.SetOnRecordStart(func() { clickerSvc.StopFor(clicker.StopKeyCapture) })

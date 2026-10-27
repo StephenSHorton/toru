@@ -6,6 +6,150 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * CallReport is what the call window reports a few times a second.
+ */
+export class CallReport {
+    /**
+     * peer ids talking now; may include our own id
+     */
+    "speaking": string[];
+    "peers": { [_ in string]?: string };
+
+    /** Creates a new CallReport instance. */
+    constructor($$source: Partial<CallReport> = {}) {
+        if (!("speaking" in $$source)) {
+            this["speaking"] = [];
+        }
+        if (!("peers" in $$source)) {
+            this["peers"] = {};
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CallReport instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CallReport {
+        const $$createField0_0 = $$createType0;
+        const $$createField1_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("speaking" in $$parsedSource) {
+            $$parsedSource["speaking"] = $$createField0_0($$parsedSource["speaking"]);
+        }
+        if ("peers" in $$parsedSource) {
+            $$parsedSource["peers"] = $$createField1_0($$parsedSource["peers"]);
+        }
+        return new CallReport($$parsedSource as Partial<CallReport>);
+    }
+}
+
+/**
+ * CallSignal is a signaling message for the call window.
+ */
+export class CallSignal {
+    "from": string;
+    "kind": string;
+    "sdp": string;
+
+    /** Creates a new CallSignal instance. */
+    constructor($$source: Partial<CallSignal> = {}) {
+        if (!("from" in $$source)) {
+            this["from"] = "";
+        }
+        if (!("kind" in $$source)) {
+            this["kind"] = "";
+        }
+        if (!("sdp" in $$source)) {
+            this["sdp"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CallSignal instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CallSignal {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CallSignal($$parsedSource as Partial<CallSignal>);
+    }
+}
+
+/**
+ * CallState is this app's side of the call.
+ */
+export class CallState {
+    "inCall": boolean;
+    "muted": boolean;
+
+    /**
+     * also mutes the mic
+     */
+    "deafened": boolean;
+    "speaking": boolean;
+    "noiseSuppression": boolean;
+
+    /**
+     * WebView deviceId; "" = system default
+     */
+    "micDevice": string;
+
+    /**
+     * WebView sinkId; "" = system default
+     */
+    "speakerDevice": string;
+
+    /**
+     * Peers is each other call member's connection state as the call window
+     * sees it ("connecting", "connected", "failed"...).
+     */
+    "peers": { [_ in string]?: string };
+
+    /** Creates a new CallState instance. */
+    constructor($$source: Partial<CallState> = {}) {
+        if (!("inCall" in $$source)) {
+            this["inCall"] = false;
+        }
+        if (!("muted" in $$source)) {
+            this["muted"] = false;
+        }
+        if (!("deafened" in $$source)) {
+            this["deafened"] = false;
+        }
+        if (!("speaking" in $$source)) {
+            this["speaking"] = false;
+        }
+        if (!("noiseSuppression" in $$source)) {
+            this["noiseSuppression"] = false;
+        }
+        if (!("micDevice" in $$source)) {
+            this["micDevice"] = "";
+        }
+        if (!("speakerDevice" in $$source)) {
+            this["speakerDevice"] = "";
+        }
+        if (!("peers" in $$source)) {
+            this["peers"] = {};
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CallState instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CallState {
+        const $$createField7_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("peers" in $$parsedSource) {
+            $$parsedSource["peers"] = $$createField7_0($$parsedSource["peers"]);
+        }
+        return new CallState($$parsedSource as Partial<CallState>);
+    }
+}
+
+/**
  * HostEvent tells a watch window its stream restarted ("restart": ask
  * again), ended ("ended"), or should close
  * ("close": the preview was turned off).
@@ -154,8 +298,8 @@ export class LiveStatus {
      * Creates a new LiveStatus instance from a string or object.
      */
     static createFrom($$source: any = {}): LiveStatus {
-        const $$createField4_0 = $$createType0;
-        const $$createField5_0 = $$createType2;
+        const $$createField4_0 = $$createType2;
+        const $$createField5_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("info" in $$parsedSource) {
             $$parsedSource["info"] = $$createField4_0($$parsedSource["info"]);
@@ -174,6 +318,14 @@ export class Member {
     "id": string;
     "name": string;
     "live": LiveInfo | null;
+    "inCall": boolean;
+    "muted": boolean;
+    "deafened": boolean;
+
+    /**
+     * as heard by our call window
+     */
+    "speaking": boolean;
 
     /** Creates a new Member instance. */
     constructor($$source: Partial<Member> = {}) {
@@ -186,6 +338,18 @@ export class Member {
         if (!("live" in $$source)) {
             this["live"] = null;
         }
+        if (!("inCall" in $$source)) {
+            this["inCall"] = false;
+        }
+        if (!("muted" in $$source)) {
+            this["muted"] = false;
+        }
+        if (!("deafened" in $$source)) {
+            this["deafened"] = false;
+        }
+        if (!("speaking" in $$source)) {
+            this["speaking"] = false;
+        }
 
         Object.assign(this, $$source);
     }
@@ -194,7 +358,7 @@ export class Member {
      * Creates a new Member instance from a string or object.
      */
     static createFrom($$source: any = {}): Member {
-        const $$createField2_0 = $$createType3;
+        const $$createField2_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("live" in $$parsedSource) {
             $$parsedSource["live"] = $$createField2_0($$parsedSource["live"]);
@@ -274,7 +438,7 @@ export class Offer {
      * Creates a new Offer instance from a string or object.
      */
     static createFrom($$source: any = {}): Offer {
-        const $$createField3_0 = $$createType0;
+        const $$createField3_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("info" in $$parsedSource) {
             $$parsedSource["info"] = $$createField3_0($$parsedSource["info"]);
@@ -326,7 +490,7 @@ export class RoomState {
      * Creates a new RoomState instance from a string or object.
      */
     static createFrom($$source: any = {}): RoomState {
-        const $$createField3_0 = $$createType5;
+        const $$createField3_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("members" in $$parsedSource) {
             $$parsedSource["members"] = $$createField3_0($$parsedSource["members"]);
@@ -407,6 +571,13 @@ export class Settings {
      */
     "showPreview": boolean;
 
+    /**
+     * Voice call. Devices are WebView2 device ids; "" = the system default.
+     */
+    "noiseSuppression": boolean;
+    "micDevice": string;
+    "speakerDevice": string;
+
     /** Creates a new Settings instance. */
     constructor($$source: Partial<Settings> = {}) {
         if (!("name" in $$source)) {
@@ -451,6 +622,15 @@ export class Settings {
         if (!("showPreview" in $$source)) {
             this["showPreview"] = false;
         }
+        if (!("noiseSuppression" in $$source)) {
+            this["noiseSuppression"] = false;
+        }
+        if (!("micDevice" in $$source)) {
+            this["micDevice"] = "";
+        }
+        if (!("speakerDevice" in $$source)) {
+            this["speakerDevice"] = "";
+        }
 
         Object.assign(this, $$source);
     }
@@ -480,6 +660,7 @@ export class State {
      */
     "room": RoomState | null;
     "live": LiveStatus;
+    "call": CallState;
 
     /** Creates a new State instance. */
     constructor($$source: Partial<State> = {}) {
@@ -495,6 +676,9 @@ export class State {
         if (!("live" in $$source)) {
             this["live"] = (new LiveStatus());
         }
+        if (!("call" in $$source)) {
+            this["call"] = (new CallState());
+        }
 
         Object.assign(this, $$source);
     }
@@ -503,14 +687,18 @@ export class State {
      * Creates a new State instance from a string or object.
      */
     static createFrom($$source: any = {}): State {
-        const $$createField2_0 = $$createType7;
-        const $$createField3_0 = $$createType8;
+        const $$createField2_0 = $$createType9;
+        const $$createField3_0 = $$createType10;
+        const $$createField4_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("room" in $$parsedSource) {
             $$parsedSource["room"] = $$createField2_0($$parsedSource["room"]);
         }
         if ("live" in $$parsedSource) {
             $$parsedSource["live"] = $$createField3_0($$parsedSource["live"]);
+        }
+        if ("call" in $$parsedSource) {
+            $$parsedSource["call"] = $$createField4_0($$parsedSource["call"]);
         }
         return new State($$parsedSource as Partial<State>);
     }
@@ -549,12 +737,15 @@ export class ViewerInfo {
 }
 
 // Private type creation functions
-const $$createType0 = LiveInfo.createFrom;
-const $$createType1 = ViewerInfo.createFrom;
-const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = $Create.Nullable($$createType0);
-const $$createType4 = Member.createFrom;
-const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = RoomState.createFrom;
-const $$createType7 = $Create.Nullable($$createType6);
-const $$createType8 = LiveStatus.createFrom;
+const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = $Create.Map($Create.Any, $Create.Any);
+const $$createType2 = LiveInfo.createFrom;
+const $$createType3 = ViewerInfo.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = $Create.Nullable($$createType2);
+const $$createType6 = Member.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = RoomState.createFrom;
+const $$createType9 = $Create.Nullable($$createType8);
+const $$createType10 = LiveStatus.createFrom;
+const $$createType11 = CallState.createFrom;

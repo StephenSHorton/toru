@@ -27,37 +27,39 @@ import * as update$0 from "../../../../StephenSHorton/toru/internal/update/model
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
-        "capture:done": $$createType0,
-        "clicker:pick": $$createType1,
-        "clicker:settings": $$createType2,
-        "clicker:status": $$createType3,
-        "overlay:cropRect": $$createType4,
-        "overlay:edit": $$createType5,
-        "overlay:engage": $$createType6,
-        "overlay:ui": $$createType7,
-        "stream:host": $$createType8,
-        "stream:offer": $$createType9,
-        "stream:state": $$createType10,
-        "transfer:receive": $$createType11,
-        "transfer:send": $$createType12,
-        "update:status": $$createType13,
+        "call:signal": $$createType0,
+        "capture:done": $$createType1,
+        "clicker:pick": $$createType2,
+        "clicker:settings": $$createType3,
+        "clicker:status": $$createType4,
+        "overlay:cropRect": $$createType5,
+        "overlay:edit": $$createType6,
+        "overlay:engage": $$createType7,
+        "overlay:ui": $$createType8,
+        "stream:host": $$createType9,
+        "stream:offer": $$createType10,
+        "stream:state": $$createType11,
+        "transfer:receive": $$createType12,
+        "transfer:send": $$createType13,
+        "update:status": $$createType14,
     }));
 }
 
 // Private type creation functions
-const $$createType0 = capture$0.CaptureResult.createFrom;
-const $$createType1 = clicker$0.PickEvent.createFrom;
-const $$createType2 = clicker$0.Settings.createFrom;
-const $$createType3 = clicker$0.Status.createFrom;
-const $$createType4 = capture$0.Rect.createFrom;
-const $$createType5 = overlay$0.OverlayEditPayload.createFrom;
-const $$createType6 = overlay$0.MonitorSession.createFrom;
-const $$createType7 = overlay$0.OverlayUi.createFrom;
-const $$createType8 = stream$0.HostEvent.createFrom;
-const $$createType9 = stream$0.Offer.createFrom;
-const $$createType10 = stream$0.State.createFrom;
-const $$createType11 = transfer$0.ReceiveState.createFrom;
-const $$createType12 = transfer$0.SendState.createFrom;
-const $$createType13 = update$0.Status.createFrom;
+const $$createType0 = stream$0.CallSignal.createFrom;
+const $$createType1 = capture$0.CaptureResult.createFrom;
+const $$createType2 = clicker$0.PickEvent.createFrom;
+const $$createType3 = clicker$0.Settings.createFrom;
+const $$createType4 = clicker$0.Status.createFrom;
+const $$createType5 = capture$0.Rect.createFrom;
+const $$createType6 = overlay$0.OverlayEditPayload.createFrom;
+const $$createType7 = overlay$0.MonitorSession.createFrom;
+const $$createType8 = overlay$0.OverlayUi.createFrom;
+const $$createType9 = stream$0.HostEvent.createFrom;
+const $$createType10 = stream$0.Offer.createFrom;
+const $$createType11 = stream$0.State.createFrom;
+const $$createType12 = transfer$0.ReceiveState.createFrom;
+const $$createType13 = transfer$0.SendState.createFrom;
+const $$createType14 = update$0.Status.createFrom;
 
 configure();
