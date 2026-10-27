@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/clicker"
 	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/StephenSHorton/toru/internal/transfer"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -117,6 +118,20 @@ func (w *WindowsService) OpenSendFiles() {
 		return
 	}
 	w.openSettingsURL("/?view=settings&page=send")
+}
+
+// OpenClicker surfaces the Auto Clicker page of the hub, the same way
+// OpenSendFiles does (clicker:open for a live hub, ?page=clicker otherwise).
+func (w *WindowsService) OpenClicker() {
+	if w.app == nil {
+		return
+	}
+	if w.settingsWin != nil {
+		w.openSettingsURL("")
+		w.app.Event.Emit(clicker.EventOpen, nil)
+		return
+	}
+	w.openSettingsURL("/?view=settings&page=clicker")
 }
 
 // openSettingsURL is the shared body of OpenSettings/OpenSendFiles: raise the

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
-	"unicode"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -31,9 +31,13 @@ var (
 	procRegisterHotKey      = user32.NewProc("RegisterHotKey")
 	procUnregisterHotKey    = user32.NewProc("UnregisterHotKey")
 
+	procWindowFromPoint          = user32.NewProc("WindowFromPoint")
+	procGetAncestor              = user32.NewProc("GetAncestor")
+	procGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
+
 	procGetCurrentThreadId = kernel32.NewProc("GetCurrentThreadId")
 
-	// RtlMoveMemory(dst, src, len) lets us copy the KBDLLHOOKSTRUCT out of the
+	// RtlMoveMemory(dst, src, len) lets us copy the hook structs out of the
 	// hook's lParam without converting that uintptr to an unsafe.Pointer (which
 	// `go vet`'s unsafeptr analyzer rejects). Mirrors the dodge in
 	// internal/export/clipboard_windows.go.
@@ -42,6 +46,7 @@ var (
 
 const (
 	whKeyboardLL = 13 // WH_KEYBOARD_LL
+	whMouseLL    = 14 // WH_MOUSE_LL
 
 	wmKeyDown    = 0x0100 // WM_KEYDOWN
 	wmKeyUp      = 0x0101 // WM_KEYUP
@@ -49,24 +54,32 @@ const (
 	wmSysKeyUp   = 0x0105 // WM_SYSKEYUP
 	wmQuit       = 0x0012 // WM_QUIT
 
-	hcAction = 0 // HC_ACTION
+	wmMButtonDown = 0x0207 // WM_MBUTTONDOWN
+	wmMButtonUp   = 0x0208 // WM_MBUTTONUP
+	wmXButtonDown = 0x020B // WM_XBUTTONDOWN (HIWORD(mouseData): 1 = X1, 2 = X2)
+	wmXButtonUp   = 0x020C // WM_XBUTTONUP
 
-	vkLWin    = 0x5B // VK_LWIN
-	vkRWin    = 0x5C // VK_RWIN
-	vkShift   = 0x10 // VK_SHIFT  (merged L+R)
-	vkControl = 0x11 // VK_CONTROL (merged L+R)
-	vkMenu    = 0x12 // VK_MENU / Alt (merged L+R)
-	vkEscape  = 0x1B // VK_ESCAPE (global overlay cancel)
-	vkF1      = 0x70 // VK_F1; F2-F24 follow consecutively
+	hcAction = 0 // HC_ACTION
+	gaRoot   = 2 // GA_ROOT
 
 	asyncDownBit = 0x8000 // GetAsyncKeyState high bit => key currently down
 )
 
 // kbdllhookstruct mirrors the Win32 KBDLLHOOKSTRUCT. The hook's lParam points at
-// one of these; we read VkCode and never retain the pointer past the proc return.
+// one of these; we copy it out and never retain the pointer past the proc return.
 type kbdllhookstruct struct {
 	VkCode      uint32
 	ScanCode    uint32
+	Flags       uint32
+	Time        uint32
+	DwExtraInfo uintptr
+}
+
+// msllhookstruct mirrors the Win32 MSLLHOOKSTRUCT (the mouse hook's lParam).
+// On 64-bit, 4 bytes of padding precede DwExtraInfo; Go lays it out the same.
+type msllhookstruct struct {
+	Pt          struct{ X, Y int32 }
+	MouseData   uint32
 	Flags       uint32
 	Time        uint32
 	DwExtraInfo uintptr
@@ -82,34 +95,27 @@ type msg struct {
 	Pt      struct{ X, Y int32 }
 }
 
-// Package-level callback + active manager. The syscall.NewCallback trampoline
-// MUST be a package-level var created exactly once: a local would be GC'd and
-// crash the process on the next keystroke. NewCallback can't capture instance
-// state, so the proc finds the live Manager via `active` (single-app-instance
-// assumption — Toru is single-instance).
+// Package-level callbacks. The syscall.NewCallback trampolines MUST be
+// package-level vars created exactly once: a local would be GC'd and crash the
+// process on the next keystroke. NewCallback can't capture instance state, so
+// the procs find the live Manager via `active` (hookcore.go).
 var (
-	cbOnce sync.Once
-	hookCB uintptr
-	active *Manager
-	actMu  sync.Mutex
+	cbOnce  sync.Once
+	hookCB  uintptr
+	mouseCB uintptr
 
-	// chordHeld + heldVK implement fire-on-first-down latching (guarded by actMu).
-	// Holding a chord generates auto-repeat WM_KEYDOWNs (~30/sec); without a latch
-	// each one would dispatch another OpenOverlay (overlay teardown+refreeze storm).
-	// On the first matched down we set chordHeld=true + remember the trigger VK; the
-	// repeats are still swallowed (return 1) but not re-dispatched. We clear the
-	// latch when that trigger key's WM_KEYUP/WM_SYSKEYUP arrives, re-arming the next
-	// real press.
-	chordHeld bool
-	heldVK    uint32
+	// mouseHook is the WH_MOUSE_LL handle. Touched only on the hook thread.
+	mouseHook uintptr
 
-	// escHeld is the fire-on-first-down latch for the global Escape-to-cancel: a
-	// HELD Escape auto-repeats (~30/sec) and we want exactly ONE Cancel per press,
-	// not a flood. Set on the first armed Escape down, cleared on Escape up. Guarded
-	// by actMu (same as chordHeld), independent of the chord latch so a held
-	// Win+Shift+S and a tapped Escape never suppress each other.
-	escHeld bool
+	// hookTID is the hook thread's id (0 when not running), readable without
+	// m.mu so requestSync can post from under actMu.
+	hookTID atomic.Uint32
 )
+
+func init() {
+	asyncKeyDown = func(vk uint32) bool { return keyDown(int(vk)) }
+	overOwnWindow = pointOverOwnWindow
+}
 
 // keyDown reports whether vk is currently down via GetAsyncKeyState's high bit.
 func keyDown(vk int) bool {
@@ -117,28 +123,50 @@ func keyDown(vk int) bool {
 	return r&asyncDownBit != 0
 }
 
-// triggerVK maps a binding Key rune to its virtual-key code. For A-Z and 0-9 the
-// VK equals the ASCII uppercase rune ('S'==0x53, '1'==0x31); F1-F24 are
-// VK_F1 (0x70) onward.
-func triggerVK(key rune) uint32 {
-	if n := fKeyNumber(key); n > 0 {
-		return vkF1 + uint32(n-1)
+// pointOverOwnWindow reports whether the window under the screen point
+// belongs to this process (WindowFromPoint -> GA_ROOT -> owning pid).
+func pointOverOwnWindow(x, y int32) bool {
+	var hwnd uintptr
+	if unsafe.Sizeof(uintptr(0)) == 8 {
+		// POINT is passed by value, packed into one register on x64.
+		hwnd, _, _ = procWindowFromPoint.Call(uintptr(uint32(x)) | uintptr(uint32(y))<<32)
+	} else {
+		hwnd, _, _ = procWindowFromPoint.Call(uintptr(x), uintptr(y))
 	}
-	if k, ok := namedKeyFor(key); ok {
-		return k.vk
+	if hwnd == 0 {
+		return false
 	}
-	return uint32(unicode.ToUpper(key))
+	if root, _, _ := procGetAncestor.Call(hwnd, gaRoot); root != 0 {
+		hwnd = root
+	}
+	var pid uint32
+	_, _, _ = procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+	return pid != 0 && pid == windows.GetCurrentProcessId()
 }
 
-// installHook publishes m as the active manager, lazily builds the trampoline,
+// requestSync asks the hook thread to re-apply system hotkeys and the mouse
+// hook. Lock-free, so it is safe under actMu or m.mu.
+func requestSync() {
+	if tid := hookTID.Load(); tid != 0 {
+		_, _, _ = procPostThreadMessageW.Call(uintptr(tid), wmSyncHotkeys, 0, 0)
+	}
+}
+
+// installHook publishes m as the active manager, lazily builds the trampolines,
 // then spins up a dedicated OS thread that installs the WH_KEYBOARD_LL hook and
 // pumps messages. NEVER installs on Wails' main thread (Wails owns that pump).
+// The WH_MOUSE_LL hook is installed on the same thread, but only while some
+// binding uses a mouse button (applyMouseHook): it is called on every mouse
+// move, so it isn't left in the input path when nothing needs it.
 func (m *Manager) installHook() {
 	actMu.Lock()
 	active = m
 	actMu.Unlock()
 
-	cbOnce.Do(func() { hookCB = syscall.NewCallback(lowLevelKeyboardProc) })
+	cbOnce.Do(func() {
+		hookCB = syscall.NewCallback(lowLevelKeyboardProc)
+		mouseCB = syscall.NewCallback(lowLevelMouseProc)
+	})
 
 	go func() {
 		// The hook + its GetMessageW pump must live on ONE dedicated OS thread.
@@ -169,6 +197,8 @@ func (m *Manager) installHook() {
 		m.hook = hook
 		m.threadID = uint32(tid)
 		m.mu.Unlock()
+		hookTID.Store(uint32(tid))
+		kbdHookUp.Store(true)
 
 		// Pump. An LL-hook thread only needs to keep pumping; the OS delivers the
 		// callback directly, so no TranslateMessage/DispatchMessage is needed.
@@ -189,6 +219,7 @@ func (m *Manager) installHook() {
 			}
 		}
 		m.unregisterSystemHotkeys()
+		setMouseHook(false)
 	}()
 }
 
@@ -200,12 +231,18 @@ func (m *Manager) installHook() {
 // registered with it whenever possible; the hook skips those actions (so they
 // can't fire twice) and remains the fallback when registration fails (combo
 // already owned by another app, e.g. GeForce's Alt+F10). Win+Shift+S stays
-// hook-only: the shell owns it and it must be swallowed.
+// hook-only: the shell owns it and it must be swallowed. clickerToggle is here
+// so Stop works over an elevated window, except while a clicker run is
+// injecting (systemHotkeyWant).
+//
+// Bindings RegisterHotKey can't express (hookOnly: sides, chords, loose
+// matching, mouse buttons, a modifier as the key) are never registered; the
+// hook matches them, so they don't fire while an elevated window has focus.
 //
 // RegisterHotKey binds to the calling thread, so registrations are only ever
 // changed on the hook thread (wmSyncHotkeys), whose message loop also
 // receives WM_HOTKEY.
-var systemHotkeyActions = map[string]bool{"replaySave": true, "recordToggle": true, "timelineMarker": true}
+var systemHotkeyActions = map[string]bool{"replaySave": true, "recordToggle": true, "timelineMarker": true, "clickerToggle": true}
 
 const (
 	wmHotkey      = 0x0312 // WM_HOTKEY
@@ -222,28 +259,14 @@ var (
 	sysNextID   = 1
 )
 
-// syncSystemHotkeys asks the hook thread to re-apply registrations after a
-// binding or active state changed. Safe from any goroutine.
-func (m *Manager) syncSystemHotkeys() {
-	m.mu.Lock()
-	tid := m.threadID
-	m.mu.Unlock()
-	if tid != 0 {
-		_, _, _ = procPostThreadMessageW.Call(uintptr(tid), wmSyncHotkeys, 0, 0)
-	}
-}
+// syncSystemHotkeys asks the hook thread to re-apply registrations (and the
+// mouse hook) after a binding or active state changed. Safe from any goroutine.
+func (m *Manager) syncSystemHotkeys() { requestSync() }
 
-// applySystemHotkeys registers/unregisters to match the current bindings.
-// Hook thread only.
+// applySystemHotkeys registers/unregisters to match the current bindings and
+// installs or removes the mouse hook. Hook thread only.
 func (m *Manager) applySystemHotkeys() {
-	m.mu.Lock()
-	want := map[string]Binding{}
-	for action := range systemHotkeyActions {
-		if b, ok := m.bindings[action]; ok && b.Key != 0 && !m.inactive[action] {
-			want[action] = b
-		}
-	}
-	m.mu.Unlock()
+	want := m.systemHotkeyWant()
 
 	owned := map[string]bool{}
 	for action, id := range sysIDs {
@@ -284,6 +307,60 @@ func (m *Manager) applySystemHotkeys() {
 	m.mu.Lock()
 	m.sysOwned = owned
 	m.mu.Unlock()
+
+	setMouseHook(m.wantsMouseHook())
+}
+
+// systemHotkeyWant returns the actions that should be registered with
+// RegisterHotKey right now, and records in toggleDeferred whether
+// clickerToggle was held back.
+//
+// clickerToggle is left to the hook while a clicker run is injecting:
+// RegisterHotKey matches modifiers against Windows' key state, which the run's
+// own injected keys change (a Shift-wrapped press flips Shift every cycle, so
+// a held Ctrl+Shift+Y reads as Ctrl+Y and never fires, and Ctrl+Y reaches the
+// app). The hook matches with the physical-key table instead. The trade-off:
+// during a run the stop hotkey doesn't fire while an elevated window has
+// focus; the page and tray Stop still work. It is also held back after the run
+// until its swallowed keys are released: registered while its key is still
+// held, that key's auto-repeat would reach RegisterHotKey as a fresh press
+// (the hook swallowed the real down) and start the clicker again.
+func (m *Manager) systemHotkeyWant() map[string]Binding {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	want := map[string]Binding{}
+	deferred := false
+	for action := range systemHotkeyActions {
+		b, ok := m.bindings[action]
+		if !ok || b.Key == 0 || m.inactive[action] || hookOnly(b) {
+			continue
+		}
+		if action == toggleAction && ((phys.injecting.Load() && shiftWrap.Load()) || phys.anySwallowedDown(chordVKs(b))) {
+			deferred = true
+			continue
+		}
+		want[action] = b
+	}
+	toggleDeferred.Store(deferred)
+	return want
+}
+
+// setMouseHook installs or removes the WH_MOUSE_LL hook. Hook thread only
+// (the hook is called through this thread's message loop).
+func setMouseHook(on bool) {
+	switch {
+	case on && mouseHook == 0:
+		mouseHook, _, _ = procSetWindowsHookExW.Call(uintptr(whMouseLL), mouseCB, 0, 0)
+		mouseHookUp.Store(mouseHook != 0)
+	case !on && mouseHook != 0:
+		_, _, _ = procUnhookWindowsHookEx.Call(mouseHook)
+		mouseHook = 0
+		mouseHookUp.Store(false)
+		for vk := uint32(vkMButton); vk <= vkXButton2; vk++ {
+			phys.note(vk, false) // no longer tracked; don't leave stale downs
+			mouseSwallowUp[vk].Store(false)
+		}
+	}
 }
 
 func (m *Manager) unregisterSystemHotkeys() {
@@ -306,16 +383,10 @@ func (m *Manager) fireSystemHotkey(id int) {
 	if !ok {
 		return
 	}
-	actMu.Lock()
-	recording := recCh != nil
-	actMu.Unlock()
-	if recording {
+	if recording() {
 		return
 	}
-	select {
-	case m.sig <- action:
-	default:
-	}
+	m.signal(action)
 }
 
 // stopHook unhooks and breaks the GetMessageW pump so the hook thread exits
@@ -335,8 +406,11 @@ func (m *Manager) stopHook() {
 
 	if hook != 0 {
 		_, _, _ = procUnhookWindowsHookEx.Call(hook)
+		kbdHookUp.Store(false)
 	}
 	if tid != 0 {
+		hookTID.CompareAndSwap(tid, 0)
+		// The pump removes the mouse hook on its way out.
 		_, _, _ = procPostThreadMessageW.Call(uintptr(tid), uintptr(wmQuit), 0, 0)
 	}
 
@@ -347,20 +421,6 @@ func (m *Manager) stopHook() {
 	actMu.Unlock()
 }
 
-// lowLevelKeyboardProc is the WH_KEYBOARD_LL callback. It MUST be fast, IO-free,
-// and must NOT call into Wails (Windows silently drops a slow LL hook). On a
-// matching key-down it does a non-blocking buffered send and RETURNS 1 to swallow
-// the key (so Snipping Tool never sees Win+Shift+S); everything else chains on.
-// Shortcut recording state (guarded by actMu). recCh is non-nil while a
-// Record is waiting. Every key pressed during a recording is swallowed, and
-// its key-up too (recSwallow), even if that arrives after the recording ended,
-// so the OS never sees half a chord (a lone Win key-up would open Start).
-var (
-	recCh      chan recordResult
-	recMods    Binding
-	recSwallow = map[uint32]bool{}
-)
-
 func (m *Manager) beginRecord() (<-chan recordResult, error) {
 	m.mu.Lock()
 	installed := m.hook != 0
@@ -370,58 +430,12 @@ func (m *Manager) beginRecord() (<-chan recordResult, error) {
 	}
 	actMu.Lock()
 	defer actMu.Unlock()
-	endRecordLocked(recordResult{}) // a second Record replaces the first
-	recCh = make(chan recordResult, 1)
-	recMods = Binding{}
-	return recCh, nil
+	return startRecordLocked(), nil
 }
 
-func endRecord() {
-	actMu.Lock()
-	endRecordLocked(recordResult{})
-	actMu.Unlock()
-}
-
-func endRecordLocked(r recordResult) {
-	if recCh != nil {
-		recCh <- r
-		recCh = nil
-	}
-}
-
-// recordKey feeds one key event to an active recording. It reports whether
-// the event was consumed (and must be swallowed).
-func recordKey(vk uint32, down bool) bool {
-	actMu.Lock()
-	defer actMu.Unlock()
-	if !down {
-		if !recSwallow[vk] {
-			return false
-		}
-		delete(recSwallow, vk)
-		applyModifierVK(&recMods, vk, false)
-		return true
-	}
-	if recCh == nil {
-		return false
-	}
-	recSwallow[vk] = true
-	switch {
-	case isModifierVK(vk):
-		applyModifierVK(&recMods, vk, true)
-	case vk == vkEscape:
-		endRecordLocked(recordResult{})
-	default:
-		if key, ok := keyForVK(vk); ok {
-			b := recMods
-			b.Key = key
-			endRecordLocked(recordResult{b: b, ok: true})
-		}
-		// Unsupported keys (Tab, Enter, CapsLock, …) are ignored; keep waiting.
-	}
-	return true
-}
-
+// lowLevelKeyboardProc is the WH_KEYBOARD_LL callback: it copies the event out
+// and lets handleKey (hookcore.go) decide. On a swallow it RETURNS 1 (so the
+// Snipping Tool never sees Win+Shift+S); everything else chains on.
 func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 	isDown := wParam == wmKeyDown || wParam == wmSysKeyDown
 	isUp := wParam == wmKeyUp || wParam == wmSysKeyUp
@@ -437,129 +451,39 @@ func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 			lParam,
 			unsafe.Sizeof(ks),
 		)
-		vk := ks.VkCode
-
-		if recordKey(vk, isDown) {
+		if handleKey(keyEvent{vk: ks.VkCode, scan: ks.ScanCode, flags: ks.Flags, extra: ks.DwExtraInfo, down: isDown}) {
 			return 1
 		}
+	}
 
-		// Key-up of the latched trigger key clears the held latch so the next
-		// real press fires again. Fall through (do NOT swallow) — the up event is
-		// harmless and the OS may need it.
-		if isUp {
-			actMu.Lock()
-			if chordHeld && vk == heldVK {
-				chordHeld = false
-				heldVK = 0
-			}
-			if vk == vkEscape {
-				escHeld = false // re-arm the next Escape press
-			}
-			actMu.Unlock()
-			r, _, _ := procCallNextHookEx.Call(0, uintptr(uint32(nCode)), wParam, lParam)
-			return r
+	r, _, _ := procCallNextHookEx.Call(0, uintptr(uint32(nCode)), wParam, lParam)
+	return r
+}
+
+// lowLevelMouseProc is the WH_MOUSE_LL callback. It is called for every mouse
+// move (1000+/s with gaming mice), so anything but a Middle/X button message
+// chains on at once, before the struct is even copied.
+func lowLevelMouseProc(nCode int32, wParam, lParam uintptr) uintptr {
+	if nCode == hcAction {
+		var vk uint32
+		down := false
+		switch wParam {
+		case wmMButtonDown, wmMButtonUp:
+			vk, down = vkMButton, wParam == wmMButtonDown
+		case wmXButtonDown, wmXButtonUp:
+			vk, down = vkXButton1, wParam == wmXButtonDown
 		}
-
-		// isDown from here on.
-		actMu.Lock()
-		m := active
-		actMu.Unlock()
-
-		// Global Escape-to-cancel while the capture overlay is armed. This exists
-		// BECAUSE the in-page DOM Esc handler can miss: the overlay is a transparent,
-		// frameless, always-on-top window that may not hold WebView2 keyboard focus
-		// (clicks hit-test via the DOM without granting keyboard focus, and
-		// SetForegroundWindow can fail over a fullscreen app) — the same reason Toru
-		// uses an LL hook for Win+Shift+S instead of RegisterHotKey. We dispatch
-		// Cancel off the hook thread and ALWAYS chain on (never return 1): Escape has
-		// no harmful default while the fullscreen overlay is up, and not swallowing
-		// means a stuck-armed flag can only cause a harmless extra Cancel, never break
-		// Escape system-wide. escHeld coalesces auto-repeat into one Cancel per press.
-		if vk == vkEscape {
-			if m != nil && m.escapeArmed() {
-				actMu.Lock()
-				first := !escHeld
-				if first {
-					escHeld = true
-				}
-				actMu.Unlock()
-				if first {
-					select {
-					case m.sig <- escapeAction:
-					default:
-					}
-				}
+		if vk != 0 {
+			var ms msllhookstruct
+			_, _, _ = procRtlMoveMemory.Call(
+				uintptr(unsafe.Pointer(&ms)),
+				lParam,
+				unsafe.Sizeof(ms),
+			)
+			if vk == vkXButton1 && ms.MouseData>>16 == 2 {
+				vk = vkXButton2
 			}
-			r, _, _ := procCallNextHookEx.Call(0, uintptr(uint32(nCode)), wParam, lParam)
-			return r
-		}
-
-		if m != nil {
-			// Snapshot ONLY the candidate bindings (those whose trigger VK == vk)
-			// under m.mu, then release the lock BEFORE the GetAsyncKeyState modifier
-			// checks. m.mu is shared with SetBinding/snapshot/Trigger/dispatch, and
-			// the LL-hook proc is the most latency-sensitive path in the system
-			// (Windows silently drops a hook that exceeds LowLevelHooksTimeout), so
-			// no user32 syscalls run under the shared lock. The async key state is
-			// global + lock-independent, so reading it lock-free is race-safe.
-			type cand struct {
-				action string
-				b      Binding
-			}
-			var cands []cand
-			m.mu.Lock()
-			for action, b := range m.bindings {
-				if b.Key == 0 || triggerVK(b.Key) != vk || m.inactive[action] || m.sysOwned[action] {
-					continue
-				}
-				cands = append(cands, cand{action, b})
-			}
-			m.mu.Unlock()
-
-			matched := ""
-			for _, c := range cands {
-				b := c.b
-				// Exact match: the binding's modifiers are down and no others.
-				// Shift/Ctrl/Alt use the merged L+R virtual keys; only Win needs
-				// the explicit L/R check.
-				if b.Win != (keyDown(vkLWin) || keyDown(vkRWin)) ||
-					b.Shift != keyDown(vkShift) ||
-					b.Ctrl != keyDown(vkControl) ||
-					b.Alt != keyDown(vkMenu) {
-					continue
-				}
-				matched = c.action
-				break
-			}
-
-			if matched != "" {
-				// Fire-on-first-down: only dispatch on the FIRST matched key-down.
-				// Auto-repeat key-downs (holding the chord, ~30/sec) are still
-				// swallowed (return 1, so Snipping Tool never sees them) but NOT
-				// re-dispatched — otherwise each repeat would trigger another
-				// OpenOverlay (overlay teardown+refreeze storm). The latch is
-				// cleared on the trigger key's key-up above.
-				actMu.Lock()
-				// First down = no chord latched, OR a different trigger key is
-				// latched (so distinct chords don't suppress each other; only the
-				// SAME held key's auto-repeats are coalesced).
-				firstDown := !chordHeld || heldVK != vk
-				if firstDown {
-					chordHeld = true
-					heldVK = vk
-				}
-				actMu.Unlock()
-
-				if firstDown {
-					// Non-blocking send; drop if the dispatch goroutine is backed
-					// up. NEVER block the hook proc.
-					select {
-					case m.sig <- matched:
-					default:
-					}
-				}
-				// Swallow EVERY matched down (first + repeats): do NOT chain to the
-				// next hook, so the OS snip (and any other consumer) never sees it.
+			if handleMouse(mouseEvent{vk: vk, down: down, extra: ms.DwExtraInfo, x: ms.Pt.X, y: ms.Pt.Y}) {
 				return 1
 			}
 		}

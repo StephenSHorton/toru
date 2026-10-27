@@ -14,9 +14,13 @@
 // compiles everywhere.
 //
 // Trigger keys are A-Z, 0-9, F1-F24 and the named keys in keys.go
-// (navigation, numpad, punctuation). Modifier matching is EXACT: a binding
-// fires only when its modifiers, and no others, are down, so e.g. Alt+F10 and
-// Ctrl+Alt+F10 can be different actions.
+// (navigation, numpad, punctuation, Middle/Mouse4/Mouse5, sided modifiers).
+// Modifier matching is EXACT by default: a binding fires only when its
+// modifiers, and no others, are down, so e.g. Alt+F10 and Ctrl+Alt+F10 can be
+// different actions. A binding may also name modifier sides, hold up to five
+// keys as a chord, or match loosely (match.go); those are matched by the hooks
+// only. The hooks skip input Toru injected itself (internal/inputtag) and keep
+// a physical key-state table for the auto clicker (keystate.go).
 package hotkey
 
 import (
@@ -40,7 +44,31 @@ const escapeAction = "__overlay_escape"
 type Binding struct {
 	Ctrl, Shift, Alt, Win bool
 	Key                   rune
+	// Sides narrows required modifiers to one side (LCtrl, RShift, ...). A set
+	// bit implies its generic flag above is also set. Zero = either side.
+	Sides SideMask
+	// Extra are more keys held together with Key (a chord, up to 5 keys in
+	// all), sorted ascending, 0 = unused. Kept as an array so Binding stays
+	// comparable with ==.
+	Extra [4]rune
+	// Loose lets the combo fire while other, unlisted modifiers are also held
+	// (default: the modifiers must match exactly).
+	Loose bool
 }
+
+// SideMask bits for Binding.Sides.
+type SideMask uint8
+
+const (
+	SideLCtrl SideMask = 1 << iota
+	SideRCtrl
+	SideLShift
+	SideRShift
+	SideLAlt
+	SideRAlt
+	SideLWin
+	SideRWin
+)
 
 // fKeyBase maps F1-F24 into the Unicode private-use area so a function key
 // fits the same rune-typed Binding.Key as letters and digits: FKey(n) ==
@@ -112,6 +140,11 @@ var (
 	// add a timeline marker.
 	DefaultRecordToggle   = Binding{Ctrl: true, Key: FKey(11)}
 	DefaultTimelineMarker = Binding{Ctrl: true, Key: FKey(12)}
+
+	// Auto clicker: start/stop (Ctrl+Shift+Y, close to Blur AutoClicker's
+	// Ctrl+Y without eating Redo) and arm/disarm (unbound by default).
+	DefaultClickerToggle = Binding{Ctrl: true, Shift: true, Key: 'Y'}
+	DefaultClickerArm    = Binding{}
 )
 
 // actionMeta maps a stable action id to its human label + default binding. It
@@ -126,6 +159,8 @@ var actionMeta = map[string]struct {
 	"replaySave":     {"Save instant replay", DefaultReplaySave},
 	"recordToggle":   {"Start / stop recording", DefaultRecordToggle},
 	"timelineMarker": {"Add timeline marker", DefaultTimelineMarker},
+	"clickerToggle":  {"Start / stop auto clicker", DefaultClickerToggle},
+	"clickerArm":     {"Arm / disarm auto clicker", DefaultClickerArm},
 }
 
 // shortcutRow is the internal snapshot row used by service.go's GetShortcuts. It
@@ -207,6 +242,8 @@ func (m *Manager) Register(id string, b Binding, cb func()) error {
 
 	if needStart {
 		m.start()
+	} else {
+		m.syncSystemHotkeys() // a later action may need RegisterHotKey or the mouse hook
 	}
 	return nil
 }

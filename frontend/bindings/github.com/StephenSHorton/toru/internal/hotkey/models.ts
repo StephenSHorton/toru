@@ -28,9 +28,25 @@ export class Shortcut {
     "win": boolean;
 
     /**
-     * "A".."Z", "0".."9", "F1".."F24" or a named key ("PageUp", "Num5", "[")
+     * "A".."Z", "0".."9", "F1".."F24" or a named key ("PageUp", "Num5", "[", "Mouse4"); "" = unbound
      */
     "key": string;
+
+    /**
+     * Sides narrows modifiers to one side: any of "lctrl", "rctrl", "lshift",
+     * "rshift", "lalt", "ralt", "lwin", "rwin" (the generic flag must be set too).
+     */
+    "sides": string[];
+
+    /**
+     * Extra are more chord keys held with Key (KeyName spellings, up to 4).
+     */
+    "extra": string[];
+
+    /**
+     * Loose: fire even when other modifiers are held too.
+     */
+    "loose": boolean;
 
     /**
      * IsDefault is true when the combo is the action's default (output only).
@@ -60,6 +76,15 @@ export class Shortcut {
         if (!("key" in $$source)) {
             this["key"] = "";
         }
+        if (!("sides" in $$source)) {
+            this["sides"] = [];
+        }
+        if (!("extra" in $$source)) {
+            this["extra"] = [];
+        }
+        if (!("loose" in $$source)) {
+            this["loose"] = false;
+        }
         if (!("isDefault" in $$source)) {
             this["isDefault"] = false;
         }
@@ -71,7 +96,18 @@ export class Shortcut {
      * Creates a new Shortcut instance from a string or object.
      */
     static createFrom($$source: any = {}): Shortcut {
+        const $$createField7_0 = $$createType0;
+        const $$createField8_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("sides" in $$parsedSource) {
+            $$parsedSource["sides"] = $$createField7_0($$parsedSource["sides"]);
+        }
+        if ("extra" in $$parsedSource) {
+            $$parsedSource["extra"] = $$createField8_0($$parsedSource["extra"]);
+        }
         return new Shortcut($$parsedSource as Partial<Shortcut>);
     }
 }
+
+// Private type creation functions
+const $$createType0 = $Create.Array($Create.Any);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { HotkeyService, Shortcut } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 
 export interface ShortcutsState {
   shortcuts: Shortcut[];
@@ -15,6 +16,11 @@ export interface ShortcutsState {
   save: (action: string, sc: Shortcut) => Promise<string>;
   /** Reset action to its default combo, then reload. */
   reset: (action: string) => Promise<void>;
+  /**
+   * Unbind action (it stays unbound across restarts), then reload. Resolves to
+   * "" on success or the error string.
+   */
+  clear: (action: string) => Promise<string>;
 }
 
 /**
@@ -49,7 +55,7 @@ export function useShortcuts(): ShortcutsState {
         await reload();
         return "";
       } catch (e) {
-        return String(e);
+        return errorMessage(e) || "Something went wrong";
       }
     },
     [reload],
@@ -61,7 +67,20 @@ export function useShortcuts(): ShortcutsState {
         await HotkeyService.ResetShortcut(action);
         await reload();
       } catch (e) {
-        setError(String(e));
+        setError(errorMessage(e) || "Something went wrong");
+      }
+    },
+    [reload],
+  );
+
+  const clear = useCallback(
+    async (action: string): Promise<string> => {
+      try {
+        await HotkeyService.ClearShortcut(action);
+        await reload();
+        return "";
+      } catch (e) {
+        return errorMessage(e) || "Something went wrong";
       }
     },
     [reload],
@@ -71,5 +90,5 @@ export function useShortcuts(): ShortcutsState {
     void reload();
   }, [reload]);
 
-  return { shortcuts, loading, error, reload, save, reset };
+  return { shortcuts, loading, error, reload, save, reset, clear };
 }

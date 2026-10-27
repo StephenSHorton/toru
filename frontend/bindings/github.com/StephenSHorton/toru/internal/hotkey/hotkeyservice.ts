@@ -26,6 +26,15 @@ export function CancelRecording(): $CancellablePromise<void> {
 }
 
 /**
+ * ClearShortcut unbinds action (persisted as an explicit unbound entry, so it
+ * stays unbound after a restart instead of falling back to the default) so its
+ * combo is no longer intercepted.
+ */
+export function ClearShortcut(action: string): $CancellablePromise<void> {
+    return $Call.ByID(1011025126, action);
+}
+
+/**
  * GetShortcuts returns every configured action's current combo for the UI.
  */
 export function GetShortcuts(): $CancellablePromise<$models.Shortcut[]> {
@@ -39,8 +48,9 @@ export function GetShortcuts(): $CancellablePromise<$models.Shortcut[]> {
  * and returns it WITHOUT saving it; the frontend then calls SetShortcut. It
  * listens in the keyboard hook itself, so combos Windows or Toru would
  * otherwise consume (Win+…, PrintScreen, Toru's own hotkeys) are captured
- * too, and nothing fires while recording. Esc, CancelRecording or the timeout
- * return an empty Key.
+ * too, and nothing fires while recording. Keys pressed together form a chord
+ * (up to 5); the middle and side mouse buttons can be recorded too. Esc,
+ * CancelRecording or the timeout return an empty Key.
  */
 export function RecordShortcut(): $CancellablePromise<$models.Shortcut> {
     return $Call.ByID(3595095492).then(($result: any) => {
@@ -60,6 +70,9 @@ export function ResetShortcut(action: string): $CancellablePromise<void> {
  * SetShortcut validates sc, persists it to settings.json, then updates the live
  * hook binding (no reinstall — the hook reads the mutex-guarded binding list). It
  * returns a validation/persist error to the frontend, which surfaces it inline.
+ * A combo another action already uses, or one that would fire together with
+ * another action's (a chord containing it, a loose binding covering it), is
+ * refused.
  */
 export function SetShortcut(action: string, sc: $models.Shortcut): $CancellablePromise<void> {
     return $Call.ByID(2096590663, action, sc);
