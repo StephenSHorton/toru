@@ -102,8 +102,14 @@ try {
   $env:TORU_LAN_SELFTEST_EXE = $lanExe
   $env:TORU_LAN_SELFTEST_OUT = $out
   Write-Host 'Running the selftest (about two minutes; the service idle stop takes 60 s)'
-  & $testExe -test.v -test.run '^TestSelftest$' -test.timeout 15m 2>&1 | Tee-Object -FilePath (Join-Path $out 'test.log')
+  # The test logs to stderr (wintun's driver log too). Under 'Stop',
+  # Windows PowerShell turns each such line into a terminating error, so
+  # relax it for this one call and pass the lines through as plain text.
+  $ErrorActionPreference = 'Continue'
+  & $testExe -test.v -test.run '^TestSelftest$' -test.timeout 15m 2>&1 |
+    ForEach-Object { "$_" } | Tee-Object -FilePath (Join-Path $out 'test.log')
   $exit = $LASTEXITCODE
+  $ErrorActionPreference = 'Stop'
 }
 catch {
   Write-Host "selftest script failed: $_" -ForegroundColor Red

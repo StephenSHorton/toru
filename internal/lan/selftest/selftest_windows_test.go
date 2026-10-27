@@ -218,7 +218,7 @@ func checkInstall(r *report, installDir, dataDir string) {
 			continue
 		}
 		ok := fr.Enabled && fr.Direction == 1 && fr.Action == 1 && fr.Protocol == want.proto && fr.PinnedTo(api.AdapterName) &&
-			strings.Contains(fr.RemoteAddresses, "100.96.0.0") && fr.Profiles == 0x7fffffff && fr.ApplicationName == "" &&
+			strings.Contains(fr.RemoteAddresses, "100.96.0.0") && fr.Profiles&7 == 7 && fr.ApplicationName == "" && // domain, private, public
 			(want.icmp == "" || fr.IcmpTypes == want.icmp)
 		r.add("firewall rule "+want.name+" settings", true, boolErr(ok, fmt.Sprintf("%+v", *fr)), fmt.Sprintf("%+v", *fr))
 	}
