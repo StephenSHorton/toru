@@ -185,9 +185,9 @@ export default function StreamPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Call</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Game Room</h1>
         <p className="text-sm text-muted-foreground">
-          Talk with friends and share your screen at any resolution, frame rate and bitrate. Everything goes
+          Voice chat, screen sharing at any resolution, frame rate and bitrate, and a shared LAN for your games. Everything goes
           straight from PC to PC.
         </p>
       </div>
