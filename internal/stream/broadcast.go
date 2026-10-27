@@ -48,6 +48,11 @@ var (
 	videoFeedback = []webrtc.RTCPFeedback{{Type: "nack"}, {Type: "nack", Parameter: "pli"}, {Type: "ccm", Parameter: "fir"}}
 )
 
+// tuneICE, when set, adjusts the ICE settings of every API newAPI builds.
+// Tests use it to keep pion on loopback: a test exe that binds a LAN address
+// pops a Windows Firewall prompt each time it is rebuilt.
+var tuneICE func(*webrtc.SettingEngine)
+
 // newAPI builds the pion API the streamer's peer connections use: our codecs,
 // RTCP reports (A/V sync, round-trip time) and a deep NACK history so
 // retransmits still work at very high bitrates.
@@ -72,6 +77,9 @@ func newAPI() (*webrtc.API, error) {
 	reg.Add(responder)
 	se := webrtc.SettingEngine{}
 	se.SetICETimeouts(5*time.Second, 15*time.Second, 2*time.Second)
+	if tuneICE != nil {
+		tuneICE(&se)
+	}
 	return webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(reg), webrtc.WithSettingEngine(se)), nil
 }
 
