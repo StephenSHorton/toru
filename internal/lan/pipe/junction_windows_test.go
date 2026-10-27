@@ -2,6 +2,7 @@ package pipe
 
 import (
 	"errors"
+	"golang.org/x/sys/windows"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,9 @@ import (
 // user can make one in %ProgramData%, no privilege needed) is refused by
 // every check and never has its target re-ACLed.
 func TestJunctionNotFollowed(t *testing.T) {
+	if windows.GetCurrentProcessToken().IsElevated() {
+		t.Skip("elevated: an Administrators-owned folder is trusted by design; this checks a normal user (CI runs elevated)")
+	}
 	base := t.TempDir()
 	target := filepath.Join(base, "target")
 	if err := os.Mkdir(target, 0o755); err != nil {

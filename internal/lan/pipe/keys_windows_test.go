@@ -69,6 +69,9 @@ func TestKeyStoreRejectsNonSID(t *testing.T) {
 // the file is written into an ordinary temp folder here. The user owns what
 // it created and still cannot read it.
 func TestProductionACL(t *testing.T) {
+	if windows.GetCurrentProcessToken().IsElevated() {
+		t.Skip("elevated: an Administrators-owned folder is trusted by design; this checks a normal user (CI runs elevated)")
+	}
 	base := t.TempDir()
 	dir := filepath.Join(base, "keys")
 	file := filepath.Join(base, "S-1-5-21-1-2-3-500.key")
