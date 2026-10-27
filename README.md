@@ -33,9 +33,30 @@ Press <kbd>⊞</kbd> <kbd>Shift</kbd> <kbd>S</kbd> → pick a **region**, **wind
 | Asset | |
 | --- | --- |
 | `toru-*-windows-amd64-installer.exe` | Per-user installer (no UAC) |
-| `toru-*-windows-amd64.zip` | Portable `toru.exe` |
+| `toru-*-windows-amd64.zip` | Portable `toru.exe`, plus the LAN files (`toru-lan.exe`, `wintun.dll`) |
 
 Grab the latest from **[Releases](https://github.com/StephenSHorton/toru/releases/latest)**.
+
+## LAN (in development)
+
+**LAN** puts everyone in a Toru room on one virtual network, so LAN games find
+each other over the internet as if everyone were in the same house. The room
+code you share for **Call** is the network name and password; there is no
+account and no separate VPN app. Windows gets a network adapter called
+**Toru LAN**, and each friend gets a fixed address like `100.96.12.34`.
+
+- The installer stays per-user with no UAC. LAN needs one administrator
+  prompt the first time you turn it on: Toru runs `toru-lan.exe install`, which
+  sets up the `ToruLan` service, the adapter and two firewall rules. After
+  that, turning LAN on and off needs no prompts.
+- Traffic between friends is end-to-end encrypted. When two PCs can't reach
+  each other directly it goes through a relay ([`cmd/toru-relay`](cmd/toru-relay)),
+  which can't read it. The same relay also fixes calls and streams between
+  hard NATs.
+- Uninstalling Toru asks for administrator approval once more to remove the
+  service and adapter; if you refuse, it says what was left behind.
+
+Design and status: [`docs/lan.md`](docs/lan.md).
 
 ## Stack
 
@@ -84,6 +105,8 @@ Tag push runs [`.github/workflows/release.yml`](.github/workflows/release.yml): 
 
 ## License
 
-[MIT](LICENSE) © Stephen Horton and the Toru contributors.
+[MIT](LICENSE) © Stephen Horton and the Toru contributors. Third-party
+components and their licenses: [`THIRD_PARTY_NOTICES`](THIRD_PARTY_NOTICES)
+(also installed next to `toru.exe`).
 
 Notifications use [go-toast](https://github.com/StephenSHorton/go-toast) (MIT). Its three notification sounds come from the s&box editor, Copyright (c) 2025 Facepunch Studios Ltd, MIT; see go-toast's [sounds/NOTICE.md](https://github.com/StephenSHorton/go-toast/blob/v0.1.0/sounds/NOTICE.md).
