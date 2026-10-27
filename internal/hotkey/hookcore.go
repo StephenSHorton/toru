@@ -26,8 +26,9 @@ var (
 	// repeats are still swallowed (return 1) but not re-dispatched. We clear the
 	// latch when that key's WM_KEYUP/WM_SYSKEYUP arrives, re-arming the next
 	// real press.
-	chordHeld bool
-	heldVK    uint32
+	chordHeld  bool
+	heldVK     uint32
+	heldAction string // the action the latched press fired
 
 	// escHeld is the fire-on-first-down latch for the global Escape-to-cancel: a
 	// HELD Escape auto-repeats (~30/sec) and we want exactly ONE Cancel per press,
@@ -45,7 +46,17 @@ var (
 	// windows (hook_windows.go). A mouse-button hotkey is ignored there so
 	// clicking Toru's UI with that button doesn't trigger it.
 	overOwnWindow = func(x, y int32) bool { return false }
+
+	// toggleDeferred is set while clickerToggle is a system hotkey action
+	// held back from RegisterHotKey (systemHotkeyWant, hook_windows.go). The
+	// up of a swallowed key then asks for a re-sync, since that release may be
+	// what it waits for.
+	toggleDeferred atomic.Bool
 )
+
+// toggleAction is the auto clicker's start/stop action, which is taken off
+// RegisterHotKey while a clicker run is injecting.
+const toggleAction = "clickerToggle"
 
 // keyEvent is the part of KBDLLHOOKSTRUCT the engine reads.
 type keyEvent struct {
@@ -79,10 +90,16 @@ func handleKey(ev keyEvent) bool {
 		}
 		return false
 	}
+	resync := !ev.down && toggleDeferred.Load() && phys.swallowedDown(vk)
 	phys.note(vk, ev.down)
+	if resync {
+		requestSync()
+	}
 
 	if recordKey(vk, ev.down) {
-		if ev.down {
+		// Recorded modifiers aren't marked (see keyTable): only the table
+		// could keep them "down", and their up may never come (Win+L).
+		if ev.down && !isModifierVK(vk) {
 			phys.noteSwallowed(vk)
 		}
 		return true
@@ -95,6 +112,7 @@ func handleKey(ev keyEvent) bool {
 		if chordHeld && vk == heldVK {
 			chordHeld = false
 			heldVK = 0
+			heldAction = ""
 		}
 		if vk == vkEscape {
 			escHeld = false // re-arm the next Escape press
@@ -135,6 +153,19 @@ func handleKey(ev keyEvent) bool {
 	if m == nil {
 		return false
 	}
+
+	// A held clickerToggle key's repeats stay swallowed until its up, even
+	// once they stop matching. When the press stopped a run, Windows' Shift
+	// state can read up while the user still holds it (the run's last injected
+	// Shift up), so the repeats of a held Ctrl+Shift+Y would otherwise reach
+	// the app as Ctrl+Y.
+	actMu.Lock()
+	toggleRepeat := chordHeld && heldVK == vk && heldAction == toggleAction
+	actMu.Unlock()
+	if toggleRepeat && phys.swallowedDown(vk) {
+		return true
+	}
+
 	matched := m.matchPress(vk, false)
 	if matched == "" {
 		return false
@@ -150,6 +181,7 @@ func handleKey(ev keyEvent) bool {
 	if firstDown {
 		chordHeld = true
 		heldVK = vk
+		heldAction = matched
 	}
 	actMu.Unlock()
 	if firstDown {

@@ -96,3 +96,35 @@ func TestHookIgnoresTaggedInputSmoke(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 }
+
+// While a clicker run is injecting, clickerToggle is left to the hook (no
+// RegisterHotKey) and comes back once the run ends and its swallowed keys are
+// up; other system hotkey actions stay registered throughout.
+func TestToggleOffSystemHotkeyWhileInjecting(t *testing.T) {
+	s := newSim(t, map[string]Binding{toggleAction: DefaultClickerToggle, "replaySave": DefaultReplaySave})
+	want := func(action string) bool { _, ok := s.m.systemHotkeyWant()[action]; return ok }
+
+	if !want(toggleAction) || !want("replaySave") || toggleDeferred.Load() {
+		t.Fatal("idle: both registered")
+	}
+	SetInjecting(true)
+	if want(toggleAction) || !want("replaySave") || !toggleDeferred.Load() {
+		t.Fatal("injecting: clickerToggle left to the hook, replaySave registered")
+	}
+
+	// The hook now matches the toggle (sysOwned is cleared by the sync).
+	s.key(vkLControl, true)
+	s.key(vkLShift, true)
+	if !s.key('Y', true) {
+		t.Fatal("the hook matches clickerToggle during a run")
+	}
+	s.wantFired(toggleAction)
+	SetInjecting(false)
+	if want(toggleAction) {
+		t.Fatal("not re-registered while its swallowed key is still held")
+	}
+	s.key('Y', false)
+	if !want(toggleAction) || toggleDeferred.Load() {
+		t.Fatal("re-registered once the key is up")
+	}
+}

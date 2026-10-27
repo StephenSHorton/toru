@@ -26,18 +26,43 @@ import "fmt"
 // GetAsyncKeyState saw the release. A hold-mode run on such a binding keeps
 // going until then.
 //
-// The clicker's hold-mode guard polls PhysicallyDown(TriggerVK(binding)); the
-// conflict guard makes sure the clicker never injects that key.
+// The clicker's hold-mode guard polls PhysicallyDown for the binding's keys
+// (TriggerVK, TriggerVKs); the conflict guard makes sure the clicker never
+// injects them.
 func PhysicallyDown(vk uint16) bool { return phys.physicallyDown(uint32(vk)) }
 
 // TriggerVK returns the virtual-key code of b's main Key (0 when unbound).
 func TriggerVK(b Binding) uint16 { return uint16(triggerVK(b.Key)) }
 
+// TriggerVKs returns the virtual-key codes of all of b's chord keys: Key, then
+// its Extra keys, including mouse buttons and sided modifiers used as keys
+// (empty when unbound). Modifiers (Ctrl/Shift/Alt/Win flags) aren't keys and
+// aren't included.
+func TriggerVKs(b Binding) []uint16 {
+	vks := chordVKs(b)
+	out := make([]uint16, len(vks))
+	for i, vk := range vks {
+		out[i] = uint16(vk)
+	}
+	return out
+}
+
 // SetInjecting tells the hooks a clicker run is injecting input, so the keys
 // it injects are judged by the physical-key table only (GetAsyncKeyState
 // sees injected Shift). Turn it on before the run's first SendInput and off
 // after its last key-up.
-func SetInjecting(on bool) { phys.setInjecting(on) }
+//
+// While it is on, clickerToggle is taken off RegisterHotKey and matched by
+// the hook (see systemHotkeyWant in hook_windows.go), so the stop hotkey
+// keeps working while the run wraps presses in injected Shift, but doesn't
+// fire over an elevated window until the run ends. Each change asks the hook
+// thread to re-apply registrations; a press in the moment before it does is
+// still seen by RegisterHotKey.
+func SetInjecting(on bool) {
+	if phys.setInjecting(on) {
+		requestSync()
+	}
+}
 
 // Conflicts reports the first other registered, active action whose binding
 // would fire on b (b pressed as a combo, matched exactly as the hooks match),

@@ -1,6 +1,9 @@
 package hotkey
 
-import "sync/atomic"
+import (
+	"slices"
+	"sync/atomic"
+)
 
 // Physical key state. The low-level hooks keep a table of which keys are down,
 // fed only by input Toru didn't inject (events tagged with inputtag.Toru are
@@ -11,9 +14,13 @@ import "sync/atomic"
 // (when Windows stops calling our hooks, so the table would go stale). The
 // table is used for exactly the keys GetAsyncKeyState gets wrong:
 //
-//   - a key whose down our hook swallowed (a matched hotkey, a recorded key):
-//     the swallowed down never reached the async state, so only the table
-//     knows it is held, until that key's up;
+//   - a key whose down our hook swallowed (a matched hotkey, a recorded
+//     non-modifier key): the swallowed down never reached the async state, so
+//     only the table knows it is held, until that key's up. A modifier
+//     swallowed by a recording is not marked: its up can be lost (Win+L,
+//     Ctrl+Alt+Del end on the secure desktop), and a stale "down" modifier
+//     would break or fake matches; unmarked, it reads the async state as on
+//     main;
 //   - while a clicker run is injecting (SetInjecting(true)), a key Toru has
 //     injected during the run: the async state mixes the user's presses with
 //     the clicker's (an injected Shift down/up would hide a held physical
@@ -76,15 +83,27 @@ func (t *keyTable) noteInjected(vk uint32) {
 	}
 }
 
-// setInjecting turns injecting mode on or off. Turning it off forgets which
-// keys the run injected (the run has released them by then).
-func (t *keyTable) setInjecting(on bool) {
-	t.injecting.Store(on)
+// swallowedDown reports whether vk is held with its down swallowed by our hook.
+func (t *keyTable) swallowedDown(vk uint32) bool {
+	return vk <= 0xFF && t.swallowed[vk].Load() && t.down[vk].Load()
+}
+
+// anySwallowedDown is swallowedDown for any of vks.
+func (t *keyTable) anySwallowedDown(vks []uint32) bool {
+	return slices.ContainsFunc(vks, t.swallowedDown)
+}
+
+// setInjecting turns injecting mode on or off and reports whether it changed.
+// Turning it off forgets which keys the run injected (the run has released
+// them by then).
+func (t *keyTable) setInjecting(on bool) bool {
+	changed := t.injecting.Swap(on) != on
 	if !on {
 		for i := range t.injected {
 			t.injected[i].Store(false)
 		}
 	}
+	return changed
 }
 
 // isDown is the hooks' answer to "is this sided vk held by the user?" (the

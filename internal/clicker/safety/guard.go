@@ -84,8 +84,6 @@ func (g *guard) Check(int64, int64) engine.Verdict {
 		}
 	}
 
-	// TODO(S5): hotkey.PhysicallyDown is still the S0 stub (always false), so
-	// until S5 lands every hold-mode run stops here on its first Check.
 	if g.cfg.HoldTriggerVK != 0 && !g.sys.PhysicallyDown(g.cfg.HoldTriggerVK) {
 		return stop(codeHoldRelease, "Hotkey released")
 	}

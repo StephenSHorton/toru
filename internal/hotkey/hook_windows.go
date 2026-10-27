@@ -232,7 +232,8 @@ func (m *Manager) installHook() {
 // can't fire twice) and remains the fallback when registration fails (combo
 // already owned by another app, e.g. GeForce's Alt+F10). Win+Shift+S stays
 // hook-only: the shell owns it and it must be swallowed. clickerToggle is here
-// so Stop works over an elevated window.
+// so Stop works over an elevated window, except while a clicker run is
+// injecting (systemHotkeyWant).
 //
 // Bindings RegisterHotKey can't express (hookOnly: sides, chords, loose
 // matching, mouse buttons, a modifier as the key) are never registered; the
@@ -265,14 +266,7 @@ func (m *Manager) syncSystemHotkeys() { requestSync() }
 // applySystemHotkeys registers/unregisters to match the current bindings and
 // installs or removes the mouse hook. Hook thread only.
 func (m *Manager) applySystemHotkeys() {
-	m.mu.Lock()
-	want := map[string]Binding{}
-	for action := range systemHotkeyActions {
-		if b, ok := m.bindings[action]; ok && b.Key != 0 && !m.inactive[action] && !hookOnly(b) {
-			want[action] = b
-		}
-	}
-	m.mu.Unlock()
+	want := m.systemHotkeyWant()
 
 	owned := map[string]bool{}
 	for action, id := range sysIDs {
@@ -315,6 +309,40 @@ func (m *Manager) applySystemHotkeys() {
 	m.mu.Unlock()
 
 	setMouseHook(m.wantsMouseHook())
+}
+
+// systemHotkeyWant returns the actions that should be registered with
+// RegisterHotKey right now, and records in toggleDeferred whether
+// clickerToggle was held back.
+//
+// clickerToggle is left to the hook while a clicker run is injecting:
+// RegisterHotKey matches modifiers against Windows' key state, which the run's
+// own injected keys change (a Shift-wrapped press flips Shift every cycle, so
+// a held Ctrl+Shift+Y reads as Ctrl+Y and never fires, and Ctrl+Y reaches the
+// app). The hook matches with the physical-key table instead. The trade-off:
+// during a run the stop hotkey doesn't fire while an elevated window has
+// focus; the page and tray Stop still work. It is also held back after the run
+// until its swallowed keys are released: registered while its key is still
+// held, that key's auto-repeat would reach RegisterHotKey as a fresh press
+// (the hook swallowed the real down) and start the clicker again.
+func (m *Manager) systemHotkeyWant() map[string]Binding {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	want := map[string]Binding{}
+	deferred := false
+	for action := range systemHotkeyActions {
+		b, ok := m.bindings[action]
+		if !ok || b.Key == 0 || m.inactive[action] || hookOnly(b) {
+			continue
+		}
+		if action == toggleAction && (phys.injecting.Load() || phys.anySwallowedDown(chordVKs(b))) {
+			deferred = true
+			continue
+		}
+		want[action] = b
+	}
+	toggleDeferred.Store(deferred)
+	return want
 }
 
 // setMouseHook installs or removes the WH_MOUSE_LL hook. Hook thread only

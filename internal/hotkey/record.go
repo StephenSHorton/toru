@@ -119,7 +119,11 @@ func recordKey(vk uint32, down bool) bool {
 		return true
 	}
 	if recCh == nil {
-		return false
+		// A key still owed its up (held when the recording ended) is still
+		// part of the recorded press: swallow its auto-repeat instead of
+		// letting it match a hotkey or reach the app. If its up was lost
+		// (Win+L mid-recording), this costs the next press of that key.
+		return recSwallow[vk]
 	}
 	recSwallow[vk] = true
 	switch {

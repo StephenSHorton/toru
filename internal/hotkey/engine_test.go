@@ -63,7 +63,8 @@ func resetEngine() {
 		mouseSwallowUp[i].Store(false)
 	}
 	actMu.Lock()
-	chordHeld, heldVK, escHeld = false, 0, false
+	chordHeld, heldVK, heldAction, escHeld = false, 0, "", false
+	toggleDeferred.Store(false)
 	if recTimer != nil {
 		recTimer.Stop()
 		recTimer = nil
@@ -412,6 +413,61 @@ func TestPhysicallyDownRules(t *testing.T) {
 	}
 }
 
+func TestTriggerVKs(t *testing.T) {
+	eq := func(got []uint16, want ...uint16) bool {
+		if len(got) != len(want) {
+			return false
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				return false
+			}
+		}
+		return true
+	}
+	if got := TriggerVKs(Binding{}); len(got) != 0 {
+		t.Fatalf("unbound: %v", got)
+	}
+	if got := TriggerVKs(DefaultClickerToggle); !eq(got, 'Y') {
+		t.Fatalf("plain: %v", got)
+	}
+	chord := canonical(Binding{Ctrl: true, Key: 'S', Extra: [4]rune{'A', namedKeyBase + vkXButton1, namedKeyBase + vkRControl}})
+	if got := TriggerVKs(chord); !eq(got, 'A', 'S', vkXButton1, vkRControl) {
+		t.Fatalf("chord: %v", got)
+	}
+}
+
+// A held clickerToggle key's auto-repeat stays swallowed after the press even
+// when Windows' Shift state reads up (the stopped run's injected Shift up);
+// other actions keep main's behaviour (a repeat that no longer matches passes).
+func TestToggleRepeatSwallowed(t *testing.T) {
+	s := newSim(t, map[string]Binding{
+		toggleAction: {Ctrl: true, Shift: true, Key: 'Y'},
+		"other":      {Ctrl: true, Shift: true, Key: 'U'},
+	})
+	for _, k := range []uint32{'Y', 'U'} {
+		s.key(vkLControl, true)
+		s.key(vkLShift, true)
+		if !s.key(k, true) {
+			t.Fatalf("%c: the matched down is swallowed", k)
+		}
+		s.async[vkLShift] = false // an injected Shift up hid the held Shift
+		swallowed := s.key(k, true)
+		if k == 'Y' && !swallowed {
+			t.Fatal("clickerToggle repeat must stay swallowed")
+		}
+		if k == 'U' && swallowed {
+			t.Fatal("other actions: a repeat that no longer matches passes, as on main")
+		}
+		if s.key(k, false) {
+			t.Fatalf("%c: up is never swallowed", k)
+		}
+		s.key(vkLShift, false)
+		s.key(vkLControl, false)
+	}
+	s.wantFired(toggleAction, "other")
+}
+
 func TestMouseHotkey(t *testing.T) {
 	s := newSim(t, map[string]Binding{"m4": {Key: namedKeyBase + vkXButton1}, "midShift": {Shift: true, Key: namedKeyBase + vkMButton}})
 	if !s.mouse(vkXButton1, true) || !s.mouse(vkXButton1, false) {
@@ -718,6 +774,63 @@ func TestRecordChordAndModifiers(t *testing.T) {
 	default:
 		t.Fatal("the fifth key should end the recording")
 	}
+}
+
+// A combo held past the gather window: its auto-repeat is swallowed and
+// fires nothing, and the recorded modifiers never count as held in the table.
+func TestRecordHeldPastGatherFiresNothing(t *testing.T) {
+	s := newSim(t, map[string]Binding{"overlay": DefaultOverlay})
+	actMu.Lock()
+	ch := startRecordLocked()
+	actMu.Unlock()
+	for _, k := range []uint32{vkLWin, vkLShift, 'S'} {
+		if !s.key(k, true) {
+			t.Fatalf("vk %#x should be swallowed while recording", k)
+		}
+	}
+	select {
+	case r := <-ch:
+		if !r.ok || r.b != DefaultOverlay {
+			t.Fatalf("recorded %+v", r)
+		}
+	case <-time.After(chordGather + time.Second):
+		t.Fatal("the gather window should end the recording")
+	}
+	if phys.swallowed[vkLWin].Load() || phys.swallowed[vkLShift].Load() {
+		t.Fatal("recorded modifiers must not be marked swallowed")
+	}
+	if !s.key('S', true) {
+		t.Fatal("the repeat of a recorded key still owed its up is swallowed")
+	}
+	for _, k := range []uint32{'S', vkLShift, vkLWin} {
+		if !s.key(k, false) {
+			t.Fatalf("up of recorded vk %#x is swallowed", k)
+		}
+	}
+	s.wantFired()
+}
+
+// A modifier whose up is lost during a recording (Win+L, Ctrl+Alt+Del) must
+// not stay "down": a later Shift+S doesn't open the overlay, and the exact
+// Shift+S binding still matches.
+func TestRecordLostModifierUp(t *testing.T) {
+	s := newSim(t, map[string]Binding{"overlay": DefaultOverlay, "shiftS": {Shift: true, Key: 'S'}})
+	actMu.Lock()
+	startRecordLocked()
+	actMu.Unlock()
+	s.key(vkLWin, true)
+	endRecord() // the up happens on the secure desktop: the hook never sees it
+	actMu.Lock()
+	delete(recSwallow, vkLWin)
+	actMu.Unlock()
+	if PhysicallyDown(vkLWin) {
+		t.Fatal("a recorded modifier with a lost up must read as up")
+	}
+	s.key(vkLShift, true)
+	if !s.key('S', true) {
+		t.Fatal("Shift+S should match")
+	}
+	s.wantFired("shiftS")
 }
 
 // A recording that times out with Mouse4 still held keeps the mouse hook
