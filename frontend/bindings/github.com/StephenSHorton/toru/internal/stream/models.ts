@@ -258,6 +258,12 @@ export class LiveStatus {
      */
     "startedAt": number;
 
+    /**
+     * AudioWarning is set while the stream has no desktop audio because Toru
+     * couldn't keep its own call audio out of it.
+     */
+    "audioWarning": string;
+
     /** Creates a new LiveStatus instance. */
     constructor($$source: Partial<LiveStatus> = {}) {
         if (!("live" in $$source)) {
@@ -289,6 +295,9 @@ export class LiveStatus {
         }
         if (!("startedAt" in $$source)) {
             this["startedAt"] = 0;
+        }
+        if (!("audioWarning" in $$source)) {
+            this["audioWarning"] = "";
         }
 
         Object.assign(this, $$source);

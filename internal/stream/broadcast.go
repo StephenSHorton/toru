@@ -111,6 +111,10 @@ type LiveStatus struct {
 	SentFPS   int          `json:"sentFps"`
 	Error     string       `json:"error"`
 	StartedAt int64        `json:"startedAt"` // unix ms
+
+	// AudioWarning is set while the stream has no desktop audio because Toru
+	// couldn't keep its own call audio out of it.
+	AudioWarning string `json:"audioWarning"`
 }
 
 type viewer struct {
@@ -449,7 +453,9 @@ func (b *broadcaster) superviseVideo(stop, done, kickCh chan struct{}) {
 
 // superviseAudio is superviseVideo for desktop audio: a loopback capture of
 // everything except Toru itself (so a call's audio never echoes back into a
-// stream) piped into an Opus encoder.
+// stream) piped into an Opus encoder. If that exclusion can't be set up the
+// stream goes without desktop audio and says so: it never falls back to the
+// whole mix, which would carry the call's voices.
 func (b *broadcaster) superviseAudio(stop, done, kickCh chan struct{}) {
 	defer close(done)
 	failures := 0
@@ -458,9 +464,13 @@ func (b *broadcaster) superviseAudio(stop, done, kickCh chan struct{}) {
 		cfg, af := b.cfg, b.audio
 		b.mu.Unlock()
 
-		src, err := capture.StartDesktopAudio(uint32(os.Getpid()), fmt.Sprintf("toru-stream-audio-%d", time.Now().UnixNano()))
+		src, how, err := capture.StartDesktopAudio(uint32(os.Getpid()), fmt.Sprintf("toru-stream-audio-%d", time.Now().UnixNano()))
 		var p *proc
-		if err == nil {
+		if err != nil {
+			logf("desktop audio OFF so the call's voices can't leak into the stream: %v", err)
+			b.setAudioWarning("No desktop audio: Toru couldn't keep the call's voices out of it (" + err.Error() + ")")
+		} else {
+			logf("desktop audio: %s", how)
 			in := src.Input()
 			af.newSource()
 			p, err = b.spawn(audioArgs(in.SampleFmt, in.SampleRate, in.Channels, cfg.AudioKbps, in.PipePath, af.url()))
@@ -481,6 +491,7 @@ func (b *broadcaster) superviseAudio(stop, done, kickCh chan struct{}) {
 			continue
 		}
 		failures = 0
+		b.setAudioWarning("")
 
 		select {
 		case <-stop:
@@ -549,6 +560,16 @@ func (b *broadcaster) spawn(args []string) (*proc, error) {
 		return nil, fmt.Errorf("ffmpeg exited during startup: %v", p.err)
 	case <-time.After(startupGrace):
 		return p, nil
+	}
+}
+
+func (b *broadcaster) setAudioWarning(msg string) {
+	b.mu.Lock()
+	changed := b.status.AudioWarning != msg
+	b.status.AudioWarning = msg
+	b.mu.Unlock()
+	if changed {
+		b.changed()
 	}
 }
 

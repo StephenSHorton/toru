@@ -98,7 +98,7 @@ func startLoopbackAudio(pipeName string) (audioSource, error) {
 		stop: make(chan struct{}),
 		done: make(chan struct{}),
 	}
-	go s.pump(pipeName, ready)
+	go s.pump("", pipeName, ready)
 	res := <-ready
 	if res.err != nil {
 		return nil, res.err
@@ -126,7 +126,9 @@ func (s *audioStream) Stop() {
 
 // pump owns the whole capture lifecycle on one locked OS thread: COM init,
 // WASAPI setup (reported via ready), pipe serve, capture loop, teardown.
-func (s *audioStream) pump(pipeName string, ready chan<- audioInitResult) {
+//
+// deviceID picks the render endpoint by IMMDevice id ("" = the default one).
+func (s *audioStream) pump(deviceID, pipeName string, ready chan<- audioInitResult) {
 	defer close(s.done)
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -153,7 +155,12 @@ func (s *audioStream) pump(pipeName string, ready chan<- audioInitResult) {
 	defer comRelease(enumerator)
 
 	var device *comObject // IMMDeviceEnumerator::GetDefaultAudioEndpoint(eRender=0, eConsole=0) = vtbl 4
-	if hr := int32(comCall(enumerator, 4, 0, 0, uintptr(unsafe.Pointer(&device)))); hr < 0 || device == nil {
+	if deviceID != "" {   // IMMDeviceEnumerator::GetDevice = vtbl 5
+		if hr := int32(comCall(enumerator, 5, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(deviceID))), uintptr(unsafe.Pointer(&device)))); hr < 0 || device == nil {
+			fail(fmt.Errorf("loopback: render endpoint %s: 0x%x", deviceID, hr))
+			return
+		}
+	} else if hr := int32(comCall(enumerator, 4, 0, 0, uintptr(unsafe.Pointer(&device)))); hr < 0 || device == nil {
 		fail(fmt.Errorf("loopback: no default render endpoint: 0x%x", hr))
 		return
 	}

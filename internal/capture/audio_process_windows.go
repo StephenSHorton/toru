@@ -186,6 +186,118 @@ func startExcludeProcessLoopbackAudio(pid uint32, pipeName string) (audioSource,
 	return s, nil
 }
 
+// Process-loopback clients always deliver this format (we choose it; the
+// engine converts): 48kHz s16 stereo.
+const (
+	processRate       = 48000
+	processChannels   = 2
+	processBlockAlign = processChannels * 2
+)
+
+// processClient is one started process-loopback capture client. Open, use
+// and close it on ONE COM-initialized (MTA), OS-locked goroutine.
+type processClient struct {
+	client, capt *comObject
+	event        windows.Handle
+}
+
+// openProcessClient activates, initializes and starts a process-loopback
+// client for pid's tree in mode (include or exclude).
+func openProcessClient(pid, mode uint32) (*processClient, error) {
+	client, err := activateProcessLoopbackClient(pid, mode)
+	if err != nil {
+		return nil, err
+	}
+	c := &processClient{client: client}
+
+	// Our chosen format — plain WAVEFORMATEX, 16-bit PCM 48k stereo.
+	wfx := waveFormatEx{
+		FormatTag:      waveFormatPCM,
+		Channels:       processChannels,
+		SamplesPerSec:  processRate,
+		AvgBytesPerSec: processRate * processBlockAlign,
+		BlockAlign:     processBlockAlign,
+		BitsPerSample:  16,
+	}
+
+	// IAudioClient::Initialize = vtbl 3 — process loopback REQUIRES event-
+	// callback mode and a zero device period.
+	if hr := int32(comCall(client, 3, audclntShareModeShared,
+		uintptr(audclntStreamFlagsLoopback|audclntStreamFlagsEventCallback),
+		loopbackBufferDuration100ns, 0, uintptr(unsafe.Pointer(&wfx)), 0)); hr < 0 {
+		c.close()
+		return nil, fmt.Errorf("process loopback: Initialize: 0x%x", hr)
+	}
+
+	hEvent, _, _ := procCreateEventW.Call(0, 0, 0, 0)
+	if hEvent == 0 {
+		c.close()
+		return nil, fmt.Errorf("process loopback: CreateEvent failed")
+	}
+	c.event = windows.Handle(hEvent)
+	if hr := int32(comCall(client, 13, hEvent)); hr < 0 { // SetEventHandle = vtbl 13
+		c.close()
+		return nil, fmt.Errorf("process loopback: SetEventHandle: 0x%x", hr)
+	}
+
+	// GetService = vtbl 14
+	if hr := int32(comCall(client, 14, uintptr(unsafe.Pointer(&iidIAudioCaptureClient)), uintptr(unsafe.Pointer(&c.capt)))); hr < 0 || c.capt == nil {
+		c.capt = nil
+		c.close()
+		return nil, fmt.Errorf("process loopback: GetService: 0x%x", hr)
+	}
+
+	if hr := int32(comCall(client, 10)); hr < 0 { // Start = vtbl 10
+		c.close()
+		return nil, fmt.Errorf("process loopback: Start: 0x%x", hr)
+	}
+	return c, nil
+}
+
+// wait blocks until the engine signals new packets or ms elapses.
+func (c *processClient) wait(ms uint32) { _, _ = windows.WaitForSingleObject(c.event, ms) }
+
+// drain hands every queued packet to sink (silent packets as zeros) and
+// returns the frames delivered, or false once sink fails.
+func (c *processClient) drain(sink func([]byte) bool) (int64, bool) {
+	var frames int64
+	for {
+		var packetFrames uint32
+		if hr := int32(comCall(c.capt, 5, uintptr(unsafe.Pointer(&packetFrames)))); hr < 0 || packetFrames == 0 {
+			return frames, true
+		}
+		var (
+			data  *byte
+			n     uint32
+			flags uint32
+		)
+		if hr := int32(comCall(c.capt, 3, uintptr(unsafe.Pointer(&data)), uintptr(unsafe.Pointer(&n)), uintptr(unsafe.Pointer(&flags)), 0, 0)); hr < 0 {
+			return frames, true
+		}
+		buf := make([]byte, int(n)*processBlockAlign)
+		if flags&audclntBufferFlagsSilent == 0 && data != nil {
+			copy(buf, unsafe.Slice(data, len(buf)))
+		}
+		comCall(c.capt, 4, uintptr(n))
+		if !sink(buf) {
+			return frames, false
+		}
+		frames += int64(n)
+	}
+}
+
+// close stops the client and releases everything it holds.
+func (c *processClient) close() {
+	if c.capt != nil {
+		comCall(c.client, 11) // Stop
+		comRelease(c.capt)
+	}
+	if c.event != 0 {
+		_ = windows.CloseHandle(c.event)
+	}
+	comRelease(c.client)
+}
+
 // processPump mirrors audioStream.pump for the process-loopback client:
 // event-driven capture, our own fixed format, same pipe + silence handling.
 func (s *audioStream) processPump(pid, mode uint32, pipeName string, ready chan<- audioInitResult) {
@@ -200,75 +312,23 @@ func (s *audioStream) processPump(pid, mode uint32, pipeName string, ready chan<
 		return
 	}
 
-	client, err := activateProcessLoopbackClient(pid, mode)
+	c, err := openProcessClient(pid, mode)
 	if err != nil {
 		fail(err)
 		return
 	}
-	defer comRelease(client)
+	defer c.close()
 
-	// Our chosen format — plain WAVEFORMATEX, 16-bit PCM 48k stereo.
-	const rate, channels, bits = 48000, 2, 16
-	blockAlign := channels * bits / 8
-	wfx := waveFormatEx{
-		FormatTag:      waveFormatPCM,
-		Channels:       channels,
-		SamplesPerSec:  rate,
-		AvgBytesPerSec: rate * uint32(blockAlign),
-		BlockAlign:     uint16(blockAlign),
-		BitsPerSample:  bits,
-	}
-
-	// IAudioClient::Initialize = vtbl 3 — process loopback REQUIRES event-
-	// callback mode and a zero device period.
-	if hr := int32(comCall(client, 3, audclntShareModeShared,
-		uintptr(audclntStreamFlagsLoopback|audclntStreamFlagsEventCallback),
-		loopbackBufferDuration100ns, 0, uintptr(unsafe.Pointer(&wfx)), 0)); hr < 0 {
-		fail(fmt.Errorf("process loopback: Initialize: 0x%x", hr))
-		return
-	}
-
-	hEvent, _, _ := procCreateEventW.Call(0, 0, 0, 0)
-	if hEvent == 0 {
-		fail(fmt.Errorf("process loopback: CreateEvent failed"))
-		return
-	}
-	defer func() { _ = windows.CloseHandle(windows.Handle(hEvent)) }()
-	if hr := int32(comCall(client, 13, hEvent)); hr < 0 { // SetEventHandle = vtbl 13
-		fail(fmt.Errorf("process loopback: SetEventHandle: 0x%x", hr))
-		return
-	}
-
-	var capt *comObject // GetService = vtbl 14
-	if hr := int32(comCall(client, 14, uintptr(unsafe.Pointer(&iidIAudioCaptureClient)), uintptr(unsafe.Pointer(&capt)))); hr < 0 || capt == nil {
-		fail(fmt.Errorf("process loopback: GetService: 0x%x", hr))
-		return
-	}
-	defer comRelease(capt)
-
-	pipePath := `\\.\pipe\` + pipeName
-	hPipe, err := windows.CreateNamedPipe(
-		windows.StringToUTF16Ptr(pipePath),
-		windows.PIPE_ACCESS_OUTBOUND,
-		windows.PIPE_TYPE_BYTE|windows.PIPE_WAIT,
-		1, 1<<20, 0, 0, nil,
-	)
+	pipe, err := createAudioPipe(pipeName)
 	if err != nil {
-		fail(fmt.Errorf("process loopback: create pipe: %w", err))
+		fail(fmt.Errorf("process loopback: %w", err))
 		return
 	}
-	pipe := os.NewFile(uintptr(hPipe), pipePath)
 	defer func() { _ = pipe.Close() }()
 
-	if hr := int32(comCall(client, 10)); hr < 0 { // Start = vtbl 10
-		fail(fmt.Errorf("process loopback: Start: 0x%x", hr))
-		return
-	}
-	defer comCall(client, 11) // Stop
+	ready <- audioInitResult{AudioInput{PipePath: pipe.Name(), SampleFmt: "s16le", SampleRate: processRate, Channels: processChannels}, nil}
 
-	ready <- audioInitResult{AudioInput{PipePath: pipePath, SampleFmt: "s16le", SampleRate: rate, Channels: channels}, nil}
-
-	if err := windows.ConnectNamedPipe(windows.Handle(hPipe), nil); err != nil && err != windows.ERROR_PIPE_CONNECTED {
+	if err := windows.ConnectNamedPipe(windows.Handle(pipe.Fd()), nil); err != nil && err != windows.ERROR_PIPE_CONNECTED {
 		return
 	}
 	select {
@@ -279,7 +339,8 @@ func (s *audioStream) processPump(pid, mode uint32, pipeName string, ready chan<
 
 	start := time.Now()
 	var framesWritten int64
-	silence := make([]byte, blockAlign*rate/10) // 100ms
+	silence := make([]byte, processBlockAlign*processRate/10) // 100ms
+	write := func(b []byte) bool { _, err := pipe.Write(b); return err == nil }
 
 	for {
 		select {
@@ -288,39 +349,35 @@ func (s *audioStream) processPump(pid, mode uint32, pipeName string, ready chan<
 		default:
 		}
 		// Wake on engine event OR every 50ms (so stop/gap-fill stay timely).
-		_, _ = windows.WaitForSingleObject(windows.Handle(hEvent), 50)
-
-		for {
-			var packetFrames uint32
-			if hr := int32(comCall(capt, 5, uintptr(unsafe.Pointer(&packetFrames)))); hr < 0 || packetFrames == 0 {
-				break
-			}
-			var (
-				data   *byte
-				frames uint32
-				flags  uint32
-			)
-			if hr := int32(comCall(capt, 3, uintptr(unsafe.Pointer(&data)), uintptr(unsafe.Pointer(&frames)), uintptr(unsafe.Pointer(&flags)), 0, 0)); hr < 0 {
-				break
-			}
-			n := int(frames) * blockAlign
-			buf := make([]byte, n)
-			if flags&audclntBufferFlagsSilent == 0 && data != nil {
-				copy(buf, unsafe.Slice(data, n))
-			}
-			comCall(capt, 4, uintptr(frames))
-			if _, err := pipe.Write(buf); err != nil {
-				return
-			}
-			framesWritten += int64(frames)
+		c.wait(50)
+		n, ok := c.drain(write)
+		if !ok {
+			return
 		}
+		framesWritten += n
 
-		expected := int64(time.Since(start).Seconds() * float64(rate))
-		for expected-framesWritten > int64(rate/10) {
-			if _, err := pipe.Write(silence); err != nil {
+		expected := int64(time.Since(start).Seconds() * processRate)
+		for expected-framesWritten > processRate/10 {
+			if !write(silence) {
 				return
 			}
-			framesWritten += int64(rate / 10)
+			framesWritten += processRate / 10
 		}
 	}
+}
+
+// createAudioPipe makes the outbound named pipe ffmpeg reads PCM from. It
+// must exist BEFORE ffmpeg spawns (ffmpeg opens the path like a file).
+func createAudioPipe(pipeName string) (*os.File, error) {
+	pipePath := `\\.\pipe\` + pipeName
+	hPipe, err := windows.CreateNamedPipe(
+		windows.StringToUTF16Ptr(pipePath),
+		windows.PIPE_ACCESS_OUTBOUND,
+		windows.PIPE_TYPE_BYTE|windows.PIPE_WAIT,
+		1, 1<<20, 0, 0, nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create pipe: %w", err)
+	}
+	return os.NewFile(uintptr(hPipe), pipePath), nil
 }

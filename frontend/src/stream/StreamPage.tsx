@@ -630,6 +630,7 @@ function LiveCard({
             {live.zeroCopy ? " · GPU only" : ""}
           </Note>
           {live.error ? <Note warn>{live.error}</Note> : null}
+          {live.audioWarning ? <Note warn>{live.audioWarning}</Note> : null}
           {viewers.length > 0 ? (
             <ul className="flex flex-wrap gap-1.5">
               {viewers
