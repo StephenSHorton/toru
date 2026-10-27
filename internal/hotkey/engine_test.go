@@ -59,6 +59,7 @@ func resetEngine() {
 		phys.injected[i].Store(false)
 	}
 	phys.injecting.Store(false)
+	shiftWrap.Store(false)
 	for i := range mouseSwallowUp {
 		mouseSwallowUp[i].Store(false)
 	}

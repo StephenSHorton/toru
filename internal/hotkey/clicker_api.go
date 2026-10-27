@@ -1,6 +1,9 @@
 package hotkey
 
-import "fmt"
+import (
+	"fmt"
+	"sync/atomic"
+)
 
 // Auto clicker support (internal/clicker).
 
@@ -60,6 +63,21 @@ func TriggerVKs(b Binding) []uint16 {
 // still seen by RegisterHotKey.
 func SetInjecting(on bool) {
 	if phys.setInjecting(on) {
+		requestSync()
+	}
+}
+
+// shiftWrap is set while a clicker run may inject Shift around its key
+// presses (a letter auto-pressed in a fixed case).
+var shiftWrap atomic.Bool
+
+// SetShiftWrapping tells the hooks whether the current clicker run may inject
+// Shift. Only then does clickerToggle leave RegisterHotKey during the run
+// (see systemHotkeyWant): RegisterHotKey reads Windows' key state, where an
+// injected Shift up hides the user's held Shift. Every other run keeps the
+// stop hotkey on RegisterHotKey, so it still works over elevated windows.
+func SetShiftWrapping(on bool) {
+	if shiftWrap.Swap(on) != on {
 		requestSync()
 	}
 }

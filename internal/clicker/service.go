@@ -38,6 +38,7 @@ type ClickerService struct {
 	lastPill     string
 	pubMu        sync.Mutex // serializes publish (controller.go); taken before mu
 	injectRefs   int
+	shiftRefs    int
 
 	// pickers (picks.go)
 	picking    bool

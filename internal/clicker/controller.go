@@ -267,8 +267,9 @@ func (s *ClickerService) drive(r *run) engine.Verdict {
 		return engine.Verdict{Kind: engine.Stop, Code: engine.CodeInterrupted}
 	}
 
-	s.injecting(true)
-	defer s.injecting(false)
+	shift := r.cfg.WantUpper || r.cfg.WantLower
+	s.injecting(true, shift)
+	defer s.injecting(false, shift)
 	r.running.Store(true)
 	defer r.running.Store(false)
 	return s.d.run(r.cfg, &watchInjector{inner: inj, s: s, r: r}, clk,
@@ -280,20 +281,30 @@ func (s *ClickerService) drive(r *run) engine.Verdict {
 		})
 }
 
-// injecting reference-counts hotkey.SetInjecting so a stale run winding down
-// cannot clear the flag under a newer one. The flag is applied under s.mu so
+// injecting reference-counts hotkey.SetInjecting (and SetShiftWrapping, for
+// runs that may inject Shift) so a stale run winding down cannot clear the
+// flags under a newer one. The flag is applied under s.mu so
 // the last count computed is the last one applied (hotkey.SetInjecting only
 // stores atomics and posts a message to the hook thread; it never calls back).
-func (s *ClickerService) injecting(on bool) {
+func (s *ClickerService) injecting(on, shift bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if on {
-		s.injectRefs++
-	} else if s.injectRefs > 0 {
-		s.injectRefs--
+	step := func(n *int) {
+		if on {
+			*n++
+		} else if *n > 0 {
+			*n--
+		}
+	}
+	step(&s.injectRefs)
+	if shift {
+		step(&s.shiftRefs)
 	}
 	if s.d.setInjecting != nil {
 		s.d.setInjecting(s.injectRefs > 0)
+	}
+	if s.d.setShiftWrapping != nil {
+		s.d.setShiftWrapping(s.shiftRefs > 0)
 	}
 }
 

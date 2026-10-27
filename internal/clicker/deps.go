@@ -54,6 +54,8 @@ type deps struct {
 	physicallyDown func(vk uint16) bool
 	triggerVKs     func(b hotkey.Binding) []uint16
 	setInjecting   func(on bool)
+	// setShiftWrapping: the run may inject Shift (see hotkey.SetShiftWrapping).
+	setShiftWrapping func(on bool)
 
 	// host
 	now func() time.Time
@@ -92,9 +94,10 @@ func realDeps() deps {
 		overlayShutdown:  overlay.Shutdown,
 		toast:            toast.Show,
 
-		physicallyDown: hotkey.PhysicallyDown,
-		triggerVKs:     hotkey.TriggerVKs,
-		setInjecting:   hotkey.SetInjecting,
+		physicallyDown:   hotkey.PhysicallyDown,
+		triggerVKs:       hotkey.TriggerVKs,
+		setInjecting:     hotkey.SetInjecting,
+		setShiftWrapping: hotkey.SetShiftWrapping,
 
 		now: time.Now,
 		saveDialog: func(string, string) (string, error) {

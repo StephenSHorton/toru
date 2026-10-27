@@ -1,7 +1,6 @@
 package clicker
 
 import (
-
 	"github.com/StephenSHorton/toru/internal/hotkey"
 )
 

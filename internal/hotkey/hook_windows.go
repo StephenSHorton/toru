@@ -335,7 +335,7 @@ func (m *Manager) systemHotkeyWant() map[string]Binding {
 		if !ok || b.Key == 0 || m.inactive[action] || hookOnly(b) {
 			continue
 		}
-		if action == toggleAction && (phys.injecting.Load() || phys.anySwallowedDown(chordVKs(b))) {
+		if action == toggleAction && ((phys.injecting.Load() && shiftWrap.Load()) || phys.anySwallowedDown(chordVKs(b))) {
 			deferred = true
 			continue
 		}

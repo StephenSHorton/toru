@@ -108,8 +108,13 @@ func TestToggleOffSystemHotkeyWhileInjecting(t *testing.T) {
 		t.Fatal("idle: both registered")
 	}
 	SetInjecting(true)
+	if !want(toggleAction) || toggleDeferred.Load() {
+		t.Fatal("a run that never injects Shift keeps the toggle on RegisterHotKey")
+	}
+	SetShiftWrapping(true)
+	defer SetShiftWrapping(false)
 	if want(toggleAction) || !want("replaySave") || !toggleDeferred.Load() {
-		t.Fatal("injecting: clickerToggle left to the hook, replaySave registered")
+		t.Fatal("Shift-wrapping run: clickerToggle left to the hook, replaySave registered")
 	}
 
 	// The hook now matches the toggle (sysOwned is cleared by the sync).

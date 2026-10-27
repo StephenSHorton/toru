@@ -122,10 +122,11 @@ front either, so shortcuts that only the hooks can see do nothing there:
   A plain shortcut like Ctrl+Shift+Y is registered with Windows instead and
   does work, unless another app already owns that combo (Toru then falls back
   to the hook).
-- The start/stop shortcut while a run is going: during a run Toru matches it
-  with the hook (the run's own Shift presses would confuse Windows' matching),
-  so to stop a run over an elevated window use the tray or the page, or move
-  the cursor into a failsafe.
+- The start/stop shortcut during a keyboard run that types a letter in a
+  fixed case: Toru presses Shift for those, which would confuse Windows'
+  matching, so it matches the shortcut with the hook for that run. To stop
+  such a run over an elevated window use the tray or the page, or move the
+  cursor into a failsafe. Mouse runs and other keys are not affected.
 - The *Arm / disarm auto clicker* shortcut, whatever it is.
 - In Hold mode, letting go of the shortcut over an elevated window is not seen,
   so the run keeps clicking until you press and release the shortcut again

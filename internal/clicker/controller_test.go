@@ -662,8 +662,8 @@ func TestInjectingLastAppliedMatchesRefcount(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				r.s.injecting(true)
-				r.s.injecting(false)
+				r.s.injecting(true, false)
+				r.s.injecting(false, false)
 			}()
 		}
 		wg.Wait()
