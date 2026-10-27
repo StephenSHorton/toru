@@ -191,7 +191,7 @@ func handleKey(ev keyEvent) bool {
 	// If the press that started the run is still held, its repeats now reach
 	// the hook: latch them (swallowed below) but don't fire, or the run would
 	// stop itself.
-	if firstDown && !(repeat && matched == toggleAction) {
+	if firstDown && (!repeat || matched != toggleAction) {
 		m.signal(matched)
 	}
 
