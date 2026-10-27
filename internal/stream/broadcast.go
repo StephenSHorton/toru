@@ -217,6 +217,7 @@ func (b *broadcaster) setup(cfg Settings) error {
 	b.video, b.audio = vf, af
 	b.status.Encoder = enc
 	b.status.Info = b.infoLocked()
+	b.status.AudioWarning = "" // a new audio supervisor (or none) owns it now
 	b.vRuns = 0
 	b.vStop, b.vDone, b.vKick = make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
 	go b.superviseVideo(b.vStop, b.vDone, b.vKick)

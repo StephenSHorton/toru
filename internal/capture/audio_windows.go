@@ -156,7 +156,10 @@ func (s *audioStream) pump(deviceID, pipeName string, ready chan<- audioInitResu
 
 	var device *comObject // IMMDeviceEnumerator::GetDefaultAudioEndpoint(eRender=0, eConsole=0) = vtbl 4
 	if deviceID != "" {   // IMMDeviceEnumerator::GetDevice = vtbl 5
-		if hr := int32(comCall(enumerator, 5, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(deviceID))), uintptr(unsafe.Pointer(&device)))); hr < 0 || device == nil {
+		id := windows.StringToUTF16Ptr(deviceID)
+		hr := int32(comCall(enumerator, 5, uintptr(unsafe.Pointer(id)), uintptr(unsafe.Pointer(&device))))
+		runtime.KeepAlive(id) // comCall is a plain Go func: keep the string alive across it
+		if hr < 0 || device == nil {
 			fail(fmt.Errorf("loopback: render endpoint %s: 0x%x", deviceID, hr))
 			return
 		}
