@@ -12,11 +12,6 @@ import { cn } from "@/lib/utils";
 // from their PC. Playback is tuned for latency: the jitter buffer target and
 // playout delay are zero, so frames show as soon as they decode.
 
-const ICE_SERVERS: RTCIceServer[] = [
-  { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-  { urls: ["stun:stun.cloudflare.com:3478"] },
-];
-
 const OFFER_TIMEOUT_MS = 15_000;
 const VOLUME_KEY = "toru.watch.volume";
 
@@ -143,7 +138,11 @@ export default function Watch() {
       closePc();
       setInfo(o.info);
       setMessage(`Connecting to ${name}…`);
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, bundlePolicy: "max-bundle" });
+      // The shared ICE list: STUN, plus TURN with fresh credentials when a
+      // relay is set up (StreamService.ICEServers).
+      const iceServers = (await StreamService.ICEServers().catch(() => [])) as RTCIceServer[];
+      closePc(); // another offer may have arrived while we asked
+      const pc = new RTCPeerConnection({ iceServers, bundlePolicy: "max-bundle" });
       pcRef.current = pc;
       const ms = new MediaStream();
       pc.ontrack = (e) => {

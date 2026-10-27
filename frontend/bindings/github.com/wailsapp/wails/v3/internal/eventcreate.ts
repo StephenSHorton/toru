@@ -32,16 +32,17 @@ function configure() {
         "clicker:pick": $$createType2,
         "clicker:settings": $$createType3,
         "clicker:status": $$createType4,
-        "overlay:cropRect": $$createType5,
-        "overlay:edit": $$createType6,
-        "overlay:engage": $$createType7,
-        "overlay:ui": $$createType8,
-        "stream:host": $$createType9,
-        "stream:offer": $$createType10,
-        "stream:state": $$createType11,
-        "transfer:receive": $$createType12,
-        "transfer:send": $$createType13,
-        "update:status": $$createType14,
+        "lan:state": $$createType5,
+        "overlay:cropRect": $$createType6,
+        "overlay:edit": $$createType7,
+        "overlay:engage": $$createType8,
+        "overlay:ui": $$createType9,
+        "stream:host": $$createType10,
+        "stream:offer": $$createType11,
+        "stream:state": $$createType12,
+        "transfer:receive": $$createType13,
+        "transfer:send": $$createType14,
+        "update:status": $$createType15,
     }));
 }
 
@@ -51,15 +52,16 @@ const $$createType1 = capture$0.CaptureResult.createFrom;
 const $$createType2 = clicker$0.PickEvent.createFrom;
 const $$createType3 = clicker$0.Settings.createFrom;
 const $$createType4 = clicker$0.Status.createFrom;
-const $$createType5 = capture$0.Rect.createFrom;
-const $$createType6 = overlay$0.OverlayEditPayload.createFrom;
-const $$createType7 = overlay$0.MonitorSession.createFrom;
-const $$createType8 = overlay$0.OverlayUi.createFrom;
-const $$createType9 = stream$0.HostEvent.createFrom;
-const $$createType10 = stream$0.Offer.createFrom;
-const $$createType11 = stream$0.State.createFrom;
-const $$createType12 = transfer$0.ReceiveState.createFrom;
-const $$createType13 = transfer$0.SendState.createFrom;
-const $$createType14 = update$0.Status.createFrom;
+const $$createType5 = stream$0.LanState.createFrom;
+const $$createType6 = capture$0.Rect.createFrom;
+const $$createType7 = overlay$0.OverlayEditPayload.createFrom;
+const $$createType8 = overlay$0.MonitorSession.createFrom;
+const $$createType9 = overlay$0.OverlayUi.createFrom;
+const $$createType10 = stream$0.HostEvent.createFrom;
+const $$createType11 = stream$0.Offer.createFrom;
+const $$createType12 = stream$0.State.createFrom;
+const $$createType13 = transfer$0.ReceiveState.createFrom;
+const $$createType14 = transfer$0.SendState.createFrom;
+const $$createType15 = update$0.Status.createFrom;
 
 configure();

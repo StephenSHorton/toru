@@ -91,6 +91,7 @@ func init() {
 	application.RegisterEvent[stream.HostEvent](stream.EventHost)
 	application.RegisterEvent[stream.CallSignal](stream.EventCallSignal)
 	application.RegisterEvent[application.Void](stream.EventCallEnd)
+	application.RegisterEvent[stream.LanState](stream.EventLan)
 }
 
 func main() {
@@ -184,6 +185,9 @@ func main() {
 	replaySvc = replay.NewService()
 	uploadSvc := upload.New()
 	streamSvc := stream.NewService()
+	// LAN: the Call page's virtual LAN card, talking to the toru-lan service
+	// (docs/lan.md). Nothing starts until the user turns LAN on.
+	lanSvc := stream.NewLanService(streamSvc, version)
 
 	app := application.New(application.Options{
 		Name:        "Toru",
@@ -203,6 +207,7 @@ func main() {
 			application.NewService(transferSvc),
 			application.NewService(clickerSvc),
 			application.NewService(streamSvc),
+			application.NewService(lanSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -256,6 +261,7 @@ func main() {
 	streamSvc.SetApp(app)
 	streamSvc.SetWatchOpener(windowsSvc.OpenWatch)
 	streamSvc.SetCallOpener(windowsSvc.OpenCall)
+	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in
 	// the recorder.
 	hotkeySvc.SetOnRecordStart(func() { clickerSvc.StopFor(clicker.StopKeyCapture) })
@@ -468,8 +474,12 @@ func main() {
 		// Auto clicker: load settings, arm its hotkeys.
 		go clickerSvc.Init()
 
-		// Stream: rejoin the saved room so friends see we're around.
-		go streamSvc.Init()
+		// Stream: rejoin the saved room so friends see we're around; then
+		// LAN, which turns itself back on if it was left on in that room.
+		go func() {
+			streamSvc.Init()
+			lanSvc.Init()
+		}()
 	})
 
 	// Best-effort: close the reused overlay windows on app shutdown. Process exit
@@ -487,6 +497,7 @@ func main() {
 		clickerSvc.Shutdown() // stop a run and release any held button or key
 		replaySvc.Shutdown()  // stop ffmpeg + delete the rolling segments
 		transferSvc.Shutdown()
+		lanSvc.Shutdown()    // drop the LAN pipe (the service keeps tunnels briefly)
 		streamSvc.Shutdown() // end a live stream, tell the room we left
 		updateSvc.InstallOnExit()
 	})

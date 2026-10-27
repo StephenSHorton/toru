@@ -6,6 +6,7 @@ package stream
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"math"
 	"os"
@@ -74,6 +75,91 @@ type Settings struct {
 	// NoiseMode (on = not off) so an older Toru reading this file still
 	// works. A file with only this field gets its NoiseMode from it.
 	NoiseSuppression bool `json:"noiseSuppression"`
+
+	// InstallID is this install's room peer id: 16 random bytes in hex, made
+	// on first run and kept, so other members (their call volumes, LAN pins)
+	// know us across restarts. Never set from the page.
+	InstallID string `json:"installId"`
+	// PeerVolumes is how loud each other person in the call plays here, in
+	// percent (0 = muted for me, 100 = as sent, up to MaxPeerVolume), keyed
+	// by their peer id. 100 is not stored.
+	PeerVolumes map[string]int `json:"peerVolumes"`
+
+	// Relay (TURN) for calls, streams and LAN when two PCs can't reach each
+	// other directly. Both empty = STUN only, direct connections. Edited in
+	// stream.json by hand: CredentialURL hands out short-lived TURN REST
+	// credentials ({username, credential, ttl, uris}); TurnURLs, when set,
+	// replace the uris it returns.
+	TurnURLs      []string `json:"turnUrls"`
+	CredentialURL string   `json:"credentialUrl"`
+
+	// LAN (docs/lan.md). LanOn is the switch, kept across restarts; the
+	// two policy toggles are its Advanced settings. LanSalt is the last
+	// Readdress salt sent after an address collision, so the next one moves on.
+	LanOn            bool   `json:"lanOn"`
+	LanAllowServices bool   `json:"lanAllowServices"`
+	LanMDNS          bool   `json:"lanMdns"`
+	LanSalt          uint32 `json:"lanSalt"`
+}
+
+// MaxPeerVolume is the loudest a call member can be turned up, in percent.
+const MaxPeerVolume = 200
+
+// fileOnly copies the fields the page never sets (identity, volumes, relay
+// and LAN) from cur into in, so a page save can't wipe them.
+func (in Settings) fileOnly(cur Settings) Settings {
+	in.InstallID = cur.InstallID
+	in.PeerVolumes = cur.PeerVolumes
+	in.TurnURLs, in.CredentialURL = cur.TurnURLs, cur.CredentialURL
+	in.LanOn, in.LanAllowServices, in.LanMDNS, in.LanSalt = cur.LanOn, cur.LanAllowServices, cur.LanMDNS, cur.LanSalt
+	return in
+}
+
+// liveSettings is the part of Settings a running stream is built from.
+type liveSettings struct {
+	MonitorID, Width, Height, FPS int
+	AutoBitrate                   bool
+	BitrateKbps                   int
+	Codec                         string
+	Cursor                        bool
+	KeyframeSec                   int
+	Audio                         bool
+	AudioKbps                     int
+}
+
+func (s Settings) live() liveSettings {
+	return liveSettings{
+		MonitorID: s.MonitorID, Width: s.Width, Height: s.Height, FPS: s.FPS,
+		AutoBitrate: s.AutoBitrate, BitrateKbps: s.BitrateKbps, Codec: s.Codec, Cursor: s.Cursor,
+		KeyframeSec: s.KeyframeSec, Audio: s.Audio, AudioKbps: s.AudioKbps,
+	}
+}
+
+// validInstallID reports whether id looks like one InstallID (32 hex digits).
+func validInstallID(id string) bool {
+	if len(id) != 32 {
+		return false
+	}
+	_, err := hex.DecodeString(id)
+	return err == nil
+}
+
+// validPeerID bounds the peer ids accepted from the page and the room.
+func validPeerID(id string) bool {
+	return id != "" && len(id) <= 64
+}
+
+// cleanTurnURLs keeps the well-formed stun:, turn: and turns: entries.
+func cleanTurnURLs(in []string) []string {
+	out := []string{}
+	for _, u := range in {
+		u = strings.TrimSpace(u)
+		l := strings.ToLower(u)
+		if strings.HasPrefix(l, "turn:") || strings.HasPrefix(l, "turns:") || strings.HasPrefix(l, "stun:") {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 // legacyDefaultKbps was the fixed default before Auto bitrate existed. It is
@@ -213,6 +299,19 @@ func Normalize(s Settings) Settings {
 		s.NoiseMode = d.NoiseMode
 	}
 	s.NoiseSuppression = s.NoiseMode != NoiseOff
+	if !validInstallID(s.InstallID) {
+		s.InstallID = "" // NewService makes a fresh one
+	}
+	s.InstallID = strings.ToLower(s.InstallID)
+	vols := map[string]int{}
+	for id, v := range s.PeerVolumes {
+		if v = clamp(v, 0, MaxPeerVolume); validPeerID(id) && v != 100 {
+			vols[id] = v
+		}
+	}
+	s.PeerVolumes = vols
+	s.TurnURLs = cleanTurnURLs(s.TurnURLs)
+	s.CredentialURL = strings.TrimSpace(s.CredentialURL)
 	return s
 }
 
