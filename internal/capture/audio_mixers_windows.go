@@ -35,6 +35,13 @@ import (
 //     and the per-app mix carried an app's tone at the same -53 dBFS with a
 //     banned tree's tone absent (TestStreamAudioAppMixProbe).
 //
+//   - the engine's "process tree" follows LIVE parent links only: a child
+//     whose parent has exited (cmd /c start ffplay) was absent from an
+//     include-tree capture of its grandparent (-142 dBFS) and present in
+//     the exclude-tree one. That is the same tree appMixRoots builds from a
+//     process snapshot, so the two agree; Toru's WebView2 processes have a
+//     live parent (toru.exe), so they stay inside Toru's tree.
+//
 // Exclusion takes ONE process tree, so "everything except Toru and the
 // mixer" is built from per-app include captures (audio_appmix_windows.go).
 

@@ -69,3 +69,16 @@ func StartDesktopAudio(excludePID uint32, pipeName string) (AudioCapture, string
 	}
 	return src, how, nil
 }
+
+// AudioMixerPIDs lists the root pids of the known audio mixers running now
+// (nil off Windows). StartDesktopAudio picks its capture from this set once,
+// so a caller polls it to notice a mixer that started (or restarted under a
+// new pid) after the capture did: its microphone feed would otherwise reach
+// the stream.
+func AudioMixerPIDs() []uint32 {
+	var out []uint32
+	for _, m := range runningAudioMixers() {
+		out = append(out, m.pid)
+	}
+	return out
+}

@@ -21,7 +21,12 @@ import (
 // keeps Toru's call audio, and the API excludes only one tree.
 //
 // Trade-offs: a newly started app is picked up on the next scan (up to
-// appMixScan late), and the system-sounds session is not captured.
+// appMixScan late), and the system-sounds session is not captured. When an
+// ancestor of a captured app gains a session (a launcher such as Steam after
+// its game), the app's client hands over to a fresh one for the ancestor's
+// tree, which drops about 100 ms of that app's audio (measured: the only gap
+// in a 20 s run). The scan runs on the pipe-writer goroutine and took
+// 20-35 ms per pass on a busy desktop without causing an underrun.
 
 const (
 	appMixScan = 2 * time.Second

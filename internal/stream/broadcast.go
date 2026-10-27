@@ -465,6 +465,10 @@ func (b *broadcaster) superviseAudio(stop, done, kickCh chan struct{}) {
 		cfg, af := b.cfg, b.audio
 		b.mu.Unlock()
 
+		mixers := map[uint32]bool{}
+		for _, pid := range capture.AudioMixerPIDs() {
+			mixers[pid] = true
+		}
 		src, how, err := capture.StartDesktopAudio(uint32(os.Getpid()), fmt.Sprintf("toru-stream-audio-%d", time.Now().UnixNano()))
 		var p *proc
 		if err != nil {
@@ -502,6 +506,10 @@ func (b *broadcaster) superviseAudio(stop, done, kickCh chan struct{}) {
 		case <-kickCh:
 			p.kill()
 			src.Stop()
+		case <-newAudioMixer(mixers, p.done):
+			logf("desktop audio: an audio mixer started; rebuilding the capture so it stays out")
+			p.kill()
+			src.Stop()
 		case <-p.done:
 			src.Stop()
 			logf("audio encoder exited: %v: %s", p.err, lastLine(p.tail.String()))
@@ -510,6 +518,33 @@ func (b *broadcaster) superviseAudio(stop, done, kickCh chan struct{}) {
 			}
 		}
 	}
+}
+
+// newAudioMixer returns a channel that closes when a known audio mixer runs
+// whose pid isn't in known (one that started after the capture was chosen),
+// polling until done closes. The capture must then be rebuilt: an
+// exclude-Toru capture, or a per-app mix that doesn't ban the new pid, would
+// carry that mixer's microphone feed into the stream.
+func newAudioMixer(known map[uint32]bool, done <-chan struct{}) <-chan struct{} {
+	ch := make(chan struct{})
+	go func() {
+		t := time.NewTicker(3 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+			}
+			for _, pid := range capture.AudioMixerPIDs() {
+				if !known[pid] {
+					close(ch)
+					return
+				}
+			}
+		}
+	}()
+	return ch
 }
 
 // wait sleeps d, returning true if stop closed meanwhile (a kick cuts it short).
