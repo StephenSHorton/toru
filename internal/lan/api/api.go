@@ -24,15 +24,15 @@ const PipeName = `\\.\pipe\ProtectedPrefix\Administrators\Toru\lan`
 
 // PipeSDDL lets SYSTEM and Administrators do anything and interactive users
 // connect (read and write data), nobody else. Interactive users get
-// PipeClientAccess, not GW: GENERIC_WRITE on a pipe includes
-// FILE_CREATE_PIPE_INSTANCE, which would let a non-admin add a server
-// instance of the pipe and catch the GUI's next connection.
+// 0x12019b, not GW: a GW grant includes FILE_CREATE_PIPE_INSTANCE, which
+// would let a non-admin add a server instance of the pipe and catch the GUI's
+// next connection.
 const PipeSDDL = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;IU)"
 
-// PipeClientAccess is what the GUI opens the pipe with: FILE_GENERIC_READ |
-// FILE_WRITE_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES (no
-// FILE_APPEND_DATA, which on a pipe is FILE_CREATE_PIPE_INSTANCE). Opening
-// with GENERIC_WRITE asks for that bit too and is denied by PipeSDDL.
+// PipeClientAccess is the narrowest access the GUI needs to talk on the pipe:
+// FILE_GENERIC_READ | FILE_WRITE_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES.
+// winio's default GENERIC_READ|GENERIC_WRITE also connects under PipeSDDL
+// (a client open doesn't need the instance right); TestPipeSDDL checks both.
 const PipeClientAccess = 0x12019b
 
 // ServiceName is the Windows service; "toru-lan.exe install" registers it demand-start
