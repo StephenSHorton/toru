@@ -249,11 +249,8 @@ func (b *broadcaster) teardown() {
 }
 
 func (b *broadcaster) infoLocked() LiveInfo {
-	w, h := b.cfg.Width, b.cfg.Height
-	if w == 0 || h == 0 {
-		w, h = b.screenW, b.screenH
-	}
-	return LiveInfo{Width: w, Height: h, FPS: b.cfg.FPS, BitrateKbps: b.cfg.BitrateKbps, Codec: b.cfg.Codec, Audio: b.cfg.Audio}
+	w, h := b.cfg.OutputSize(b.screenW, b.screenH)
+	return LiveInfo{Width: w, Height: h, FPS: b.cfg.FPS, BitrateKbps: b.cfg.VideoKbps(w, h), Codec: b.cfg.Codec, Audio: b.cfg.Audio}
 }
 
 // Info is what the room is told about this stream.
@@ -379,7 +376,7 @@ func (b *broadcaster) superviseVideo(stop, done, kickCh chan struct{}) {
 	failures := 0
 	for {
 		b.mu.Lock()
-		cfg, enc, vf := b.cfg, b.enc, b.video
+		cfg, enc, vf, screenW, screenH := b.cfg, b.enc, b.video, b.screenW, b.screenH
 		native := cfg.Width == 0 || (cfg.Width == b.screenW && cfg.Height == b.screenH)
 		b.mu.Unlock()
 
@@ -394,7 +391,7 @@ func (b *broadcaster) superviseVideo(stop, done, kickCh chan struct{}) {
 			var errs []error
 			for _, zc := range candidates {
 				vf.newSource()
-				p, err = b.spawn(videoArgs(ddaIdx, cfg, enc, zc, vf.url()))
+				p, err = b.spawn(videoArgs(ddaIdx, cfg, screenW, screenH, enc, zc, vf.url()))
 				if err == nil {
 					zero = zc
 					break

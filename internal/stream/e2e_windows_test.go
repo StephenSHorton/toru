@@ -26,7 +26,7 @@ func TestEndToEnd(t *testing.T) {
 	host := NewService()
 	defer host.Shutdown()
 	cfg := host.GetSettings()
-	cfg.FPS, cfg.BitrateKbps, cfg.Width, cfg.Height = 60, 8000, 1280, 720
+	cfg.FPS, cfg.AutoBitrate, cfg.BitrateKbps, cfg.Width, cfg.Height = 60, false, 8000, 1280, 720
 	if c := os.Getenv("TORU_STREAM_CODEC"); c != "" {
 		cfg.Codec = c
 	}
