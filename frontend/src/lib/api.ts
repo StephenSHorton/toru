@@ -47,6 +47,9 @@
 //   StreamService.GetState / GetSettings / SetSettings(s) -> normalized StreamSettings  ("stream:state" on any change)
 //   StreamService.CreateRoom / JoinRoom(code) / LeaveRoom / GoLive / StopLive / OpenWatch(host) / ListMonitors / EncoderSupport
 //   StreamService.WatchStart(host, session) / WatchAnswer(host, session, sdp) / WatchStop  (watch window; "stream:offer", "stream:host")
+//   StreamService.ICEServers(): Promise<StreamICEServer[]>  (STUN + TURN with fresh credentials; ask before each RTCPeerConnection)
+//   StreamService.SetPeerVolume(peer, pct 0..200) -> StreamState  (per-person call volume; call.volumes)
+//   LanService.GetState / Enable / Disable / SetPolicy(allowServices, mdns) / Setup / Uninstall -> LanState  ("lan:state")
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
 import * as OverlayService from "../../bindings/github.com/StephenSHorton/toru/internal/overlay/overlayservice.js";
@@ -90,6 +93,13 @@ import {
   ReceiveState,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/transfer/models.js";
 import * as StreamService from "../../bindings/github.com/StephenSHorton/toru/internal/stream/streamservice.js";
+import * as LanService from "../../bindings/github.com/StephenSHorton/toru/internal/stream/lanservice.js";
+import {
+  LanState,
+  LanPeer,
+  LanInfo,
+  ICEServer as StreamICEServer,
+} from "../../bindings/github.com/StephenSHorton/toru/internal/stream/models.js";
 import {
   Settings as StreamSettings,
   State as StreamState,
@@ -166,5 +176,10 @@ export {
   StreamLiveInfo,
   StreamOffer,
   StreamHostEvent,
+  StreamICEServer,
+  LanService,
+  LanState,
+  LanPeer,
+  LanInfo,
 };
 export type { CaptureItem };

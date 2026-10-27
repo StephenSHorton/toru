@@ -110,6 +110,12 @@ export class CallState {
      */
     "peers": { [_ in string]?: string };
 
+    /**
+     * Volumes is how loud each other person plays here, in percent (0..
+     * MaxPeerVolume) by peer id; anyone missing is at 100.
+     */
+    "volumes": { [_ in string]?: number };
+
     /** Creates a new CallState instance. */
     constructor($$source: Partial<CallState> = {}) {
         if (!("inCall" in $$source)) {
@@ -136,6 +142,9 @@ export class CallState {
         if (!("peers" in $$source)) {
             this["peers"] = {};
         }
+        if (!("volumes" in $$source)) {
+            this["volumes"] = {};
+        }
 
         Object.assign(this, $$source);
     }
@@ -145,9 +154,13 @@ export class CallState {
      */
     static createFrom($$source: any = {}): CallState {
         const $$createField7_0 = $$createType1;
+        const $$createField8_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("peers" in $$parsedSource) {
             $$parsedSource["peers"] = $$createField7_0($$parsedSource["peers"]);
+        }
+        if ("volumes" in $$parsedSource) {
+            $$parsedSource["volumes"] = $$createField8_0($$parsedSource["volumes"]);
         }
         return new CallState($$parsedSource as Partial<CallState>);
     }
@@ -184,6 +197,215 @@ export class HostEvent {
     static createFrom($$source: any = {}): HostEvent {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new HostEvent($$parsedSource as Partial<HostEvent>);
+    }
+}
+
+/**
+ * ICEServer is one STUN or TURN server, in the shape RTCPeerConnection takes.
+ */
+export class ICEServer {
+    "urls": string[];
+    "username"?: string;
+    "credential"?: string;
+
+    /** Creates a new ICEServer instance. */
+    constructor($$source: Partial<ICEServer> = {}) {
+        if (!("urls" in $$source)) {
+            this["urls"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ICEServer instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ICEServer {
+        const $$createField0_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("urls" in $$parsedSource) {
+            $$parsedSource["urls"] = $$createField0_0($$parsedSource["urls"]);
+        }
+        return new ICEServer($$parsedSource as Partial<ICEServer>);
+    }
+}
+
+/**
+ * LanInfo is a member's LAN as their presence announces it: their overlay
+ * address and WireGuard public key (both from their LAN service), and
+ * whether LAN is on right now. nil = no LAN service known (never set up, or
+ * an older Toru).
+ */
+export class LanInfo {
+    "ip": string;
+    "wgPub": string;
+    "on": boolean;
+
+    /** Creates a new LanInfo instance. */
+    constructor($$source: Partial<LanInfo> = {}) {
+        if (!("ip" in $$source)) {
+            this["ip"] = "";
+        }
+        if (!("wgPub" in $$source)) {
+            this["wgPub"] = "";
+        }
+        if (!("on" in $$source)) {
+            this["on"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LanInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LanInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LanInfo($$parsedSource as Partial<LanInfo>);
+    }
+}
+
+/**
+ * LanPeer is one member's tunnel as our LAN service sees it.
+ */
+export class LanPeer {
+    "ip": string;
+
+    /**
+     * connecting | connected | failed
+     */
+    "state": string;
+
+    /**
+     * direct | relay
+     */
+    "path"?: string;
+    "rttMs": number;
+
+    /** Creates a new LanPeer instance. */
+    constructor($$source: Partial<LanPeer> = {}) {
+        if (!("ip" in $$source)) {
+            this["ip"] = "";
+        }
+        if (!("state" in $$source)) {
+            this["state"] = "";
+        }
+        if (!("rttMs" in $$source)) {
+            this["rttMs"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LanPeer instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LanPeer {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LanPeer($$parsedSource as Partial<LanPeer>);
+    }
+}
+
+/**
+ * LanState is everything the LAN card and the member chips show.
+ */
+export class LanState {
+    /**
+     * LanSetup, LanOff, LanOn...
+     */
+    "state": string;
+
+    /**
+     * the switch
+     */
+    "wanted": boolean;
+    "inRoom": boolean;
+
+    /**
+     * our overlay address, once the service has one
+     */
+    "ip": string;
+    "pubKey": string;
+
+    /**
+     * with State LanFailed
+     */
+    "error": string;
+    "detail": string;
+    "serviceVersion": string;
+    "appVersion": string;
+
+    /**
+     * "install" or "uninstall" while the elevated helper runs
+     */
+    "busy": string;
+    "peers": { [_ in string]?: LanPeer };
+
+    /**
+     * RelayNone = "Direct only (no relay set up)"
+     */
+    "relay": string;
+    "allowServices": boolean;
+    "mdns": boolean;
+
+    /** Creates a new LanState instance. */
+    constructor($$source: Partial<LanState> = {}) {
+        if (!("state" in $$source)) {
+            this["state"] = "";
+        }
+        if (!("wanted" in $$source)) {
+            this["wanted"] = false;
+        }
+        if (!("inRoom" in $$source)) {
+            this["inRoom"] = false;
+        }
+        if (!("ip" in $$source)) {
+            this["ip"] = "";
+        }
+        if (!("pubKey" in $$source)) {
+            this["pubKey"] = "";
+        }
+        if (!("error" in $$source)) {
+            this["error"] = "";
+        }
+        if (!("detail" in $$source)) {
+            this["detail"] = "";
+        }
+        if (!("serviceVersion" in $$source)) {
+            this["serviceVersion"] = "";
+        }
+        if (!("appVersion" in $$source)) {
+            this["appVersion"] = "";
+        }
+        if (!("busy" in $$source)) {
+            this["busy"] = "";
+        }
+        if (!("peers" in $$source)) {
+            this["peers"] = {};
+        }
+        if (!("relay" in $$source)) {
+            this["relay"] = "";
+        }
+        if (!("allowServices" in $$source)) {
+            this["allowServices"] = false;
+        }
+        if (!("mdns" in $$source)) {
+            this["mdns"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LanState instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LanState {
+        const $$createField10_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("peers" in $$parsedSource) {
+            $$parsedSource["peers"] = $$createField10_0($$parsedSource["peers"]);
+        }
+        return new LanState($$parsedSource as Partial<LanState>);
     }
 }
 
@@ -311,8 +533,8 @@ export class LiveStatus {
      * Creates a new LiveStatus instance from a string or object.
      */
     static createFrom($$source: any = {}): LiveStatus {
-        const $$createField4_0 = $$createType2;
-        const $$createField5_0 = $$createType4;
+        const $$createField4_0 = $$createType5;
+        const $$createField5_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("info" in $$parsedSource) {
             $$parsedSource["info"] = $$createField4_0($$parsedSource["info"]);
@@ -340,6 +562,11 @@ export class Member {
      */
     "speaking": boolean;
 
+    /**
+     * their LAN as they announce it; nil = none
+     */
+    "lan": LanInfo | null;
+
     /** Creates a new Member instance. */
     constructor($$source: Partial<Member> = {}) {
         if (!("id" in $$source)) {
@@ -363,6 +590,9 @@ export class Member {
         if (!("speaking" in $$source)) {
             this["speaking"] = false;
         }
+        if (!("lan" in $$source)) {
+            this["lan"] = null;
+        }
 
         Object.assign(this, $$source);
     }
@@ -371,10 +601,14 @@ export class Member {
      * Creates a new Member instance from a string or object.
      */
     static createFrom($$source: any = {}): Member {
-        const $$createField2_0 = $$createType5;
+        const $$createField2_0 = $$createType8;
+        const $$createField7_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("live" in $$parsedSource) {
             $$parsedSource["live"] = $$createField2_0($$parsedSource["live"]);
+        }
+        if ("lan" in $$parsedSource) {
+            $$parsedSource["lan"] = $$createField7_0($$parsedSource["lan"]);
         }
         return new Member($$parsedSource as Partial<Member>);
     }
@@ -451,12 +685,42 @@ export class Offer {
      * Creates a new Offer instance from a string or object.
      */
     static createFrom($$source: any = {}): Offer {
-        const $$createField3_0 = $$createType2;
+        const $$createField3_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("info" in $$parsedSource) {
             $$parsedSource["info"] = $$createField3_0($$parsedSource["info"]);
         }
         return new Offer($$parsedSource as Partial<Offer>);
+    }
+}
+
+/**
+ * RelayStatus is how the TURN relay is doing.
+ */
+export class RelayStatus {
+    "state": string;
+    "detail"?: string;
+
+    /**
+     * unix ms the current credentials stop working
+     */
+    "expires"?: number;
+
+    /** Creates a new RelayStatus instance. */
+    constructor($$source: Partial<RelayStatus> = {}) {
+        if (!("state" in $$source)) {
+            this["state"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RelayStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RelayStatus {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RelayStatus($$parsedSource as Partial<RelayStatus>);
     }
 }
 
@@ -503,7 +767,7 @@ export class RoomState {
      * Creates a new RoomState instance from a string or object.
      */
     static createFrom($$source: any = {}): RoomState {
-        const $$createField3_0 = $$createType7;
+        const $$createField3_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("members" in $$parsedSource) {
             $$parsedSource["members"] = $$createField3_0($$parsedSource["members"]);
@@ -604,6 +868,40 @@ export class Settings {
      */
     "noiseSuppression": boolean;
 
+    /**
+     * InstallID is this install's room peer id: 16 random bytes in hex, made
+     * on first run and kept, so other members (their call volumes, LAN pins)
+     * know us across restarts. Never set from the page.
+     */
+    "installId": string;
+
+    /**
+     * PeerVolumes is how loud each other person in the call plays here, in
+     * percent (0 = muted for me, 100 = as sent, up to MaxPeerVolume), keyed
+     * by their peer id. 100 is not stored.
+     */
+    "peerVolumes": { [_ in string]?: number };
+
+    /**
+     * Relay (TURN) for calls, streams and LAN when two PCs can't reach each
+     * other directly. Both empty = STUN only, direct connections. Edited in
+     * stream.json by hand: CredentialURL hands out short-lived TURN REST
+     * credentials ({username, credential, ttl, uris}); TurnURLs, when set,
+     * replace the uris it returns.
+     */
+    "turnUrls": string[];
+    "credentialUrl": string;
+
+    /**
+     * LAN (docs/lan.md). LanOn is the switch, kept across restarts; the
+     * two policy toggles are its Advanced settings. LanSalt is the last
+     * Readdress salt sent after an address collision, so the next one moves on.
+     */
+    "lanOn": boolean;
+    "lanAllowServices": boolean;
+    "lanMdns": boolean;
+    "lanSalt": number;
+
     /** Creates a new Settings instance. */
     constructor($$source: Partial<Settings> = {}) {
         if (!("name" in $$source)) {
@@ -663,6 +961,30 @@ export class Settings {
         if (!("noiseSuppression" in $$source)) {
             this["noiseSuppression"] = false;
         }
+        if (!("installId" in $$source)) {
+            this["installId"] = "";
+        }
+        if (!("peerVolumes" in $$source)) {
+            this["peerVolumes"] = {};
+        }
+        if (!("turnUrls" in $$source)) {
+            this["turnUrls"] = [];
+        }
+        if (!("credentialUrl" in $$source)) {
+            this["credentialUrl"] = "";
+        }
+        if (!("lanOn" in $$source)) {
+            this["lanOn"] = false;
+        }
+        if (!("lanAllowServices" in $$source)) {
+            this["lanAllowServices"] = false;
+        }
+        if (!("lanMdns" in $$source)) {
+            this["lanMdns"] = false;
+        }
+        if (!("lanSalt" in $$source)) {
+            this["lanSalt"] = 0;
+        }
 
         Object.assign(this, $$source);
     }
@@ -671,7 +993,15 @@ export class Settings {
      * Creates a new Settings instance from a string or object.
      */
     static createFrom($$source: any = {}): Settings {
+        const $$createField20_0 = $$createType2;
+        const $$createField21_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("peerVolumes" in $$parsedSource) {
+            $$parsedSource["peerVolumes"] = $$createField20_0($$parsedSource["peerVolumes"]);
+        }
+        if ("turnUrls" in $$parsedSource) {
+            $$parsedSource["turnUrls"] = $$createField21_0($$parsedSource["turnUrls"]);
+        }
         return new Settings($$parsedSource as Partial<Settings>);
     }
 }
@@ -694,6 +1024,11 @@ export class State {
     "live": LiveStatus;
     "call": CallState;
 
+    /**
+     * the TURN relay; "none" = direct connections only
+     */
+    "relay": RelayStatus;
+
     /** Creates a new State instance. */
     constructor($$source: Partial<State> = {}) {
         if (!("self" in $$source)) {
@@ -711,6 +1046,9 @@ export class State {
         if (!("call" in $$source)) {
             this["call"] = (new CallState());
         }
+        if (!("relay" in $$source)) {
+            this["relay"] = (new RelayStatus());
+        }
 
         Object.assign(this, $$source);
     }
@@ -719,9 +1057,10 @@ export class State {
      * Creates a new State instance from a string or object.
      */
     static createFrom($$source: any = {}): State {
-        const $$createField2_0 = $$createType9;
-        const $$createField3_0 = $$createType10;
-        const $$createField4_0 = $$createType11;
+        const $$createField2_0 = $$createType14;
+        const $$createField3_0 = $$createType15;
+        const $$createField4_0 = $$createType16;
+        const $$createField5_0 = $$createType17;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("room" in $$parsedSource) {
             $$parsedSource["room"] = $$createField2_0($$parsedSource["room"]);
@@ -731,6 +1070,9 @@ export class State {
         }
         if ("call" in $$parsedSource) {
             $$parsedSource["call"] = $$createField4_0($$parsedSource["call"]);
+        }
+        if ("relay" in $$parsedSource) {
+            $$parsedSource["relay"] = $$createField5_0($$parsedSource["relay"]);
         }
         return new State($$parsedSource as Partial<State>);
     }
@@ -771,13 +1113,19 @@ export class ViewerInfo {
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
 const $$createType1 = $Create.Map($Create.Any, $Create.Any);
-const $$createType2 = LiveInfo.createFrom;
-const $$createType3 = ViewerInfo.createFrom;
-const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = $Create.Nullable($$createType2);
-const $$createType6 = Member.createFrom;
+const $$createType2 = $Create.Map($Create.Any, $Create.Any);
+const $$createType3 = LanPeer.createFrom;
+const $$createType4 = $Create.Map($Create.Any, $$createType3);
+const $$createType5 = LiveInfo.createFrom;
+const $$createType6 = ViewerInfo.createFrom;
 const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = RoomState.createFrom;
-const $$createType9 = $Create.Nullable($$createType8);
-const $$createType10 = LiveStatus.createFrom;
-const $$createType11 = CallState.createFrom;
+const $$createType8 = $Create.Nullable($$createType5);
+const $$createType9 = LanInfo.createFrom;
+const $$createType10 = $Create.Nullable($$createType9);
+const $$createType11 = Member.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = RoomState.createFrom;
+const $$createType14 = $Create.Nullable($$createType13);
+const $$createType15 = LiveStatus.createFrom;
+const $$createType16 = CallState.createFrom;
+const $$createType17 = RelayStatus.createFrom;

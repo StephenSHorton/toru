@@ -17,11 +17,22 @@ import { StreamService, StreamState } from "@/lib/api";
 // who's in the call all come from "stream:state". Speaking levels are
 // measured on the audio thread (an AudioWorklet), so they stay live even
 // though a hidden window's timers are throttled.
+//
+// Each person's volume (0-200%, set on their call tile) comes in
+// call.volumes. Up to 100% it is the audio element's own volume, the same
+// path as always; above that the peer plays through a WebAudio gain on this
+// window's AudioContext instead (an element can't go past 1.0), with the
+// element kept attached but muted so Chromium keeps the remote track
+// flowing. Deafen silences both paths; the speaking meter always reads the
+// unscaled stream.
 
-const ICE_SERVERS: RTCIceServer[] = [
-  { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-  { urls: ["stun:stun.cloudflare.com:3478"] },
-];
+// iceServers is the shared ICE list (STUN, plus TURN with fresh
+// credentials when a relay is set up), asked for before each connection.
+function iceServers(): Promise<RTCIceServer[]> {
+  return StreamService.ICEServers()
+    .then((list) => list as RTCIceServer[])
+    .catch(() => []);
+}
 
 // Opus mono at 96 kbps is already transparent fullband speech; noise is a
 // suppression problem, not a bitrate one.
@@ -42,8 +53,12 @@ interface Peer {
   pc: RTCPeerConnection;
   initiator: boolean;
   audio: HTMLAudioElement;
+  stream?: MediaStream;
   meter?: AudioWorkletNode;
   source?: MediaStreamAudioSourceNode;
+  // The boosted path (volume over 100%): stream -> gain -> speakers.
+  boost?: MediaStreamAudioSourceNode;
+  gain?: GainNode;
   timer?: number;
 }
 
@@ -127,6 +142,7 @@ class CallEngine {
   muted = false;
   deafened = false;
   speaker = "";
+  volumes: Record<string, number> = {};
   lastSpeak = new Map<string, number>();
   lastReport = "";
   closed = false;
@@ -180,13 +196,19 @@ class CallEngine {
     this.mic?.getAudioTracks().forEach((t) => (t.enabled = !call.muted));
     if (this.send) this.send.enabled = !call.muted;
 
-    if (call.deafened !== this.deafened) {
+    const volumes = (call.volumes ?? {}) as Record<string, number>;
+    const volumesChanged = JSON.stringify(volumes) !== JSON.stringify(this.volumes);
+    if (call.deafened !== this.deafened || volumesChanged) {
       this.deafened = call.deafened;
-      this.peers.forEach((p) => (p.audio.muted = this.deafened));
+      this.volumes = volumes;
+      this.peers.forEach((p) => this.applyVolume(p));
     }
     if (call.speakerDevice !== this.speaker) {
       this.speaker = call.speakerDevice;
       this.peers.forEach((p) => this.setSink(p.audio));
+      // The boosted path (and the join/leave chimes) play through the context.
+      const ctx = this.ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
+      if (ctx.setSinkId) void ctx.setSinkId(this.speaker).catch(() => {});
     }
 
     const want = new Set((st.room?.members ?? []).filter((m) => m.inCall).map((m) => m.id));
@@ -207,6 +229,33 @@ class CallEngine {
   setSink(a: HTMLAudioElement) {
     const el = a as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
     if (el.setSinkId) void el.setSinkId(this.speaker).catch(() => {});
+  }
+
+  // applyVolume plays p at its volume: the element up to 100%, a WebAudio
+  // gain above it. Deafened, both are silent.
+  applyVolume(p: Peer) {
+    const pct = Math.min(Math.max(this.volumes[p.id] ?? 100, 0), 200);
+    if (pct > 100 && p.stream) {
+      if (!p.gain) {
+        p.boost = this.ctx.createMediaStreamSource(p.stream);
+        p.gain = this.ctx.createGain();
+        p.boost.connect(p.gain).connect(this.ctx.destination);
+      }
+      p.gain.gain.value = this.deafened ? 0 : pct / 100;
+      p.audio.volume = 1;
+      p.audio.muted = true; // attached but silent: the gain plays it
+      return;
+    }
+    this.unboost(p);
+    p.audio.volume = pct / 100;
+    p.audio.muted = this.deafened;
+  }
+
+  unboost(p: Peer) {
+    p.boost?.disconnect();
+    p.gain?.disconnect();
+    p.boost = undefined;
+    p.gain = undefined;
   }
 
   // loadDenoiser builds the DeepFilterNet3 node the first time ai mode is
@@ -288,21 +337,24 @@ class CallEngine {
     }
   }
 
-  newPeer(id: string, initiator: boolean): Peer {
+  newPeer(id: string, initiator: boolean, ice: RTCIceServer[]): Peer {
     this.drop(id);
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, bundlePolicy: "max-bundle" });
+    const pc = new RTCPeerConnection({ iceServers: ice, bundlePolicy: "max-bundle" });
     const audio = new Audio();
     audio.autoplay = true;
-    audio.muted = this.deafened;
     this.setSink(audio);
     document.body.appendChild(audio);
     const peer: Peer = { id, pc, initiator, audio };
+    this.applyVolume(peer);
     if (this.send && this.mic) pc.addTrack(this.send, this.mic);
     else pc.addTransceiver("audio", { direction: "sendrecv" });
     pc.ontrack = (e) => {
       const ms = e.streams[0] ?? new MediaStream([e.track]);
       e.receiver.jitterBufferTarget = 0;
       audio.srcObject = ms;
+      this.unboost(peer); // a new stream: rebuild the boosted path on it
+      peer.stream = ms;
+      this.applyVolume(peer);
       void audio.play().catch(() => {});
       void this.workletReady.then(() => {
         if (this.peers.get(id) !== peer) return;
@@ -344,7 +396,9 @@ class CallEngine {
   }
 
   async offer(id: string) {
-    const peer = this.newPeer(id, true);
+    const ice = await iceServers();
+    if (this.closed) return;
+    const peer = this.newPeer(id, true, ice);
     const pc = peer.pc;
     await pc.setLocalDescription(await pc.createOffer());
     await waitForIce(pc, 2500);
@@ -362,7 +416,9 @@ class CallEngine {
         break;
       }
       case "offer": {
-        const peer = this.newPeer(sig.from, false);
+        const ice = await iceServers();
+        if (this.closed) return;
+        const peer = this.newPeer(sig.from, false, ice);
         const pc = peer.pc;
         await pc.setRemoteDescription({ type: "offer", sdp: sig.sdp });
         await pc.setLocalDescription(await pc.createAnswer());
@@ -392,6 +448,7 @@ class CallEngine {
     p.pc.close();
     p.source?.disconnect();
     p.meter?.disconnect();
+    this.unboost(p);
     p.audio.srcObject = null;
     p.audio.remove();
   }

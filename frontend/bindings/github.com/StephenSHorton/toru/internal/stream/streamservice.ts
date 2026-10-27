@@ -86,6 +86,17 @@ export function HostName(host: string): $CancellablePromise<string> {
 }
 
 /**
+ * ICEServers is the ICE list every peer connection should use right now:
+ * public STUN, plus the TURN relay with fresh credentials when one is set
+ * up. The call and watch windows ask before each new connection.
+ */
+export function ICEServers(): $CancellablePromise<$models.ICEServer[]> {
+    return $Call.ByID(1798594794).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
  * JoinCall joins the room's voice call.
  */
 export function JoinCall(): $CancellablePromise<$models.State> {
@@ -127,7 +138,7 @@ export function LeaveRoom(): $CancellablePromise<$models.State> {
  */
 export function ListMonitors(): $CancellablePromise<$models.Monitor[]> {
     return $Call.ByID(4045399524).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType6($result);
     });
 }
 
@@ -153,6 +164,17 @@ export function SetDeafened(on: boolean): $CancellablePromise<$models.State> {
  */
 export function SetMuted(on: boolean): $CancellablePromise<$models.State> {
     return $Call.ByID(2926166920, on).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
+ * SetPeerVolume sets how loud peer plays in our call, in percent: 0 mutes
+ * them for us only, 100 is as sent, up to MaxPeerVolume. It is kept per
+ * person (by their peer id) and the call window applies it at once.
+ */
+export function SetPeerVolume(peer: string, pct: number): $CancellablePromise<$models.State> {
+    return $Call.ByID(852820907, peer, pct).then(($result: any) => {
         return $$createType0($result);
     });
 }
@@ -233,5 +255,7 @@ export function WatchStop(host: string, session: string): $CancellablePromise<vo
 const $$createType0 = $models.State.createFrom;
 const $$createType1 = $Create.Map($Create.Any, $Create.Any);
 const $$createType2 = $models.Settings.createFrom;
-const $$createType3 = $models.Monitor.createFrom;
+const $$createType3 = $models.ICEServer.createFrom;
 const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = $models.Monitor.createFrom;
+const $$createType6 = $Create.Array($$createType5);
