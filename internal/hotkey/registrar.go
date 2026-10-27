@@ -14,9 +14,13 @@
 // compiles everywhere.
 //
 // Trigger keys are A-Z, 0-9, F1-F24 and the named keys in keys.go
-// (navigation, numpad, punctuation). Modifier matching is EXACT: a binding
-// fires only when its modifiers, and no others, are down, so e.g. Alt+F10 and
-// Ctrl+Alt+F10 can be different actions.
+// (navigation, numpad, punctuation, Middle/Mouse4/Mouse5, sided modifiers).
+// Modifier matching is EXACT by default: a binding fires only when its
+// modifiers, and no others, are down, so e.g. Alt+F10 and Ctrl+Alt+F10 can be
+// different actions. A binding may also name modifier sides, hold up to five
+// keys as a chord, or match loosely (match.go); those are matched by the hooks
+// only. The hooks skip input Toru injected itself (internal/inputtag) and keep
+// a physical key-state table for the auto clicker (keystate.go).
 package hotkey
 
 import (
@@ -238,6 +242,8 @@ func (m *Manager) Register(id string, b Binding, cb func()) error {
 
 	if needStart {
 		m.start()
+	} else {
+		m.syncSystemHotkeys() // a later action may need RegisterHotKey or the mouse hook
 	}
 	return nil
 }

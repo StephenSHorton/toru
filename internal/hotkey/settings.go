@@ -16,13 +16,19 @@ var settingsMu sync.Mutex
 
 // persistedBinding is the on-disk shape of one shortcut. Key is KeyName's
 // spelling ("S", "F10") so the JSON is human-readable; an empty/invalid Key
-// means "fall back to the default" on load.
+// means "fall back to the default" on load, unless Unbound is set (the user
+// cleared the shortcut). The chord fields are omitempty so a plain shortcut is
+// written exactly as before and older files load unchanged.
 type persistedBinding struct {
-	Ctrl  bool   `json:"ctrl"`
-	Shift bool   `json:"shift"`
-	Alt   bool   `json:"alt"`
-	Win   bool   `json:"win"`
-	Key   string `json:"key"`
+	Ctrl    bool     `json:"ctrl"`
+	Shift   bool     `json:"shift"`
+	Alt     bool     `json:"alt"`
+	Win     bool     `json:"win"`
+	Key     string   `json:"key"`
+	Sides   []string `json:"sides,omitempty"`
+	Extra   []string `json:"extra,omitempty"`
+	Loose   bool     `json:"loose,omitempty"`
+	Unbound bool     `json:"unbound,omitempty"`
 }
 
 // settingsStore is the on-disk shape of %AppData%\toru\settings.json. Shortcuts
@@ -113,7 +119,8 @@ func validKeyRune(r rune) bool {
 }
 
 // LoadBinding returns the persisted binding for action, or def when the file/key
-// is absent or the persisted Key is invalid. Used by main.go to seed the live
+// is absent or the persisted Key is invalid. A shortcut the user cleared
+// (Unbound) loads as the zero Binding. Used by main.go to seed the live
 // binding at startup.
 func LoadBinding(action string, def Binding) Binding {
 	st := loadSettings()
@@ -121,21 +128,19 @@ func LoadBinding(action string, def Binding) Binding {
 	if !ok {
 		return def
 	}
-	key, ok := ParseKeyName(pb.Key)
-	if !ok {
+	if pb.Unbound {
+		return Binding{}
+	}
+	b, err := buildBinding(pb.Ctrl, pb.Shift, pb.Alt, pb.Win, pb.Key, pb.Sides, pb.Extra, pb.Loose)
+	if err != nil {
 		return def
 	}
-	return Binding{
-		Ctrl:  pb.Ctrl,
-		Shift: pb.Shift,
-		Alt:   pb.Alt,
-		Win:   pb.Win,
-		Key:   key,
-	}
+	return b
 }
 
 // persistBinding writes b for action into settings.json under settingsMu
-// (read-modify-write so other actions are preserved).
+// (read-modify-write so other actions are preserved). The zero Binding is
+// written as an explicit unbound entry, distinct from "never set".
 func persistBinding(action string, b Binding) error {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
@@ -143,12 +148,19 @@ func persistBinding(action string, b Binding) error {
 	if st.Shortcuts == nil {
 		st.Shortcuts = map[string]persistedBinding{}
 	}
+	if b.Key == 0 {
+		st.Shortcuts[action] = persistedBinding{Unbound: true}
+		return saveSettings(st)
+	}
 	st.Shortcuts[action] = persistedBinding{
 		Ctrl:  b.Ctrl,
 		Shift: b.Shift,
 		Alt:   b.Alt,
 		Win:   b.Win,
 		Key:   KeyName(b.Key),
+		Sides: sideList(b.Sides),
+		Extra: extraList(b),
+		Loose: b.Loose,
 	}
 	return saveSettings(st)
 }

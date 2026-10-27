@@ -15,6 +15,11 @@ export interface ShortcutsState {
   save: (action: string, sc: Shortcut) => Promise<string>;
   /** Reset action to its default combo, then reload. */
   reset: (action: string) => Promise<void>;
+  /**
+   * Unbind action (it stays unbound across restarts), then reload. Resolves to
+   * "" on success or the error string.
+   */
+  clear: (action: string) => Promise<string>;
 }
 
 /**
@@ -67,9 +72,22 @@ export function useShortcuts(): ShortcutsState {
     [reload],
   );
 
+  const clear = useCallback(
+    async (action: string): Promise<string> => {
+      try {
+        await HotkeyService.ClearShortcut(action);
+        await reload();
+        return "";
+      } catch (e) {
+        return String(e);
+      }
+    },
+    [reload],
+  );
+
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  return { shortcuts, loading, error, reload, save, reset };
+  return { shortcuts, loading, error, reload, save, reset, clear };
 }
