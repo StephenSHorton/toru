@@ -90,8 +90,13 @@ type shim struct {
 	self netip.Addr
 	mtu  int
 
-	peers  atomic.Pointer[map[netip.Addr]struct{}] // copy-on-write; Read and Write only load
-	peerMu sync.Mutex                              // serialises the copy-on-write updates
+	// peers maps each peer's overlay IP to whether its ICE path is up.
+	// Copy-on-write: Read and Write only load. Broadcast fans out to up peers
+	// only, so Windows chatter (a NetBIOS broadcast, say) to a peer still
+	// connecting doesn't start a WireGuard handshake with no path, which
+	// would hold the real one back by WireGuard's 5 s retry.
+	peers  atomic.Pointer[map[netip.Addr]bool]
+	peerMu sync.Mutex // serialises the copy-on-write updates
 	policy atomic.Pointer[api.Policy]
 	ipID   atomic.Uint32
 
@@ -111,7 +116,7 @@ func newShim(dev tun.Device, self netip.Addr, p api.Policy) *shim {
 	if m, err := dev.MTU(); err == nil && m > 0 {
 		s.mtu = m
 	}
-	empty := map[netip.Addr]struct{}{}
+	empty := map[netip.Addr]bool{}
 	s.peers.Store(&empty)
 	s.policy.Store(&p)
 	return s
@@ -119,32 +124,37 @@ func newShim(dev tun.Device, self netip.Addr, p api.Policy) *shim {
 
 func (s *shim) setPolicy(p api.Policy) { s.policy.Store(&p) }
 
+// addPeer adds ip with its path not up yet (a known peer keeps its state).
 func (s *shim) addPeer(ip netip.Addr) {
-	s.peerMu.Lock()
-	defer s.peerMu.Unlock()
-	old := *s.peers.Load()
-	m := make(map[netip.Addr]struct{}, len(old)+1)
-	for k := range old {
-		m[k] = struct{}{}
-	}
-	m[ip] = struct{}{}
-	s.peers.Store(&m)
+	s.update(func(m map[netip.Addr]bool) { m[ip] = m[ip] })
+}
+
+// setUp records whether ip's ICE path is up (broadcast goes to up peers only).
+func (s *shim) setUp(ip netip.Addr, up bool) {
+	s.update(func(m map[netip.Addr]bool) {
+		if _, ok := m[ip]; ok {
+			m[ip] = up
+		}
+	})
 }
 
 func (s *shim) removePeer(ip netip.Addr) {
-	s.peerMu.Lock()
-	defer s.peerMu.Unlock()
-	old := *s.peers.Load()
-	m := make(map[netip.Addr]struct{}, len(old))
-	for k := range old {
-		if k != ip {
-			m[k] = struct{}{}
-		}
-	}
-	s.peers.Store(&m)
+	s.update(func(m map[netip.Addr]bool) { delete(m, ip) })
 	s.limMu.Lock()
 	delete(s.lim, ip)
 	s.limMu.Unlock()
+}
+
+func (s *shim) update(fn func(map[netip.Addr]bool)) {
+	s.peerMu.Lock()
+	defer s.peerMu.Unlock()
+	old := *s.peers.Load()
+	m := make(map[netip.Addr]bool, len(old)+1)
+	for k, v := range old {
+		m[k] = v
+	}
+	fn(m)
+	s.peers.Store(&m)
 }
 
 func (s *shim) isPeer(ip netip.Addr) bool {
@@ -236,7 +246,10 @@ func (s *shim) outgoing(pkt []byte) {
 		s.stats.TooBig.Add(1)
 		return
 	}
-	for ip := range *s.peers.Load() {
+	for ip, up := range *s.peers.Load() {
+		if !up {
+			continue
+		}
 		s.pending = append(s.pending, s.wrap(ip, pkt))
 		s.stats.Fanout.Add(1)
 	}

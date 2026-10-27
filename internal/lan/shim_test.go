@@ -64,6 +64,7 @@ func newTestShim(t *testing.T, p api.Policy, peers ...netip.Addr) (*shim, *fakeT
 	s := newShim(f, tSelf, p)
 	for _, ip := range peers {
 		s.addPeer(ip)
+		s.setUp(ip, true)
 	}
 	return s, f
 }
@@ -201,6 +202,25 @@ func TestShimFanoutWrapsPerPeer(t *testing.T) {
 		if s.stats.Fanout.Load() != 3 {
 			t.Fatalf("fanout count %d", s.stats.Fanout.Load())
 		}
+	}
+}
+
+func TestShimFanoutSkipsPeersWithoutPath(t *testing.T) {
+	s, f := newTestShim(t, api.Policy{}, tPeer1, tPeer2)
+	s.setUp(tPeer2, false)
+	f.in <- udp4(tSelf, subnetBcast, 137, 137, []byte("netbios"))
+	got := readShim(t, s, 4)
+	if len(got) != 1 {
+		t.Fatalf("%d copies, want 1 (peer 2 has no path)", len(got))
+	}
+	if h, _ := parseIPv4(got[0]); h.dst != tPeer1 {
+		t.Fatalf("copy went to %v", h.dst)
+	}
+	// Unicast to a peer without a path still goes to WireGuard, which
+	// queues it and handshakes when the path comes up.
+	f.in <- udp4(tSelf, tPeer2, 1, 7777, nil)
+	if got := readShim(t, s, 4); len(got) != 1 {
+		t.Fatal("unicast to a connecting peer dropped")
 	}
 }
 

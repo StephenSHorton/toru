@@ -423,6 +423,7 @@ func (p *peer) publish(state, path string) {
 	changed := p.state != state || p.path != path || p.agentRef != p.main
 	p.state, p.path, p.agentRef = state, path, p.main
 	p.n.mu.Unlock()
+	p.n.shim.setUp(p.ip, state == api.PeerConnected)
 	if changed {
 		p.n.notify()
 	}
