@@ -64,6 +64,44 @@ jobs:
         # Injects -X main.version=<version> via the VERSION var (see build/windows/Taskfile.yml).
         run: wails3 task windows:build PACKAGE_MANAGER=bun VERSION=${{ steps.ver.outputs.version }}
 
+      # LAN (docs/lan.md): toru-lan.exe is both the one-time elevated installer
+      # ("toru-lan.exe install", run by Toru with UAC) and the ToruLan service.
+      # The UAC prompt shows its version resource, so it gets one from
+      # info.json with its own description, unless cmd/toru-lan ships a .syso.
+      - name: Build toru-lan.exe (LAN installer + service)
+        shell: pwsh
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $syso = $null
+          if (-not (Get-ChildItem cmd/toru-lan -Filter *.syso -ErrorAction SilentlyContinue)) {
+            $info = Get-Content build/windows/info.json -Raw | ConvertFrom-Json
+            $info.info.'0000'.FileDescription = "Toru LAN"
+            $info.info.'0000'.ProductName = "Toru LAN"
+            $lanInfo = Join-Path $env:RUNNER_TEMP "toru-lan-info.json"
+            $info | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 $lanInfo
+            $syso = "cmd/toru-lan/rsrc_windows_amd64.syso"
+            wails3 generate syso -arch amd64 -icon build/windows/icon.ico -manifest build/windows/wails.exe.manifest -info $lanInfo -out $syso
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          go build -trimpath -ldflags "-s -w -X main.version=$v" -o bin/toru-lan.exe ./cmd/toru-lan
+          $code = $LASTEXITCODE
+          if ($syso) { Remove-Item $syso }
+          exit $code
+
+      # install refuses any wintun.dll but the vendored one (api.WintunSHA256);
+      # catch a mismatch here instead of on a user's PC.
+      - name: Check wintun.dll against the pinned hash
+        shell: pwsh
+        run: |
+          $want = (Select-String -Path internal/lan/api/api.go -Pattern 'WintunSHA256\s*=\s*"([0-9a-f]{64})"').Matches[0].Groups[1].Value
+          $got = (Get-FileHash -Algorithm SHA256 build/windows/wintun/wintun.dll).Hash.ToLower()
+          if ($got -ne $want) { throw "wintun.dll is $got, api.WintunSHA256 says $want" }
+          Write-Host "wintun.dll $got"
+
       - name: Build NSIS installer (per-user, no UAC)
         shell: pwsh
         run: |
@@ -71,7 +109,8 @@ jobs:
           $root = (Get-Location).Path
           wails3 generate webview2bootstrapper -dir build/windows/nsis
           # Quote each -D arg: PowerShell otherwise splits "...=0.1.0" at the dots.
-          makensis "-DINFO_PRODUCTVERSION=$v" "-DWAILS_INSTALL_SCOPE=user" "-DREQUEST_EXECUTION_LEVEL=user" "-DARG_WAILS_AMD64_BINARY=$root\bin\toru.exe" build/windows/nsis/project.nsi
+          makensis "-DINFO_PRODUCTVERSION=$v" "-DWAILS_INSTALL_SCOPE=user" "-DREQUEST_EXECUTION_LEVEL=user" "-DARG_WAILS_AMD64_BINARY=$root\bin\toru.exe" "-DARG_TORU_LAN_BINARY=$root\bin\toru-lan.exe" "-DARG_WINTUN_DLL=$root\build\windows\wintun\wintun.dll" "-DARG_WINTUN_LICENSE=$root\build\windows\wintun\LICENSE.txt" "-DARG_THIRD_PARTY_NOTICES=$root\THIRD_PARTY_NOTICES" build/windows/nsis/project.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Assemble release assets (installer + portable zip + SHA256SUMS)
         id: assets
@@ -81,9 +120,27 @@ jobs:
           $installer = "toru-$v-windows-amd64-installer.exe"
           $zip       = "toru-$v-windows-amd64.zip"
           Copy-Item "bin/toru-amd64-installer.exe" $installer
-          Compress-Archive -Path "bin/toru.exe" -DestinationPath $zip -Force
-          $lines = foreach ($f in @($installer, $zip)) {
-            "{0}  {1}" -f (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower(), $f
+          # The zip holds the same files the installer puts in the install folder.
+          $stage = Join-Path $env:RUNNER_TEMP "toru-zip"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item "bin/toru.exe"                         "$stage/toru.exe"
+          Copy-Item "bin/toru-lan.exe"                     "$stage/toru-lan.exe"
+          Copy-Item "build/windows/wintun/wintun.dll"      "$stage/wintun.dll"
+          Copy-Item "build/windows/wintun/LICENSE.txt"     "$stage/wintun-LICENSE.txt"
+          Copy-Item "THIRD_PARTY_NOTICES"                  "$stage/THIRD_PARTY_NOTICES.txt"
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force
+          # Release assets first, then the LAN files inside the installer and
+          # zip (by their installed names), so they can be checked once
+          # installed. The updater only looks up the installer's line.
+          $sums = [ordered]@{
+            $installer           = $installer
+            $zip                 = $zip
+            "toru-lan.exe"       = "$stage/toru-lan.exe"
+            "wintun.dll"         = "$stage/wintun.dll"
+            "wintun-LICENSE.txt" = "$stage/wintun-LICENSE.txt"
+          }
+          $lines = foreach ($name in $sums.Keys) {
+            "{0}  {1}" -f (Get-FileHash -Algorithm SHA256 $sums[$name]).Hash.ToLower(), $name
           }
           $lines -join "`n" | Out-File -Encoding ascii -NoNewline SHA256SUMS
           Get-Content SHA256SUMS

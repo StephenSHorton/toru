@@ -1,6 +1,9 @@
 package stream
 
-import "errors"
+import (
+	"errors"
+	"maps"
+)
 
 // call.go is the voice call: everyone in a room can join one call, and the
 // call is where screen sharing happens (you share and watch from inside it).
@@ -41,6 +44,9 @@ type CallState struct {
 	// Peers is each other call member's connection state as the call window
 	// sees it ("connecting", "connected", "failed"...).
 	Peers map[string]string `json:"peers"`
+	// Volumes is how loud each other person plays here, in percent (0..
+	// MaxPeerVolume) by peer id; anyone missing is at 100.
+	Volumes map[string]int `json:"volumes"`
 }
 
 // CallReport is what the call window reports a few times a second.
@@ -211,6 +217,10 @@ func (s *StreamService) callStateLocked() CallState {
 	for id, st := range s.callPeers {
 		peers[id] = st
 	}
+	volumes := maps.Clone(s.settings.PeerVolumes)
+	if volumes == nil {
+		volumes = map[string]int{}
+	}
 	return CallState{
 		InCall:        s.inCall,
 		Muted:         s.muted || s.deafened,
@@ -220,5 +230,31 @@ func (s *StreamService) callStateLocked() CallState {
 		MicDevice:     s.settings.MicDevice,
 		SpeakerDevice: s.settings.SpeakerDevice,
 		Peers:         peers,
+		Volumes:       volumes,
 	}
+}
+
+// SetPeerVolume sets how loud peer plays in our call, in percent: 0 mutes
+// them for us only, 100 is as sent, up to MaxPeerVolume. It is kept per
+// person (by their peer id) and the call window applies it at once.
+func (s *StreamService) SetPeerVolume(peer string, pct int) (State, error) {
+	if !validPeerID(peer) || peer == s.self {
+		return s.GetState(), errors.New("unknown person")
+	}
+	pct = clamp(pct, 0, MaxPeerVolume)
+	s.mu.Lock()
+	vols := maps.Clone(s.settings.PeerVolumes) // the old map may be mid-save
+	if vols == nil {
+		vols = map[string]int{}
+	}
+	if pct == 100 {
+		delete(vols, peer)
+	} else {
+		vols[peer] = pct
+	}
+	s.settings.PeerVolumes = vols
+	s.mu.Unlock()
+	s.saveSoon()
+	s.emitState()
+	return s.GetState(), nil
 }

@@ -33,6 +33,7 @@ declare module "@wailsio/runtime" {
             "clicker:pick": clicker$0.PickEvent;
             "clicker:settings": clicker$0.Settings;
             "clicker:status": clicker$0.Status;
+            "lan:state": stream$0.LanState;
             "overlay:cropRect": capture$0.Rect;
             "overlay:edit": overlay$0.OverlayEditPayload;
             "overlay:engage": overlay$0.MonitorSession;

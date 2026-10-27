@@ -1,0 +1,308 @@
+package pipe
+
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+)
+
+// keys_windows.go keeps one WireGuard static key per Windows user (by SID),
+// so two accounts on one PC are two nodes. Keys live in
+// %ProgramData%\Toru\lan\keys\<SID>.key, readable only by SYSTEM and
+// Administrators. The private key never leaves the service: the pipe only
+// ever carries the public key.
+
+// KeySDDL protects the data folder, the keys folder and every key file
+// (files get the same ACEs without the inheritance flags).
+const KeySDDL = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+
+// fileSDDL drops the folder-only inheritance flags.
+func fileSDDL(dirSDDL string) string { return strings.ReplaceAll(dirSDDL, "OICI", "") }
+
+// Key is one user's node identity.
+type Key struct {
+	Private [32]byte
+	// Salt re-derives the overlay address after a collision (Readdress).
+	Salt uint32
+}
+
+type keyFile struct {
+	PrivateKey string `json:"privateKey"`
+	Salt       uint32 `json:"salt"`
+}
+
+// KeyStore reads and writes key files in Dir.
+type KeyStore struct {
+	Dir string
+	// SDDL is applied to Dir and every file written; KeySDDL unless a test
+	// needs to read its own files back.
+	SDDL string
+	// TrustedOwner refuses key files not owned by SYSTEM or Administrators,
+	// so a file planted before install can never become someone's key.
+	TrustedOwner bool
+
+	mu sync.Mutex
+}
+
+// NewKeyStore returns a store in dir with the production ACL and owner check.
+func NewKeyStore(dir string) *KeyStore {
+	return &KeyStore{Dir: dir, SDDL: KeySDDL, TrustedOwner: true}
+}
+
+// sidRE accepts only SID strings, so a SID can never name a path elsewhere.
+var sidRE = regexp.MustCompile(`^S-1-[0-9]{1,14}(-[0-9]{1,10}){1,15}$`)
+
+func (k *KeyStore) path(sid string) (string, error) {
+	if !sidRE.MatchString(sid) {
+		return "", fmt.Errorf("not a SID: %q", sid)
+	}
+	return filepath.Join(k.Dir, sid+".key"), nil
+}
+
+// Load returns the user's key, generating and storing one on first use.
+func (k *KeyStore) Load(sid string) (Key, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	p, err := k.path(sid)
+	if err != nil {
+		return Key{}, err
+	}
+	if key, err := readKey(p); err == nil {
+		if k.TrustedOwner {
+			if err := CheckOwner(p); err != nil {
+				return Key{}, err
+			}
+		}
+		return key, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Key{}, err
+	}
+	var key Key
+	if _, err := rand.Read(key.Private[:]); err != nil {
+		return Key{}, err
+	}
+	// Curve25519 clamping, as wg genkey does.
+	key.Private[0] &= 248
+	key.Private[31] = key.Private[31]&127 | 64
+	return key, k.write(p, key)
+}
+
+// SetSalt stores a new address salt for the user (Readdress).
+func (k *KeyStore) SetSalt(sid string, salt uint32) (Key, error) {
+	key, err := k.Load(sid)
+	if err != nil {
+		return Key{}, err
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	p, _ := k.path(sid)
+	key.Salt = salt
+	return key, k.write(p, key)
+}
+
+func readKey(p string) (Key, error) {
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return Key{}, err
+	}
+	var f keyFile
+	if err := json.Unmarshal(b, &f); err != nil {
+		return Key{}, fmt.Errorf("%s: %w", p, err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(f.PrivateKey)
+	if err != nil || len(raw) != 32 {
+		return Key{}, fmt.Errorf("%s: bad private key", p)
+	}
+	var key Key
+	copy(key.Private[:], raw)
+	key.Salt = f.Salt
+	return key, nil
+}
+
+// write creates the file under a temporary name with the ACL already set
+// (so the key is never readable by anyone else, even briefly) and renames it
+// into place; a rename keeps the file's own security descriptor.
+func (k *KeyStore) write(p string, key Key) error {
+	if err := MakeSecureDir(k.Dir, k.SDDL); err != nil {
+		return err
+	}
+	b, err := json.Marshal(keyFile{PrivateKey: base64.StdEncoding.EncodeToString(key.Private[:]), Salt: key.Salt})
+	if err != nil {
+		return err
+	}
+	tmp := p + ".tmp"
+	_ = os.Remove(tmp)
+	if err := writeSecure(tmp, b, fileSDDL(k.SDDL)); err != nil {
+		return err
+	}
+	from, _ := windows.UTF16PtrFromString(tmp)
+	to, _ := windows.UTF16PtrFromString(p)
+	if err := windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("store key: %w", err)
+	}
+	return nil
+}
+
+func securityAttributes(sddl string) (*windows.SecurityAttributes, error) {
+	sd, err := windows.SecurityDescriptorFromString(sddl)
+	if err != nil {
+		return nil, fmt.Errorf("SDDL %q: %w", sddl, err)
+	}
+	return &windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: sd}, nil
+}
+
+func writeSecure(p string, data []byte, sddl string) error {
+	sa, err := securityAttributes(sddl)
+	if err != nil {
+		return err
+	}
+	name, err := windows.UTF16PtrFromString(p)
+	if err != nil {
+		return err
+	}
+	h, err := windows.CreateFile(name, windows.GENERIC_WRITE, 0, sa, windows.CREATE_NEW, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", p, err)
+	}
+	f := os.NewFile(uintptr(h), p)
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// ErrUntrusted marks a path the service must not use: a junction or other
+// reparse point, the wrong kind of object, or not owned by SYSTEM or
+// Administrators. Install moves such a path aside; the service refuses it.
+var ErrUntrusted = errors.New("not trusted")
+
+// Paths are checked and changed through a handle opened on the path itself
+// (FILE_FLAG_OPEN_REPARSE_POINT): a name lookup such as GetNamedSecurityInfo
+// follows a junction, so a junction a user planted at %ProgramData%\Toru
+// would show its target's trusted owner and have the target re-ACLed. The
+// handle shares no delete access, so the object can't be renamed or replaced
+// while it is checked and changed.
+func openNoFollow(path string, access uint32) (windows.Handle, error) {
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return 0, err
+	}
+	return windows.CreateFile(p, access, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil,
+		windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+}
+
+// checkHandle rejects a reparse point, a file where a folder is wanted (or
+// the reverse), and, with owner, an owner other than SYSTEM or
+// Administrators. An owner can always rewrite the DACL, so a folder or file
+// squatted before install is not trusted.
+func checkHandle(h windows.Handle, path string, dir, owner bool) error {
+	var fi windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(h, &fi); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if fi.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return fmt.Errorf("%s is a junction or link: %w", path, ErrUntrusted)
+	}
+	if isDir := fi.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0; isDir != dir {
+		return fmt.Errorf("%s is not a %s: %w", path, map[bool]string{true: "folder", false: "file"}[dir], ErrUntrusted)
+	}
+	if !owner {
+		return nil
+	}
+	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		return fmt.Errorf("owner of %s: %w", path, err)
+	}
+	o, _, err := sd.Owner()
+	if err != nil {
+		return fmt.Errorf("owner of %s: %w", path, err)
+	}
+	if o.IsWellKnown(windows.WinLocalSystemSid) || o.IsWellKnown(windows.WinBuiltinAdministratorsSid) {
+		return nil
+	}
+	return fmt.Errorf("%s is owned by %s, not SYSTEM or Administrators: %w", path, o, ErrUntrusted)
+}
+
+// CheckOwner fails unless path itself (never a junction's target) is owned
+// by SYSTEM or Administrators and is not a reparse point.
+func CheckOwner(path string) error {
+	h, err := openNoFollow(path, windows.READ_CONTROL|windows.FILE_READ_ATTRIBUTES)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer func() { _ = windows.CloseHandle(h) }()
+	var fi windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(h, &fi); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return checkHandle(h, path, fi.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0, true)
+}
+
+// CheckTrustedDir is CheckOwner for a folder: a real folder (no junction),
+// owned by SYSTEM or Administrators.
+func CheckTrustedDir(dir string) error {
+	h, err := openNoFollow(dir, windows.READ_CONTROL|windows.FILE_READ_ATTRIBUTES)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", dir, err)
+	}
+	defer func() { _ = windows.CloseHandle(h) }()
+	return checkHandle(h, dir, true, true)
+}
+
+// MakeSecureDir creates dir (and parents) and sets its DACL to sddl,
+// protected from inheritance. An existing folder is re-ACLed, which also
+// fixes one a user loosened; a junction or link there is refused
+// (ErrUntrusted), never followed.
+func MakeSecureDir(dir, sddl string) error { return makeDir(dir, sddl, false) }
+
+// MakeTrustedDir is MakeSecureDir that also refuses (ErrUntrusted) an
+// existing folder not owned by SYSTEM or Administrators.
+func MakeTrustedDir(dir, sddl string) error { return makeDir(dir, sddl, true) }
+
+func makeDir(dir, sddl string, owner bool) error {
+	sd, err := windows.SecurityDescriptorFromString(sddl)
+	if err != nil {
+		return fmt.Errorf("SDDL %q: %w", sddl, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return err
+	}
+	// A new folder is created with the parent's inherited ACL and locked
+	// below, through the handle. (Created with sddl directly, an unelevated
+	// owner, as in the tests, could no longer open it to check it.) Callers
+	// lock each level before making the next, so nothing can be planted in
+	// between that the next level's check would miss.
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("create %s: %w", dir, err)
+	}
+	h, err := openNoFollow(dir, windows.READ_CONTROL|windows.WRITE_DAC|windows.FILE_READ_ATTRIBUTES)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", dir, err)
+	}
+	defer func() { _ = windows.CloseHandle(h) }()
+	if err := checkHandle(h, dir, true, owner); err != nil {
+		return err
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		return err
+	}
+	return windows.SetSecurityInfo(h, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+}

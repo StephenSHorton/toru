@@ -36,6 +36,7 @@ type Member struct {
 	Muted    bool      `json:"muted"`
 	Deafened bool      `json:"deafened"`
 	Speaking bool      `json:"speaking"` // as heard by our call window
+	Lan      *LanInfo  `json:"lan"`      // their LAN as they announce it; nil = none
 }
 
 // RoomState is the room as the page shows it.
@@ -48,11 +49,12 @@ type RoomState struct {
 
 // State is everything the Stream page shows.
 type State struct {
-	Self    string     `json:"self"`
-	Preview bool       `json:"preview"` // "Show my stream" is on
-	Room    *RoomState `json:"room"`    // nil when not in a room
-	Live    LiveStatus `json:"live"`
-	Call    CallState  `json:"call"`
+	Self    string      `json:"self"`
+	Preview bool        `json:"preview"` // "Show my stream" is on
+	Room    *RoomState  `json:"room"`    // nil when not in a room
+	Live    LiveStatus  `json:"live"`
+	Call    CallState   `json:"call"`
+	Relay   RelayStatus `json:"relay"` // the TURN relay; "none" = direct connections only
 }
 
 // Offer is a streamer's WebRTC offer for one watch window.
@@ -107,21 +109,76 @@ type StreamService struct {
 	speaking  map[string]bool   // call peers talking now (call window reports)
 	callPeers map[string]string // call peer → connection state
 	quit      chan struct{}
+	relay     *relay // the shared ICE list (ice.go)
+
+	// LAN (lan.go): the LAN side, what our presence says about it, and the
+	// last address collision we asked the service to move off.
+	lan         lanLink
+	lanSelf     *LanInfo
+	readdressIP string
+	readdressAt time.Time
 
 	emitMu   sync.Mutex
 	lastEmit time.Time
 	pending  bool
+	saveTmr  *time.Timer // a coalesced save (volume slider drags)
 }
 
-// NewService returns the service with persisted settings loaded.
+// NewService returns the service with persisted settings loaded. The room
+// peer id is the install's InstallID, made and saved on first run.
 func NewService() *StreamService {
-	return &StreamService{
-		self:     randHex(8),
-		settings: loadSettings(),
+	settings := loadSettings()
+	if settings.InstallID == "" {
+		settings.InstallID = randHex(16)
+		if err := saveSettings(settings); err != nil {
+			logf("save settings: %v", err)
+		}
+	}
+	s := &StreamService{
+		self:     settings.InstallID,
+		settings: settings,
 		members:  map[string]*member{},
 		sessions: map[string]string{},
 		quit:     make(chan struct{}),
 	}
+	s.relay = newRelay(settings, s.self, s.relayChanged)
+	return s
+}
+
+// relayChanged runs when TURN credentials arrive, refresh or fail.
+func (s *StreamService) relayChanged() {
+	s.mu.Lock()
+	l := s.lan
+	s.mu.Unlock()
+	if l != nil {
+		l.iceChanged()
+	}
+	s.emitState()
+}
+
+// ICEServers is the ICE list every peer connection should use right now:
+// public STUN, plus the TURN relay with fresh credentials when one is set
+// up. The call and watch windows ask before each new connection.
+func (s *StreamService) ICEServers() []ICEServer {
+	return s.relay.servers()
+}
+
+// saveSoon saves the settings after a short pause, coalescing a burst of
+// changes (dragging a volume slider) into one write.
+func (s *StreamService) saveSoon() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.saveTmr != nil {
+		s.saveTmr.Stop()
+	}
+	s.saveTmr = time.AfterFunc(400*time.Millisecond, func() {
+		s.mu.Lock()
+		settings := s.settings
+		s.mu.Unlock()
+		if err := saveSettings(settings); err != nil {
+			logf("save settings: %v", err)
+		}
+	})
 }
 
 // SetApp injects the running app (event emits).
@@ -149,6 +206,7 @@ func (s *StreamService) Init() {
 	s.mu.Lock()
 	code := s.settings.RoomCode
 	s.mu.Unlock()
+	s.relay.start()
 	if code != "" {
 		if _, err := s.JoinRoom(code); err != nil {
 			logf("rejoin room: %v", err)
@@ -169,7 +227,15 @@ func (s *StreamService) Shutdown() {
 	default:
 		close(s.quit)
 	}
+	flush := s.saveTmr != nil && s.saveTmr.Stop()
+	settings := s.settings
 	s.mu.Unlock()
+	if flush {
+		if err := saveSettings(settings); err != nil {
+			logf("save settings: %v", err)
+		}
+	}
+	s.relay.stop()
 	if bc != nil {
 		bc.stop()
 	}
@@ -199,6 +265,7 @@ func (s *StreamService) SetSettings(in Settings) (Settings, error) {
 	in.NoiseMode = s.settings.NoiseMode     // voice settings go through SetVoice
 	in.NoiseSuppression = s.settings.NoiseSuppression
 	in.MicDevice, in.SpeakerDevice = s.settings.MicDevice, s.settings.SpeakerDevice
+	in = in.fileOnly(s.settings) // identity, volumes, relay and LAN aren't the page's
 	next := Normalize(in)
 	prev := s.settings
 	s.settings = next
@@ -218,10 +285,9 @@ func (s *StreamService) SetSettings(in Settings) (Settings, error) {
 	return next, err
 }
 
+// liveChanged reports whether a running stream must pick up b.
 func liveChanged(a, b Settings) bool {
-	a.Name, b.Name, a.RoomCode, b.RoomCode = "", "", "", ""
-	a.NotifyLive, b.NotifyLive, a.ShowPreview, b.ShowPreview = false, false, false, false
-	return a != b
+	return a.live() != b.live()
 }
 
 // ListMonitors returns the monitors that can be streamed.
@@ -257,7 +323,7 @@ func (s *StreamService) GetState() State {
 }
 
 func (s *StreamService) stateLocked() State {
-	st := State{Self: s.self, Preview: s.settings.ShowPreview, Call: s.callStateLocked()}
+	st := State{Self: s.self, Preview: s.settings.ShowPreview, Call: s.callStateLocked(), Relay: s.relay.Status()}
 	if s.bc != nil {
 		st.Live = s.bc.Status()
 	} else {
@@ -303,6 +369,7 @@ func (s *StreamService) JoinRoom(code string) (State, error) {
 	room, err := OpenRoom(canon, s.self, s.onMessage, func() {
 		s.announce()
 		s.emitState()
+		s.lanRoomConnected()
 	})
 	if err != nil {
 		return s.GetState(), err
@@ -316,6 +383,7 @@ func (s *StreamService) JoinRoom(code string) (State, error) {
 	if err := saveSettings(settings); err != nil {
 		logf("save settings: %v", err)
 	}
+	s.lanRoomChanged(roomHash(room.topic))
 	s.emitState()
 	return s.GetState(), nil
 }
@@ -342,6 +410,7 @@ func (s *StreamService) leave() {
 	s.members = map[string]*member{}
 	s.mu.Unlock()
 	if room != nil {
+		s.lanRoomChanged("") // LAN needs a room: leaving it is Down
 		_ = room.Send("", msgLeave, struct{}{})
 		room.Close()
 	}
@@ -369,7 +438,7 @@ func (s *StreamService) send(to, typ string, body any) error {
 func (s *StreamService) announce() {
 	s.mu.Lock()
 	room := s.room
-	body := presenceBody{Name: s.settings.Name, InCall: s.inCall, Muted: s.muted || s.deafened, Deafened: s.deafened}
+	body := presenceBody{Name: s.settings.Name, InCall: s.inCall, Muted: s.muted || s.deafened, Deafened: s.deafened, Lan: s.lanSelf}
 	if s.bc != nil {
 		info := s.bc.Info()
 		body.Live = &info
@@ -390,24 +459,30 @@ func (s *StreamService) presenceLoop() {
 		case <-t.C:
 		}
 		s.announce()
-		now := time.Now()
-		var gone []string
-		s.mu.Lock()
-		for id, m := range s.members {
-			if now.Sub(m.seen) > memberTimeout {
-				gone = append(gone, id)
-				delete(s.members, id)
-			}
-		}
-		bc := s.bc
-		s.mu.Unlock()
-		for _, id := range gone {
-			if bc != nil {
-				bc.removePeer(id)
-			}
-		}
+		s.expireMembers(time.Now())
 		s.emitState() // relay connection counts change without messages
 	}
+}
+
+// expireMembers drops members not heard from for memberTimeout: their
+// viewers and their LAN peer go with them.
+func (s *StreamService) expireMembers(now time.Time) {
+	var gone []string
+	s.mu.Lock()
+	for id, m := range s.members {
+		if now.Sub(m.seen) > memberTimeout {
+			gone = append(gone, id)
+			delete(s.members, id)
+		}
+	}
+	bc := s.bc
+	s.mu.Unlock()
+	for _, id := range gone {
+		if bc != nil {
+			bc.removePeer(id)
+		}
+	}
+	s.lanExpired(gone...)
 }
 
 // onMessage handles one room message from another peer.
@@ -422,15 +497,30 @@ func (s *StreamService) onMessage(env Envelope) {
 		m := s.members[env.From]
 		isNew := m == nil
 		wasLive := m != nil && m.Live != nil
+		wasLan := m != nil && m.Lan != nil && m.Lan.On
 		if m == nil {
 			m = &member{}
 			s.members[env.From] = m
 		}
 		m.ID, m.Name, m.Live, m.seen = env.From, clipName(p.Name), p.Live, time.Now()
 		m.InCall, m.Muted, m.Deafened = p.InCall, p.Muted, p.Deafened
+		m.Lan = cleanLanInfo(p.Lan)
+		salt := s.lanCollisionLocked(m.Lan)
 		notify := s.settings.NotifyLive && p.Live != nil && !wasLive
 		name := m.Name
+		lanOn := m.Lan != nil && m.Lan.On
+		l, settings := s.lan, s.settings
 		s.mu.Unlock()
+		if l != nil {
+			l.memberSeen(env.From, lanOn, isNew || (lanOn && !wasLan))
+		}
+		if salt != 0 && l != nil {
+			logf("LAN address %s is also %s's; moving", m.Lan.IP, name)
+			if err := saveSettings(settings); err != nil {
+				logf("save settings: %v", err)
+			}
+			l.readdress(salt)
+		}
 		if isNew {
 			s.announce() // let a newcomer see us without waiting a full period
 		}
@@ -447,7 +537,11 @@ func (s *StreamService) onMessage(env Envelope) {
 		if bc != nil {
 			bc.removePeer(env.From)
 		}
+		s.lanDropped(env.From)
 		s.emitState()
+
+	case msgLan:
+		s.onLanMessage(env)
 
 	case msgWatch:
 		w, err := decodeBody[watchBody](env)
@@ -557,7 +651,7 @@ func (s *StreamService) GoLive() (State, error) {
 	cfg := s.settings
 	s.mu.Unlock()
 
-	bc, err := startBroadcast(cfg, s.send, s.emitState)
+	bc, err := startBroadcast(cfg, s.send, s.emitState, s.ICEServers)
 	if err != nil {
 		return s.GetState(), err
 	}

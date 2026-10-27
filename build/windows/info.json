@@ -5,11 +5,11 @@
 	"info": {
 		"0000": {
 			"ProductVersion": "0.1.0",
-			"CompanyName": "StephenSHorton",
-			"FileDescription": "macOS-style screenshot & screen recording for Windows",
-			"LegalCopyright": "© 2026, My Company",
+			"CompanyName": "Stephen Horton",
+			"FileDescription": "Toru: screenshots, screen recording, calls and screen sharing for Windows",
+			"LegalCopyright": "© 2026 Stephen Horton. MIT License.",
 			"ProductName": "Toru",
-			"Comments": "This is a comment"
+			"Comments": "https://github.com/StephenSHorton/toru"
 		}
 	}
 }

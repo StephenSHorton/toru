@@ -3,20 +3,30 @@ import { Events as WailsEvents } from "@wailsio/runtime";
 import {
   AudioLines,
   Check,
+  ChevronDown,
+  ChevronRight,
   Copy,
   DoorOpen,
   Eye,
   HeadphoneOff,
   Headphones,
+  Loader2,
   Mic,
   MicOff,
   MonitorUp,
+  Network,
   Phone,
   PhoneOff,
   Radio,
+  RotateCcw,
+  ShieldCheck,
   Square,
+  Trash2,
   Users,
   Video,
+  Volume1,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NumberInput } from "@/components/ui/number-input";
@@ -24,8 +34,8 @@ import { Segmented } from "@/components/ui/segmented";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardHead, Note, Row } from "@/clicker/cardParts";
-import { ExportService, StreamService, StreamSettings, StreamState } from "@/lib/api";
-import type { StreamLiveInfo, StreamMember, StreamMonitor } from "@/lib/api";
+import { ExportService, LanService, LanState, StreamService, StreamSettings, StreamState } from "@/lib/api";
+import type { LanPeer, StreamLiveInfo, StreamMember, StreamMonitor } from "@/lib/api";
 import { errText } from "@/transfer/useTransfer";
 import { cn } from "@/lib/utils";
 
@@ -64,6 +74,41 @@ function useStreamState(): [StreamState, (s: StreamState) => void] {
   return [state, setState];
 }
 
+const EMPTY_LAN = new LanState({ state: "off" });
+
+/** useLanState mirrors LanService's state the same way. */
+function useLanState(): [LanState, (s: LanState) => void] {
+  const [state, setState] = useState<LanState>(EMPTY_LAN);
+  useEffect(() => {
+    let gotEvent = false;
+    const off = WailsEvents.On("lan:state", (ev) => {
+      const d = payload<LanState>(ev.data);
+      if (!d) return;
+      gotEvent = true;
+      setState(d);
+    });
+    void LanService.GetState()
+      .then((s) => {
+        if (!gotEvent) setState(s);
+      })
+      .catch(() => {});
+    return () => {
+      off();
+    };
+  }, []);
+  return [state, setState];
+}
+
+/** copyText copies text with the shared toast; true when it worked. */
+async function copyText(text: string, label: string): Promise<boolean> {
+  try {
+    await ExportService.CopyTextAs(text, label);
+    return true;
+  } catch {
+    return false; // the toast reports a failed copy
+  }
+}
+
 export function describeLive(info: StreamLiveInfo): string {
   const mbps = info.bitrateKbps / 1000;
   return `${info.width}×${info.height} · ${info.fps} fps · ${mbps >= 10 ? Math.round(mbps) : mbps.toFixed(1)} Mbps · ${
@@ -73,6 +118,7 @@ export function describeLive(info: StreamLiveInfo): string {
 
 export default function StreamPage() {
   const [state, setState] = useStreamState();
+  const [lan, setLan] = useLanState();
   const [settings, setSettingsState] = useState<StreamSettings | null>(null);
   const [monitors, setMonitors] = useState<StreamMonitor[]>([]);
   const [support, setSupport] = useState<Record<string, boolean>>({});
@@ -120,6 +166,15 @@ export default function StreamPage() {
     }
   };
 
+  const runLan = async (fn: () => Promise<LanState>) => {
+    setError("");
+    try {
+      setLan(await fn());
+    } catch (e) {
+      setError(errText(e));
+    }
+  };
+
   if (!settings) return null;
   const inRoom = !!state.room;
   const monitor = monitors.find((m) => m.id === settings.monitorId) ?? monitors.find((m) => m.primary) ?? monitors[0];
@@ -144,6 +199,7 @@ export default function StreamPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <RoomCard
           state={state}
+          lan={lan}
           settings={settings}
           update={update}
           busy={busy}
@@ -151,6 +207,7 @@ export default function StreamPage() {
           onJoin={(code) => void run(() => StreamService.JoinRoom(code))}
           onLeave={() => void run(() => StreamService.LeaveRoom())}
         />
+        {inRoom ? <LanCard lan={lan} run={(fn) => void runLan(fn)} /> : null}
         {inRoom ? (
           <CallCard
             state={state}
@@ -163,6 +220,7 @@ export default function StreamPage() {
             onShare={() => void run(() => StreamService.GoLive())}
             onStopShare={() => void run(() => StreamService.StopLive())}
             onWatch={watch}
+            onVolume={(id, pct) => void StreamService.SetPeerVolume(id, pct).then(setState).catch((e: unknown) => setError(errText(e)))}
           />
         ) : null}
         <VoiceCard state={state} onChange={(noise, mic, speaker) => void run(() => StreamService.SetVoice(noise, mic, speaker))} />
@@ -187,6 +245,7 @@ export default function StreamPage() {
 
 function RoomCard({
   state,
+  lan,
   settings,
   update,
   busy,
@@ -195,6 +254,7 @@ function RoomCard({
   onLeave,
 }: {
   state: StreamState;
+  lan: LanState;
   settings: StreamSettings;
   update: (p: Partial<StreamSettings>) => void;
   busy: boolean;
@@ -278,7 +338,7 @@ function RoomCard({
         </Row>
       </div>
 
-      {room ? <MemberList members={room.members} /> : null}
+      {room ? <MemberList members={room.members} lan={lan} /> : null}
     </Card>
   );
 }
@@ -321,22 +381,229 @@ function NameInput({ value, onCommit }: { value: string; onCommit: (v: string) =
   );
 }
 
-function MemberList({ members }: { members: StreamMember[] }) {
+function MemberList({ members, lan }: { members: StreamMember[]; lan: LanState }) {
   if (members.length === 0) {
     return <Note>No one else is here yet. Send them the room code.</Note>;
   }
+  // LAN chips show while our LAN is up (or coming up).
+  const showLan = lan.wanted && (lan.state === "on" || lan.state === "starting");
   return (
     <ul className="flex flex-col divide-y divide-border border border-border">
       {members.map((m) => (
-        <li key={m.id} className="flex items-center gap-3 px-3 py-2">
+        <li key={m.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
           <span className={cn("size-2 shrink-0 rounded-full", m.inCall ? "bg-sky-400" : "bg-emerald-400")} />
           <span className="min-w-0 flex-1 truncate text-sm font-medium">{m.name}</span>
+          {showLan ? <LanChips member={m} peer={lan.peers?.[m.id]} /> : null}
           <span className="shrink-0 text-xs text-muted-foreground">
             {m.live ? "Sharing in the call" : m.inCall ? "In the call" : "Online"}
           </span>
         </li>
       ))}
     </ul>
+  );
+}
+
+const chipBase = "inline-flex items-center gap-1.5 border px-2 py-0.5 text-xs";
+
+// LanChips: a member's overlay address (click to copy) and how our tunnel to
+// them is doing: Direct, Relayed, Connecting… or LAN off on their side.
+function LanChips({ member, peer }: { member: StreamMember; peer: LanPeer | undefined }) {
+  const [copied, setCopied] = useState(false);
+  const info = member.lan;
+  if (!info || !info.on) {
+    return <span className={cn(chipBase, "border-dashed border-border text-muted-foreground")}>LAN off</span>;
+  }
+  const connected = peer?.state === "connected";
+  const failed = peer?.state === "failed";
+  const relayed = connected && peer?.path === "relay";
+  const label = connected ? (relayed ? "Relayed" : "Direct") : failed ? "Can't connect" : "Connecting…";
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5">
+      <button
+        type="button"
+        title={`Copy ${member.name}'s LAN address`}
+        onClick={() =>
+          void copyText(info.ip, "LAN address").then((ok) => {
+            if (!ok) return;
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          })
+        }
+        className={cn(chipBase, "border-border font-mono text-foreground hover:bg-accent")}
+      >
+        {info.ip}
+        {copied ? <Check className="size-3" /> : <Copy className="size-3 text-muted-foreground" />}
+      </button>
+      <span
+        title={
+          relayed
+            ? "Through the relay: your PCs couldn't reach each other directly"
+            : connected
+              ? "Straight from PC to PC"
+              : undefined
+        }
+        className={cn(
+          chipBase,
+          connected
+            ? relayed
+              ? "border-sky-500/50 bg-sky-500/10 text-sky-300"
+              : "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+            : failed
+              ? "border-destructive/60 bg-destructive/10 text-destructive"
+              : "border-amber-400/60 bg-amber-400/10 text-amber-300",
+        )}
+      >
+        {!connected && !failed ? <span className="size-1.5 animate-pulse rounded-full bg-amber-300" /> : null}
+        {label}
+        {connected && peer && peer.rttMs > 0 ? <span className="tabular-nums opacity-80">· {peer.rttMs} ms</span> : null}
+      </span>
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LAN
+// ---------------------------------------------------------------------------
+
+// LanCard: one shared virtual network for everyone in the room, so LAN games
+// find each other. The service behind it needs a one-time administrator
+// setup; after that the switch needs no prompts. Go side: LanService.
+function LanCard({ lan, run }: { lan: LanState; run: (fn: () => Promise<LanState>) => void }) {
+  const [advanced, setAdvanced] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const busy = lan.busy !== "";
+  const installed = lan.state !== "setup" && lan.state !== "unsupported";
+  // While LAN waits for an update the switch stays, if it is on, so it can
+  // be turned off.
+  const switchable = installed && (lan.state !== "update" || lan.wanted);
+
+  const copy = async () => {
+    if (!(await copyText(lan.ip, "LAN address"))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <Card label="LAN" wide>
+      <CardHead
+        icon={Network}
+        title="LAN"
+        caption="Play LAN games with everyone in this room, as if you were all in the same house"
+      >
+        {lan.state === "on" ? <LanStatusChip tone="on" label="On" /> : null}
+        {lan.state === "starting" ? <LanStatusChip tone="wait" label="Starting…" /> : null}
+        {switchable ? (
+          <Switch
+            checked={lan.wanted}
+            disabled={busy}
+            onCheckedChange={(on) => run(() => (on ? LanService.Enable() : LanService.Disable()))}
+            aria-label="LAN"
+          />
+        ) : null}
+      </CardHead>
+
+      {lan.state === "unsupported" ? <Note>LAN needs Windows.</Note> : null}
+
+      {lan.state === "setup" ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Note>LAN needs a one-time administrator setup. Windows asks for permission once; after that the switch just works.</Note>
+          <Button size="sm" disabled={busy} onClick={() => run(() => LanService.Setup())}>
+            {busy ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
+            {busy ? "Setting up…" : "Set up"}
+          </Button>
+        </div>
+      ) : null}
+
+      {lan.state === "update" ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Note warn>This Toru is newer than its LAN service.</Note>
+          <Button size="sm" disabled={busy} onClick={() => run(() => LanService.Setup())}>
+            {busy ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
+            {busy ? "Updating…" : "Update LAN (needs admin)"}
+          </Button>
+        </div>
+      ) : null}
+
+      {lan.state === "on" && lan.ip ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">On —</span>
+          <span className="select-all border border-border bg-background px-3 py-1.5 font-mono text-base tracking-wider">{lan.ip}</span>
+          <Button size="sm" variant="outline" onClick={() => void copy()}>
+            {copied ? <Check /> : <Copy />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
+          <span className="text-xs text-muted-foreground">Friends join your games at this address</span>
+        </div>
+      ) : null}
+
+      {lan.state === "off" && installed ? <Note>Off</Note> : null}
+
+      {lan.state === "error" ? (
+        <Note warn>
+          {lan.error === "range-in-use"
+            ? `Address range in use${lan.detail ? `: ${lan.detail} already uses 100.96.0.0/16` : ""}. Turn that off, then try again.`
+            : lan.error === "wrong-session"
+              ? "LAN is already on for another Windows user on this PC."
+              : lan.error === "timeout"
+                ? "LAN didn't come up. Turn it off and on again; if it keeps happening, run Set up again from Advanced."
+                : `LAN couldn't start${lan.detail ? `: ${lan.detail}` : "."}`}
+        </Note>
+      ) : null}
+
+      {installed ? (
+        <div className="flex flex-col gap-1">
+          {lan.relay === "none" ? <Note>Direct only (no relay set up)</Note> : null}
+          {lan.relay === "error" ? <Note warn>The relay isn't answering right now, so connections are direct only.</Note> : null}
+          <Note>Turn LAN on before you start the game.</Note>
+          <Note>While LAN is on, LAN games look for servers on Toru LAN, not your home network.</Note>
+        </div>
+      ) : null}
+
+      {installed ? (
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => setAdvanced((a) => !a)}
+            className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            aria-expanded={advanced}
+          >
+            {advanced ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+            Advanced
+          </button>
+          {advanced ? (
+            <>
+              <Row label="Allow file sharing and remote desktop" caption="Lets people in the room reach Windows file sharing, Remote Desktop and WinRM on this PC">
+                <Switch checked={lan.allowServices} disabled={busy} onCheckedChange={(v) => run(() => LanService.SetPolicy(v, lan.mdns))} />
+              </Row>
+              <Row label="Share mDNS and SSDP" caption="Device and media server discovery. Also shows this PC's name to the room">
+                <Switch checked={lan.mdns} disabled={busy} onCheckedChange={(v) => run(() => LanService.SetPolicy(lan.allowServices, v))} />
+              </Row>
+              <Row label="Remove LAN" caption="Takes the service and the Toru LAN adapter off this PC (asks for permission)">
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => run(() => LanService.Uninstall())}>
+                  {lan.busy === "uninstall" ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                  {lan.busy === "uninstall" ? "Removing…" : "Remove LAN"}
+                </Button>
+              </Row>
+              {lan.serviceVersion ? <Note>LAN service {lan.serviceVersion}</Note> : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function LanStatusChip({ tone, label }: { tone: "on" | "wait"; label: string }) {
+  return (
+    <span
+      className={cn(
+        chipBase,
+        tone === "on" ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300" : "border-amber-400/60 bg-amber-400/10 text-amber-300",
+      )}
+    >
+      <span className={cn("size-1.5 rounded-full", tone === "on" ? "bg-emerald-400" : "animate-pulse bg-amber-300")} />
+      {label}
+    </span>
   );
 }
 
@@ -353,6 +620,7 @@ interface Tile {
   deafened: boolean;
   live: StreamLiveInfo | null;
   link: string; // our connection to them ("" for us)
+  volume: number; // how loud they play for us, 0-200%
 }
 
 function CallCard({
@@ -366,6 +634,7 @@ function CallCard({
   onShare,
   onStopShare,
   onWatch,
+  onVolume,
 }: {
   state: StreamState;
   name: string;
@@ -377,6 +646,7 @@ function CallCard({
   onShare: () => void;
   onStopShare: () => void;
   onWatch: (id: string) => void;
+  onVolume: (id: string, pct: number) => void;
 }) {
   const call = state.call;
   const others = (state.room?.members ?? []).filter((m) => m.inCall);
@@ -389,6 +659,7 @@ function CallCard({
     deafened: m.deafened,
     live: m.live,
     link: call.peers?.[m.id] ?? "",
+    volume: call.volumes?.[m.id] ?? 100,
   }));
   if (call.inCall) {
     tiles.unshift({
@@ -400,6 +671,7 @@ function CallCard({
       deafened: call.deafened,
       live: state.live.live ? state.live.info : null,
       link: "",
+      volume: 100,
     });
   }
 
@@ -420,7 +692,7 @@ function CallCard({
       {tiles.length > 0 ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
           {tiles.map((t) => (
-            <CallTile key={t.id} tile={t} canWatch={call.inCall} onWatch={onWatch} />
+            <CallTile key={t.id} tile={t} canWatch={call.inCall} onWatch={onWatch} onVolume={onVolume} />
           ))}
         </div>
       ) : null}
@@ -472,15 +744,57 @@ function CallCard({
   );
 }
 
-function CallTile({ tile, canWatch, onWatch }: { tile: Tile; canWatch: boolean; onWatch: (id: string) => void }) {
+function CallTile({
+  tile,
+  canWatch,
+  onWatch,
+  onVolume,
+}: {
+  tile: Tile;
+  canWatch: boolean;
+  onWatch: (id: string) => void;
+  onVolume: (id: string, pct: number) => void;
+}) {
   const connecting = !tile.self && canWatch && tile.link !== "" && tile.link !== "connected";
+  // Volume is per person, for us only; it applies while we're in the call.
+  const hasVolume = !tile.self && canWatch;
+  const [volumeOpen, setVolumeOpen] = useState(false);
+  const VolumeIcon = tile.volume === 0 ? VolumeX : tile.volume < 100 ? Volume1 : Volume2;
   return (
     <div
+      onContextMenu={(e) => {
+        if (!hasVolume) return;
+        e.preventDefault();
+        setVolumeOpen(true);
+      }}
       className={cn(
-        "flex flex-col items-center gap-2 border bg-background/40 px-2 py-3 transition-colors",
+        "relative flex flex-col items-center gap-2 border bg-background/40 px-2 py-3 transition-colors",
         tile.speaking ? "border-emerald-400 shadow-[0_0_0_1px_rgb(52_211_153)]" : "border-border",
       )}
     >
+      {hasVolume ? (
+        <button
+          type="button"
+          onClick={() => setVolumeOpen((o) => !o)}
+          title={`${tile.name}'s volume (right-click the tile too)`}
+          aria-label={`${tile.name}'s volume`}
+          className={cn(
+            "absolute right-1 top-1 inline-flex items-center gap-0.5 p-1 text-[10px] tabular-nums hover:bg-accent hover:text-foreground",
+            tile.volume === 0 ? "text-amber-300" : tile.volume !== 100 ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
+          <VolumeIcon className="size-3.5" />
+          {tile.volume !== 100 ? `${tile.volume}%` : null}
+        </button>
+      ) : null}
+      {hasVolume && volumeOpen ? (
+        <VolumePopover
+          name={tile.name}
+          value={tile.volume}
+          onChange={(pct) => onVolume(tile.id, pct)}
+          onClose={() => setVolumeOpen(false)}
+        />
+      ) : null}
       <div
         className={cn(
           "flex size-12 items-center justify-center rounded-full bg-muted text-lg font-semibold",
@@ -497,6 +811,7 @@ function CallTile({ tile, canWatch, onWatch }: { tile: Tile; canWatch: boolean; 
           <MicOff className="size-3.5 shrink-0 text-destructive" />
         ) : null}
       </div>
+      {hasVolume && tile.volume === 0 ? <span className="text-[11px] text-amber-300">Muted for you</span> : null}
       {tile.live ? (
         <div className="flex flex-col items-center gap-1">
           <span className="inline-flex items-center gap-1 bg-red-600 px-1.5 text-[10px] font-semibold uppercase tracking-wide text-white">
@@ -512,6 +827,80 @@ function CallTile({ tile, canWatch, onWatch }: { tile: Tile; canWatch: boolean; 
       ) : connecting ? (
         <span className="text-[11px] text-muted-foreground">{tile.link === "failed" ? "Can't connect" : "Connecting…"}</span>
       ) : null}
+    </div>
+  );
+}
+
+// VolumePopover: one person's volume for us, 0-200% like Discord. Changes
+// apply live (the call window follows call.volumes); Go keeps it per person.
+function VolumePopover({
+  name,
+  value,
+  onChange,
+  onClose,
+}: {
+  name: string;
+  value: number;
+  onChange: (pct: number) => void;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    // Next tick, so the click that opened it doesn't close it.
+    const t = window.setTimeout(() => window.addEventListener("pointerdown", down), 0);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("pointerdown", down);
+      window.removeEventListener("keydown", key);
+    };
+  }, [onClose]);
+  const set = (pct: number) => {
+    setDraft(pct);
+    onChange(pct);
+  };
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label={`${name}'s volume`}
+      onContextMenu={(e) => e.preventDefault()}
+      className="frost absolute right-1 top-8 z-20 flex w-52 flex-col gap-2 border border-border bg-background p-3 text-left shadow-lg"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-xs font-medium">{name}</span>
+        <span className={cn("shrink-0 text-xs tabular-nums", draft === 0 ? "text-amber-300" : "text-muted-foreground")}>
+          {draft === 0 ? "Muted for you" : `${draft}%`}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={200}
+        step={5}
+        value={draft}
+        onChange={(e) => set(Number(e.target.value))}
+        className="w-full accent-primary"
+        aria-label={`${name}'s volume`}
+        autoFocus
+      />
+      <div className="flex items-center justify-between gap-2">
+        <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => set(draft === 0 ? 100 : 0)}>
+          {draft === 0 ? <Volume2 /> : <VolumeX />}
+          {draft === 0 ? "Unmute" : "Mute for me"}
+        </Button>
+        <Button size="sm" variant="ghost" className="h-7 px-2" disabled={draft === 100} onClick={() => set(100)} title="Back to 100%">
+          <RotateCcw />
+          Reset
+        </Button>
+      </div>
     </div>
   );
 }
