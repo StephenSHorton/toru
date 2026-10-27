@@ -666,9 +666,6 @@
       .cf-rec .dot { background: var(--rec-soft); color: var(--rec); }
       .cf-call .dot { background: var(--call-soft); color: var(--call); }
       .cf-lan .dot { background: var(--lan-soft); color: var(--lan); }
-      .rec-blink {
-        animation: blink 1.4s steps(2, start) infinite;
-      }
       @keyframes float {
         0%, 100% { transform: translateY(0); }
         50% { transform: translateY(-8px); }
@@ -676,9 +673,6 @@
       @keyframes breathe {
         0%, 100% { inset: 16% 20% 20% 16%; }
         50% { inset: 14% 17% 18% 13%; }
-      }
-      @keyframes blink {
-        to { visibility: hidden; }
       }
 
       @media (max-width: 900px) {
@@ -1507,7 +1501,7 @@
               </div>
             </div>
             <div class="chip-float cf-rec">
-              <span class="dot"><svg class="rec-blink"><use href="#i-rec" /></svg></span>
+              <span class="dot"><svg><use href="#i-rec" /></svg></span>
               <span>Instant replay<small>Alt+F10 saves a clip</small></span>
             </div>
             <div class="chip-float cf-call">
