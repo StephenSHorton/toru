@@ -22,7 +22,7 @@ is the entire Dev1 ↔ Dev2 interface: `CaptureRequest`, `CaptureResult`,
 `mode`**.
 
 - Changing `contract.go` requires **both developers to sign off** on the PR.
-- It must always keep `go build ./internal/capture` green (the CI contract gate).
+- It must always keep `go build ./internal/capture` green (the contract gate; run it locally).
 - After changing Go-side bindings, regenerate: `wails3 generate bindings -ts -clean`,
   and commit `frontend/bindings`.
 
@@ -56,14 +56,20 @@ git push -u origin HEAD                  # open a PR
 For parallel local work, prefer a git worktree per task so working trees don't
 collide.
 
-## Local checks before you push (mirror CI)
+## Checks (run locally - no CI)
+
+There is no CI on PRs or pushes (to save GitHub Actions minutes). Before you
+open or merge a PR, or push to `main`, run these locally on Windows; all must pass:
 
 ```sh
 go build ./internal/capture     # contract gate
-go vet ./internal/...
-go test ./internal/...
-golangci-lint run ./internal/...
-cd frontend && bun run build    # tsc + vite
+go build ./cmd/...
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/toru-relay   # bash
+go vet ./internal/... ./cmd/...
+go test ./internal/... ./cmd/...
+golangci-lint run ./internal/... ./cmd/...   # v2.12.2
+cd frontend && bun install --frozen-lockfile && bun run build && cd ..   # tsc + vite
+go build -o build/bin/toru.exe .
 ```
 
 ## Commit messages

@@ -95,6 +95,13 @@ wails3 dev
 wails3 task windows:build PACKAGE_MANAGER=bun
 ```
 
+### Checks (run locally - no CI)
+
+There is no CI on PRs or pushes (to save GitHub Actions minutes). Before you
+open or merge a PR, or push to `main`, run the check list in
+[`CONTRIBUTING.md`](CONTRIBUTING.md#checks-run-locally---no-ci) (Go build/vet/test/lint,
+frontend build, full app build) and make sure it passes.
+
 ## Release
 
 ```sh
