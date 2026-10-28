@@ -1436,7 +1436,7 @@
           <ul class="nav-links">
             <li><a href="#capture">Capture</a></li>
             <li><a href="#record">Record</a></li>
-            <li><a href="#call">Call</a></li>
+            <li><a href="#call">Game Room</a></li>
             <li><a href="#lan">LAN</a></li>
             <li><a href="#tools">Tools</a></li>
             <li><a href="#privacy">Privacy</a></li>
@@ -1531,7 +1531,7 @@
           </a>
           <a class="pillar a-call" href="#call">
             <div class="ico" aria-hidden="true"><svg><use href="#i-call" /></svg></div>
-            <h3>Call</h3>
+            <h3>Game Room</h3>
             <p>Voice and screen sharing straight between PCs. No accounts.</p>
           </a>
           <a class="pillar a-lan" href="#lan">
@@ -1683,7 +1683,7 @@
       <!-- ================= CALL ================= -->
       <section class="block a-call" id="call" aria-labelledby="call-title">
         <div class="wrap">
-          <p class="eyebrow">Call</p>
+          <p class="eyebrow">Game Room</p>
           <h2 id="call-title">Voice and screen sharing, PC to PC.</h2>
           <p class="sub">
             Make a room, share its code, talk. Share your screen at the resolution, frame rate and
@@ -1812,7 +1812,7 @@
 
             <div>
               <ol class="steps">
-                <li><div><strong>Join a room</strong><span>Create or join one on the Call page. The LAN card sits right there, even before you’re in a room.</span></div></li>
+                <li><div><strong>Join a room</strong><span>Create or join one in the Game Room tab. The LAN card sits right there, even before you’re in a room.</span></div></li>
                 <li><div><strong>Set up once</strong><span>The first time, Windows asks for administrator approval one time to add the <em>Toru LAN</em> adapter. After that, LAN turns on and off with no prompts.</span></div></li>
                 <li><div><strong>Turn LAN on, then start the game</strong><span>Each friend gets a fixed address like <code>100.96.12.34</code>. Host a LAN game; everyone else sees it in the list.</span></div></li>
               </ol>
@@ -1917,10 +1917,11 @@
           <h2 id="new-title">Shipping fast.</h2>
           <p class="sub">Every release since v0.8.6. Toru updates itself, so you get these without lifting a finger.</p>
           <ol class="timeline" reversed>
+            <li><span class="v">v0.13.2</span><div><b>Game Room</b><span>The Call tab is now Game Room, with a controller icon: voice, screen sharing and LAN in one place.</span></div></li>
             <li><span class="v">v0.13.1</span><div><b>Always up to date</b><span>Toru keeps checking for updates while it runs; the LAN card shows before you join a room.</span></div></li>
             <li><span class="v">v0.13.0</span><div><b>Built-in LAN</b><span>One virtual network per room for LAN games, plus per-person call volume from 0 to 200%.</span></div></li>
             <li><span class="v">v0.12.0</span><div><b>Cleaner calls</b><span>AI noise suppression, call voices kept out of stream audio, Auto bitrate.</span></div></li>
-            <li><span class="v">v0.11.0</span><div><b>Call</b><span>Voice calls and peer-to-peer screen sharing at any resolution, fps and bitrate.</span></div></li>
+            <li><span class="v">v0.11.0</span><div><b>Call</b> (now Game Room)<span>Voice calls and peer-to-peer screen sharing at any resolution, fps and bitrate.</span></div></li>
             <li><span class="v">v0.10.0</span><div><b>Notifications</b><span>Stacked, clickable notification cards with sounds.</span></div></li>
             <li><span class="v">v0.9.2</span><div><b>Clearer names</b><span>One name per recording feature, used everywhere.</span></div></li>
             <li><span class="v">v0.9.1</span><div><b>Library cleanup</b><span>Optional auto-delete, temp-file cleanup, a wider trim window.</span></div></li>
@@ -1953,7 +1954,7 @@
               <tbody>
                 <tr><th scope="row">GitHub</th><td>Checks for and downloads updates. On first launch, downloads FFmpeg.</td></tr>
                 <tr><th scope="row">catbox.moe</th><td>Only when you click to share a recording or clip as a link.</td></tr>
-                <tr><th scope="row">Public MQTT brokers (EMQX, HiveMQ)</th><td>Call and LAN room signaling. Messages are sealed with a key from your room code, so the brokers see random bytes.</td></tr>
+                <tr><th scope="row">Public MQTT brokers (EMQX, HiveMQ)</th><td>Game Room signaling (calls and LAN). Messages are sealed with a key from your room code, so the brokers see random bytes.</td></tr>
                 <tr><th scope="row">Public STUN servers (Google, Cloudflare)</th><td>Helps two PCs find a direct path to each other for calls and LAN.</td></tr>
                 <tr><th scope="row">magic-wormhole servers</th><td>Send Files rendezvous, and a relay if a direct path fails. They see only encrypted data. You can point Toru at your own.</td></tr>
               </tbody>
