@@ -1,8 +1,7 @@
 # Video editor v2
 
-Status: draft, decisions on Irori card #1 ("Toru: add a video editor").
-Where a decision is still open, this spec builds to the **recommended**
-answer and marks it _(pending decision)_. v1 is in `docs/video-editor.md`.
+Status: decided on Irori card #1 ("Toru: add a video editor"), 2026-10-29.
+v1 is in `docs/video-editor.md` and ships first; v2 is built alongside it.
 
 ## Goal
 
@@ -44,7 +43,7 @@ v1 code stays until the v2 window replaces it.
    images (png, jpg, jpeg, webp, gif as a still). Items show a thumbnail,
    name and length. Drag an item onto a track, or double-click to append it
    to the end of the bottom track. Imported files are used where they are; nothing is
-   copied. _(pending decision)_
+   copied.
 2. **Tracks.** Every track is free-form: clips sit anywhere in time and
    gaps are allowed (a gap with nothing under it exports as black / silence).
    Any number of **video** tracks (higher tracks draw on top) and **audio**
@@ -76,7 +75,7 @@ v1 code stays until the v2 window replaces it.
     added; changeable in the export dialog via the v1 presets.
 11. **Projects.** The edit autosaves to a project file
     (`%AppData%/toru/projects/<id>.json`) as you work; Library gets a
-    Projects tab to reopen one. _(pending decision)_
+    Projects tab to reopen one.
 12. **Undo / redo** covers every change above (one step per drag).
 
 Later (not v2): transitions, keyframed animation, masks, LUTs, more text
