@@ -17,6 +17,7 @@ export {
     MediaJSON,
     ProjectExport,
     ProjectJSON,
+    ProjectSummary,
     Segment,
     TextJSON,
     TextOverlay,

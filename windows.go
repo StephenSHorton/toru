@@ -398,6 +398,18 @@ func (w *WindowsService) ServedURL(videoPath string) string {
 // export) for videoPath in its own window. Same ?vid= / ?path= params as the
 // trim window, which stays as it is for quick trims.
 func (w *WindowsService) OpenEditVideo(videoPath string) {
+	w.openEditWindow("vid=" + url.QueryEscape(w.ServedURL(videoPath)) + "&path=" + url.QueryEscape(videoPath))
+}
+
+// OpenEditProject reopens a saved editor project (VideoService.ListProjects)
+// in its own editor window.
+func (w *WindowsService) OpenEditProject(projectID string) {
+	w.openEditWindow("project=" + url.QueryEscape(projectID))
+}
+
+// openEditWindow opens an editor window with the given query (after
+// view=edit).
+func (w *WindowsService) openEditWindow(query string) {
 	if w.app == nil {
 		return
 	}
@@ -411,10 +423,9 @@ func (w *WindowsService) OpenEditVideo(videoPath string) {
 	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		// A unique name: dropped-file events go to every window, and the page
 		// keeps only the ones its own window sent (media:dropped's sender).
-		Name:  "toru-edit-" + strconv.FormatInt(time.Now().UnixNano(), 36),
-		Title: "Toru — Edit video",
-		URL: "/?view=edit&vid=" + url.QueryEscape(w.ServedURL(videoPath)) +
-			"&path=" + url.QueryEscape(videoPath),
+		Name:             "toru-edit-" + strconv.FormatInt(time.Now().UnixNano(), 36),
+		Title:            "Toru — Edit video",
+		URL:              "/?view=edit&" + query,
 		Width:            width,
 		Height:           height,
 		BackgroundColour: dark,

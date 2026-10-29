@@ -27,6 +27,13 @@ export function CancelExport(): $CancellablePromise<void> {
 }
 
 /**
+ * DeleteProject removes a saved project (not its media).
+ */
+export function DeleteProject(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1856959033, id);
+}
+
+/**
  * Export renders req to req.OutPath and returns the written path, emitting
  * "edit:progress" as it goes. It writes to a temp file beside the output and
  * renames it into place at the end, so a failed or cancelled export leaves
@@ -70,6 +77,23 @@ export function GenerateThumbnails(videoPath: string, count: number): $Cancellab
 }
 
 /**
+ * ListProjects lists the saved projects, most recently changed first.
+ * Unreadable files are skipped.
+ */
+export function ListProjects(): $CancellablePromise<$models.ProjectSummary[]> {
+    return $Call.ByID(2237467917).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
+ * LoadProject returns a saved project's JSON.
+ */
+export function LoadProject(id: string): $CancellablePromise<string> {
+    return $Call.ByID(764500508, id);
+}
+
+/**
  * PickExportPath shows the Save As dialog for an export of sourcePath (the
  * first source), suggesting <name>-edited.mp4 in its folder. It returns the
  * chosen path, or "" when the dialog was cancelled.
@@ -94,7 +118,7 @@ export function PreviewTrack(path: string, index: number): $CancellablePromise<s
  */
 export function ProbeMedia(path: string): $CancellablePromise<$models.MediaInfo> {
     return $Call.ByID(1125538325, path).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType3($result);
     });
 }
 
@@ -117,6 +141,15 @@ export function RevealFile(path: string): $CancellablePromise<void> {
 }
 
 /**
+ * SaveProject writes a project (the frontend's Project as JSON) to its file,
+ * replacing the last save. The write goes to a temp file first, so a crash
+ * mid-save never leaves half a project.
+ */
+export function SaveProject(doc: string): $CancellablePromise<void> {
+    return $Call.ByID(94165459, doc);
+}
+
+/**
  * Trim cuts [StartMs, EndMs] from req.VideoPath into req.OutPath. Precise=false
  * is a fast stream-copy (snaps to nearest preceding keyframe); Precise=true
  * re-encodes for frame accuracy. A Crop always re-encodes and names the
@@ -128,4 +161,6 @@ export function Trim(req: capture$0.TrimRequest): $CancellablePromise<string> {
 
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = $models.MediaInfo.createFrom;
+const $$createType1 = $models.ProjectSummary.createFrom;
+const $$createType2 = $Create.Array($$createType1);
+const $$createType3 = $models.MediaInfo.createFrom;
