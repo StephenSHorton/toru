@@ -99,6 +99,15 @@ export function ReleasePreviewTracks(urls: string[]): $CancellablePromise<void> 
 }
 
 /**
+ * RevealFile shows path selected in Explorer: the export dialog's "Show in
+ * folder". Only an existing file is revealed; Explorer selects it and runs
+ * nothing.
+ */
+export function RevealFile(path: string): $CancellablePromise<void> {
+    return $Call.ByID(3502652220, path);
+}
+
+/**
  * Trim cuts [StartMs, EndMs] from req.VideoPath into req.OutPath. Precise=false
  * is a fast stream-copy (snaps to nearest preceding keyframe); Precise=true
  * re-encodes for frame accuracy. A Crop always re-encodes and names the
