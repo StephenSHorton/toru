@@ -30,7 +30,13 @@ type WindowCommand struct {
 	Description string `json:"description"`
 	Input       any    `json:"input"` // JSON Schema object; nil = no input
 	Destructive bool   `json:"destructive"`
+	// TimeoutSec is how long the window may take to answer (0 = 30s; at
+	// most 30 minutes): an export runs for minutes.
+	TimeoutSec int `json:"timeoutSec,omitempty"`
 }
+
+// maxWindowCallTimeout caps a window command's own timeout.
+const maxWindowCallTimeout = 30 * time.Minute
 
 // WindowCall is the "agent:call" payload.
 type WindowCall struct {
@@ -56,9 +62,11 @@ type Service struct {
 	// windows maps a window name to the commands it registered, in the order
 	// windows last registered or were touched (most recent last).
 	windows map[string]map[string]CommandInfo
-	order   []string
-	pending map[string]chan windowReply
-	seq     atomic.Uint64
+	// timeouts holds a window command's own answer timeout, by window then name.
+	timeouts map[string]map[string]time.Duration
+	order    []string
+	pending  map[string]chan windowReply
+	seq      atomic.Uint64
 
 	// Seams for tests; production values come from New.
 	pipeName    string                       // "" = PipeName()
@@ -73,6 +81,7 @@ func New(reg *Registry) *Service {
 	return &Service{
 		reg:        reg,
 		windows:    map[string]map[string]CommandInfo{},
+		timeouts:   map[string]map[string]time.Duration{},
 		pending:    map[string]chan windowReply{},
 		configPath: defaultConfigPath,
 		emit: func(event string, data any) {
@@ -166,6 +175,7 @@ func (s *Service) RegisterWindowCommands(window string, cmds []WindowCommand) er
 		return errors.New("agent: register needs the window's name")
 	}
 	infos := map[string]CommandInfo{}
+	timeouts := map[string]time.Duration{}
 	for _, c := range cmds {
 		if c.Name == "" {
 			return errors.New("agent: a window command has no name")
@@ -179,10 +189,14 @@ func (s *Service) RegisterWindowCommands(window string, cmds []WindowCommand) er
 			schema = b
 		}
 		infos[c.Name] = CommandInfo{Name: c.Name, Description: c.Description, Input: schema, Destructive: c.Destructive}
+		if c.TimeoutSec > 0 {
+			timeouts[c.Name] = min(time.Duration(c.TimeoutSec)*time.Second, maxWindowCallTimeout)
+		}
 	}
 	s.mu.Lock()
 	before := s.windowNamesLocked()
 	s.windows[window] = infos
+	s.timeouts[window] = timeouts
 	s.touchLocked(window)
 	after := s.windowNamesLocked()
 	s.mu.Unlock()
@@ -278,6 +292,10 @@ func (s *Service) callIn(ctx context.Context, window, name string, input json.Ra
 	id := strconv.FormatUint(s.seq.Add(1), 10)
 	ch := make(chan windowReply, 1)
 	s.mu.Lock()
+	limit := s.callTimeout
+	if d, ok := s.timeouts[window][name]; ok && d > 0 {
+		limit = d
+	}
 	s.pending[id] = ch
 	s.mu.Unlock()
 	defer func() {
@@ -287,7 +305,7 @@ func (s *Service) callIn(ctx context.Context, window, name string, input json.Ra
 	}()
 
 	s.emit(EventCall, WindowCall{ID: id, Window: window, Name: name, Input: input})
-	timer := time.NewTimer(s.callTimeout)
+	timer := time.NewTimer(limit)
 	defer timer.Stop()
 	select {
 	case r := <-ch:
@@ -296,7 +314,7 @@ func (s *Service) callIn(ctx context.Context, window, name string, input json.Ra
 		}
 		return r.result, nil
 	case <-timer.C:
-		return nil, fmt.Errorf("%s: the window didn't answer within %s", name, s.callTimeout)
+		return nil, fmt.Errorf("%s: the window didn't answer within %s", name, limit)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -327,6 +345,7 @@ func (s *Service) touchLocked(window string) {
 
 func (s *Service) dropLocked(window string) {
 	delete(s.windows, window)
+	delete(s.timeouts, window)
 	s.order = slices.DeleteFunc(s.order, func(w string) bool { return w == window })
 }
 
