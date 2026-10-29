@@ -109,13 +109,54 @@ func TestPartPath(t *testing.T) {
 	}
 }
 
-func TestExportTextNotWiredYet(t *testing.T) {
-	if _, err := editTextFilter(EditRequest{Texts: []TextOverlay{{Text: "hi"}}}, nil); err == nil {
-		t.Fatal("texts: want an error until TextFilter is wired in")
-	}
-	if f, err := editTextFilter(EditRequest{}, nil); f != "" || err != nil {
+func TestEditTextFilter(t *testing.T) {
+	f, cleanup, err := editTextFilter(EditRequest{}, nil)
+	if f != "" || err != nil {
 		t.Fatalf("no texts: %q, %v", f, err)
 	}
+	cleanup() // a no-op, but always safe to call
+
+	if _, err := os.Stat(DefaultTextFont); err != nil {
+		t.Skipf("no Segoe UI Semibold: %v", err)
+	}
+	req := EditRequest{
+		Texts: []TextOverlay{{Text: "hi", X: 0.5, Y: 0.5, Size: "m", StartMs: 0, EndMs: 1000}},
+		Crop:  &capture.Rect{W: 1001, H: 501},
+	}
+	f, cleanup, err = editTextFilter(req, []MediaInfo{{Width: 1920, Height: 1080}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Laid out on the crop (1000x500): centre 500,250, M = 6% of 500.
+	for _, want := range []string{"fontsize=30:", "x=500-text_w/2", "y=250-text_h/2"} {
+		if !strings.Contains(f, want) {
+			t.Errorf("filter lacks %q: %s", want, f)
+		}
+	}
+	dir := textDirOf(t, f)
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("text dir: %v", err)
+	}
+	cleanup()
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("text dir %s still there after cleanup: %v", dir, err)
+	}
+
+	if _, _, err := editTextFilter(EditRequest{Texts: []TextOverlay{{Text: "x", Size: "xl", EndMs: 1}}}, []MediaInfo{{Width: 64, Height: 64}}); err == nil {
+		t.Error("bad size accepted")
+	}
+}
+
+// textDirOf is the temp dir of the first textfile= in a filter.
+func textDirOf(t *testing.T, filter string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(filter, "textfile=")
+	if !ok {
+		t.Fatalf("no textfile in %s", filter)
+	}
+	path, _, _ := strings.Cut(rest, ":expansion")
+	// The path is forward-slashed with only escape backslashes (C\\:/...).
+	return filepath.Dir(filepath.FromSlash(strings.ReplaceAll(path, `\`, "")))
 }
 
 // TestEditServiceSmoke probes a generated separate-tracks clip, exports it
@@ -166,13 +207,24 @@ func TestEditServiceSmoke(t *testing.T) {
 		t.Fatalf("tracks = %+v", info.Tracks)
 	}
 
-	// Export: progress climbs to 1 and only the output is left behind.
+	// Export: progress climbs to 1 and only the output is left behind (a
+	// text overlay too when the font is there; its temp files go as well).
+	var texts []TextOverlay
+	if _, err := os.Stat(DefaultTextFont); err == nil {
+		texts = []TextOverlay{{Text: "It's 5:00", X: 0.5, Y: 0.5, Size: "l", StartMs: 0, EndMs: 2000}}
+	}
+	textDirs := func() []string {
+		m, _ := filepath.Glob(filepath.Join(os.TempDir(), "toru-edittext-*"))
+		return m
+	}
+	before := len(textDirs())
 	out := filepath.Join(dir, "out", "clip-edited.mp4")
 	var progress []float64
 	got, err := s.export(ctx, EditRequest{
 		Sources:  []string{src},
 		Segments: []Segment{{Source: 0, StartMs: 0, EndMs: 1000}, {Source: 0, StartMs: 2000, EndMs: 3000}},
 		Tracks:   []TrackLevel{{Source: 0, Index: 1, Volume: 100}, {Source: 0, Index: 2, Muted: true}},
+		Texts:    texts,
 		Preset:   "720p",
 		OutPath:  out,
 	}, func(p float64) { progress = append(progress, p) })
@@ -194,6 +246,9 @@ func TestEditServiceSmoke(t *testing.T) {
 		t.Fatalf("exported %+v, %v", res, err)
 	}
 	assertOnly(t, filepath.Dir(out), "clip-edited.mp4")
+	if after := len(textDirs()); after > before {
+		t.Errorf("export left %d text temp dirs behind", after-before)
+	}
 
 	// Cancel: a long export stops, returns ErrExportCancelled and leaves
 	// nothing in the output folder.

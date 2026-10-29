@@ -235,10 +235,11 @@ func (s *VideoService) export(ctx context.Context, req EditRequest, onProgress f
 	if err := req.Validate(info); err != nil {
 		return "", err
 	}
-	textFilter, err := editTextFilter(req, info)
+	textFilter, cleanupText, err := editTextFilter(req, info)
 	if err != nil {
 		return "", err
 	}
+	defer cleanupText()
 	if dir := filepath.Dir(req.OutPath); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("export: %w", err)
@@ -311,15 +312,26 @@ func partPath(out string) string {
 	return strings.TrimSuffix(out, ext) + fmt.Sprintf(".toru-part-%d", time.Now().UnixNano()) + ext
 }
 
-// editTextFilter builds the text overlay filter for BuildEditArgs. Text
-// overlays arrive with the text card's TextFilter (edit_text.go); until it
-// is wired in here, an export with text fails rather than silently dropping
-// the text.
-func editTextFilter(req EditRequest, _ []MediaInfo) (string, error) {
-	if len(req.Texts) > 0 {
-		return "", errors.New("export: text overlays aren't supported yet")
+// editTextFilter builds the text overlay filter for BuildEditArgs with
+// TextFilter, laid out on the output frame before the preset's scale. The
+// text files go in their own temp dir; cleanup removes it and must run after
+// ffmpeg, whether it succeeded or not.
+func editTextFilter(req EditRequest, info []MediaInfo) (filter string, cleanup func(), err error) {
+	if len(req.Texts) == 0 {
+		return "", func() {}, nil
 	}
-	return "", nil
+	dir, err := os.MkdirTemp("", "toru-edittext-")
+	if err != nil {
+		return "", nil, fmt.Errorf("export: %w", err)
+	}
+	cleanup = func() { _ = os.RemoveAll(dir) }
+	w, h := EditFrameSize(req, info)
+	filter, _, err = TextFilter(req.Texts, w, h, DefaultTextFont, dir)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("export: %w", err)
+	}
+	return filter, cleanup, nil
 }
 
 func emitEditProgress(p float64) {
