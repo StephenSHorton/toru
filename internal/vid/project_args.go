@@ -1,0 +1,236 @@
+package vid
+
+import (
+	"fmt"
+	"math"
+	"path/filepath"
+	"strings"
+
+	"github.com/StephenSHorton/toru/internal/capture"
+)
+
+// project_args.go turns a v2 ProjectExport into ffmpeg args
+// (docs/video-editor-v2.md, Export). PURE: no ffmpeg calls, no file access.
+//
+// Every clip is its own input ("-ss in -t len -i path"; images loop for the
+// clip's length). Video: a black canvas the length of the project, then each
+// visible clip overlaid onto it bottom track first, each clip timed with
+// setpts and an enable window, so gaps stay black. Audio: a silent bed the
+// length of the project, each audible clip delayed to its start and mixed in
+// (amix, normalize=0), so gaps stay silent. Then v1's crop, text, preset
+// scale and codecs. Only LGPL filters (Toru ships BtbN's LGPL FFmpeg).
+
+// BuildProjectArgs builds the whole export. encoder is the H.264 encoder for
+// MP4 output (capture.TrimH264Encoder()); textFilter is TextFilter's chain
+// for the project's texts ("" for none). req must have passed Validate.
+func BuildProjectArgs(req ProjectExport, encoder string, textFilter string) []string {
+	p := req.Project
+	w, h := evenDim(p.Canvas.Width), evenDim(p.Canvas.Height)
+	fps := p.Canvas.FPS
+	if fps <= 0 {
+		fps = defaultCanvasFPS
+	}
+	total := ProjectDurationMs(p)
+	media := map[string]MediaJSON{}
+	for _, m := range p.Media {
+		media[m.ID] = m
+	}
+
+	args := []string{"-y"}
+	inputs := 0
+	addInput := func(c ClipJSON, m MediaJSON) int {
+		if m.Kind == "image" {
+			if strings.EqualFold(filepath.Ext(m.Path), ".gif") {
+				args = append(args, "-f", "image2") // first frame as a still, like the preview
+			}
+			args = append(args, "-loop", "1", "-framerate", formatFPS(fps), "-t", msSeconds(ClipLengthMs(c)), "-i", m.Path)
+		} else {
+			args = append(args, "-ss", msSeconds(c.In), "-t", msSeconds(c.Out-c.In), "-i", m.Path)
+		}
+		inputs++
+		return inputs - 1
+	}
+
+	graph := []string{
+		fmt.Sprintf("color=c=black:s=%dx%d:r=%s:d=%s,format=yuv420p[base]", w, h, formatFPS(fps), msSeconds(total)),
+		fmt.Sprintf("anullsrc=r=48000:cl=stereo:d=%s,%s[abase]", msSeconds(total), silentFormat),
+	}
+	videoOut := "[base]"
+	var audioIn []string
+	layer := 0
+	for _, t := range p.Tracks {
+		for _, c := range t.Clips {
+			m := media[c.Media]
+			showVideo := t.Kind == "video" && !t.Hidden && m.Kind != "audio" && clipOpacity(c) > 0
+			audible := !t.Muted && (m.Kind == "audio" || m.HasAudio)
+			var picks []audioPick
+			if audible {
+				picks = clipAudioPicks(c, m)
+			}
+			if !showVideo && len(picks) == 0 {
+				continue
+			}
+			in := addInput(c, m)
+			if showVideo {
+				label := fmt.Sprintf("[v%d]", layer)
+				chain, x, y := clipVideoChain(in, c, m, w, h, fps)
+				graph = append(graph, chain+label)
+				out := fmt.Sprintf("[o%d]", layer)
+				graph = append(graph, fmt.Sprintf("%s%soverlay=x=%d:y=%d:eof_action=pass:enable='between(t,%s,%s)'%s",
+					videoOut, label, x, y, msSeconds(c.Start), msSeconds(c.Start+ClipLengthMs(c)), out))
+				videoOut = out
+				layer++
+			}
+			if len(picks) > 0 {
+				label := fmt.Sprintf("[c%d]", len(audioIn))
+				graph = append(graph, clipAudioChains(in, c, picks, label)...)
+				audioIn = append(audioIn, label)
+			}
+		}
+	}
+
+	var post []string
+	frameH := h
+	if p.Crop != nil {
+		post = append(post, capture.CropFilter(*p.Crop))
+		frameH = evenDim(p.Crop.H)
+	}
+	if textFilter != "" {
+		post = append(post, textFilter)
+	}
+	v1 := EditRequest{Preset: req.Preset, Height: req.Height, Kbps: req.Kbps, OutPath: req.OutPath}
+	if target := presetHeight(v1); target > 0 && frameH > target {
+		post = append(post, fmt.Sprintf("scale=-2:%d", target))
+	}
+	if len(post) > 0 {
+		graph = append(graph, videoOut+strings.Join(post, ",")+"[vout]")
+		videoOut = "[vout]"
+	}
+
+	audioOut := "[abase]"
+	if len(audioIn) > 0 {
+		graph = append(graph, fmt.Sprintf("[abase]%samix=inputs=%d:duration=first:normalize=0[aout]", strings.Join(audioIn, ""), len(audioIn)+1))
+		audioOut = "[aout]"
+	}
+
+	args = append(args, "-filter_complex", strings.Join(graph, ";"), "-map", videoOut, "-map", audioOut)
+	args = append(args, editCodecArgs(v1, encoder)...)
+	args = append(args, capture.ContainerFlags(req.OutPath)...)
+	return append(args, req.OutPath)
+}
+
+// clipVideoChain is a clip's picture from input in, ready to overlay: timed
+// (speed, then shifted to the clip's start), at the canvas rate, with its
+// effects, scaled to its transform, with alpha and opacity. It returns the
+// chain (without its output label) and where its top-left goes on the
+// canvas.
+func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64) (string, int, int) {
+	tr := clipTransform(c)
+	parts := []string{}
+	if m.Kind == "image" {
+		parts = append(parts, "setpts=PTS-STARTPTS")
+	} else {
+		parts = append(parts, fmt.Sprintf("setpts=(PTS-STARTPTS)/%s", num(clipSpeed(c))))
+	}
+	parts = append(parts, "fps="+formatFPS(fps))
+	if f := ClipVideoFilter(c, m.Height); f != "" {
+		parts = append(parts, f)
+	}
+	cw, ch := ClipSize(m.Width, m.Height, w, h, tr.Scale)
+	parts = append(parts, fmt.Sprintf("scale=%d:%d", cw, ch))
+	if op := clipOpacity(c); op < 1 {
+		parts = append(parts, "format=rgba", "colorchannelmixer=aa="+num(op))
+	} else {
+		parts = append(parts, "format=yuva420p")
+	}
+	parts = append(parts, fmt.Sprintf("setpts=PTS+%s/TB", msSeconds(c.Start)))
+	x := int(math.Round(tr.X*float64(w) - float64(cw)/2))
+	y := int(math.Round(tr.Y*float64(h) - float64(ch)/2))
+	return fmt.Sprintf("[%d:v]", in) + strings.Join(parts, ","), x, y
+}
+
+// ClipSize is a clip's size on the canvas: scale 1 fits the whole picture
+// inside the canvas (keeping its aspect), other scales multiply that. Even,
+// at least 2x2.
+func ClipSize(srcW, srcH, canvasW, canvasH int, scale float64) (int, int) {
+	if srcW <= 0 || srcH <= 0 {
+		return evenDim(canvasW), evenDim(canvasH)
+	}
+	fit := math.Min(float64(canvasW)/float64(srcW), float64(canvasH)/float64(srcH)) * scale
+	return evenDim(int(math.Round(float64(srcW) * fit))), evenDim(int(math.Round(float64(srcH) * fit)))
+}
+
+// clipTransform is the clip's transform, with a zero one (a clip built
+// without a transform) meaning centred, fit, opaque.
+func clipTransform(c ClipJSON) TransformJSON {
+	t := c.Transform
+	if t == (TransformJSON{}) {
+		return TransformJSON{X: 0.5, Y: 0.5, Scale: 1, Opacity: 1}
+	}
+	if t.Scale <= 0 || math.IsNaN(t.Scale) {
+		t.Scale = 1
+	}
+	return t
+}
+
+func clipOpacity(c ClipJSON) float64 {
+	return clampF(clipTransform(c).Opacity, 0, 1)
+}
+
+// audioPick is one audio stream of a clip's source at a level (percent).
+type audioPick struct{ index, volume int }
+
+// clipAudioPicks is which of the source's audio streams a clip plays: its v1
+// per-source-track levels when it has any (muted or 0% ones left out), else
+// the mix track at 100%.
+func clipAudioPicks(c ClipJSON, m MediaJSON) []audioPick {
+	if len(c.Levels) > 0 {
+		var out []audioPick
+		for _, l := range c.Levels {
+			if !l.Muted && l.Volume > 0 {
+				out = append(out, audioPick{l.Index, l.Volume})
+			}
+		}
+		return out
+	}
+	if len(m.Tracks) == 0 {
+		return []audioPick{{0, 100}}
+	}
+	return []audioPick{{mixTrack(MediaInfo{Tracks: m.Tracks}), 100}}
+}
+
+// clipAudioChains leaves a clip's audio on label: its picked streams at
+// their levels (summed when several), then speed, volume and fades
+// (ClipAudioFilter), delayed to the clip's start.
+func clipAudioChains(in int, c ClipJSON, picks []audioPick, label string) []string {
+	src := fmt.Sprintf("[ca%d]", in)
+	var chains []string
+	var mixIn strings.Builder
+	for j, pk := range picks {
+		chain := fmt.Sprintf("[%d:a:%d]asetpts=PTS-STARTPTS,%s", in, pk.index, silentFormat)
+		if pk.volume != 100 {
+			chain += fmt.Sprintf(",volume=%.2f", float64(pk.volume)/100)
+		}
+		if len(picks) == 1 {
+			chains = append(chains, chain+src)
+			continue
+		}
+		l := fmt.Sprintf("[ca%d_%d]", in, j)
+		chains = append(chains, chain+l)
+		mixIn.WriteString(l)
+	}
+	if len(picks) > 1 {
+		chains = append(chains, fmt.Sprintf("%samix=inputs=%d:duration=longest:normalize=0%s", mixIn.String(), len(picks), src))
+	}
+	parts := []string{}
+	if f := ClipAudioFilter(c, float64(ClipLengthMs(c))/1000); f != "" {
+		parts = append(parts, f)
+	}
+	if c.Start > 0 {
+		parts = append(parts, fmt.Sprintf("adelay=delays=%d:all=1", c.Start))
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "anull")
+	}
+	return append(chains, src+strings.Join(parts, ",")+label)
+}
