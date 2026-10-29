@@ -87,6 +87,10 @@ export default function EditVideo() {
   const [crop, setCrop] = useState<CropRect | null>(null);
   const frame = edl.sources[0];
   const videoBox = useVideoBox(vidRef, paneRef, ready);
+  // The player is sized to the first source's frame (the output frame), so
+  // a joined clip of another shape is letterboxed or pillarboxed inside it,
+  // as the export pads it.
+  const playerSize = useFitSize(paneRef, frame?.width ?? 0, frame?.height ?? 0);
 
   // Per-track audio levels (AudioTracks lists only sources the user changed),
   // heard while previewing.
@@ -167,7 +171,8 @@ export default function EditVideo() {
           preload="auto"
           onCanPlay={() => setReady(true)}
           onLoadedData={() => setReady(true)}
-          className="max-h-full max-w-full cursor-pointer border"
+          className="max-h-full max-w-full cursor-pointer border bg-black object-contain"
+          style={playerSize ? { width: playerSize.w, height: playerSize.h } : undefined}
           onClick={toggle}
           title={playing ? "Click to pause" : "Click to play"}
         />
@@ -182,6 +187,7 @@ export default function EditVideo() {
             backdropTitle={playing ? "Click outside the crop to pause" : "Click outside the crop to play"}
           />
         ) : null}
+        {!cropMode && ready && crop && frame ? <CropMask box={videoBox} cropBox={outBox} /> : null}
         {!cropMode && ready && outW > 0 ? (
           <TextOverlays
             texts={edl.texts}
@@ -341,6 +347,56 @@ async function probeSource(path: string, url: string): Promise<Source> {
     v.onerror = () => reject(new Error("the file couldn't be read"));
     v.src = url;
   });
+}
+
+// CropMask hides what an applied crop cuts away while previewing, so the
+// player shows what the export will: dark bands around the kept rect (CSS px,
+// relative to the pane). Clicks pass through to the player.
+function CropMask({ box, cropBox }: { box: RenderedBox; cropBox: RenderedBox }) {
+  const l = cropBox.left - box.left;
+  const t = cropBox.top - box.top;
+  const r = l + cropBox.width;
+  const b = t + cropBox.height;
+  const band = "absolute bg-black/85";
+  return (
+    <div
+      className="pointer-events-none absolute z-10"
+      style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
+      aria-hidden
+    >
+      <div className={band} style={{ left: 0, top: 0, right: 0, height: t }} />
+      <div className={band} style={{ left: 0, top: b, right: 0, bottom: 0 }} />
+      <div className={band} style={{ left: 0, top: t, width: l, height: b - t }} />
+      <div className={band} style={{ left: r, top: t, right: 0, height: b - t }} />
+      <div className="absolute border border-white/25" style={{ left: l, top: t, width: r - l, height: b - t }} />
+    </div>
+  );
+}
+
+// useFitSize is the largest w x h of aspect fw:fh that fits the pane's
+// content box (CSS px), or null until both are known.
+function useFitSize(paneRef: React.RefObject<HTMLDivElement | null>, fw: number, fh: number) {
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const pane = paneRef.current;
+    if (!pane || fw <= 0 || fh <= 0) {
+      setSize(null);
+      return;
+    }
+    const measure = () => {
+      const cs = getComputedStyle(pane);
+      const aw = pane.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const ah = pane.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      if (aw <= 0 || ah <= 0) return;
+      const scale = Math.min(aw / fw, ah / fh);
+      setSize({ w: Math.floor(fw * scale), h: Math.floor(fh * scale) });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(pane);
+    return () => ro.disconnect();
+  }, [paneRef, fw, fh]);
+  return size;
 }
 
 // useVideoBox measures where the <video> frame is rendered inside the pane
