@@ -12,6 +12,7 @@ import (
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/clicker"
+	"github.com/StephenSHorton/toru/internal/media"
 	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/StephenSHorton/toru/internal/transfer"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -407,12 +408,23 @@ func (w *WindowsService) OpenEditVideo(videoPath string) {
 		height = min(1000, screen.WorkArea.Height*92/100)
 	}
 	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		// A unique name: dropped-file events go to every window, and the page
+		// keeps only the ones its own window sent (media:dropped's sender).
+		Name:  "toru-edit-" + strconv.FormatInt(time.Now().UnixNano(), 36),
 		Title: "Toru — Edit video",
 		URL: "/?view=edit&vid=" + url.QueryEscape(w.ServedURL(videoPath)) +
 			"&path=" + url.QueryEscape(videoPath),
 		Width:            width,
 		Height:           height,
 		BackgroundColour: dark,
+		// Files dropped from Explorer go to the media bin. The runtime only
+		// forwards drops that land on an element with data-file-drop-target.
+		EnableFileDrop: true,
+	})
+	win.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
+		if files := e.Context().DroppedFiles(); len(files) > 0 {
+			win.EmitEvent(media.EventDropped, files)
+		}
 	})
 	win.Center()
 }

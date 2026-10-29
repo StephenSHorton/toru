@@ -25,6 +25,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/history"
 	"github.com/StephenSHorton/toru/internal/hotkey"
 	"github.com/StephenSHorton/toru/internal/inputtag"
+	"github.com/StephenSHorton/toru/internal/media"
 	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/StephenSHorton/toru/internal/replay"
 	"github.com/StephenSHorton/toru/internal/share"
@@ -131,6 +132,7 @@ func main() {
 	exportSvc := export.NewService()
 	shotSvc := shot.New()
 	vidSvc := vid.New()
+	mediaSvc := media.New()
 	windowsSvc := &WindowsService{cap: capturer}
 	updateSvc := update.New(updateRepo, version)
 
@@ -197,6 +199,7 @@ func main() {
 			application.NewService(exportSvc),
 			application.NewService(shotSvc),
 			application.NewService(vidSvc),
+			application.NewService(mediaSvc),
 			application.NewService(windowsSvc),
 			application.NewService(updateSvc),
 			application.NewService(hotkeySvc),
@@ -211,9 +214,10 @@ func main() {
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
-			// Overlay backdrops + served captures, then instant-replay thumbnails.
+			// Overlay backdrops + served captures, then instant-replay thumbnails,
+			// then the video editor's imported media.
 			Middleware: func(next http.Handler) http.Handler {
-				return overlaySvc.ShotMiddleware()(replaySvc.ClipMiddleware()(next))
+				return overlaySvc.ShotMiddleware()(replaySvc.ClipMiddleware()(mediaSvc.Middleware()(next)))
 			},
 		},
 		// Closing every overlay window (Cancel/Esc/commit) drops the live window
