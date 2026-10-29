@@ -43,7 +43,7 @@ v1 code stays until the v2 window replaces it.
    video (mp4, mkv, mov, webm), audio (mp3, wav, m4a, aac, ogg, flac),
    images (png, jpg, jpeg, webp, gif as a still). Items show a thumbnail,
    name and length. Drag an item onto a track, or double-click to append it
-   to the main track. Imported files are used where they are; nothing is
+   to the end of the bottom track. Imported files are used where they are; nothing is
    copied. _(pending decision)_
 2. **Tracks.** Every track is free-form: clips sit anywhere in time and
    gaps are allowed (a gap with nothing under it exports as black / silence).
@@ -226,7 +226,7 @@ code.
 ### Timeline (TS)
 
 `frontend/src/trim/MultiTimeline.tsx`: track headers (name, mute, hide,
-lock, delete) on the left; rows of clips (video tracks above the main,
+lock, delete) on the left; rows of clips (video tracks, top track first,
 audio below); ruler, playhead, zoom (v1 behaviour). Drag clips within and
 between tracks of the same kind, edge-trim, split, delete, drop from the
 media bin (HTML5 drag with `application/x-toru-media` = media id). Snaps to
