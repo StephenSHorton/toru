@@ -141,10 +141,13 @@ func (s *VideoService) PickExportPath(suggested string) (string, error) // Save 
 func (s *VideoService) PreviewTrack(path string, index int) (string, error) // served URL of a temp audio file
 ```
 
-Filter graph, per segment `i` from source `k`:
-`[k:v]trim=start=..:end=..,setpts=PTS-STARTPTS,scale=W:H:force_original_aspect_ratio=decrease,pad=W:H:(ow-iw)/2:(oh-ih)/2,fps=F,format=yuv420p[v_i]`.
-Audio per segment: the chosen source tracks, each `atrim` + `asetpts` +
-`volume` + `aformat=fltp:48000:stereo`, summed with `amix normalize=0` (as
+Each segment is its own input (`-ss start -t len -i source`), so a cut
+late in a long recording doesn't decode from the start and reordered
+segments don't buffer frames. Per segment `i`:
+`[i:v]setpts=PTS-STARTPTS,scale=W:H:force_original_aspect_ratio=decrease,pad=W:H:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=F,format=yuv420p[v_i]`.
+Audio per segment: the chosen source tracks (`[i:a:N]`, N = index among the
+source's audio streams), each `asetpts` + `volume` +
+`aformat=fltp:48000:stereo`, summed with `amix normalize=0` (as
 `replayAudioArgs` does), or the mix track alone; a source with no audio gets
 `anullsrc` of the segment's length. Then `concat=n=N:v=1:a=1`, then crop,
 then the text filter (`drawtext` with `textfile=` per overlay so nothing
