@@ -22,6 +22,9 @@
 //   WindowsService.OpenSettings(): Promise<void>  (Settings/home window)
 //   WindowsService.OpenTrim(videoPath): Promise<void>  (Dev 2 trim editor)
 //   VideoService.Trim(req: TrimRequest): Promise<string>  (returns outPath)
+//   VideoService.ProbeMedia(path): Promise<MediaInfo>  (size, fps, duration, audio tracks + titles, mix flag)
+//   VideoService.Export(req: EditRequest) / CancelExport / PickExportPath(firstSourcePath)  ("edit:progress" {pct})
+//   VideoService.PreviewTrack(path, index): Promise<string>  (served URL of one audio track) / ReleasePreviewTracks(urls)
 //   SettingsService.GetLaunchAtLogin(): Promise<boolean>
 //   SettingsService.SetLaunchAtLogin(enabled: boolean): Promise<void>  (registry Run key; --startup => silent-to-tray)
 //   SettingsService.GetNotifications / SetNotifications(o) -> NotificationOptions  (enabled, sound, volume 0..1, corner)
@@ -62,6 +65,11 @@ import * as HotkeyService from "../../bindings/github.com/StephenSHorton/toru/in
 import { Shortcut } from "../../bindings/github.com/StephenSHorton/toru/internal/hotkey/models.js";
 import * as WindowsService from "../../bindings/github.com/StephenSHorton/toru/windowsservice.js";
 import * as VideoService from "../../bindings/github.com/StephenSHorton/toru/internal/vid/videoservice.js";
+import {
+  MediaInfo,
+  AudioTrack,
+  TrackLevel,
+} from "../../bindings/github.com/StephenSHorton/toru/internal/vid/models.js";
 import {
   TrimRequest,
   AudioConfig,
@@ -135,6 +143,9 @@ export {
   Shortcut,
   WindowsService,
   VideoService,
+  MediaInfo,
+  AudioTrack,
+  TrackLevel,
   TrimRequest,
   AudioConfig,
   AudioSession,

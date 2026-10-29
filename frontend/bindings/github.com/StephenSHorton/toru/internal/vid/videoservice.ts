@@ -70,6 +70,15 @@ export function PickExportPath(sourcePath: string): $CancellablePromise<string> 
 }
 
 /**
+ * PreviewTrack extracts audio track index (0 = first audio stream) of path
+ * to a temp file and returns the URL the window plays it from. The same
+ * unchanged source and track reuse the file already extracted.
+ */
+export function PreviewTrack(path: string, index: number): $CancellablePromise<string> {
+    return $Call.ByID(447163144, path, index);
+}
+
+/**
  * ProbeMedia reports a source's duration, frame size, frame rate and audio
  * tracks (with their titles, and which one is the mix when a clip has
  * separate tracks).
@@ -78,6 +87,15 @@ export function ProbeMedia(path: string): $CancellablePromise<$models.MediaInfo>
     return $Call.ByID(1125538325, path).then(($result: any) => {
         return $$createType1($result);
     });
+}
+
+/**
+ * ReleasePreviewTracks deletes preview files the window no longer needs, by
+ * the URLs PreviewTrack returned. Anything that isn't a preview track URL is
+ * ignored.
+ */
+export function ReleasePreviewTracks(urls: string[]): $CancellablePromise<void> {
+    return $Call.ByID(2512851684, urls);
 }
 
 /**
