@@ -8,6 +8,9 @@ import { Create as $Create } from "@wailsio/runtime";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as capture$0 from "../capture/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as time$0 from "../../../../../time/models.js";
 
 /**
  * AudioTrack is one audio stream of a source.
@@ -632,6 +635,63 @@ export class ProjectJSON {
             $$parsedSource["crop"] = $$createField7_0($$parsedSource["crop"]);
         }
         return new ProjectJSON($$parsedSource as Partial<ProjectJSON>);
+    }
+}
+
+/**
+ * ProjectSummary is one saved project as the Library lists it.
+ */
+export class ProjectSummary {
+    "id": string;
+    "name": string;
+    "updatedAt": time$0.Time;
+    "durationMs": number;
+    "clips": number;
+
+    /**
+     * FirstMedia is the first video or image file in the project ("" if
+     * none), for a thumbnail.
+     */
+    "firstMedia": string;
+
+    /**
+     * Missing counts media files that no longer exist where they were.
+     */
+    "missing": number;
+
+    /** Creates a new ProjectSummary instance. */
+    constructor($$source: Partial<ProjectSummary> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("updatedAt" in $$source)) {
+            this["updatedAt"] = null;
+        }
+        if (!("durationMs" in $$source)) {
+            this["durationMs"] = 0;
+        }
+        if (!("clips" in $$source)) {
+            this["clips"] = 0;
+        }
+        if (!("firstMedia" in $$source)) {
+            this["firstMedia"] = "";
+        }
+        if (!("missing" in $$source)) {
+            this["missing"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ProjectSummary instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ProjectSummary {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ProjectSummary($$parsedSource as Partial<ProjectSummary>);
     }
 }
 

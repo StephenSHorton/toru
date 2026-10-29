@@ -25,6 +25,8 @@
 //   VideoService.ProbeMedia(path): Promise<MediaInfo>  (size, fps, duration, audio tracks + titles, mix flag)
 //   VideoService.Export(req: EditRequest) / CancelExport / PickExportPath(firstSourcePath)  ("edit:progress" {pct})
 //   VideoService.PreviewTrack(path, index): Promise<string>  (served URL of one audio track) / ReleasePreviewTracks(urls)
+//   VideoService.SaveProject(json) / LoadProject(id) / ListProjects() / DeleteProject(id)  (v2 editor projects in %AppData%/toru/projects)
+//   WindowsService.OpenEditProject(id)  (reopen a saved project in an editor window)
 //   MediaService.Register(paths) / PickMedia(): Promise<BinMedia[]>  (editor media bin; served at /__media/<id>/<name>, "media:dropped" from the edit window)
 //   AgentService.GetEnabled / SetEnabled(on)  (agent control: the per-user pipe exists only while on)
 //   AgentService.RegisterWindowCommands(window, cmds) / UnregisterWindowCommands / TouchWindow / Respond(id, result, err)  (use @/lib/agent)
@@ -77,6 +79,7 @@ import {
   MediaInfo,
   AudioTrack,
   TrackLevel,
+  ProjectSummary,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/vid/models.js";
 import {
   TrimRequest,
@@ -158,6 +161,7 @@ export {
   MediaInfo,
   AudioTrack,
   TrackLevel,
+  ProjectSummary,
   TrimRequest,
   AudioConfig,
   AudioSession,

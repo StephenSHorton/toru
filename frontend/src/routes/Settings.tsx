@@ -16,6 +16,8 @@ import {
   LayoutGrid,
   MousePointerClick,
   Gamepad2,
+  Layers,
+  TriangleAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -37,8 +39,9 @@ import {
   WindowsService,
   AgentService,
   LibraryRetention,
+  VideoService,
 } from "@/lib/api";
-import type { CaptureItem, RecordingSession, ReplayClip } from "@/lib/api";
+import type { CaptureItem, ProjectSummary, RecordingSession, ReplayClip } from "@/lib/api";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { cn } from "@/lib/utils";
 
@@ -192,14 +195,14 @@ function NavBtn({
 // Library
 // ---------------------------------------------------------------------------
 
-type LibraryView = "all" | "shots" | "recordings" | "clips" | "sessions";
+type LibraryView = "all" | "shots" | "recordings" | "clips" | "sessions" | "projects";
 
 const LIBRARY_VIEW_KEY = "toru.library.view";
 
 function readLibraryView(): LibraryView {
   try {
     const v = window.localStorage.getItem(LIBRARY_VIEW_KEY);
-    if (v === "all" || v === "shots" || v === "recordings" || v === "clips" || v === "sessions") return v;
+    if (v === "all" || v === "shots" || v === "recordings" || v === "clips" || v === "sessions" || v === "projects") return v;
   } catch {
     // storage unavailable: default view
   }
@@ -223,6 +226,38 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
     return () => window.clearTimeout(t);
   }, [libNote]);
   const report = (e: unknown) => setLibNote(String(e).replace(/^Error:\s*/, ""));
+
+  // Video editor projects (autosaved by the edit window).
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [pendingProject, setPendingProject] = useState<ProjectSummary | null>(null);
+  const refreshProjects = useCallback(() => {
+    void VideoService.ListProjects()
+      .then((list) => setProjects(Array.isArray(list) ? list : []))
+      .catch(() => setProjects([]));
+  }, []);
+  useEffect(() => {
+    // The editor saves in another window: re-list when this one comes back,
+    // and every few seconds while the Projects tab is open.
+    window.addEventListener("focus", refreshProjects);
+    return () => window.removeEventListener("focus", refreshProjects);
+  }, [refreshProjects]);
+  useEffect(() => {
+    refreshProjects();
+    if (view !== "projects") return;
+    const t = window.setInterval(refreshProjects, 5000);
+    return () => window.clearInterval(t);
+  }, [view, refreshProjects]);
+  const confirmProjectDelete = async () => {
+    const p = pendingProject;
+    setPendingProject(null);
+    if (!p) return;
+    try {
+      await VideoService.DeleteProject(p.id);
+    } catch (e) {
+      report(e);
+    }
+    refreshProjects();
+  };
 
   const refreshSessions = useCallback(() => {
     void ReplayService.ListSessions()
@@ -404,7 +439,9 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Library</h1>
           <p className="text-sm text-muted-foreground">
-            {view === "sessions"
+            {view === "projects"
+              ? "Video editor projects. They save as you edit; open one to carry on"
+              : view === "sessions"
               ? "Game sessions from background and hotkey recording. Open one to scrub its timeline and cut clips"
               : view === "clips"
               ? "Clips saved from instant replay or cut from a game session, sorted by game"
@@ -428,6 +465,7 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
           <Button
             size="sm"
             variant="ghost"
+            className={cn(view === "projects" && "hidden")}
             onClick={() =>
               void (view === "clips"
                 ? ReplayService.OpenSaveDir()
@@ -483,6 +521,7 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
               ["recordings", "Screen recordings", recordings.length],
               ["clips", "Clips", clips.length],
               ["sessions", "Game sessions", sessions.length],
+              ["projects", "Projects", projects.length],
             ] as const
           ).map(([id, label, count]) => (
             <Button
@@ -519,7 +558,22 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
         ) : null}
       </div>
 
-      {view === "sessions" ? (
+      {view === "projects" ? (
+        projects.length === 0 ? (
+          <EmptyProjects />
+        ) : (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+            {projects.map((p) => (
+              <ProjectCard
+                key={p.id}
+                project={p}
+                onOpen={() => void WindowsService.OpenEditProject(p.id).catch(report)}
+                onDelete={() => setPendingProject(p)}
+              />
+            ))}
+          </div>
+        )
+      ) : view === "sessions" ? (
         sessions.length === 0 ? (
           <EmptySessions />
         ) : (
@@ -573,6 +627,20 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
           )}
         </div>
       )}
+
+      {pendingProject ? (
+        <ConfirmDialog
+          title="Delete this project?"
+          body={
+            <>
+              The edit <span className="font-medium text-foreground">{pendingProject.name}</span> will be
+              deleted. Its videos, music and images stay where they are. This can’t be undone.
+            </>
+          }
+          onCancel={() => setPendingProject(null)}
+          onConfirm={() => void confirmProjectDelete()}
+        />
+      ) : null}
 
       {pendingSession ? (
         <ConfirmDialog
@@ -649,6 +717,71 @@ function EmptyClips() {
           Turn on Instant replay in Settings, then press its hotkey while you play to save the last
           few minutes.
         </p>
+      </div>
+    </div>
+  );
+}
+
+function EmptyProjects() {
+  return (
+    <div className="frost flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
+      <Layers className="size-10 text-muted-foreground" />
+      <div>
+        <p className="font-medium">No projects yet</p>
+        <p className="mt-1 max-w-md text-sm text-muted-foreground">
+          Open a clip or recording with Edit video. Your edit saves here as you work, so you can come
+          back to it later.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ProjectCard is one saved video editor project; click reopens it.
+function ProjectCard({ project: p, onOpen, onDelete }: { project: ProjectSummary; onOpen: () => void; onDelete: () => void }) {
+  return (
+    <div
+      className={cn(
+        "frost group flex flex-col overflow-hidden border border-transparent",
+        "transition-[border-color,box-shadow,transform] duration-150",
+        "hover:-translate-y-0.5 hover:border-primary/70 hover:shadow-[0_0_0_1px_var(--color-ring),0_12px_28px_oklch(0_0_0/0.45)]",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="relative flex aspect-video w-full items-center justify-center bg-black/40 text-left"
+        title="Open in the video editor"
+      >
+        <Layers className="size-9 text-muted-foreground transition-transform duration-150 group-hover:scale-110" />
+        <span className="absolute bottom-1.5 right-1.5 bg-black/60 px-1.5 py-0.5 text-[10px] tabular-nums text-white">
+          {formatDuration(p.durationMs / 1000)}
+        </span>
+        {p.missing > 0 ? (
+          <span className="absolute left-1.5 top-1.5 flex items-center gap-1 bg-black/70 px-1.5 py-0.5 text-[10px] text-amber-300">
+            <TriangleAlert className="size-3" /> {p.missing} missing
+          </span>
+        ) : null}
+      </button>
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-medium" title={p.name}>
+            {p.name}
+          </div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {formatWhen(p.updatedAt)} · {p.clips} {p.clips === 1 ? "clip" : "clips"}
+          </div>
+        </div>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 shrink-0 opacity-60 hover:opacity-100"
+          title="Delete project"
+          aria-label="Delete project"
+          onClick={onDelete}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
       </div>
     </div>
   );

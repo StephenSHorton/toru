@@ -29,6 +29,14 @@ export function OpenClicker(): $CancellablePromise<void> {
 }
 
 /**
+ * OpenEditProject reopens a saved editor project (VideoService.ListProjects)
+ * in its own editor window.
+ */
+export function OpenEditProject(projectID: string): $CancellablePromise<void> {
+    return $Call.ByID(1999453885, projectID);
+}
+
+/**
  * OpenEditVideo opens the video editor (cut, join, text, audio levels, crop,
  * export) for videoPath in its own window. Same ?vid= / ?path= params as the
  * trim window, which stays as it is for quick trims.

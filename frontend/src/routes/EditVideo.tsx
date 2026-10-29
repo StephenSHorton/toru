@@ -34,17 +34,24 @@ import { TextOverlays } from "@/trim/TextOverlays";
 // crop and the move/resize handles laid over it), the clip inspector on the
 // right and the multi-track timeline below. Opened by
 // WindowsService.OpenEditVideo: ?path= is the first file's absolute path
-// (?vid= its served URL, used only when there's no path, as the dev sample).
+// (?vid= its served URL, used only when there's no path, as the dev sample);
+// or by WindowsService.OpenEditProject: ?project= is a saved project's id.
 //
 // The whole edit is one Project (useProjectHistory: every change undoes,
 // drags as one step). The playback clock (usePlayback) drives the compositor
 // and the timeline's playhead. Export runs the v1 ExportDialog with
 // VideoService.ExportProject.
+//
+// The project autosaves (VideoService.SaveProject, %AppData%/toru/projects)
+// a moment after each change, and the Library's Projects tab reopens it.
+// Media stay where they are: on reopening, each file is registered again,
+// and the ones that moved or were deleted are listed as missing.
 
 export default function EditVideo() {
   const params = new URLSearchParams(window.location.search);
   const absPath = params.get("path") ?? "";
   const devURL = params.get("vid") || "/sample.mp4";
+  const projectID = params.get("project") ?? "";
 
   const { project, apply, undo, redo, reset, canUndo, canRedo } = useProjectHistory(emptyProject());
   const duration = projectDuration(project);
@@ -53,17 +60,45 @@ export default function EditVideo() {
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState("");
 
-  // Start the project from the file the window was opened with (no undo step).
+  const [missing, setMissing] = useState<string[]>([]);
+  // The last saved (or loaded) document, so an unchanged project isn't
+  // written again.
+  const saved = useRef("");
+  const [saveNote, setSaveNote] = useState("");
+
+  // Start the project (no undo step): a saved one, or a new one from the
+  // file the window was opened with.
   useEffect(() => {
     let live = true;
-    firstMedia(absPath, devURL)
-      .then((m) => live && reset(newProject(m)))
-      .catch((err) => live && setLoadErr(String(err)))
-      .finally(() => live && setLoading(false));
+    const start = projectID
+      ? openSaved(projectID).then(({ project: p, missing: gone }) => {
+          if (!live) return;
+          saved.current = JSON.stringify(p);
+          setMissing(gone);
+          reset(p);
+        })
+      : firstMedia(absPath, devURL).then((m) => live && reset(newProject(m)));
+    start.catch((err) => live && setLoadErr(String(err))).finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [absPath, devURL, reset]);
+  }, [projectID, absPath, devURL, reset]);
+
+  // Autosave a moment after the last change.
+  useEffect(() => {
+    if (!project.media.length || !project.media.some((m) => m.path)) return;
+    const doc = JSON.stringify(project);
+    if (doc === saved.current) return;
+    const timer = window.setTimeout(() => {
+      VideoService.SaveProject(doc)
+        .then(() => {
+          saved.current = doc;
+          setSaveNote(`Saved ${new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`);
+        })
+        .catch((err) => setSaveNote(`Couldn't save: ${err}`));
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [project]);
 
   const [selection, setSelection] = useState<TimelineSelection>(null);
   const [picking, setPicking] = useState(false);
@@ -156,6 +191,12 @@ export default function EditVideo() {
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div ref={paneRef} className="relative min-h-0 flex-1">
             <Compositor project={project} clock={pb.clock} canvasRef={setCanvas} handle={compositor} className="h-full w-full" />
+            {missing.length ? (
+              <div className="absolute left-2 top-2 z-30 max-w-[70%] bg-black/75 px-3 py-1.5 text-xs text-amber-300" title={missing.join("\n")}>
+                {missing.length === 1 ? "1 file is missing" : `${missing.length} files are missing`} (moved or deleted since the project was saved):{" "}
+                {missing.map(baseName).join(", ")}
+              </div>
+            ) : null}
             {loadErr ? (
               <Center>
                 <span className="bg-black/70 px-3 py-1.5 text-xs text-destructive">Couldn&rsquo;t open the video: {loadErr}</span>
@@ -219,6 +260,7 @@ export default function EditVideo() {
             </span>
             <span className="text-[11px] text-muted-foreground">
               {cw}×{ch} · {Math.round(project.canvas.fps * 100) / 100} fps
+              {saveNote ? <span className={cn("ml-2", saveNote.startsWith("Couldn") && "text-destructive")}>· {saveNote}</span> : null}
             </span>
             <div className="ml-auto flex items-center gap-1">
               <Button
@@ -297,6 +339,26 @@ function emptyProject(): Project {
     texts: [],
     crop: null,
   };
+}
+
+// openSaved loads a saved project and registers its media again (their ids
+// are stable, so clips still point at them). Files that are gone stay in the
+// project, listed as missing.
+async function openSaved(id: string): Promise<{ project: Project; missing: string[] }> {
+  const p = JSON.parse(await VideoService.LoadProject(id)) as Project;
+  if (p?.version !== 2) throw new Error("that project can't be opened by this version of Toru");
+  const paths = p.media.map((m) => m.path).filter(Boolean);
+  const found = paths.length ? await MediaService.Register(paths) : [];
+  const byId = new Map(found.map((m) => [m.id, toMedia(m)]));
+  const media = p.media.map((m) => {
+    const now = byId.get(m.id);
+    return now ? { ...m, url: now.url, duration: now.duration || m.duration } : m;
+  });
+  return { project: { ...p, media }, missing: p.media.filter((m) => m.path && !byId.has(m.id)).map((m) => m.path) };
+}
+
+function baseName(p: string): string {
+  return p.replace(/\\/g, "/").split("/").pop() ?? p;
 }
 
 // firstMedia registers the file the window opened with (MediaService probes
