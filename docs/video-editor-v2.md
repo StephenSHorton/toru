@@ -43,21 +43,25 @@ v1 code stays until the v2 window replaces it.
    video (mp4, mkv, mov, webm), audio (mp3, wav, m4a, aac, ogg, flac),
    images (png, jpg, jpeg, webp, gif as a still). Items show a thumbnail,
    name and length. Drag an item onto a track, or double-click to append it
-   to the main track. Imported files are used where they are; nothing is
+   to the end of the bottom track. Imported files are used where they are; nothing is
    copied. _(pending decision)_
-2. **Tracks.** One **main** video track (magnetic: clips sit back to back,
-   deleting closes the gap, as v1 does). Any number of **overlay** video
-   tracks above it (clips sit anywhere in time, gaps allowed; higher tracks
-   draw on top). Any number of **audio** tracks below it. Add/remove track,
-   mute, hide, lock. _(pending decision: magnetic main track)_
+2. **Tracks.** Every track is free-form: clips sit anywhere in time and
+   gaps are allowed (a gap with nothing under it exports as black / silence).
+   Any number of **video** tracks (higher tracks draw on top) and **audio**
+   tracks below them. A new project starts with one video track and one
+   audio track. Add/remove track, mute, hide, lock. Delete leaves a gap;
+   "Close gap" (right-click a gap, or `Shift+Delete` on a clip for a ripple
+   delete) pulls later clips on that track left.
 3. **Clips** on video tracks: video or image (image default length 5s,
    stretch by dragging its edge). On audio tracks: audio files, or the
-   audio of a video. Split (`S`), delete, trim edges, move between tracks of
-   the same kind, ripple on the main track only.
+   audio of a video. Split (`S`), delete, trim edges, move in time and
+   between tracks of the same kind. Clips on one track never overlap: a drop
+   onto an occupied spot lands at the nearest free spot.
 4. **Transform.** Each video/image clip has position, scale and opacity.
    Drag it on the player to move it and drag its corners to resize
-   (selected clip only); exact values in the inspector. Main-track clips
-   default to fit-to-canvas; overlay clips default to 40% size, centred.
+   (selected clip only); exact values in the inspector. Clips on the bottom
+   video track default to fit-to-canvas; clips on higher tracks default to
+   40% size, centred.
 5. **Speed.** 0.25x to 4x per clip (video and audio), pitch kept.
 6. **Audio.** Per clip: volume 0 to 200%, mute, fade in, fade out. Per
    track: mute. Separate-tracks clips keep v1's per-source-track levels.
@@ -109,7 +113,7 @@ export type Filters = { brightness: number; contrast: number; saturation: number
 export type Clip = {
   id: string;
   media: string;         // Media.id
-  start: number;         // timeline position, s (derived on the main track)
+  start: number;         // timeline position, s
   in: number; out: number; // source range, s (images: 0..length)
   speed: number;         // 0.25..4, 1
   volume: number;        // 0..2, 1
@@ -125,7 +129,6 @@ export type Clip = {
 export type Track = {
   id: string;
   kind: "video" | "audio";
-  main: boolean;         // exactly one video track is main
   muted: boolean; hidden: boolean; locked: boolean;
   clips: Clip[];         // sorted by start, no overlaps within a track
 };
@@ -136,7 +139,7 @@ export type Project = {
   name: string;
   canvas: { width: number; height: number; fps: number };
   media: Media[];
-  tracks: Track[];       // video tracks bottom→top (main first), then audio tracks
+  tracks: Track[];       // video tracks bottom→top, then audio tracks
   texts: Text[];         // v1 Text, output time
   crop: Rect | null;     // v1 crop, canvas pixels
 };
@@ -144,9 +147,11 @@ export type Project = {
 
 Pure operations (all return a new Project; history wraps them like v1):
 `newProject(first: Media)`, `addMedia`, `addTrack(kind)`, `removeTrack`,
-`setTrackFlags`, `insertClip(trackId, mediaId, at)`, `appendToMain(mediaId)`,
-`moveClip(clipId, trackId, start)` (main track: reorder by drop position),
+`setTrackFlags`, `insertClip(trackId, mediaId, at)` (nearest free spot),
+`appendClip(mediaId)` (end of the bottom video track, or the first audio
+track for audio), `moveClip(clipId, trackId, start)` (nearest free spot),
 `trimClip(clipId, edge, t)`, `splitAt(t, trackId?)`, `removeClip`,
+`rippleDelete(clipId)`, `closeGap(trackId, t)`,
 `updateClip(clipId, patch)`, `projectDuration`, `clipsAt(t)` (visible clips
 bottom→top with their source time), `fromEdl(v1Edl)`, `toExportRequest`.
 
@@ -221,7 +226,7 @@ code.
 ### Timeline (TS)
 
 `frontend/src/trim/MultiTimeline.tsx`: track headers (name, mute, hide,
-lock, delete) on the left; rows of clips (video tracks above the main,
+lock, delete) on the left; rows of clips (video tracks, top track first,
 audio below); ruler, playhead, zoom (v1 behaviour). Drag clips within and
 between tracks of the same kind, edge-trim, split, delete, drop from the
 media bin (HTML5 drag with `application/x-toru-media` = media id). Snaps to
@@ -258,7 +263,7 @@ while editing them; whichever Go card merges second regenerates bindings.
 
 - Drag an MP3 and a PNG from Explorer onto the window: both appear in the
   bin and can be placed on tracks.
-- A gameplay clip on main, a webcam clip on an overlay track at 30% size in
+- A gameplay clip on the bottom track, a webcam clip on a higher track at 30% size in
   a corner with its green background keyed out, a logo PNG on a third track,
   music on an audio track faded in and out: the preview and the export
   match.
