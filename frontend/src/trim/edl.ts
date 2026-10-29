@@ -59,7 +59,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 const segLen = (s: Seg) => s.end - s.start;
 
 let idSeq = 0;
-const newId = (prefix: string) =>
+export const newId = (prefix: string) =>
   typeof crypto !== "undefined" && "randomUUID" in crypto ? `${prefix}-${crypto.randomUUID()}` : `${prefix}-${Date.now()}-${++idSeq}`;
 
 export function initEdl(first: Source): Edl {
@@ -247,41 +247,48 @@ function clampTexts(edl: Edl): Edl {
 
 // --- Undo / redo ---------------------------------------------------------
 
-// History is the pure core of useEdlHistory, exported for tests.
-export type History = { past: Edl[]; present: Edl; future: Edl[]; key: string | null };
+// History is the pure core of useEdlHistory (and v2's useProjectHistory in
+// project.ts), exported for tests. T is the edited document.
+export type History<T = Edl> = { past: T[]; present: T; future: T[]; key: string | null };
 
 const MAX_HISTORY = 200;
 
-export function historyInit(init: Edl): History {
+export function historyInit<T>(init: T): History<T> {
   return { past: [], present: init, future: [], key: null };
 }
 
 // historyApply records fn(present) as one undo step. Consecutive applies with
 // the same non-empty key merge into one step, so a drag that calls apply on
 // every pointer move undoes in one go: pass e.g. `edge:${segId}:${dragId}`.
-export function historyApply(h: History, fn: (e: Edl) => Edl, key?: string): History {
+export function historyApply<T>(h: History<T>, fn: (e: T) => T, key?: string): History<T> {
   const next = fn(h.present);
   if (next === h.present) return h;
   if (key && key === h.key) return { ...h, present: next, future: [] };
   return { past: [...h.past, h.present].slice(-MAX_HISTORY), present: next, future: [], key: key ?? null };
 }
 
-export function historyUndo(h: History): History {
+export function historyUndo<T>(h: History<T>): History<T> {
   if (!h.past.length) return h;
   return { past: h.past.slice(0, -1), present: h.past[h.past.length - 1], future: [h.present, ...h.future], key: null };
 }
 
-export function historyRedo(h: History): History {
+export function historyRedo<T>(h: History<T>): History<T> {
   if (!h.future.length) return h;
   return { past: [...h.past, h.present], present: h.future[0], future: h.future.slice(1), key: null };
 }
 
-export function useEdlHistory(init: Edl) {
+// useHistory holds a document with undo/redo. reset replaces it and clears
+// history (e.g. once the first source has loaded).
+export function useHistory<T>(init: T) {
   const [h, setH] = useState(() => historyInit(init));
-  const apply = useCallback((fn: (e: Edl) => Edl, key?: string) => setH((cur) => historyApply(cur, fn, key)), []);
+  const apply = useCallback((fn: (e: T) => T, key?: string) => setH((cur) => historyApply(cur, fn, key)), []);
   const undo = useCallback(() => setH(historyUndo), []);
   const redo = useCallback(() => setH(historyRedo), []);
-  // reset replaces the EDL and clears history (e.g. the first source loaded).
-  const reset = useCallback((edl: Edl) => setH(historyInit(edl)), []);
-  return { edl: h.present, apply, undo, redo, reset, canUndo: h.past.length > 0, canRedo: h.future.length > 0 };
+  const reset = useCallback((doc: T) => setH(historyInit(doc)), []);
+  return { doc: h.present, apply, undo, redo, reset, canUndo: h.past.length > 0, canRedo: h.future.length > 0 };
+}
+
+export function useEdlHistory(init: Edl) {
+  const { doc, ...rest } = useHistory(init);
+  return { edl: doc, ...rest };
 }
