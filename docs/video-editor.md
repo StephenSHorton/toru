@@ -60,7 +60,8 @@ In:
    never changed. If the file lands in the clips folder it shows in Library >
    Clips as usual; nothing else is added to the Library.
 
-Out of v1 (later): transitions, speed changes, music or extra audio files,
+Out of v1 (later): emoji in text (v1 drops them in preview and export;
+Segoe UI has no emoji glyphs), transitions, speed changes, music or extra audio files,
 text styles beyond the one above, GIF export (issue #12), still frame
 (issue #11), saved project files.
 
