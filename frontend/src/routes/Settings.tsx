@@ -35,6 +35,7 @@ import {
   ReplayService,
   SettingsService,
   WindowsService,
+  AgentService,
   LibraryRetention,
 } from "@/lib/api";
 import type { CaptureItem, RecordingSession, ReplayClip } from "@/lib/api";
@@ -1138,6 +1139,8 @@ function SettingsPage() {
   const [openEditor, setOpenEditor] = useState(true);
   const [openEditorBusy, setOpenEditorBusy] = useState(false);
   const [copyOnDone, setCopyOnDone] = useState(true);
+  const [agentControl, setAgentControl] = useState(false);
+  const [agentBusy, setAgentBusy] = useState(false);
   const [copyOnDoneBusy, setCopyOnDoneBusy] = useState(false);
   const [libraryDir, setLibraryDir] = useState("");
   const [libraryDefault, setLibraryDefault] = useState(true);
@@ -1164,6 +1167,9 @@ function SettingsPage() {
       .catch(() => {});
     void OverlayService.GetCopyOnDone()
       .then(setCopyOnDone)
+      .catch(() => {});
+    void AgentService.GetEnabled()
+      .then(setAgentControl)
       .catch(() => {});
     refreshLibraryPath();
   }, [refreshLibraryPath]);
@@ -1204,6 +1210,19 @@ function SettingsPage() {
       setCopyOnDone(prev);
     } finally {
       setCopyOnDoneBusy(false);
+    }
+  };
+
+  const toggleAgentControl = async (next: boolean) => {
+    const prev = agentControl;
+    setAgentBusy(true);
+    setAgentControl(next);
+    try {
+      await AgentService.SetEnabled(next);
+    } catch {
+      setAgentControl(prev);
+    } finally {
+      setAgentBusy(false);
     }
   };
 
@@ -1347,6 +1366,21 @@ function SettingsPage() {
             disabled={copyOnDoneBusy}
             onCheckedChange={(v) => void toggleCopyOnDone(v)}
             aria-label="Copy to clipboard when finishing with Done or Esc"
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col">
+            <span className="text-sm font-medium">Let AI agents and scripts control Toru</span>
+            <span className="text-xs text-muted-foreground">
+              Only programs running as you on this PC can connect. Off: nothing listens
+            </span>
+          </div>
+          <Switch
+            checked={agentControl}
+            disabled={agentBusy}
+            onCheckedChange={(v) => void toggleAgentControl(v)}
+            aria-label="Let AI agents and scripts control Toru"
           />
         </div>
 
