@@ -19,6 +19,7 @@ import (
 
 	toast "github.com/StephenSHorton/go-toast"
 	"github.com/StephenSHorton/toru/internal/agentctl"
+	agentcli "github.com/StephenSHorton/toru/internal/agentctl/cli"
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/clicker"
 	"github.com/StephenSHorton/toru/internal/dpi"
@@ -97,6 +98,16 @@ func init() {
 }
 
 func main() {
+	// `toru.exe mcp` / `toru.exe ctl ...` (docs/agent-control.md) are clients
+	// of the running Toru's agent pipe: handled before anything else so they
+	// never open a window or hand off to the running app.
+	if len(os.Args) > 1 && (os.Args[1] == "mcp" || os.Args[1] == "ctl") {
+		if os.Args[1] == "ctl" {
+			agentcli.AttachConsole()
+		}
+		os.Exit(agentcli.Main(os.Args[1:], agentcli.DefaultEnv(version)))
+	}
+
 	// Notification cards (go-toast): Toru's look and window classes, set before
 	// anything can post. Square dark cards, kept out of screenshots and
 	// recordings, and the auto clicker's own injected clicks (tagged with
