@@ -38,6 +38,10 @@ export type OverlayText = {
 export const TEXT_SIZES: Record<OverlaySize, number> = { s: 0.04, m: 0.06, l: 0.09 };
 const BORDER_RATIO = 0.06;
 const LINE_HEIGHT = 1.33;
+// A seek lands on the frame at or before the time asked for, so a text added
+// at the playhead starts a few ms after the frame on screen. This much slack
+// (under a frame at 24fps) keeps it showing on that frame.
+const START_SLACK = 0.04;
 
 // textFontSize is the font size in output pixels (Go: TextFontSize).
 export function textFontSize(size: OverlaySize, frameH: number): number {
@@ -143,7 +147,7 @@ export function TextOverlays({ texts, time, frameW, frameH, box, selectedId, onS
     <>
       {texts.map((t) => {
         const isSel = t.id === selectedId;
-        const active = time >= t.start && time < t.end;
+        const active = time >= t.start - START_SLACK && time < t.end;
         if (!active && !isSel) return null;
         const shown = dragPos?.id === t.id ? { ...t, x: dragPos.x, y: dragPos.y } : t;
         const body = cleanText(t.text);
