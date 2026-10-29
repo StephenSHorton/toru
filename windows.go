@@ -64,6 +64,11 @@ type WindowsService struct {
 	// shareWin is the link + QR card for a live share. Closing it stops the
 	// stream (see the WindowClosing hook in OpenShareControls).
 	shareWin *application.WebviewWindow
+
+	// clipURL maps a saved instant-replay clip to the URL the replay service
+	// streams it from ("" when the path isn't in the clips folder). Injected
+	// from main as ReplayService.ClipURL (nil-guarded).
+	clipURL func(path string) string
 }
 
 // recFrameMargin is the DIP gap between the recorded region's edge and the
@@ -372,6 +377,44 @@ func (w *WindowsService) OpenTimeline(id int) {
 //wails:ignore
 func (w *WindowsService) OpenClipEditor(videoPath, servedURL string) {
 	w.openTrimWindow("Toru — "+strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath)), videoPath, servedURL)
+}
+
+// ServedURL returns the URL a Toru window's player can load videoPath from:
+// the replay service's URL for a saved clip, else the /__file/<basename> URL
+// for a recording or capture. The Edit video window uses it for clips added
+// from the Library.
+func (w *WindowsService) ServedURL(videoPath string) string {
+	if w.clipURL != nil {
+		if u := w.clipURL(videoPath); u != "" {
+			return u
+		}
+	}
+	return servedFileURL(videoPath)
+}
+
+// OpenEditVideo opens the video editor (cut, join, text, audio levels, crop,
+// export) for videoPath in its own window. Same ?vid= / ?path= params as the
+// trim window, which stays as it is for quick trims.
+func (w *WindowsService) OpenEditVideo(videoPath string) {
+	if w.app == nil {
+		return
+	}
+	// The editor has a timeline and audio rows under the player, so it opens
+	// big rather than fitted to the clip.
+	width, height := 1280, 900
+	if screen := w.app.Screen.GetPrimary(); screen != nil && screen.WorkArea.Width > 0 {
+		width = min(1440, screen.WorkArea.Width*95/100)
+		height = min(1000, screen.WorkArea.Height*92/100)
+	}
+	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title: "Toru — Edit video",
+		URL: "/?view=edit&vid=" + url.QueryEscape(w.ServedURL(videoPath)) +
+			"&path=" + url.QueryEscape(videoPath),
+		Width:            width,
+		Height:           height,
+		BackgroundColour: dark,
+	})
+	win.Center()
 }
 
 func (w *WindowsService) openTrimWindow(title, videoPath, servedURL string) {

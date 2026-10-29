@@ -23,6 +23,8 @@ import * as $models from "./models.js";
  * downloads and verifies it in the background, then announces that it is ready
  * (status event, plus the tray item and notification the tray adds on ready). It never installs or quits on its own —
  * the user restarts when they like, or the installer runs when Toru quits.
+ * After that first check it checks again every checkEvery for as long as Toru
+ * runs, until an update is ready.
  * 
  * It runs as a fire-and-forget goroutine on startup. All errors are logged and
  * swallowed — a failed or offline update check must never block startup.
