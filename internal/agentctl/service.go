@@ -114,6 +114,13 @@ func (s *Service) Shutdown() {
 	_ = s.setListening(false)
 }
 
+// Enabled reports whether the user turned agent control on (Settings >
+// General), read from %AppData%	orugent.json. The mcp/ctl entry points
+// use it to tell "turned off" apart from "Toru isn't running".
+func Enabled() bool {
+	return loadConfig(defaultConfigPath).Enabled
+}
+
 // GetEnabled reports whether AI agents and scripts may control Toru.
 func (s *Service) GetEnabled() bool {
 	return loadConfig(s.configPath).Enabled

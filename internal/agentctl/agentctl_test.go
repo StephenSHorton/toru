@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -239,5 +240,23 @@ func TestRegisterWindowCommandsChecks(t *testing.T) {
 	infos := svc.Registry().Infos()
 	if len(infos) != 1 || infos[0].Name != "a.two" || !infos[0].Destructive {
 		t.Fatalf("after replace %+v", infos)
+	}
+}
+
+func TestEnabledReadsUserConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("APPDATA", dir) // os.UserConfigDir on Windows
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if Enabled() {
+		t.Fatal("enabled with no config file")
+	}
+	if err := saveConfig(defaultConfigPath, config{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !Enabled() {
+		t.Fatal("not enabled after saving on")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "toru", "agent.json")); err != nil {
+		t.Fatalf("config not at %%AppData%%\toru\agent.json: %v", err)
 	}
 }
