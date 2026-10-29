@@ -200,12 +200,16 @@ layer over the canvas.
 
 `frontend/src/trim/compositor/effects.ts`: GLSL for chroma key (YUV
 distance with similarity/blend, like ffmpeg `chromakey`), brightness /
-contrast / saturation (ffmpeg `eq`), looks as color matrices
-(`colorchannelmixer` values shared with Go), and blur (two-pass box,
-approximating `boxblur`). `internal/vid/effects.go`:
-`ClipVideoFilter(c ClipJSON) string` returns the matching ffmpeg chain;
-`ClipAudioFilter(c ClipJSON, segLen float64) string` returns
-`atempo` (chained for <0.5 / >2) + `volume` + `afade`. A test renders the
+contrast / saturation and looks as color matrices, and blur. Toru ships an
+**LGPL** ffmpeg build, which has no `eq` or `boxblur` (both GPL), so every
+export filter must be LGPL: color uses `colorchannelmixer` + `lutrgb`,
+blur uses `avgblur`, and the rest of the graph sticks to `overlay`,
+`scale`, `format`, `colorchannelmixer`, `adelay`, `amix`, `atempo`,
+`afade`, `volume`. `internal/vid/effects.go` holds `ClipJSON` (the Go
+mirror of Clip, ms times; other files reference it rather than redefine
+it), `ClipVideoFilter(c ClipJSON, srcH int) string` (the matching chain,
+alpha kept) and `ClipAudioFilter(c ClipJSON, segLen float64) string`
+(`atempo`, chained for <0.5 / >2, then `volume`, then `afade`). A test renders the
 same frame both ways and compares within a tolerance, as the text card did.
 
 ### Export (Go)
