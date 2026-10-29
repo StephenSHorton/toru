@@ -46,11 +46,20 @@ export type CompositorStats = {
   log: { t: number; dt: number; stalled: boolean; drift: Record<string, number>; gain: Record<string, number> }[];
 };
 
+// CompositorHandle is what the window gets back through `handle`.
+export interface CompositorHandle {
+  // pickColor reads the colour drawn at (nx, ny), 0..1 of the canvas, on the
+  // next frame, as "#rrggbb". With rawClipId that clip is drawn without its
+  // green screen for that frame, so the eyedropper sees the colour it keys.
+  pickColor(nx: number, ny: number, rawClipId?: string): Promise<string>;
+}
+
 export interface CompositorProps {
   project: Project;
   clock: PlaybackClock;
   className?: string;
   canvasRef?: Ref<HTMLCanvasElement>;
+  handle?: MutableRefObject<CompositorHandle | null>;
   // For tests: per-frame timing and drift (last 600 frames).
   stats?: MutableRefObject<CompositorStats | null>;
 }
@@ -66,7 +75,7 @@ type Slot = {
 };
 type Still = { img: HTMLImageElement; tex: WebGLTexture | null; ready: boolean };
 
-export function Compositor({ project, clock, className, canvasRef, stats }: CompositorProps) {
+export function Compositor({ project, clock, className, canvasRef, handle, stats }: CompositorProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const projectRef = useRef(project);
@@ -117,6 +126,13 @@ export function Compositor({ project, clock, className, canvasRef, stats }: Comp
     let stallSince = 0;
     let lastFrame = performance.now();
     let raf = 0;
+    // Colour picks waiting for the next frame.
+    let picks: { nx: number; ny: number; raw?: string; done: (hex: string) => void }[] = [];
+    if (handle) {
+      handle.current = {
+        pickColor: (nx, ny, raw) => new Promise((done) => picks.push({ nx, ny, raw, done })),
+      };
+    }
     let wasPlaying = false;
 
     const texture = () => {
@@ -278,6 +294,7 @@ export function Compositor({ project, clock, className, canvasRef, stats }: Comp
       gl.clearColor(0, 0, 0, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
       const drift: Record<string, number> = {};
+      const rawClips = new Set(picks.map((k) => k.raw).filter(Boolean));
       for (const a of active) {
         if (a.track.kind !== "video") continue;
         let tex: WebGLTexture | null = null;
@@ -306,8 +323,20 @@ export function Compositor({ project, clock, className, canvasRef, stats }: Comp
           drift[a.clip.id] = v.currentTime - a.srcT;
         }
         if (!tex || w <= 0 || h <= 0) continue;
-        const out = effects.apply(tex, w, h, { chroma: a.clip.chroma, filters: a.clip.filters });
+        const chroma = rawClips.has(a.clip.id) ? undefined : a.clip.chroma;
+        const out = effects.apply(tex, w, h, { chroma, filters: a.clip.filters });
         drawLayer(gl, prog, vao, loc, out, w, h, a.clip, W, H);
+      }
+      // Read picks now, while this frame's pixels are still in the buffer.
+      if (picks.length) {
+        const px = new Uint8Array(4);
+        for (const k of picks) {
+          const x = Math.max(0, Math.min(W - 1, Math.floor(k.nx * W)));
+          const y = Math.max(0, Math.min(H - 1, Math.floor((1 - k.ny) * H)));
+          gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          k.done("#" + [px[0], px[1], px[2]].map((v) => v.toString(16).padStart(2, "0")).join(""));
+        }
+        picks = [];
       }
 
       if (stats) {
@@ -321,6 +350,7 @@ export function Compositor({ project, clock, className, canvasRef, stats }: Comp
 
     return () => {
       cancelAnimationFrame(raf);
+      if (handle) handle.current = null;
       for (const id of [...pool.keys()]) drop(id);
       for (const s of stills.values()) if (s.tex) gl.deleteTexture(s.tex);
       effects.dispose();
@@ -328,7 +358,7 @@ export function Compositor({ project, clock, className, canvasRef, stats }: Comp
       gl.deleteProgram(prog);
       gl.deleteVertexArray(vao);
     };
-  }, [clock, stats]);
+  }, [clock, stats, handle]);
 
   // Backing store size: the CSS size in device pixels, capped at the
   // project's canvas.
