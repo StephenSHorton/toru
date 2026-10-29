@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Crop, Loader2, Pause, Play, Plus, RotateCcw, Type } from "lucide-react";
+import { Crop, Download, Loader2, Pause, Play, Plus, RotateCcw, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VideoService, WindowsService, type TrackLevel } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -7,7 +7,8 @@ import { AddClipDialog } from "@/trim/AddClipDialog";
 import { AudioTracks } from "@/trim/AudioTracks";
 import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
 import { EditTimeline, type Selection } from "@/trim/EditTimeline";
-import { addSource, initEdl, newText, removeText, upsertText, useEdlHistory, type Edl, type Source } from "@/trim/edl";
+import { addSource, initEdl, newText, removeText, toRequest, upsertText, useEdlHistory, type Edl, type Source } from "@/trim/edl";
+import { ExportDialog } from "@/trim/ExportDialog";
 import { TextOverlays } from "@/trim/TextOverlays";
 import { usePreviewPlayback } from "@/trim/usePreviewPlayback";
 import { useTrackPreview } from "@/trim/useTrackPreview";
@@ -22,9 +23,9 @@ import { useTrackPreview } from "@/trim/useTrackPreview";
 // EDL in output time, and EditTimeline edits it. Add clip appends a Library
 // video as a new source. Text overlays sit over the output frame and edit the
 // EDL's texts; per-track audio levels live beside the EDL (not in its undo
-// history) and are heard live through useTrackPreview. Export drops into the
-// labelled <Slot> below when its card lands; it sends toRequest(edl, { crop,
-// tracks: levels, ... }).
+// history) and are heard live through useTrackPreview. Export opens
+// ExportDialog, which sends toRequest(edl, { crop, tracks: levels }) plus the
+// preset and the Save As path.
 const EMPTY_EDL: Edl = { sources: [], segs: [], texts: [] };
 
 export default function EditVideo() {
@@ -54,6 +55,9 @@ export default function EditVideo() {
       live = false;
     };
   }, [absPath, src, reset]);
+
+  // Export: the dialog adds the preset and the output path to this.
+  const [exportOpen, setExportOpen] = useState(false);
 
   // Add clip: probe the picked Library video and append it as a new source.
   const [addOpen, setAddOpen] = useState(false);
@@ -93,6 +97,10 @@ export default function EditVideo() {
   // is one, else the whole first-source frame.
   const outW = crop?.w ?? frame?.width ?? 0;
   const outH = crop?.h ?? frame?.height ?? 0;
+  const buildRequest = useCallback(() => {
+    const { preset: _p, outPath: _o, height: _h, kbps: _k, ...req } = toRequest(edl, { crop, tracks: levels, preset: "original" });
+    return req;
+  }, [edl, crop, levels]);
   const outBox: RenderedBox =
     crop && frame
       ? {
@@ -255,7 +263,17 @@ export default function EditVideo() {
               </Button>
             ) : null}
             <div className="mx-1 h-5 w-px bg-border" />
-            <Slot label="Export" />
+            <Button
+              size="sm"
+              disabled={!frame || duration <= 0 || !absPath}
+              onClick={() => {
+                pause();
+                setExportOpen(true);
+              }}
+              title={absPath ? "Export the edit to a new video file" : "Export needs a real file (not the dev sample)"}
+            >
+              <Download /> Export
+            </Button>
           </div>
         </div>
         <EditTimeline
@@ -278,6 +296,14 @@ export default function EditVideo() {
           {edl.sources.length > 1 ? ` + ${edl.sources.length - 1} more` : ""}
         </div>
       </div>
+
+      <ExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        buildRequest={buildRequest}
+        firstSource={edl.sources[0]?.path ?? absPath}
+        frameHeight={outH}
+      />
 
       <AddClipDialog
         open={addOpen}
@@ -315,21 +341,6 @@ async function probeSource(path: string, url: string): Promise<Source> {
     v.onerror = () => reject(new Error("the file couldn't be read"));
     v.src = url;
   });
-}
-
-// Slot marks where another editor card's component goes. Replace each one
-// with the real component when it lands.
-function Slot({ label, className }: { label: string; className?: string }) {
-  return (
-    <div
-      className={cn(
-        "flex min-h-8 items-center justify-center border border-dashed border-border px-3 text-xs text-muted-foreground",
-        className,
-      )}
-    >
-      {label}
-    </div>
-  );
 }
 
 // useVideoBox measures where the <video> frame is rendered inside the pane
