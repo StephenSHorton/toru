@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Crop, Loader2, Pause, Play, RotateCcw } from "lucide-react";
+import { Crop, Loader2, Pause, Play, Plus, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { VideoService, WindowsService } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { AddClipDialog } from "@/trim/AddClipDialog";
 import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
+import { EditTimeline, type Selection } from "@/trim/EditTimeline";
+import { addSource, initEdl, useEdlHistory, type Edl, type Source } from "@/trim/edl";
+import { usePreviewPlayback } from "@/trim/usePreviewPlayback";
 
 // Video editor window (docs/video-editor.md): cut, join, text, per-track
 // audio, crop and export. Opened by WindowsService.OpenEditVideo with the same
-// query params as the trim window: ?vid= is the served URL the <video> plays,
-// ?path= the absolute path Go-side operations need.
+// query params as the trim window: ?vid= is the served URL of the first
+// source, ?path= its absolute path (Go-side operations need it).
 //
-// This is the shell: player + crop. The other v1 pieces drop into the
-// labelled <Slot>s below as their cards land (timeline, text overlays, audio
-// tracks, Add clip, Export).
+// The edit lives in an EDL (useEdlHistory, so every edit undoes); the player
+// is driven by usePreviewPlayback, which owns the <video>'s src and plays the
+// EDL in output time, and EditTimeline edits it. Add clip appends a Library
+// video as a new source. Text overlays, audio tracks and Export drop into the
+// labelled <Slot>s below as their cards land.
+const EMPTY_EDL: Edl = { sources: [], segs: [], texts: [] };
+
 export default function EditVideo() {
   const params = new URLSearchParams(window.location.search);
   const src = params.get("vid") || "/sample.mp4";
@@ -23,29 +32,61 @@ export default function EditVideo() {
   const vidRef = useRef<HTMLVideoElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [cur, setCur] = useState(0);
+  const [loadErr, setLoadErr] = useState("");
 
-  // Crop in video pixels (null = full frame); applies to the output frame.
+  const { edl, apply, undo, redo, reset, canUndo, canRedo } = useEdlHistory(EMPTY_EDL);
+  const { outTime, playing, play, pause, seek, duration } = usePreviewPlayback(vidRef, edl);
+  const [selection, setSelection] = useState<Selection>(null);
+
+  // Load the first source, then start the EDL from it (no undo step).
+  useEffect(() => {
+    let live = true;
+    probeSource(absPath, src)
+      .then((first) => live && reset(initEdl(first)))
+      .catch((err) => live && setLoadErr(String(err)));
+    return () => {
+      live = false;
+    };
+  }, [absPath, src, reset]);
+
+  // Add clip: probe the picked Library video and append it as a new source.
+  const [addOpen, setAddOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [note, setNote] = useState("");
+  const onPickClip = useCallback(
+    async (path: string) => {
+      setAddOpen(false);
+      setAdding(true);
+      setNote("");
+      try {
+        const url = await WindowsService.ServedURL(path);
+        const next = await probeSource(path, url);
+        apply((e) => addSource(e, next));
+      } catch (err) {
+        setNote(`Couldn't add that clip: ${err}`);
+      } finally {
+        setAdding(false);
+      }
+    },
+    [apply],
+  );
+
+  // Crop in pixels of the first source's frame (null = full frame); applies
+  // to the output frame, which is the first source's size.
   const [cropMode, setCropMode] = useState(false);
   const [crop, setCrop] = useState<CropRect | null>(null);
-  const [videoDims, setVideoDims] = useState({ w: 0, h: 0 });
+  const frame = edl.sources[0];
   const videoBox = useVideoBox(vidRef, paneRef, cropMode && ready);
 
   const toggle = useCallback(() => {
-    const v = vidRef.current;
-    if (!v) return;
-    if (v.paused) void v.play().then(() => setPlaying(true)).catch(() => {});
-    else {
-      v.pause();
-      setPlaying(false);
-    }
-  }, []);
+    if (playing) pause();
+    else play();
+  }, [playing, play, pause]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (addOpen) return;
       if (e.code === "Space") {
         e.preventDefault();
         toggle();
@@ -55,42 +96,35 @@ export default function EditVideo() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, cropMode]);
-
-  const onLoadedMetadata = () => {
-    const v = vidRef.current;
-    if (!v) return;
-    setVideoDims({ w: v.videoWidth, h: v.videoHeight });
-    setDuration(Number.isFinite(v.duration) ? v.duration : 0);
-  };
+  }, [toggle, cropMode, addOpen]);
 
   const cropActive = crop !== null;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div ref={paneRef} className="relative flex min-h-0 flex-1 items-center justify-center p-4">
-        {!ready ? (
+        {loadErr ? (
+          <div className="absolute bg-black/60 px-3 py-1.5 text-xs text-destructive">Couldn&rsquo;t load the video: {loadErr}</div>
+        ) : !ready ? (
           <div className="pointer-events-none absolute flex items-center gap-2 bg-black/60 px-3 py-1.5 text-xs text-white">
             <Loader2 className="size-3.5 animate-spin" /> Loading video…
           </div>
         ) : null}
+        {/* No src here: usePreviewPlayback sets it and swaps it between sources. */}
         <video
           ref={vidRef}
-          src={src}
           poster={poster}
           preload="auto"
           onCanPlay={() => setReady(true)}
+          onLoadedData={() => setReady(true)}
           className="max-h-full max-w-full cursor-pointer border"
-          onLoadedMetadata={onLoadedMetadata}
-          onTimeUpdate={() => setCur(vidRef.current?.currentTime ?? 0)}
-          onEnded={() => setPlaying(false)}
           onClick={toggle}
           title={playing ? "Click to pause" : "Click to play"}
         />
-        {cropMode && ready ? (
+        {cropMode && ready && frame ? (
           <CropBox
-            videoW={videoDims.w}
-            videoH={videoDims.h}
+            videoW={frame.width}
+            videoH={frame.height}
             box={videoBox}
             crop={crop}
             onChange={setCrop}
@@ -113,10 +147,19 @@ export default function EditVideo() {
             {playing ? <Pause /> : <Play />}
           </Button>
           <span className={cn("whitespace-nowrap text-xs tabular-nums text-muted-foreground", duration <= 0 && "invisible")}>
-            {fmtTime(cur)} / {fmtTime(duration)}
+            {fmtTime(outTime)} / {fmtTime(duration)}
           </span>
+          {note ? <span className="text-xs text-destructive">{note}</span> : null}
           <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
-            <Slot label="Add clip" />
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!frame || adding}
+              onClick={() => setAddOpen(true)}
+              title="Add a clip or screen recording from the Library to the end"
+            >
+              {adding ? <Loader2 className="animate-spin" /> : <Plus />} Add clip
+            </Button>
             <Slot label="Text" />
             <Button
               size="sm"
@@ -150,14 +193,62 @@ export default function EditVideo() {
             <Slot label="Export" />
           </div>
         </div>
-        <Slot label="Timeline" className="h-20" />
+        <EditTimeline
+          edl={edl}
+          outTime={outTime}
+          onSeek={seek}
+          apply={apply}
+          selection={selection}
+          onSelect={setSelection}
+          onUndo={undo}
+          onRedo={redo}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          keyboard={!addOpen}
+        />
         <Slot label="Audio tracks" className="h-12" />
         <div className="text-[11px] text-muted-foreground">
           source: <span className="font-mono">{absPath || "(dev sample.mp4)"}</span>
+          {edl.sources.length > 1 ? ` + ${edl.sources.length - 1} more` : ""}
         </div>
       </div>
+
+      <AddClipDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onPick={(p) => void onPickClip(p)}
+        added={edl.sources.map((s) => s.path)}
+      />
     </div>
   );
+}
+
+// probeSource reads a video's length and frame size: from ProbeMedia when
+// there is a path (what the export will see), else from the browser's
+// metadata for the served URL (the dev sample).
+async function probeSource(path: string, url: string): Promise<Source> {
+  if (path) {
+    try {
+      const m = await VideoService.ProbeMedia(path);
+      if (m.durationMs > 0 && m.width > 0) {
+        return { path, url, duration: m.durationMs / 1000, width: m.width, height: m.height };
+      }
+    } catch {
+      // fall through to the browser
+    }
+  }
+  return new Promise((resolve, reject) => {
+    const v = document.createElement("video");
+    v.preload = "metadata";
+    v.muted = true;
+    v.onloadedmetadata = () => {
+      resolve({ path, url, duration: Number.isFinite(v.duration) ? v.duration : 0, width: v.videoWidth, height: v.videoHeight });
+      v.removeAttribute("src");
+      v.load();
+    };
+    v.onerror = () => reject(new Error("the file couldn't be read"));
+    v.src = url;
+  });
 }
 
 // Slot marks where another editor card's component goes. Replace each one
