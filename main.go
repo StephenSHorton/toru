@@ -272,6 +272,12 @@ func main() {
 	streamSvc.SetApp(app)
 	streamSvc.SetWatchOpener(windowsSvc.OpenWatch)
 	streamSvc.SetCallOpener(windowsSvc.OpenCall)
+	// App-wide agent commands (agent_commands.go); windows add their own.
+	registerAppAgentCommands(agentReg, &appAgentDeps{
+		version: version, overlay: overlaySvc, capturer: capturer, recorder: recorder,
+		history: histSvc, replay: replaySvc, export: exportSvc, windows: windowsSvc,
+		app: func() *application.App { return app },
+	})
 	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in
 	// the recorder.

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 )
@@ -132,6 +133,26 @@ func (r *Recorder) Active() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.recs) > 0
+}
+
+// Handles lists the in-flight recordings' handles, oldest first (agent
+// control's record.stop / record.status).
+func (r *Recorder) Handles() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, 0, len(r.recs))
+	for h := range r.recs {
+		out = append(out, h)
+	}
+	slices.SortFunc(out, func(a, b string) int { return recSeq(a) - recSeq(b) })
+	return out
+}
+
+// recSeq is a "rec-<n>" handle's n (0 if it isn't one).
+func recSeq(h string) int {
+	var n int
+	_, _ = fmt.Sscanf(h, "rec-%d", &n)
+	return n
 }
 
 // openAudioSources starts every opted-in loopback (system mix and per-app).
