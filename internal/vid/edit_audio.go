@@ -105,6 +105,17 @@ func (s *VideoService) ReleasePreviewTracks(urls []string) error {
 	return nil
 }
 
+// ReleaseAllPreviewTracks deletes every preview track file. Go calls it when
+// the last editor window closes: the page's own release on unload is an
+// async call WebView2 tears down before it finishes.
+//
+//wails:ignore
+func ReleaseAllPreviewTracks() {
+	previewMu.Lock()
+	defer previewMu.Unlock()
+	removePreviewTracks(previewDir(), func(os.FileInfo) bool { return true })
+}
+
 // previewTrackName keys the file on the source's path, size and mtime (an
 // edited or replaced source gets a fresh extract) plus the track.
 func previewTrackName(path string, fi os.FileInfo, index int) string {
@@ -137,6 +148,12 @@ func previewTrackFile(u string) (string, bool) {
 // sweepPreviewTracks deletes preview files older than previewTrackMaxAge
 // (and stale .part files), left by windows that never released them.
 func sweepPreviewTracks(dir string, now time.Time) {
+	removePreviewTracks(dir, func(info os.FileInfo) bool { return now.Sub(info.ModTime()) >= previewTrackMaxAge })
+}
+
+// removePreviewTracks deletes the preview files (and .part files) in dir
+// that match.
+func removePreviewTracks(dir string, match func(os.FileInfo) bool) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -146,7 +163,7 @@ func sweepPreviewTracks(dir string, now time.Time) {
 			continue
 		}
 		info, err := e.Info()
-		if err != nil || now.Sub(info.ModTime()) < previewTrackMaxAge {
+		if err != nil || !match(info) {
 			continue
 		}
 		_ = os.Remove(filepath.Join(dir, e.Name()))
