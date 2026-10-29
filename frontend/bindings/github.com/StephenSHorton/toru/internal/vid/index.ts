@@ -5,3 +5,12 @@ import * as VideoService from "./videoservice.js";
 export {
     VideoService
 };
+
+export {
+    AudioTrack,
+    EditRequest,
+    MediaInfo,
+    Segment,
+    TextOverlay,
+    TrackLevel
+} from "./models.js";
