@@ -18,6 +18,12 @@ export class WindowCommand {
     "input": any;
     "destructive": boolean;
 
+    /**
+     * TimeoutSec is how long the window may take to answer (0 = 30s; at
+     * most 30 minutes): an export runs for minutes.
+     */
+    "timeoutSec"?: number;
+
     /** Creates a new WindowCommand instance. */
     constructor($$source: Partial<WindowCommand> = {}) {
         if (!("name" in $$source)) {

@@ -260,3 +260,30 @@ func TestEnabledReadsUserConfig(t *testing.T) {
 		t.Fatalf(`config not at %%AppData%%\toru\agent.json: %v`, err)
 	}
 }
+
+func TestWindowCommandOwnTimeout(t *testing.T) {
+	svc, fw := newBridge(t)
+	svc.callTimeout = 40 * time.Millisecond
+	fw.alive["edit"] = true
+	fw.answer = func(c WindowCall) (any, string, bool) {
+		// Answers after 150ms: longer than the default timeout.
+		go func() {
+			time.Sleep(150 * time.Millisecond)
+			svc.Respond(c.ID, "done", "")
+		}()
+		return nil, "", false
+	}
+	if err := svc.RegisterWindowCommands("edit", []WindowCommand{{Name: "editor.export", TimeoutSec: 2}, {Name: "editor.get"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.Registry().Call(context.Background(), "editor.export", nil); err != nil || got != "done" {
+		t.Fatalf("own timeout: %v, %v", got, err)
+	}
+	// Re-registering without a timeout drops it again.
+	if err := svc.RegisterWindowCommands("edit", []WindowCommand{{Name: "editor.export"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Registry().Call(context.Background(), "editor.export", nil); err == nil || !strings.Contains(err.Error(), "40ms") {
+		t.Fatalf("default timeout after re-register: %v", err)
+	}
+}

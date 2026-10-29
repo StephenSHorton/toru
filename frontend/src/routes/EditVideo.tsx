@@ -7,6 +7,7 @@ import { ProjectExport } from "../../bindings/github.com/StephenSHorton/toru/int
 import { Compositor, type CompositorHandle } from "@/trim/compositor/Compositor";
 import { usePlayback } from "@/trim/compositor/usePlayback";
 import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
+import { useEditorAgentCommands } from "@/trim/agentCommands";
 import { newId } from "@/trim/edl";
 import { ExportDialog } from "@/trim/ExportDialog";
 import { Inspector } from "@/trim/Inspector";
@@ -144,6 +145,9 @@ export default function EditVideo() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [pb, cropMode, exportOpen]);
+
+  // AI agents and scripts can drive every tool here (agent control).
+  useEditorAgentCommands({ project, apply, undo, redo, canUndo, canRedo, pb, bin, compositor, setSelection, firstPath });
 
   const selectedClip = selection?.kind === "clip" ? selection.id : null;
   const ready = !loading && !loadErr && project.media.length > 0;

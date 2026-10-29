@@ -58,6 +58,9 @@ export interface CompositorHandle {
   // next frame, as "#rrggbb". With rawClipId that clip is drawn without its
   // green screen for that frame, so the eyedropper sees the colour it keys.
   pickColor(nx: number, ny: number, rawClipId?: string): Promise<string>;
+  // snapshot copies the next frame the preview draws onto a 2D canvas (the
+  // GL buffer is only readable inside the frame that drew it).
+  snapshot(): Promise<HTMLCanvasElement>;
 }
 
 export interface CompositorProps {
@@ -134,9 +137,11 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
     let raf = 0;
     // Colour picks waiting for the next frame.
     let picks: { nx: number; ny: number; raw?: string; done: (hex: string) => void }[] = [];
+    let snaps: ((c: HTMLCanvasElement) => void)[] = [];
     if (handle) {
       handle.current = {
         pickColor: (nx, ny, raw) => new Promise((done) => picks.push({ nx, ny, raw, done })),
+        snapshot: () => new Promise((done) => snaps.push(done)),
       };
     }
     let wasPlaying = false;
@@ -379,6 +384,14 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
           k.done("#" + [px[0], px[1], px[2]].map((v) => v.toString(16).padStart(2, "0")).join(""));
         }
         picks = [];
+      }
+      if (snaps.length) {
+        const copy = document.createElement("canvas");
+        copy.width = cv.width;
+        copy.height = cv.height;
+        copy.getContext("2d")?.drawImage(cv, 0, 0);
+        for (const done of snaps) done(copy);
+        snaps = [];
       }
 
       if (stats) {

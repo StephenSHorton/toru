@@ -21,6 +21,7 @@ export interface AgentCommandSpec {
   description: string;
   input?: Record<string, unknown>; // JSON Schema for the input object
   destructive?: boolean;
+  timeoutSec?: number; // how long the handler may take (default 30s, max 30 min)
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- inputs are whatever the schema says
@@ -67,6 +68,7 @@ async function sync() {
     description: spec.description,
     input: spec.input ?? null,
     destructive: !!spec.destructive,
+    timeoutSec: spec.timeoutSec ?? 0,
   }));
   try {
     if (cmds.length) await AgentService.RegisterWindowCommands(win, cmds);
