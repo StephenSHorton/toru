@@ -74,6 +74,12 @@ const minDiscordBps = 600_000
 // clip's real duration. Sources already under the target are returned as-is
 // (sharing the original beats a pointless re-encode).
 func (s *VideoService) ExportForDiscord(videoPath string) (string, error) {
+	return s.exportForDiscord(context.Background(), videoPath)
+}
+
+// exportForDiscord is ExportForDiscord under parent, so the editor's export
+// can cancel it.
+func (s *VideoService) exportForDiscord(parent context.Context, videoPath string) (string, error) {
 	fi, err := os.Stat(videoPath)
 	if err != nil {
 		return "", fmt.Errorf("discord export: %w", err)
@@ -83,7 +89,7 @@ func (s *VideoService) ExportForDiscord(videoPath string) (string, error) {
 	}
 
 	// Long re-encodes are expected (two full passes); bound, don't hang.
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 15*time.Minute)
 	defer cancel()
 
 	durMs, err := capture.ProbeDurationMs(ctx, videoPath)
@@ -120,6 +126,7 @@ func (s *VideoService) ExportForDiscord(videoPath string) (string, error) {
 		return "", fmt.Errorf("discord export (pass 1): %w", err)
 	}
 	if err := capture.RunFFmpeg(ctx, pass2); err != nil {
+		_ = os.Remove(outPath) // no half-written webm left behind
 		return "", fmt.Errorf("discord export (pass 2): %w", err)
 	}
 

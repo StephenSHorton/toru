@@ -14,6 +14,29 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // @ts-ignore: Unused imports
 import * as capture$0 from "../capture/models.js";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as $models from "./models.js";
+
+/**
+ * CancelExport stops the running export, if any. Export then returns
+ * ErrExportCancelled and removes its partial output.
+ */
+export function CancelExport(): $CancellablePromise<void> {
+    return $Call.ByID(2134698679);
+}
+
+/**
+ * Export renders req to req.OutPath and returns the written path, emitting
+ * "edit:progress" as it goes. It writes to a temp file beside the output and
+ * renames it into place at the end, so a failed or cancelled export leaves
+ * nothing behind. The Discord preset re-encodes the result to fit 10MB; the
+ * returned path then ends in .webm unless the edit was already small enough.
+ */
+export function Export(req: $models.EditRequest): $CancellablePromise<string> {
+    return $Call.ByID(1377854741, req);
+}
+
 /**
  * ExportForDiscord re-encodes videoPath to fit Discord's 10MB free-tier cap
  * using two-pass VP9 targeting ~9MB, with the bitrate computed from the
@@ -38,6 +61,26 @@ export function GenerateThumbnails(videoPath: string, count: number): $Cancellab
 }
 
 /**
+ * PickExportPath shows the Save As dialog for an export of sourcePath (the
+ * first source), suggesting <name>-edited.mp4 in its folder. It returns the
+ * chosen path, or "" when the dialog was cancelled.
+ */
+export function PickExportPath(sourcePath: string): $CancellablePromise<string> {
+    return $Call.ByID(385738799, sourcePath);
+}
+
+/**
+ * ProbeMedia reports a source's duration, frame size, frame rate and audio
+ * tracks (with their titles, and which one is the mix when a clip has
+ * separate tracks).
+ */
+export function ProbeMedia(path: string): $CancellablePromise<$models.MediaInfo> {
+    return $Call.ByID(1125538325, path).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+/**
  * Trim cuts [StartMs, EndMs] from req.VideoPath into req.OutPath. Precise=false
  * is a fast stream-copy (snaps to nearest preceding keyframe); Precise=true
  * re-encodes for frame accuracy. A Crop always re-encodes and names the
@@ -49,3 +92,4 @@ export function Trim(req: capture$0.TrimRequest): $CancellablePromise<string> {
 
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = $models.MediaInfo.createFrom;
