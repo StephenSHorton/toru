@@ -25,6 +25,8 @@
 //   VideoService.ProbeMedia(path): Promise<MediaInfo>  (size, fps, duration, audio tracks + titles, mix flag)
 //   VideoService.Export(req: EditRequest) / CancelExport / PickExportPath(firstSourcePath)  ("edit:progress" {pct})
 //   VideoService.PreviewTrack(path, index): Promise<string>  (served URL of one audio track) / ReleasePreviewTracks(urls)
+//   MediaService.Register(paths) / PickMedia(): Promise<BinMedia[]>  (editor media bin; served at /__media/<id>/<name>, "media:dropped" from the edit window)
+//   MediaService.Thumbnail(id): Promise<string>  (JPEG URL for video, the image itself, "" for audio)
 //   SettingsService.GetLaunchAtLogin(): Promise<boolean>
 //   SettingsService.SetLaunchAtLogin(enabled: boolean): Promise<void>  (registry Run key; --startup => silent-to-tray)
 //   SettingsService.GetNotifications / SetNotifications(o) -> NotificationOptions  (enabled, sound, volume 0..1, corner)
@@ -65,6 +67,8 @@ import * as HotkeyService from "../../bindings/github.com/StephenSHorton/toru/in
 import { Shortcut } from "../../bindings/github.com/StephenSHorton/toru/internal/hotkey/models.js";
 import * as WindowsService from "../../bindings/github.com/StephenSHorton/toru/windowsservice.js";
 import * as VideoService from "../../bindings/github.com/StephenSHorton/toru/internal/vid/videoservice.js";
+import * as MediaService from "../../bindings/github.com/StephenSHorton/toru/internal/media/service.js";
+import { Media as BinMedia } from "../../bindings/github.com/StephenSHorton/toru/internal/media/models.js";
 import {
   MediaInfo,
   AudioTrack,
@@ -143,6 +147,8 @@ export {
   Shortcut,
   WindowsService,
   VideoService,
+  MediaService,
+  BinMedia,
   MediaInfo,
   AudioTrack,
   TrackLevel,
