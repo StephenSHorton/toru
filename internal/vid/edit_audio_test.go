@@ -138,3 +138,17 @@ func TestPreviewTrackSmoke(t *testing.T) {
 	}
 	assertOnly(t, out)
 }
+
+func TestReleaseAllPreviewTracks(t *testing.T) {
+	dir := t.TempDir()
+	prev := previewDir
+	previewDir = func() string { return dir }
+	defer func() { previewDir = prev }()
+	for _, name := range []string{"editaudio-a-0.m4a", "editaudio-b-1.m4a", "editaudio-c-0.part.m4a", "clip.mp4"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ReleaseAllPreviewTracks()
+	assertOnly(t, dir, "clip.mp4")
+}

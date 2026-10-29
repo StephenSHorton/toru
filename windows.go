@@ -15,6 +15,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/media"
 	"github.com/StephenSHorton/toru/internal/overlay"
 	"github.com/StephenSHorton/toru/internal/transfer"
+	"github.com/StephenSHorton/toru/internal/vid"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -425,6 +426,16 @@ func (w *WindowsService) OpenEditVideo(videoPath string) {
 		if files := e.Context().DroppedFiles(); len(files) > 0 {
 			win.EmitEvent(media.EventDropped, files)
 		}
+	})
+	// The page can't reliably release its per-track preview audio as it
+	// closes, so Go clears them once no editor window is left.
+	win.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
+		for _, other := range w.app.Window.GetAll() {
+			if other != nil && other.Name() != win.Name() && strings.HasPrefix(other.Name(), "toru-edit-") {
+				return
+			}
+		}
+		go vid.ReleaseAllPreviewTracks()
 	})
 	win.Center()
 }
