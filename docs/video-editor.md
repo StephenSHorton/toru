@@ -6,10 +6,11 @@ and marks it _(pending decision)_.
 
 ## Goal
 
-Turn the existing trim window (`frontend/src/routes/Trim.tsx`) into a small
-video editor for recordings and clips: cut out several parts of one video,
-set per-track audio levels, crop, and export with a preset. Keep the original
-file untouched. Ship it in one release.
+Add a small video editor for recordings and clips, in its own "Edit video"
+window: cut out several parts of one video, set per-track audio levels, crop,
+and export with a preset. Keep the original file untouched. The trim window
+(`frontend/src/routes/Trim.tsx`) stays as it is for quick trims and gains an
+"Edit" button. Ship it in one release.
 
 ## What exists today
 
@@ -41,7 +42,8 @@ In:
    per source with a volume slider (0 to 200%) and mute. Export re-mixes the
    sources at those levels. Files with one track get a single volume row.
    _(pending decision: preview)_
-4. **Crop** stays as it is and applies to the whole export.
+4. **Crop**, reusing `frontend/src/trim/CropBox.tsx`, applies to the whole
+   export.
 5. **Export presets:** Original quality (same size and frame rate), 1080p
    MP4, Discord-sized (fits 10MB, existing two-pass VP9). Progress bar and
    cancel.
@@ -131,14 +133,18 @@ export function nextKept(edl: Edl, t: number): number | null;       // where pla
   `TrackLevel[]`.
 - `ExportDialog.tsx`: preset picker, progress, cancel, then Copy / Show in
   folder.
-- `Trim.tsx` swaps its two-handle timeline for these pieces; Copy / Save As /
-  Share keep working on the original or the last export.
+- `frontend/src/routes/EditVideo.tsx` (`?view=edit`): the window. Player,
+  CropBox, timeline, audio rows, Export button. Same `?vid=` / `?path=` query
+  params as the trim window.
 
-### Entry points
+### Window and entry points
 
-Unchanged: Library clips, Timeline "Create clip" and the post-recording
-window already open the trim window, which becomes the editor. The window
-title becomes "Toru — Edit video". _(pending decision: location)_
+- New `WindowsService.OpenEditVideo(videoPath)` in `windows.go`, modelled on
+  `OpenTrim`, title "Toru — Edit video"; route `edit` in `App.tsx`.
+- "Edit" buttons open it from: the trim window's toolbar, Library clip and
+  recording cards (`Settings.tsx`), and the recording Timeline after Create
+  clip (`Timeline.tsx`, as a second action beside opening the clip).
+- The trim window keeps working exactly as today.
 
 ## Work split
 
@@ -150,10 +156,15 @@ Tracked as cards on the Irori Board under #1. File ownership:
 | EDL model + preview playback | `frontend/src/trim/edl.ts`, `frontend/src/trim/usePreviewPlayback.ts` |
 | Timeline UI | `frontend/src/trim/EditTimeline.tsx` |
 | Audio tracks UI | `frontend/src/trim/AudioTracks.tsx` |
-| Integration + export dialog | `frontend/src/routes/Trim.tsx`, `frontend/src/trim/ExportDialog.tsx`, `frontend/src/lib/api.ts`, `windows.go` (title) |
+| Edit video window shell | `windows.go` (OpenEditVideo only), `frontend/src/App.tsx`, `frontend/src/routes/EditVideo.tsx` |
+| Export dialog + wiring | `frontend/src/trim/ExportDialog.tsx`, `frontend/src/routes/EditVideo.tsx` (after the shell merges) |
+| Edit buttons | `frontend/src/routes/Trim.tsx`, `frontend/src/routes/Settings.tsx` (Library cards), `frontend/src/routes/Timeline.tsx` |
 
-Only the backend card regenerates bindings. Anyone touching a file outside
-their row takes an Irori lease on it first.
+Go-side cards (backend, window shell) regenerate bindings with
+`wails3 generate bindings -clean=true -ts`; whichever merges second rebases on
+main and regenerates rather than hand-merging `frontend/bindings`.
+`frontend/src/lib/api.ts` is shared: lease it before editing. Anyone touching
+a file outside their row takes an Irori lease on it first.
 
 ## Done for v1
 
