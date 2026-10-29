@@ -29,6 +29,15 @@ export function OpenClicker(): $CancellablePromise<void> {
 }
 
 /**
+ * OpenEditVideo opens the video editor (cut, join, text, audio levels, crop,
+ * export) for videoPath in its own window. Same ?vid= / ?path= params as the
+ * trim window, which stays as it is for quick trims.
+ */
+export function OpenEditVideo(videoPath: string): $CancellablePromise<void> {
+    return $Call.ByID(1499571099, videoPath);
+}
+
+/**
  * OpenEditor opens Developer 1's screenshot annotation editor for imagePath.
  * 
  * The SPA routes on the ?view= query param (App.tsx) and the embedded asset
@@ -156,4 +165,14 @@ export function OpenShareControls(monitorID: number, regionX: number, regionY: n
  */
 export function OpenTrim(videoPath: string): $CancellablePromise<void> {
     return $Call.ByID(1119648552, videoPath);
+}
+
+/**
+ * ServedURL returns the URL a Toru window's player can load videoPath from:
+ * the replay service's URL for a saved clip, else the /__file/<basename> URL
+ * for a recording or capture. The Edit video window uses it for clips added
+ * from the Library.
+ */
+export function ServedURL(videoPath: string): $CancellablePromise<string> {
+    return $Call.ByID(897848410, videoPath);
 }

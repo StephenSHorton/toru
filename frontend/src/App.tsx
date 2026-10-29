@@ -2,6 +2,7 @@ import Settings from "@/routes/Settings";
 import Overlay from "@/routes/Overlay";
 import Editor from "@/routes/Editor";
 import Trim from "@/routes/Trim";
+import EditVideo from "@/routes/EditVideo";
 import Recording from "@/routes/Recording";
 import RecFrame from "@/routes/RecFrame";
 import Share from "@/routes/Share";
@@ -22,6 +23,8 @@ export default function App() {
       return <Editor />;
     case "trim":
       return <Trim />;
+    case "edit":
+      return <EditVideo />;
     case "recording":
       return <Recording />;
     case "share":

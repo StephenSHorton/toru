@@ -252,6 +252,7 @@ func main() {
 	// reflects reality (see autostart_repair_windows.go).
 	repairLaunchAtLogin()
 	replaySvc.SetClipOpener(windowsSvc.OpenClipEditor)
+	windowsSvc.clipURL = replaySvc.ClipURL
 	replaySvc.SetSessionOpener(windowsSvc.OpenTimeline)
 	histSvc.SetOpeners(windowsSvc.OpenLibraryEditor, windowsSvc.OpenTrim)
 	transferSvc.SetApp(app)           // transfer:send / transfer:receive emits

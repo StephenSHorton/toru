@@ -10,6 +10,7 @@ import {
   Send,
   Settings2,
   SquareDashed,
+  SquarePen,
   Trash2,
   Video,
   LayoutGrid,
@@ -554,6 +555,7 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
                 selected={selected.has(e.item.id)}
                 onToggleSelect={() => toggleSelect(e.item.id)}
                 onOpen={() => void HistoryService.Open(e.item.id)}
+                onEdit={() => void WindowsService.OpenEditVideo(e.item.path)}
                 onSend={() => onSendItem(e.item)}
                 onDelete={() => setPendingDelete([e.item])}
               />
@@ -562,6 +564,7 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
                 key={e.clip.path}
                 clip={e.clip}
                 onOpen={() => void ReplayService.OpenClip(e.clip.path).catch(report)}
+                onEdit={() => void WindowsService.OpenEditVideo(e.clip.path)}
                 onReveal={() => void ReplayService.RevealClip(e.clip.path).catch(report)}
                 onDelete={() => setPendingClip(e.clip)}
               />
@@ -755,11 +758,13 @@ function formatSize(bytes: number): string {
 function ClipCard({
   clip,
   onOpen,
+  onEdit,
   onReveal,
   onDelete,
 }: {
   clip: ReplayClip;
   onOpen: () => void;
+  onEdit: () => void;
   onReveal: () => void;
   onDelete: () => void;
 }) {
@@ -809,6 +814,16 @@ function ClipCard({
             {formatWhen(clip.savedAt)} · {formatSize(clip.sizeBytes)}
           </div>
         </div>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 shrink-0 opacity-60 hover:opacity-100"
+          title="Edit video"
+          aria-label="Edit video"
+          onClick={onEdit}
+        >
+          <SquarePen className="size-3.5" />
+        </Button>
         <Button
           size="icon"
           variant="ghost"
@@ -871,6 +886,7 @@ function CaptureCard({
   selected,
   onToggleSelect,
   onOpen,
+  onEdit,
   onSend,
   onDelete,
 }: {
@@ -878,6 +894,7 @@ function CaptureCard({
   selected: boolean;
   onToggleSelect: () => void;
   onOpen: () => void;
+  onEdit: () => void;
   onSend: () => void;
   onDelete: () => void;
 }) {
@@ -950,6 +967,21 @@ function CaptureCard({
           <div className="truncate text-xs font-medium">{item.label}</div>
           <div className="truncate text-[10px] text-muted-foreground">{when}</div>
         </div>
+        {isVideo ? (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7 shrink-0 opacity-60 hover:opacity-100"
+            title="Edit video"
+            aria-label="Edit video"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+          >
+            <SquarePen className="size-3.5" />
+          </Button>
+        ) : null}
         <Button
           size="icon"
           variant="ghost"

@@ -15,6 +15,7 @@ import {
   Scissors,
   SkipBack,
   SkipForward,
+  SquarePen,
   Trash2,
   X,
   ZoomIn,
@@ -22,7 +23,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { ReplayService } from "@/lib/api";
+import { ReplayService, WindowsService } from "@/lib/api";
 import type { RecordingMarker, RecordingSession, ReplaySettings } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { fmtRetention } from "@/replay/format";
@@ -383,7 +384,9 @@ export default function Timeline() {
     }
   };
 
-  const createClip = async () => {
+  // Saves the selection as a clip and opens it: in the trim window, or with
+  // edit in the video editor.
+  const createClip = async (edit = false) => {
     if (!sel || sel.b - sel.a < 0.5) return;
     setBusy(true);
     try {
@@ -403,7 +406,8 @@ export default function Timeline() {
       }
       const path = await ReplayService.CreateClip(id, Math.max(0, a), b);
       setNote("Clip saved, opening the editor…");
-      await ReplayService.OpenClip(path);
+      if (edit) await WindowsService.OpenEditVideo(path);
+      else await ReplayService.OpenClip(path);
     } catch (e) {
       setNote(`Couldn't create the clip: ${String(e).replace(/^Error:\s*/, "")}`);
     } finally {
@@ -724,6 +728,15 @@ export default function Timeline() {
             )}
             <Button size="sm" disabled={!sel || busy || sel.b - sel.a < 0.5} onClick={() => void createClip()}>
               <Scissors /> {busy ? "Saving…" : "Create clip"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!sel || busy || sel.b - sel.a < 0.5}
+              onClick={() => void createClip(true)}
+              title="Save the selection as a clip and open it in the video editor"
+            >
+              <SquarePen /> Create &amp; edit
             </Button>
             {session && !session.live ? (
               <Button

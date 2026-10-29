@@ -25,8 +25,9 @@ import {
   ArrowRightToLine,
   Crop,
   RotateCcw,
+  SquarePen,
 } from "lucide-react";
-import { ExportService, ReplayService, UploadService, VideoService, TrimRequest } from "@/lib/api";
+import { ExportService, ReplayService, UploadService, VideoService, WindowsService, TrimRequest } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
 
@@ -643,6 +644,15 @@ export default function Trim() {
               </Button>
             </Tooltip>
             <div className="mx-1 h-5 w-px bg-border" />
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={noFile || busy}
+              onClick={() => void WindowsService.OpenEditVideo(absPath)}
+              title="Open in the video editor: cut out parts, join clips, add text and set audio levels"
+            >
+              <SquarePen /> Edit
+            </Button>
             <Button
               size="sm"
               variant="ghost"
