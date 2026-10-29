@@ -236,11 +236,17 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
       .catch(() => setProjects([]));
   }, []);
   useEffect(() => {
-    refreshProjects();
-    // The editor saves in another window; re-list when this one comes back.
+    // The editor saves in another window: re-list when this one comes back,
+    // and every few seconds while the Projects tab is open.
     window.addEventListener("focus", refreshProjects);
     return () => window.removeEventListener("focus", refreshProjects);
   }, [refreshProjects]);
+  useEffect(() => {
+    refreshProjects();
+    if (view !== "projects") return;
+    const t = window.setInterval(refreshProjects, 5000);
+    return () => window.clearInterval(t);
+  }, [view, refreshProjects]);
   const confirmProjectDelete = async () => {
     const p = pendingProject;
     setPendingProject(null);
