@@ -48,6 +48,15 @@ export function ExportForDiscord(videoPath: string): $CancellablePromise<string>
 }
 
 /**
+ * ExportProject renders a v2 project (docs/video-editor-v2.md) to
+ * req.OutPath like Export: "edit:progress" events, CancelExport, a temp file
+ * renamed into place, the Discord preset chained.
+ */
+export function ExportProject(req: $models.ProjectExport): $CancellablePromise<string> {
+    return $Call.ByID(892998382, req);
+}
+
+/**
  * GenerateThumbnails extracts `count` evenly-spaced frames for the trim
  * filmstrip and returns their file paths.
  * 

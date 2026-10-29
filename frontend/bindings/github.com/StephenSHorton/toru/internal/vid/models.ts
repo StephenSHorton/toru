@@ -50,6 +50,192 @@ export class AudioTrack {
 }
 
 /**
+ * CanvasJSON is the output frame before crop and the preset's scale.
+ */
+export class CanvasJSON {
+    "width": number;
+    "height": number;
+    "fps": number;
+
+    /** Creates a new CanvasJSON instance. */
+    constructor($$source: Partial<CanvasJSON> = {}) {
+        if (!("width" in $$source)) {
+            this["width"] = 0;
+        }
+        if (!("height" in $$source)) {
+            this["height"] = 0;
+        }
+        if (!("fps" in $$source)) {
+            this["fps"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CanvasJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CanvasJSON {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CanvasJSON($$parsedSource as Partial<CanvasJSON>);
+    }
+}
+
+/**
+ * ChromaJSON is a clip's green screen: the key colour ("#rrggbb"), how close
+ * a colour must be to go transparent (0.01..1) and how soft the edge is
+ * (0..1). Same meaning as ffmpeg chromakey's similarity and blend.
+ */
+export class ChromaJSON {
+    "color": string;
+    "similarity": number;
+    "blend": number;
+
+    /** Creates a new ChromaJSON instance. */
+    constructor($$source: Partial<ChromaJSON> = {}) {
+        if (!("color" in $$source)) {
+            this["color"] = "";
+        }
+        if (!("similarity" in $$source)) {
+            this["similarity"] = 0;
+        }
+        if (!("blend" in $$source)) {
+            this["blend"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ChromaJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ChromaJSON {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ChromaJSON($$parsedSource as Partial<ChromaJSON>);
+    }
+}
+
+/**
+ * ClipJSON is one clip of a v2 project as the frontend sends it
+ * (frontend/src/trim/project.ts, toExportRequest): the TS Clip with every
+ * time in whole milliseconds. The project export (project.go) uses this type.
+ */
+export class ClipJSON {
+    "id": string;
+
+    /**
+     * Media.id
+     */
+    "media": string;
+
+    /**
+     * timeline position, ms
+     */
+    "start": number;
+
+    /**
+     * source range, ms
+     */
+    "in": number;
+    "out": number;
+
+    /**
+     * 0.25..4
+     */
+    "speed": number;
+
+    /**
+     * 0..2
+     */
+    "volume": number;
+    "muted": boolean;
+
+    /**
+     * ms
+     */
+    "fadeIn": number;
+
+    /**
+     * ms
+     */
+    "fadeOut": number;
+    "levels"?: TrackLevel[];
+    "transform": TransformJSON;
+
+    /**
+     * nil = off
+     */
+    "chroma"?: ChromaJSON | null;
+    "filters": FiltersJSON;
+
+    /** Creates a new ClipJSON instance. */
+    constructor($$source: Partial<ClipJSON> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("media" in $$source)) {
+            this["media"] = "";
+        }
+        if (!("start" in $$source)) {
+            this["start"] = 0;
+        }
+        if (!("in" in $$source)) {
+            this["in"] = 0;
+        }
+        if (!("out" in $$source)) {
+            this["out"] = 0;
+        }
+        if (!("speed" in $$source)) {
+            this["speed"] = 0;
+        }
+        if (!("volume" in $$source)) {
+            this["volume"] = 0;
+        }
+        if (!("muted" in $$source)) {
+            this["muted"] = false;
+        }
+        if (!("fadeIn" in $$source)) {
+            this["fadeIn"] = 0;
+        }
+        if (!("fadeOut" in $$source)) {
+            this["fadeOut"] = 0;
+        }
+        if (!("transform" in $$source)) {
+            this["transform"] = (new TransformJSON());
+        }
+        if (!("filters" in $$source)) {
+            this["filters"] = (new FiltersJSON());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ClipJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ClipJSON {
+        const $$createField10_0 = $$createType1;
+        const $$createField11_0 = $$createType2;
+        const $$createField12_0 = $$createType4;
+        const $$createField13_0 = $$createType5;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("levels" in $$parsedSource) {
+            $$parsedSource["levels"] = $$createField10_0($$parsedSource["levels"]);
+        }
+        if ("transform" in $$parsedSource) {
+            $$parsedSource["transform"] = $$createField11_0($$parsedSource["transform"]);
+        }
+        if ("chroma" in $$parsedSource) {
+            $$parsedSource["chroma"] = $$createField12_0($$parsedSource["chroma"]);
+        }
+        if ("filters" in $$parsedSource) {
+            $$parsedSource["filters"] = $$createField13_0($$parsedSource["filters"]);
+        }
+        return new ClipJSON($$parsedSource as Partial<ClipJSON>);
+    }
+}
+
+/**
  * EditRequest is everything one export needs.
  */
 export class EditRequest {
@@ -116,11 +302,11 @@ export class EditRequest {
      * Creates a new EditRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): EditRequest {
-        const $$createField0_0 = $$createType0;
-        const $$createField1_0 = $$createType2;
-        const $$createField2_0 = $$createType4;
-        const $$createField3_0 = $$createType6;
-        const $$createField4_0 = $$createType8;
+        const $$createField0_0 = $$createType6;
+        const $$createField1_0 = $$createType8;
+        const $$createField2_0 = $$createType10;
+        const $$createField3_0 = $$createType1;
+        const $$createField4_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("sources" in $$parsedSource) {
             $$parsedSource["sources"] = $$createField0_0($$parsedSource["sources"]);
@@ -138,6 +324,51 @@ export class EditRequest {
             $$parsedSource["texts"] = $$createField4_0($$parsedSource["texts"]);
         }
         return new EditRequest($$parsedSource as Partial<EditRequest>);
+    }
+}
+
+/**
+ * FiltersJSON is a clip's colour and blur: brightness -1..1 (0), contrast
+ * 0..2 (1), saturation 0..3 (1), a look, blur 0..20 (0).
+ */
+export class FiltersJSON {
+    "brightness": number;
+    "contrast": number;
+    "saturation": number;
+
+    /**
+     * "none" | "bw" | "sepia" | "vintage" | "cool" | "warm"
+     */
+    "look": string;
+    "blur": number;
+
+    /** Creates a new FiltersJSON instance. */
+    constructor($$source: Partial<FiltersJSON> = {}) {
+        if (!("brightness" in $$source)) {
+            this["brightness"] = 0;
+        }
+        if (!("contrast" in $$source)) {
+            this["contrast"] = 0;
+        }
+        if (!("saturation" in $$source)) {
+            this["saturation"] = 0;
+        }
+        if (!("look" in $$source)) {
+            this["look"] = "";
+        }
+        if (!("blur" in $$source)) {
+            this["blur"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FiltersJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FiltersJSON {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FiltersJSON($$parsedSource as Partial<FiltersJSON>);
     }
 }
 
@@ -180,12 +411,227 @@ export class MediaInfo {
      * Creates a new MediaInfo instance from a string or object.
      */
     static createFrom($$source: any = {}): MediaInfo {
-        const $$createField5_0 = $$createType10;
+        const $$createField5_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tracks" in $$parsedSource) {
             $$parsedSource["tracks"] = $$createField5_0($$parsedSource["tracks"]);
         }
         return new MediaInfo($$parsedSource as Partial<MediaInfo>);
+    }
+}
+
+/**
+ * MediaJSON is one source file of a project, as MediaService registered it.
+ */
+export class MediaJSON {
+    "id": string;
+
+    /**
+     * absolute
+     */
+    "path": string;
+
+    /**
+     * preview only
+     */
+    "url": string;
+
+    /**
+     * "video" | "image" | "audio"
+     */
+    "kind": string;
+
+    /**
+     * ms; 0 for images
+     */
+    "duration": number;
+
+    /**
+     * 0 for audio
+     */
+    "width": number;
+    "height": number;
+
+    /**
+     * 0 for image/audio
+     */
+    "fps": number;
+    "hasAudio": boolean;
+
+    /**
+     * audio streams, titles, mix flag
+     */
+    "tracks": AudioTrack[];
+
+    /** Creates a new MediaJSON instance. */
+    constructor($$source: Partial<MediaJSON> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("url" in $$source)) {
+            this["url"] = "";
+        }
+        if (!("kind" in $$source)) {
+            this["kind"] = "";
+        }
+        if (!("duration" in $$source)) {
+            this["duration"] = 0;
+        }
+        if (!("width" in $$source)) {
+            this["width"] = 0;
+        }
+        if (!("height" in $$source)) {
+            this["height"] = 0;
+        }
+        if (!("fps" in $$source)) {
+            this["fps"] = 0;
+        }
+        if (!("hasAudio" in $$source)) {
+            this["hasAudio"] = false;
+        }
+        if (!("tracks" in $$source)) {
+            this["tracks"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new MediaJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): MediaJSON {
+        const $$createField9_0 = $$createType14;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("tracks" in $$parsedSource) {
+            $$parsedSource["tracks"] = $$createField9_0($$parsedSource["tracks"]);
+        }
+        return new MediaJSON($$parsedSource as Partial<MediaJSON>);
+    }
+}
+
+/**
+ * ProjectExport is one v2 export: the project, v1's preset fields and the
+ * output path from the Save As dialog.
+ */
+export class ProjectExport {
+    "project": ProjectJSON;
+
+    /**
+     * "original" | "1080p" | "720p" | "discord" | "custom"
+     */
+    "preset": string;
+    "height"?: number;
+    "kbps"?: number;
+    "outPath": string;
+
+    /** Creates a new ProjectExport instance. */
+    constructor($$source: Partial<ProjectExport> = {}) {
+        if (!("project" in $$source)) {
+            this["project"] = (new ProjectJSON());
+        }
+        if (!("preset" in $$source)) {
+            this["preset"] = "";
+        }
+        if (!("outPath" in $$source)) {
+            this["outPath"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ProjectExport instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ProjectExport {
+        const $$createField0_0 = $$createType15;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("project" in $$parsedSource) {
+            $$parsedSource["project"] = $$createField0_0($$parsedSource["project"]);
+        }
+        return new ProjectExport($$parsedSource as Partial<ProjectExport>);
+    }
+}
+
+/**
+ * ProjectJSON is the whole project.
+ */
+export class ProjectJSON {
+    "version": number;
+    "id": string;
+    "name": string;
+    "canvas": CanvasJSON;
+    "media": MediaJSON[];
+
+    /**
+     * video tracks bottom→top, then audio tracks
+     */
+    "tracks": TrackJSON[];
+    "texts": TextJSON[];
+
+    /**
+     * canvas pixels; nil = none
+     */
+    "crop": capture$0.Rect | null;
+
+    /** Creates a new ProjectJSON instance. */
+    constructor($$source: Partial<ProjectJSON> = {}) {
+        if (!("version" in $$source)) {
+            this["version"] = 0;
+        }
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("canvas" in $$source)) {
+            this["canvas"] = (new CanvasJSON());
+        }
+        if (!("media" in $$source)) {
+            this["media"] = [];
+        }
+        if (!("tracks" in $$source)) {
+            this["tracks"] = [];
+        }
+        if (!("texts" in $$source)) {
+            this["texts"] = [];
+        }
+        if (!("crop" in $$source)) {
+            this["crop"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ProjectJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ProjectJSON {
+        const $$createField3_0 = $$createType16;
+        const $$createField4_0 = $$createType18;
+        const $$createField5_0 = $$createType20;
+        const $$createField6_0 = $$createType22;
+        const $$createField7_0 = $$createType10;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("canvas" in $$parsedSource) {
+            $$parsedSource["canvas"] = $$createField3_0($$parsedSource["canvas"]);
+        }
+        if ("media" in $$parsedSource) {
+            $$parsedSource["media"] = $$createField4_0($$parsedSource["media"]);
+        }
+        if ("tracks" in $$parsedSource) {
+            $$parsedSource["tracks"] = $$createField5_0($$parsedSource["tracks"]);
+        }
+        if ("texts" in $$parsedSource) {
+            $$parsedSource["texts"] = $$createField6_0($$parsedSource["texts"]);
+        }
+        if ("crop" in $$parsedSource) {
+            $$parsedSource["crop"] = $$createField7_0($$parsedSource["crop"]);
+        }
+        return new ProjectJSON($$parsedSource as Partial<ProjectJSON>);
     }
 }
 
@@ -225,6 +671,54 @@ export class Segment {
     static createFrom($$source: any = {}): Segment {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new Segment($$parsedSource as Partial<Segment>);
+    }
+}
+
+/**
+ * TextJSON is a v1 text overlay in output time (ms).
+ */
+export class TextJSON {
+    "id": string;
+    "text": string;
+    "x": number;
+    "y": number;
+    "size": string;
+    "start": number;
+    "end": number;
+
+    /** Creates a new TextJSON instance. */
+    constructor($$source: Partial<TextJSON> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("text" in $$source)) {
+            this["text"] = "";
+        }
+        if (!("x" in $$source)) {
+            this["x"] = 0;
+        }
+        if (!("y" in $$source)) {
+            this["y"] = 0;
+        }
+        if (!("size" in $$source)) {
+            this["size"] = "";
+        }
+        if (!("start" in $$source)) {
+            this["start"] = 0;
+        }
+        if (!("end" in $$source)) {
+            this["end"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TextJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TextJSON {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TextJSON($$parsedSource as Partial<TextJSON>);
     }
 }
 
@@ -289,6 +783,59 @@ export class TextOverlay {
 }
 
 /**
+ * TrackJSON is one timeline track. Clips are sorted by start and never
+ * overlap. A hidden video track draws nothing; a muted track plays no audio.
+ */
+export class TrackJSON {
+    "id": string;
+
+    /**
+     * "video" | "audio"
+     */
+    "kind": string;
+    "muted": boolean;
+    "hidden": boolean;
+    "locked": boolean;
+    "clips": ClipJSON[];
+
+    /** Creates a new TrackJSON instance. */
+    constructor($$source: Partial<TrackJSON> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("kind" in $$source)) {
+            this["kind"] = "";
+        }
+        if (!("muted" in $$source)) {
+            this["muted"] = false;
+        }
+        if (!("hidden" in $$source)) {
+            this["hidden"] = false;
+        }
+        if (!("locked" in $$source)) {
+            this["locked"] = false;
+        }
+        if (!("clips" in $$source)) {
+            this["clips"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TrackJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TrackJSON {
+        const $$createField5_0 = $$createType24;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("clips" in $$parsedSource) {
+            $$parsedSource["clips"] = $$createField5_0($$parsedSource["clips"]);
+        }
+        return new TrackJSON($$parsedSource as Partial<TrackJSON>);
+    }
+}
+
+/**
  * TrackLevel sets one source audio track's level in the export.
  */
 export class TrackLevel {
@@ -335,15 +882,66 @@ export class TrackLevel {
     }
 }
 
+/**
+ * TransformJSON places a clip on the canvas: centre (0..1 of the canvas),
+ * scale (1 = fit inside the canvas) and opacity.
+ */
+export class TransformJSON {
+    "x": number;
+    "y": number;
+    "scale": number;
+    "opacity": number;
+
+    /** Creates a new TransformJSON instance. */
+    constructor($$source: Partial<TransformJSON> = {}) {
+        if (!("x" in $$source)) {
+            this["x"] = 0;
+        }
+        if (!("y" in $$source)) {
+            this["y"] = 0;
+        }
+        if (!("scale" in $$source)) {
+            this["scale"] = 0;
+        }
+        if (!("opacity" in $$source)) {
+            this["opacity"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TransformJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TransformJSON {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TransformJSON($$parsedSource as Partial<TransformJSON>);
+    }
+}
+
 // Private type creation functions
-const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = Segment.createFrom;
-const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = capture$0.Rect.createFrom;
+const $$createType0 = TrackLevel.createFrom;
+const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = TransformJSON.createFrom;
+const $$createType3 = ChromaJSON.createFrom;
 const $$createType4 = $Create.Nullable($$createType3);
-const $$createType5 = TrackLevel.createFrom;
-const $$createType6 = $Create.Array($$createType5);
-const $$createType7 = TextOverlay.createFrom;
+const $$createType5 = FiltersJSON.createFrom;
+const $$createType6 = $Create.Array($Create.Any);
+const $$createType7 = Segment.createFrom;
 const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = AudioTrack.createFrom;
-const $$createType10 = $Create.Array($$createType9);
+const $$createType9 = capture$0.Rect.createFrom;
+const $$createType10 = $Create.Nullable($$createType9);
+const $$createType11 = TextOverlay.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = AudioTrack.createFrom;
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = ProjectJSON.createFrom;
+const $$createType16 = CanvasJSON.createFrom;
+const $$createType17 = MediaJSON.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = TrackJSON.createFrom;
+const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = TextJSON.createFrom;
+const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = ClipJSON.createFrom;
+const $$createType24 = $Create.Array($$createType23);

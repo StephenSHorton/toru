@@ -187,6 +187,15 @@ func parseRate(r string) float64 {
 // nothing behind. The Discord preset re-encodes the result to fit 10MB; the
 // returned path then ends in .webm unless the edit was already small enough.
 func (s *VideoService) Export(req EditRequest) (string, error) {
+	return runExclusive(func(ctx context.Context) (string, error) {
+		return s.export(ctx, req, emitEditProgress)
+	})
+}
+
+// runExclusive runs one export at a time (v1 Export or v2 ExportProject)
+// under a context CancelExport cancels, and turns a cancelled run into
+// ErrExportCancelled.
+func runExclusive(run func(ctx context.Context) (string, error)) (string, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	editRun.mu.Lock()
@@ -202,11 +211,63 @@ func (s *VideoService) Export(req EditRequest) (string, error) {
 		editRun.mu.Unlock()
 	}()
 
-	out, err := s.export(ctx, req, emitEditProgress)
+	out, err := run(ctx)
 	if ctx.Err() != nil {
 		return "", ErrExportCancelled
 	}
 	return out, err
+}
+
+// ExportProject renders a v2 project (docs/video-editor-v2.md) to
+// req.OutPath like Export: "edit:progress" events, CancelExport, a temp file
+// renamed into place, the Discord preset chained.
+func (s *VideoService) ExportProject(req ProjectExport) (string, error) {
+	return runExclusive(func(ctx context.Context) (string, error) {
+		return s.exportProject(ctx, req, emitEditProgress)
+	})
+}
+
+func (s *VideoService) exportProject(ctx context.Context, req ProjectExport, onProgress func(float64)) (string, error) {
+	if err := req.Validate(); err != nil {
+		return "", err
+	}
+	for _, m := range req.Project.Media {
+		if _, err := os.Stat(m.Path); err != nil {
+			return "", fmt.Errorf("export: %s is missing (moved or deleted?)", m.Path)
+		}
+	}
+	textFilter, cleanupText, err := projectTextFilter(req.Project)
+	if err != nil {
+		return "", err
+	}
+	defer cleanupText()
+	build := func(tmp string) []string {
+		run := req
+		run.OutPath = tmp
+		return BuildProjectArgs(run, capture.TrimH264Encoder(), textFilter)
+	}
+	return s.render(ctx, req.OutPath, req.Preset == "discord", build, ProjectDurationMs(req.Project), onProgress)
+}
+
+// projectTextFilter is editTextFilter for a v2 project: the texts laid out
+// in the canvas (or crop), their files removed by cleanup.
+func projectTextFilter(p ProjectJSON) (filter string, cleanup func(), err error) {
+	texts := p.textOverlays()
+	if len(texts) == 0 {
+		return "", func() {}, nil
+	}
+	dir, err := os.MkdirTemp("", "toru-edittext-")
+	if err != nil {
+		return "", nil, fmt.Errorf("export: %w", err)
+	}
+	cleanup = func() { _ = os.RemoveAll(dir) }
+	w, h := ProjectFrameSize(p)
+	filter, _, err = TextFilter(texts, w, h, DefaultTextFont, dir)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("export: %w", err)
+	}
+	return filter, cleanup, nil
 }
 
 // CancelExport stops the running export, if any. Export then returns
@@ -240,13 +301,26 @@ func (s *VideoService) export(ctx context.Context, req EditRequest, onProgress f
 		return "", err
 	}
 	defer cleanupText()
-	if dir := filepath.Dir(req.OutPath); dir != "" {
+	build := func(tmp string) []string {
+		run := req
+		run.OutPath = tmp
+		return BuildEditArgs(run, info, capture.TrimH264Encoder(), textFilter)
+	}
+	return s.render(ctx, req.OutPath, req.Preset == "discord", build, EditDurationMs(req, info), onProgress)
+}
+
+// render runs one export's ffmpeg pass (args from build, writing the temp
+// file it is given) with progress over totalMs, chains the Discord re-encode
+// when discord is set, and renames the result to outPath (its extension
+// following the real container). A failed or cancelled run leaves nothing
+// behind.
+func (s *VideoService) render(ctx context.Context, outPath string, discord bool, build func(tmp string) []string, totalMs int, onProgress func(float64)) (string, error) {
+	if dir := filepath.Dir(outPath); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("export: %w", err)
 		}
 	}
 
-	discord := req.Preset == "discord"
 	// The edit pass is all of the progress bar, or the first half when the
 	// Discord re-encode follows it.
 	scale := 1.0
@@ -259,12 +333,9 @@ func (s *VideoService) export(ctx context.Context, req EditRequest, onProgress f
 		}
 	}
 
-	tmp := partPath(req.OutPath)
-	run := req
-	run.OutPath = tmp
-	args := BuildEditArgs(run, info, capture.TrimH264Encoder(), textFilter)
+	tmp := partPath(outPath)
 	report(0)
-	if err := capture.RunFFmpegProgress(ctx, args, EditDurationMs(req, info), report); err != nil {
+	if err := capture.RunFFmpegProgress(ctx, build(tmp), totalMs, report); err != nil {
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("export: %w", err)
 	}
@@ -286,7 +357,7 @@ func (s *VideoService) export(ctx context.Context, req EditRequest, onProgress f
 	}
 	// Discord may change the container (.webm); keep the user's name with
 	// the real extension.
-	dst := req.OutPath
+	dst := outPath
 	if ext := filepath.Ext(final); !strings.EqualFold(ext, filepath.Ext(dst)) {
 		dst = strings.TrimSuffix(dst, filepath.Ext(dst)) + ext
 	}

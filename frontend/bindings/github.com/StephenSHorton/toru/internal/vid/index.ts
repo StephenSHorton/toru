@@ -8,9 +8,19 @@ export {
 
 export {
     AudioTrack,
+    CanvasJSON,
+    ChromaJSON,
+    ClipJSON,
     EditRequest,
+    FiltersJSON,
     MediaInfo,
+    MediaJSON,
+    ProjectExport,
+    ProjectJSON,
     Segment,
+    TextJSON,
     TextOverlay,
-    TrackLevel
+    TrackJSON,
+    TrackLevel,
+    TransformJSON
 } from "./models.js";
