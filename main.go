@@ -18,6 +18,7 @@ import (
 	"time"
 
 	toast "github.com/StephenSHorton/go-toast"
+	"github.com/StephenSHorton/toru/internal/agentctl"
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/clicker"
 	"github.com/StephenSHorton/toru/internal/dpi"
@@ -133,6 +134,10 @@ func main() {
 	shotSvc := shot.New()
 	vidSvc := vid.New()
 	mediaSvc := media.New()
+	// Agent control: one registry of commands for AI agents and scripts,
+	// served over a per-user named pipe while the setting is on.
+	agentReg := agentctl.NewRegistry()
+	agentSvc := agentctl.New(agentReg)
 	windowsSvc := &WindowsService{cap: capturer}
 	updateSvc := update.New(updateRepo, version)
 
@@ -200,6 +205,7 @@ func main() {
 			application.NewService(shotSvc),
 			application.NewService(vidSvc),
 			application.NewService(mediaSvc),
+			application.NewService(agentSvc),
 			application.NewService(windowsSvc),
 			application.NewService(updateSvc),
 			application.NewService(hotkeySvc),
@@ -479,6 +485,9 @@ func main() {
 		// Auto clicker: load settings, arm its hotkeys.
 		go clickerSvc.Init()
 
+		// Agent control: open the pipe if the user turned it on.
+		go func() { _ = agentSvc.Start() }()
+
 		// Stream: rejoin the saved room so friends see we're around; then
 		// LAN, which turns itself back on if it was left on in that room.
 		go func() {
@@ -504,6 +513,7 @@ func main() {
 		transferSvc.Shutdown()
 		lanSvc.Shutdown()    // drop the LAN pipe (the service keeps tunnels briefly)
 		streamSvc.Shutdown() // end a live stream, tell the room we left
+		agentSvc.Shutdown()  // remove the agent pipe
 		updateSvc.InstallOnExit()
 	})
 

@@ -72,6 +72,16 @@ cd frontend && bun install --frozen-lockfile && bun run build && cd ..   # tsc +
 go build -o build/bin/toru.exe .
 ```
 
+## Agent control: every feature registers its actions
+
+Toru can be driven by AI agents and scripts (`docs/agent-control.md`). A feature
+isn't done until its actions are in the agent registry: Go services register
+`agentctl.Command`s on the registry built in `main.go`, and windows register
+theirs with `registerAgentCommand` from `frontend/src/lib/agent.ts`. Window
+commands change state through the window's undo history; commands that delete
+or overwrite things set `Destructive`/`destructive` (they then need
+`"confirm": true`).
+
 ## Commit messages
 
 Conventional-commit style (`feat:`, `fix:`, `chore:`, `docs:`). Keep the shared
