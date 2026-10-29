@@ -1,8 +1,6 @@
 # Video editor v1
 
-Status: draft, decisions on Irori card #1 ("Toru: add a video editor").
-Where a decision is still open, this spec builds to the **recommended** answer
-and marks it _(pending decision)_.
+Status: decided on Irori card #1 ("Toru: add a video editor"), 2026-10-29.
 
 ## Goal
 
@@ -46,18 +44,21 @@ In:
 4. **Text overlays, basic.** Add text, type it, drag it on the player, set
    its start and end on the timeline. One style: white Segoe UI Semibold with
    a dark outline, three sizes (S/M/L). Several overlays allowed.
-5. **Per-track audio.** For each source with separate tracks, one row per
-   source track with a volume slider (0 to 200%) and mute. Export re-mixes
-   them at those levels. Sources with one track get a single volume row.
-   _(pending decision: preview)_
+5. **Per-track audio with live preview.** For each source with separate
+   tracks, one row per source track with a volume slider (0 to 200%) and
+   mute. You hear the levels while previewing: Go extracts each source track
+   to a temp audio file (stream copy) and the window plays them in sync with
+   the muted video. Export re-mixes them at those levels. Sources with one
+   track get a single volume row.
 6. **Crop**, reusing `frontend/src/trim/CropBox.tsx`, applies to the output
    frame.
 7. **Export presets:** Original quality (first source's size and frame
-   rate), 1080p MP4, Discord-sized (fits 10MB, existing two-pass VP9).
-   Progress bar and cancel. _(pending decision)_
-8. **Output:** a new file beside the first source named
-   `<name>-edited.mp4`; sources are never changed. Clips stay in the clips
-   folder; screen recordings are added to the Library. _(pending decision)_
+   rate), 1080p MP4, 720p MP4, Discord-sized (fits 10MB, existing two-pass
+   VP9), and Custom (height and bitrate). Progress bar and cancel.
+8. **Output:** Export opens a Save As dialog every time, suggesting
+   `<first source name>-edited.mp4` in the first source's folder. Sources are
+   never changed. If the file lands in the clips folder it shows in Library >
+   Clips as usual; nothing else is added to the Library.
 
 Out of v1 (later): transitions, speed changes, music or extra audio files,
 text styles beyond the one above, GIF export (issue #12), still frame
@@ -103,8 +104,10 @@ type EditRequest struct {
 	Crop     *capture.Rect `json:"crop,omitempty"`    // pixels of the Sources[0]-sized frame
 	Tracks   []TrackLevel  `json:"tracks,omitempty"`  // a source with none listed keeps its mix track at 100%
 	Texts    []TextOverlay `json:"texts,omitempty"`
-	Preset   string        `json:"preset"`            // "original" | "1080p" | "discord"
-	OutPath  string        `json:"outPath,omitempty"` // "" = <Sources[0] name>-edited.mp4
+	Preset   string        `json:"preset"`            // "original" | "1080p" | "720p" | "discord" | "custom"
+	Height   int           `json:"height,omitempty"`  // custom only: output height (even), width keeps aspect
+	Kbps     int           `json:"kbps,omitempty"`    // custom only: video bitrate
+	OutPath  string        `json:"outPath"`           // from the Save As dialog; required
 }
 
 type MediaInfo struct {
@@ -132,6 +135,10 @@ func TextFilter(texts []TextOverlay, w, h int, fontFile, tmpDir string) (filter 
 func (s *VideoService) ProbeMedia(path string) (MediaInfo, error)
 func (s *VideoService) Export(req EditRequest) (string, error) // emits "edit:progress" {pct}
 func (s *VideoService) CancelExport() error
+func (s *VideoService) PickExportPath(suggested string) (string, error) // Save As dialog; "" = cancelled
+
+// edit_audio.go: live audio preview (audio card)
+func (s *VideoService) PreviewTrack(path string, index int) (string, error) // served URL of a temp audio file
 ```
 
 Filter graph, per segment `i` from source `k`:
@@ -142,8 +149,9 @@ Audio per segment: the chosen source tracks, each `atrim` + `asetpts` +
 `anullsrc` of the segment's length. Then `concat=n=N:v=1:a=1`, then crop,
 then the text filter (`drawtext` with `textfile=` per overlay so nothing
 needs escaping, font `C:\Windows\Fonts\seguisb.ttf`, `borderw`,
-`enable='between(t,a,b)'`), then the preset's scale (`1080p` =
-`scale=-2:1080`, only when the frame is taller). Encoder: the trim encoder
+`enable='between(t,a,b)'`), then the preset's scale (`1080p` / `720p` /
+custom = `scale=-2:H`, only when the frame is taller; custom also sets
+`-b:v`). Encoder: the trim encoder
 picker in `internal/capture` (export it; `args.go` is shared core, not the
 contract). The Discord preset runs `ExportForDiscord` on the result.
 Progress: `capture.RunFFmpegProgress` with the summed segment length.
@@ -183,6 +191,10 @@ export function useEdlHistory(init: Edl): { edl; apply(fn); undo(); redo(); canU
   and outline as the export) and the text edit popover.
 - `AudioTracks.tsx`: rows from `ProbeMedia`, volume + mute, emits
   `TrackLevel[]`.
+- `useTrackPreview.ts`: when a source with separate tracks is playing, mutes
+  the `<video>` and plays one `<audio>` per source track (from
+  `PreviewTrack`) at its level, kept within 50ms of the video clock
+  (re-seek when it drifts further).
 - `AddClipDialog.tsx`: lists Library clips and recordings, returns a path.
 - `ExportDialog.tsx`: preset picker, progress, cancel, then Copy / Show in
   folder.
@@ -214,7 +226,7 @@ Tracked as cards on the Irori Board under #1. File ownership:
 | Timeline UI | `frontend/src/trim/EditTimeline.tsx` |
 | Window shell + Edit buttons | `windows.go` (OpenEditVideo, ServedURL), `frontend/src/App.tsx`, `frontend/src/routes/EditVideo.tsx`, Edit buttons in `Trim.tsx`, `Settings.tsx`, `Timeline.tsx` |
 | Add clip from Library | `frontend/src/trim/AddClipDialog.tsx` |
-| Audio tracks UI | `frontend/src/trim/AudioTracks.tsx` |
+| Audio tracks + live preview | `internal/vid/edit_audio.go` + tests, `frontend/src/trim/AudioTracks.tsx`, `frontend/src/trim/useTrackPreview.ts` |
 | Export dialog + final wiring | `frontend/src/trim/ExportDialog.tsx`, `frontend/src/routes/EditVideo.tsx` (after the shell merges) |
 
 Go-side cards regenerate bindings with
