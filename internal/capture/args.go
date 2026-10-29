@@ -319,3 +319,18 @@ func trimH264Args(enc string) []string {
 	}
 	return args
 }
+
+// TrimH264Encoder is the H.264 encoder re-encoded exports use (the trim
+// picker above), exported for the video editor's export in internal/vid.
+func TrimH264Encoder() string { return trimH264Encoder() }
+
+// TrimH264Args is "-c:v enc" plus the quality settings trims use for enc.
+func TrimH264Args(enc string) []string { return trimH264Args(enc) }
+
+// CropFilter renders a video-pixel Rect as an even-aligned crop filter (see
+// cropFilter).
+func CropFilter(c Rect) string { return cropFilter(c) }
+
+// ContainerFlags returns the muxer flags outPath's container needs (see
+// containerFlags).
+func ContainerFlags(outPath string) []string { return containerFlags(outPath) }
