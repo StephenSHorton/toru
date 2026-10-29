@@ -1,357 +1,341 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Crop, Download, Loader2, Pause, Play, Plus, RotateCcw, Type } from "lucide-react";
+import { Crop, Download, Loader2, Pause, Play, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { VideoService, WindowsService, type TrackLevel } from "@/lib/api";
+import { MediaService, VideoService } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { AddClipDialog } from "@/trim/AddClipDialog";
-import { AudioTracks } from "@/trim/AudioTracks";
+import { ProjectExport } from "../../bindings/github.com/StephenSHorton/toru/internal/vid/models.js";
+import { Compositor, type CompositorHandle } from "@/trim/compositor/Compositor";
+import { usePlayback } from "@/trim/compositor/usePlayback";
 import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
-import { EditTimeline, type Selection } from "@/trim/EditTimeline";
-import { addSource, initEdl, newText, removeText, toRequest, upsertText, useEdlHistory, type Edl, type Source } from "@/trim/edl";
+import { newId } from "@/trim/edl";
 import { ExportDialog } from "@/trim/ExportDialog";
+import { Inspector } from "@/trim/Inspector";
+import { MediaBin, toMedia, useMediaBin } from "@/trim/MediaBin";
+import { MultiTimeline, type TimelineSelection } from "@/trim/MultiTimeline";
+import { PlayerHandles } from "@/trim/PlayerHandles";
+import {
+  addMedia,
+  appendClip,
+  DEFAULT_CANVAS,
+  newProject,
+  projectDuration,
+  removeProjectText,
+  setCrop,
+  toExportRequest,
+  upsertProjectText,
+  useProjectHistory,
+  type Media,
+  type Project,
+} from "@/trim/project";
 import { TextOverlays } from "@/trim/TextOverlays";
-import { usePreviewPlayback } from "@/trim/usePreviewPlayback";
-import { useTrackPreview } from "@/trim/useTrackPreview";
 
-// Video editor window (docs/video-editor.md): cut, join, text, per-track
-// audio, crop and export. Opened by WindowsService.OpenEditVideo with the same
-// query params as the trim window: ?vid= is the served URL of the first
-// source, ?path= its absolute path (Go-side operations need it).
+// Video editor window, v2 (docs/video-editor-v2.md): the media bin on the
+// left, the player in the middle (the WebGL compositor with text overlays,
+// crop and the move/resize handles laid over it), the clip inspector on the
+// right and the multi-track timeline below. Opened by
+// WindowsService.OpenEditVideo: ?path= is the first file's absolute path
+// (?vid= its served URL, used only when there's no path, as the dev sample).
 //
-// The edit lives in an EDL (useEdlHistory, so every edit undoes); the player
-// is driven by usePreviewPlayback, which owns the <video>'s src and plays the
-// EDL in output time, and EditTimeline edits it. Add clip appends a Library
-// video as a new source. Text overlays sit over the output frame and edit the
-// EDL's texts; per-track audio levels live beside the EDL (not in its undo
-// history) and are heard live through useTrackPreview. Export opens
-// ExportDialog, which sends toRequest(edl, { crop, tracks: levels }) plus the
-// preset and the Save As path.
-const EMPTY_EDL: Edl = { sources: [], segs: [], texts: [] };
+// The whole edit is one Project (useProjectHistory: every change undoes,
+// drags as one step). The playback clock (usePlayback) drives the compositor
+// and the timeline's playhead. Export runs the v1 ExportDialog with
+// VideoService.ExportProject.
 
 export default function EditVideo() {
   const params = new URLSearchParams(window.location.search);
-  const src = params.get("vid") || "/sample.mp4";
   const absPath = params.get("path") ?? "";
-  // Instant-replay clips have a cached thumbnail to show while the decoder
-  // spins up.
-  const poster = src.startsWith("/__replayclip/") ? src.replace("/__replayclip/", "/__replaythumb/") : undefined;
+  const devURL = params.get("vid") || "/sample.mp4";
 
-  const vidRef = useRef<HTMLVideoElement>(null);
-  const paneRef = useRef<HTMLDivElement>(null);
-  const [ready, setReady] = useState(false);
+  const { project, apply, undo, redo, reset, canUndo, canRedo } = useProjectHistory(emptyProject());
+  const duration = projectDuration(project);
+  const pb = usePlayback(duration);
+  const bin = useMediaBin();
+  const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState("");
 
-  const { edl, apply, undo, redo, reset, canUndo, canRedo } = useEdlHistory(EMPTY_EDL);
-  const { outTime, playing, play, pause, seek, duration } = usePreviewPlayback(vidRef, edl);
-  const [selection, setSelection] = useState<Selection>(null);
-
-  // Load the first source, then start the EDL from it (no undo step).
+  // Start the project from the file the window was opened with (no undo step).
   useEffect(() => {
     let live = true;
-    probeSource(absPath, src)
-      .then((first) => live && reset(initEdl(first)))
-      .catch((err) => live && setLoadErr(String(err)));
+    firstMedia(absPath, devURL)
+      .then((m) => live && reset(newProject(m)))
+      .catch((err) => live && setLoadErr(String(err)))
+      .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [absPath, src, reset]);
+  }, [absPath, devURL, reset]);
 
-  // Export: the dialog adds the preset and the output path to this.
+  const [selection, setSelection] = useState<TimelineSelection>(null);
+  const [picking, setPicking] = useState(false);
+  const [cropMode, setCropMode] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const cropGesture = useRef(0);
 
-  // Add clip: probe the picked Library video and append it as a new source.
-  const [addOpen, setAddOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [note, setNote] = useState("");
-  const onPickClip = useCallback(
-    async (path: string) => {
-      setAddOpen(false);
-      setAdding(true);
-      setNote("");
-      try {
-        const url = await WindowsService.ServedURL(path);
-        const next = await probeSource(path, url);
-        apply((e) => addSource(e, next));
-      } catch (err) {
-        setNote(`Couldn't add that clip: ${err}`);
-      } finally {
-        setAdding(false);
-      }
+  // The canvas and where it sits in the player pane, for the DOM overlays.
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
+  const compositor = useRef<CompositorHandle | null>(null);
+  const canvasBox = useElementBox(canvas, paneRef);
+
+  const cw = project.canvas.width;
+  const ch = project.canvas.height;
+  const crop = project.crop;
+  // The output frame: the crop rect when there is one, else the canvas.
+  const outW = crop?.w ?? cw;
+  const outH = crop?.h ?? ch;
+  const outBox: RenderedBox =
+    crop && canvasBox.width > 0
+      ? {
+          left: canvasBox.left + (crop.x * canvasBox.width) / cw,
+          top: canvasBox.top + (crop.y * canvasBox.height) / ch,
+          width: (crop.w * canvasBox.width) / cw,
+          height: (crop.h * canvasBox.height) / ch,
+        }
+      : canvasBox;
+
+  const appendMedia = useCallback(
+    (m: Media) => {
+      apply((p) => appendClip(addMedia(p, m), m.id));
     },
     [apply],
   );
 
-  // Crop in pixels of the first source's frame (null = full frame); applies
-  // to the output frame, which is the first source's size.
-  const [cropMode, setCropMode] = useState(false);
-  const [crop, setCrop] = useState<CropRect | null>(null);
-  const frame = edl.sources[0];
-  const videoBox = useVideoBox(vidRef, paneRef, ready);
-  // The player is sized to the first source's frame (the output frame), so
-  // a joined clip of another shape is letterboxed or pillarboxed inside it,
-  // as the export pads it.
-  const playerSize = useFitSize(paneRef, frame?.width ?? 0, frame?.height ?? 0);
-
-  // Per-track audio levels (AudioTracks lists only sources the user changed),
-  // heard while previewing.
-  const [levels, setLevels] = useState<TrackLevel[]>([]);
-  useTrackPreview(vidRef, edl.sources, levels);
-
-  // Text overlays are drawn over the OUTPUT frame: the crop rect when there
-  // is one, else the whole first-source frame.
-  const outW = crop?.w ?? frame?.width ?? 0;
-  const outH = crop?.h ?? frame?.height ?? 0;
-  const buildRequest = useCallback(() => {
-    const { preset: _p, outPath: _o, height: _h, kbps: _k, ...req } = toRequest(edl, { crop, tracks: levels, preset: "original" });
-    return req;
-  }, [edl, crop, levels]);
-  const outBox: RenderedBox =
-    crop && frame
-      ? {
-          left: videoBox.left + (crop.x * videoBox.width) / frame.width,
-          top: videoBox.top + (crop.y * videoBox.height) / frame.height,
-          width: (crop.w * videoBox.width) / frame.width,
-          height: (crop.h * videoBox.height) / frame.height,
-        }
-      : videoBox;
-  const selectedText = selection?.kind === "text" ? selection.id : null;
   const addText = useCallback(() => {
-    pause();
-    const t = newText(edl, outTime, "");
-    apply((e) => upsertText(e, t));
-    setSelection({ kind: "text", id: t.id });
-  }, [edl, outTime, apply, pause]);
+    if (duration <= 0) return;
+    pb.pause();
+    const start = Math.min(pb.clock.now(), Math.max(0, duration - 0.5));
+    const id = newId("txt");
+    apply((p) => upsertProjectText(p, { id, text: "", x: 0.5, y: 0.5, size: "m", start, end: Math.min(duration, start + 3) }));
+    setSelection({ kind: "text", id });
+  }, [apply, duration, pb]);
+
   const editText = useCallback(
     (id: string) => {
-      const t = edl.texts.find((x) => x.id === id);
+      const t = project.texts.find((x) => x.id === id);
       if (!t) return;
-      pause();
-      if (outTime < t.start || outTime >= t.end) seek(t.start);
+      pb.pause();
+      const now = pb.clock.now();
+      if (now < t.start || now >= t.end) pb.seek(t.start);
       setSelection({ kind: "text", id });
     },
-    [edl, outTime, pause, seek],
+    [project.texts, pb],
   );
 
-  const toggle = useCallback(() => {
-    if (playing) pause();
-    else play();
-  }, [playing, play, pause]);
+  const runExport = useCallback(
+    (choice: Parameters<typeof toExportRequest>[1]) =>
+      VideoService.ExportProject(ProjectExport.createFrom(toExportRequest(project, choice))),
+    [project],
+  );
+  const firstPath = project.media.find((m) => m.kind !== "audio")?.path ?? project.media[0]?.path ?? absPath;
 
+  // Space plays/pauses; Esc leaves crop mode. The timeline has the edit keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (addOpen) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (exportOpen) return;
       if (e.code === "Space") {
         e.preventDefault();
-        toggle();
+        pb.toggle();
       } else if (e.key === "Escape" && cropMode) {
         setCropMode(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, cropMode, addOpen]);
+  }, [pb, cropMode, exportOpen]);
 
-  const cropActive = crop !== null;
+  const selectedClip = selection?.kind === "clip" ? selection.id : null;
+  const ready = !loading && !loadErr && project.media.length > 0;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div ref={paneRef} className="relative flex min-h-0 flex-1 items-center justify-center p-4">
-        {loadErr ? (
-          <div className="absolute bg-black/60 px-3 py-1.5 text-xs text-destructive">Couldn&rsquo;t load the video: {loadErr}</div>
-        ) : !ready ? (
-          <div className="pointer-events-none absolute flex items-center gap-2 bg-black/60 px-3 py-1.5 text-xs text-white">
-            <Loader2 className="size-3.5 animate-spin" /> Loading video…
-          </div>
-        ) : null}
-        {/* No src here: usePreviewPlayback sets it and swaps it between sources. */}
-        <video
-          ref={vidRef}
-          poster={poster}
-          preload="auto"
-          onCanPlay={() => setReady(true)}
-          onLoadedData={() => setReady(true)}
-          className="max-h-full max-w-full cursor-pointer border bg-black object-contain"
-          style={playerSize ? { width: playerSize.w, height: playerSize.h } : undefined}
-          onClick={toggle}
-          title={playing ? "Click to pause" : "Click to play"}
-        />
-        {cropMode && ready && frame ? (
-          <CropBox
-            videoW={frame.width}
-            videoH={frame.height}
-            box={videoBox}
-            crop={crop}
-            onChange={setCrop}
-            onBackdropClick={toggle}
-            backdropTitle={playing ? "Click outside the crop to pause" : "Click outside the crop to play"}
-          />
-        ) : null}
-        {!cropMode && ready && crop && frame ? <CropMask box={videoBox} cropBox={outBox} /> : null}
-        {!cropMode && ready && outW > 0 ? (
-          <TextOverlays
-            texts={edl.texts}
-            time={outTime}
-            frameW={outW}
-            frameH={outH}
-            box={outBox}
-            selectedId={selectedText}
-            onSelect={(id) => setSelection(id ? { kind: "text", id } : null)}
-            onChange={(t) => apply((e) => upsertText(e, t))}
-            onRemove={(id) => {
-              apply((e) => removeText(e, id));
-              setSelection(null);
-            }}
-          />
-        ) : null}
-      </div>
+      <div className="flex min-h-0 flex-1 gap-2 p-2 pb-0">
+        <MediaBin bin={bin} onAppend={appendMedia} className="frost w-60 shrink-0" />
 
-      <div className="frost m-3 flex flex-col gap-3 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="icon"
-            variant="secondary"
-            onClick={toggle}
-            title={playing ? "Pause (Space)" : "Play (Space)"}
-            aria-label={playing ? "Pause" : "Play"}
-          >
-            {playing ? <Pause /> : <Play />}
-          </Button>
-          <span className={cn("whitespace-nowrap text-xs tabular-nums text-muted-foreground", duration <= 0 && "invisible")}>
-            {fmtTime(outTime)} / {fmtTime(duration)}
-          </span>
-          {note ? <span className="text-xs text-destructive">{note}</span> : null}
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={!frame || adding}
-              onClick={() => setAddOpen(true)}
-              title="Add a clip or screen recording from the Library to the end"
-            >
-              {adding ? <Loader2 className="animate-spin" /> : <Plus />} Add clip
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div ref={paneRef} className="relative min-h-0 flex-1">
+            <Compositor project={project} clock={pb.clock} canvasRef={setCanvas} handle={compositor} className="h-full w-full" />
+            {loadErr ? (
+              <Center>
+                <span className="bg-black/70 px-3 py-1.5 text-xs text-destructive">Couldn&rsquo;t open the video: {loadErr}</span>
+              </Center>
+            ) : loading ? (
+              <Center>
+                <span className="flex items-center gap-2 bg-black/60 px-3 py-1.5 text-xs text-white">
+                  <Loader2 className="size-3.5 animate-spin" /> Loading video…
+                </span>
+              </Center>
+            ) : null}
+            {ready && !cropMode ? (
+              <PlayerHandles
+                project={project}
+                time={pb.time}
+                canvas={canvas}
+                selection={selectedClip}
+                onSelect={(id) => setSelection(id ? { kind: "clip", id } : null)}
+                apply={apply}
+                compositor={compositor}
+                picking={picking}
+                onPickingChange={setPicking}
+              />
+            ) : null}
+            {ready && cropMode && canvasBox.width > 0 ? (
+              <CropBox
+                videoW={cw}
+                videoH={ch}
+                box={canvasBox}
+                crop={crop}
+                onChange={(r: CropRect | null) => apply((p) => setCrop(p, r), `crop:${cropGesture.current}`)}
+                onBackdropClick={pb.toggle}
+                backdropTitle={pb.playing ? "Click outside the crop to pause" : "Click outside the crop to play"}
+              />
+            ) : null}
+            {ready && !cropMode && crop ? <CropMask box={canvasBox} cropBox={outBox} /> : null}
+            {ready && !cropMode && !picking ? (
+              <TextOverlays
+                texts={project.texts}
+                time={pb.time}
+                frameW={outW}
+                frameH={outH}
+                box={outBox}
+                selectedId={selection?.kind === "text" ? selection.id : null}
+                onSelect={(id) => setSelection(id ? { kind: "text", id } : null)}
+                onChange={(t) => apply((p) => upsertProjectText(p, t))}
+                onRemove={(id) => {
+                  apply((p) => removeProjectText(p, id));
+                  setSelection(null);
+                }}
+              />
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="icon" variant="secondary" onClick={pb.toggle} disabled={!ready} title={pb.playing ? "Pause (Space)" : "Play (Space)"} aria-label={pb.playing ? "Pause" : "Play"}>
+              {pb.playing ? <Pause /> : <Play />}
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={!frame || duration <= 0}
-              onClick={addText}
-              title="Add text at the playhead (drag it on the video, retime it on the timeline)"
-            >
-              <Type /> Text
-            </Button>
-            <Button
-              size="sm"
-              variant={cropMode ? "default" : cropActive ? "secondary" : "ghost"}
-              disabled={duration <= 0}
-              onClick={() => setCropMode((m) => !m)}
-              title={
-                cropMode
-                  ? "Done cropping (the crop stays applied)"
-                  : cropActive
-                    ? `Crop: ${crop.w} × ${crop.h} — click to adjust`
-                    : "Crop the picture: drag a box over the video"
-              }
-              aria-label={cropMode ? "Leave crop mode" : "Crop"}
-              aria-pressed={cropMode}
-            >
-              <Crop /> {cropActive ? `${crop.w}×${crop.h}` : "Crop"}
-            </Button>
-            {cropActive ? (
+            <span className={cn("whitespace-nowrap text-xs tabular-nums text-muted-foreground", duration <= 0 && "invisible")}>
+              {fmtTime(pb.time)} / {fmtTime(duration)}
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {cw}×{ch} · {Math.round(project.canvas.fps * 100) / 100} fps
+            </span>
+            <div className="ml-auto flex items-center gap-1">
               <Button
                 size="sm"
-                variant="ghost"
-                onClick={() => setCrop(null)}
-                title="Reset the crop to the full frame"
-                aria-label="Reset crop"
+                variant={cropMode ? "default" : crop ? "secondary" : "ghost"}
+                disabled={!ready}
+                onClick={() => {
+                  cropGesture.current++;
+                  setCropMode((m) => !m);
+                }}
+                title={cropMode ? "Done cropping (the crop stays applied)" : crop ? `Crop: ${crop.w} × ${crop.h}, click to adjust` : "Crop the picture: drag a box over the video"}
+                aria-pressed={cropMode}
               >
-                <RotateCcw /> Reset
+                <Crop /> {crop ? `${crop.w}×${crop.h}` : "Crop"}
               </Button>
-            ) : null}
-            <div className="mx-1 h-5 w-px bg-border" />
-            <Button
-              size="sm"
-              disabled={!frame || duration <= 0 || !absPath}
-              onClick={() => {
-                pause();
-                setExportOpen(true);
-              }}
-              title={absPath ? "Export the edit to a new video file" : "Export needs a real file (not the dev sample)"}
-            >
-              <Download /> Export
-            </Button>
+              {crop ? (
+                <Button size="sm" variant="ghost" onClick={() => apply((p) => setCrop(p, null))} title="Reset the crop to the full frame">
+                  <RotateCcw /> Reset
+                </Button>
+              ) : null}
+              <div className="mx-1 h-5 w-px bg-border" />
+              <Button
+                size="sm"
+                disabled={!ready || duration <= 0 || !firstPath}
+                onClick={() => {
+                  pb.pause();
+                  setExportOpen(true);
+                }}
+                title={firstPath ? "Export the edit to a new video file" : "Export needs a real file (not the dev sample)"}
+              >
+                <Download /> Export
+              </Button>
+            </div>
           </div>
         </div>
-        <EditTimeline
-          edl={edl}
-          outTime={outTime}
-          onSeek={seek}
+
+        <Inspector project={project} clipId={selectedClip} apply={apply} picking={picking} onPickingChange={setPicking} className="frost w-72 shrink-0" />
+      </div>
+
+      <div className="frost m-2 p-2">
+        <MultiTimeline
+          project={project}
+          outTime={pb.time}
+          onSeek={pb.seek}
           apply={apply}
           selection={selection}
           onSelect={setSelection}
+          mediaFor={bin.byId}
           onUndo={undo}
           onRedo={redo}
           canUndo={canUndo}
           canRedo={canRedo}
-          keyboard={!addOpen}
+          onAddText={addText}
           onEditText={editText}
+          keyboard={!exportOpen}
         />
-        <AudioTracks sources={edl.sources} levels={levels} onChange={setLevels} className="max-h-40 overflow-y-auto" />
-        <div className="text-[11px] text-muted-foreground">
-          source: <span className="font-mono">{absPath || "(dev sample.mp4)"}</span>
-          {edl.sources.length > 1 ? ` + ${edl.sources.length - 1} more` : ""}
-        </div>
       </div>
 
-      <ExportDialog
-        open={exportOpen}
-        onClose={() => setExportOpen(false)}
-        buildRequest={buildRequest}
-        firstSource={edl.sources[0]?.path ?? absPath}
-        frameHeight={outH}
-      />
-
-      <AddClipDialog
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        onPick={(p) => void onPickClip(p)}
-        added={edl.sources.map((s) => s.path)}
-      />
+      <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} run={runExport} firstSource={firstPath} frameHeight={outH} />
     </div>
   );
 }
 
-// probeSource reads a video's length and frame size: from ProbeMedia when
-// there is a path (what the export will see), else from the browser's
-// metadata for the served URL (the dev sample).
-async function probeSource(path: string, url: string): Promise<Source> {
+// emptyProject is the placeholder until the first file has loaded.
+function emptyProject(): Project {
+  return {
+    version: 2,
+    id: newId("proj"),
+    name: "",
+    canvas: { ...DEFAULT_CANVAS },
+    media: [],
+    tracks: [
+      { id: newId("vt"), kind: "video", muted: false, hidden: false, locked: false, clips: [] },
+      { id: newId("at"), kind: "audio", muted: false, hidden: false, locked: false, clips: [] },
+    ],
+    texts: [],
+    crop: null,
+  };
+}
+
+// firstMedia registers the file the window opened with (MediaService probes
+// and serves it), or reads the dev sample's metadata in the browser.
+async function firstMedia(path: string, devURL: string): Promise<Media> {
   if (path) {
-    try {
-      const m = await VideoService.ProbeMedia(path);
-      if (m.durationMs > 0 && m.width > 0) {
-        return { path, url, duration: m.durationMs / 1000, width: m.width, height: m.height };
-      }
-    } catch {
-      // fall through to the browser
-    }
+    const [m] = await MediaService.Register([path]);
+    if (!m) throw new Error("the file couldn't be read");
+    return toMedia(m);
   }
   return new Promise((resolve, reject) => {
     const v = document.createElement("video");
     v.preload = "metadata";
     v.muted = true;
-    v.onloadedmetadata = () => {
-      resolve({ path, url, duration: Number.isFinite(v.duration) ? v.duration : 0, width: v.videoWidth, height: v.videoHeight });
-      v.removeAttribute("src");
-      v.load();
-    };
+    v.onloadedmetadata = () =>
+      resolve({
+        id: "dev-sample",
+        path: "",
+        url: devURL,
+        kind: "video",
+        duration: Number.isFinite(v.duration) ? v.duration : 0,
+        width: v.videoWidth,
+        height: v.videoHeight,
+        fps: 30,
+        hasAudio: true,
+        tracks: [],
+      });
     v.onerror = () => reject(new Error("the file couldn't be read"));
-    v.src = url;
+    v.src = devURL;
   });
+}
+
+function Center({ children }: { children: React.ReactNode }) {
+  return <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">{children}</div>;
 }
 
 // CropMask hides what an applied crop cuts away while previewing, so the
 // player shows what the export will: dark bands around the kept rect (CSS px,
-// relative to the pane). Clicks pass through to the player.
+// relative to the pane). Clicks pass through.
 function CropMask({ box, cropBox }: { box: RenderedBox; cropBox: RenderedBox }) {
   const l = cropBox.left - box.left;
   const t = cropBox.top - box.top;
@@ -359,11 +343,7 @@ function CropMask({ box, cropBox }: { box: RenderedBox; cropBox: RenderedBox }) 
   const b = t + cropBox.height;
   const band = "absolute bg-black/85";
   return (
-    <div
-      className="pointer-events-none absolute z-10"
-      style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
-      aria-hidden
-    >
+    <div className="pointer-events-none absolute z-[15]" style={{ left: box.left, top: box.top, width: box.width, height: box.height }} aria-hidden>
       <div className={band} style={{ left: 0, top: 0, right: 0, height: t }} />
       <div className={band} style={{ left: 0, top: b, right: 0, bottom: 0 }} />
       <div className={band} style={{ left: 0, top: t, width: l, height: b - t }} />
@@ -373,66 +353,32 @@ function CropMask({ box, cropBox }: { box: RenderedBox; cropBox: RenderedBox }) 
   );
 }
 
-// useFitSize is the largest w x h of aspect fw:fh that fits the pane's
-// content box (CSS px), or null until both are known.
-function useFitSize(paneRef: React.RefObject<HTMLDivElement | null>, fw: number, fh: number) {
-  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
-  useEffect(() => {
-    const pane = paneRef.current;
-    if (!pane || fw <= 0 || fh <= 0) {
-      setSize(null);
-      return;
-    }
-    const measure = () => {
-      const cs = getComputedStyle(pane);
-      const aw = pane.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-      const ah = pane.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-      if (aw <= 0 || ah <= 0) return;
-      const scale = Math.min(aw / fw, ah / fh);
-      setSize({ w: Math.floor(fw * scale), h: Math.floor(fh * scale) });
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(pane);
-    return () => ro.disconnect();
-  }, [paneRef, fw, fh]);
-  return size;
-}
-
-// useVideoBox measures where the <video> frame is rendered inside the pane
-// (CSS px, relative to the pane, content box only) while active, so overlays
-// such as the CropBox sit exactly on top of it.
-function useVideoBox(
-  vidRef: React.RefObject<HTMLVideoElement | null>,
-  paneRef: React.RefObject<HTMLDivElement | null>,
-  active: boolean,
-): RenderedBox {
+// useElementBox is where an element is drawn inside the pane (CSS px,
+// relative to the pane), kept up to date as either resizes.
+function useElementBox(el: HTMLElement | null, paneRef: React.RefObject<HTMLDivElement | null>): RenderedBox {
   const [box, setBox] = useState<RenderedBox>({ left: 0, top: 0, width: 0, height: 0 });
   useEffect(() => {
-    if (!active) return;
-    const v = vidRef.current;
     const pane = paneRef.current;
-    if (!v || !pane) return;
+    if (!el || !pane) return;
     const measure = () => {
-      const r = v.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
       const p = pane.getBoundingClientRect();
-      setBox({
-        left: r.left - p.left + v.clientLeft,
-        top: r.top - p.top + v.clientTop,
-        width: v.clientWidth,
-        height: v.clientHeight,
-      });
+      setBox((b) =>
+        b.left === r.left - p.left && b.top === r.top - p.top && b.width === r.width && b.height === r.height
+          ? b
+          : { left: r.left - p.left, top: r.top - p.top, width: r.width, height: r.height },
+      );
     };
     measure();
     const ro = new ResizeObserver(measure);
-    ro.observe(v);
+    ro.observe(el);
     ro.observe(pane);
     window.addEventListener("resize", measure);
     return () => {
       ro.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [vidRef, paneRef, active]);
+  }, [el, paneRef]);
   return box;
 }
 
