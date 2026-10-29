@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Crop, Loader2, Pause, Play, Plus, RotateCcw } from "lucide-react";
+import { Crop, Loader2, Pause, Play, Plus, RotateCcw, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { VideoService, WindowsService } from "@/lib/api";
+import { VideoService, WindowsService, type TrackLevel } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AddClipDialog } from "@/trim/AddClipDialog";
+import { AudioTracks } from "@/trim/AudioTracks";
 import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
 import { EditTimeline, type Selection } from "@/trim/EditTimeline";
-import { addSource, initEdl, useEdlHistory, type Edl, type Source } from "@/trim/edl";
+import { addSource, initEdl, newText, removeText, upsertText, useEdlHistory, type Edl, type Source } from "@/trim/edl";
+import { TextOverlays } from "@/trim/TextOverlays";
 import { usePreviewPlayback } from "@/trim/usePreviewPlayback";
+import { useTrackPreview } from "@/trim/useTrackPreview";
 
 // Video editor window (docs/video-editor.md): cut, join, text, per-track
 // audio, crop and export. Opened by WindowsService.OpenEditVideo with the same
@@ -17,8 +20,11 @@ import { usePreviewPlayback } from "@/trim/usePreviewPlayback";
 // The edit lives in an EDL (useEdlHistory, so every edit undoes); the player
 // is driven by usePreviewPlayback, which owns the <video>'s src and plays the
 // EDL in output time, and EditTimeline edits it. Add clip appends a Library
-// video as a new source. Text overlays, audio tracks and Export drop into the
-// labelled <Slot>s below as their cards land.
+// video as a new source. Text overlays sit over the output frame and edit the
+// EDL's texts; per-track audio levels live beside the EDL (not in its undo
+// history) and are heard live through useTrackPreview. Export drops into the
+// labelled <Slot> below when its card lands; it sends toRequest(edl, { crop,
+// tracks: levels, ... }).
 const EMPTY_EDL: Edl = { sources: [], segs: [], texts: [] };
 
 export default function EditVideo() {
@@ -76,7 +82,43 @@ export default function EditVideo() {
   const [cropMode, setCropMode] = useState(false);
   const [crop, setCrop] = useState<CropRect | null>(null);
   const frame = edl.sources[0];
-  const videoBox = useVideoBox(vidRef, paneRef, cropMode && ready);
+  const videoBox = useVideoBox(vidRef, paneRef, ready);
+
+  // Per-track audio levels (AudioTracks lists only sources the user changed),
+  // heard while previewing.
+  const [levels, setLevels] = useState<TrackLevel[]>([]);
+  useTrackPreview(vidRef, edl.sources, levels);
+
+  // Text overlays are drawn over the OUTPUT frame: the crop rect when there
+  // is one, else the whole first-source frame.
+  const outW = crop?.w ?? frame?.width ?? 0;
+  const outH = crop?.h ?? frame?.height ?? 0;
+  const outBox: RenderedBox =
+    crop && frame
+      ? {
+          left: videoBox.left + (crop.x * videoBox.width) / frame.width,
+          top: videoBox.top + (crop.y * videoBox.height) / frame.height,
+          width: (crop.w * videoBox.width) / frame.width,
+          height: (crop.h * videoBox.height) / frame.height,
+        }
+      : videoBox;
+  const selectedText = selection?.kind === "text" ? selection.id : null;
+  const addText = useCallback(() => {
+    pause();
+    const t = newText(edl, outTime, "");
+    apply((e) => upsertText(e, t));
+    setSelection({ kind: "text", id: t.id });
+  }, [edl, outTime, apply, pause]);
+  const editText = useCallback(
+    (id: string) => {
+      const t = edl.texts.find((x) => x.id === id);
+      if (!t) return;
+      pause();
+      if (outTime < t.start || outTime >= t.end) seek(t.start);
+      setSelection({ kind: "text", id });
+    },
+    [edl, outTime, pause, seek],
+  );
 
   const toggle = useCallback(() => {
     if (playing) pause();
@@ -132,7 +174,22 @@ export default function EditVideo() {
             backdropTitle={playing ? "Click outside the crop to pause" : "Click outside the crop to play"}
           />
         ) : null}
-        {/* Text overlays card: draggable text boxes over the video box. */}
+        {!cropMode && ready && outW > 0 ? (
+          <TextOverlays
+            texts={edl.texts}
+            time={outTime}
+            frameW={outW}
+            frameH={outH}
+            box={outBox}
+            selectedId={selectedText}
+            onSelect={(id) => setSelection(id ? { kind: "text", id } : null)}
+            onChange={(t) => apply((e) => upsertText(e, t))}
+            onRemove={(id) => {
+              apply((e) => removeText(e, id));
+              setSelection(null);
+            }}
+          />
+        ) : null}
       </div>
 
       <div className="frost m-3 flex flex-col gap-3 p-3">
@@ -160,7 +217,15 @@ export default function EditVideo() {
             >
               {adding ? <Loader2 className="animate-spin" /> : <Plus />} Add clip
             </Button>
-            <Slot label="Text" />
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!frame || duration <= 0}
+              onClick={addText}
+              title="Add text at the playhead (drag it on the video, retime it on the timeline)"
+            >
+              <Type /> Text
+            </Button>
             <Button
               size="sm"
               variant={cropMode ? "default" : cropActive ? "secondary" : "ghost"}
@@ -205,8 +270,9 @@ export default function EditVideo() {
           canUndo={canUndo}
           canRedo={canRedo}
           keyboard={!addOpen}
+          onEditText={editText}
         />
-        <Slot label="Audio tracks" className="h-12" />
+        <AudioTracks sources={edl.sources} levels={levels} onChange={setLevels} className="max-h-40 overflow-y-auto" />
         <div className="text-[11px] text-muted-foreground">
           source: <span className="font-mono">{absPath || "(dev sample.mp4)"}</span>
           {edl.sources.length > 1 ? ` + ${edl.sources.length - 1} more` : ""}
