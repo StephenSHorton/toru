@@ -25,14 +25,21 @@ import type { Preset } from "@/trim/edl";
 export interface ExportDialogProps {
   open: boolean;
   onClose: () => void;
-  // The request without preset/size/outPath, built when Export is pressed.
-  buildRequest: () => Omit<EditRequest, "preset" | "height" | "kbps" | "outPath">;
+  // The request without preset/size/outPath, built when Export is pressed
+  // (v1 edits, run with VideoService.Export).
+  buildRequest?: () => Omit<EditRequest, "preset" | "height" | "kbps" | "outPath">;
+  // Or runs the export itself with the chosen preset and path (v2 projects:
+  // toExportRequest + VideoService.ExportProject); resolves to the written
+  // file. Takes precedence over buildRequest.
+  run?: (choice: ExportChoice) => Promise<string>;
   // The first source's absolute path: the Save As dialog suggests
   // <name>-edited.mp4 next to it.
   firstSource: string;
   // Height of the output frame (after crop), for which presets can shrink it.
   frameHeight: number;
 }
+
+export type ExportChoice = { preset: Preset; height?: number; kbps?: number; outPath: string };
 
 type Phase =
   | { kind: "pick"; error?: string }
@@ -63,7 +70,7 @@ function loadPreset(): { preset: Preset; height: number; kbps: number } {
 
 const isCancelled = (err: unknown) => String(err).includes("export cancelled");
 
-export function ExportDialog({ open, onClose, buildRequest, firstSource, frameHeight }: ExportDialogProps) {
+export function ExportDialog({ open, onClose, buildRequest, run, firstSource, frameHeight }: ExportDialogProps) {
   const [{ preset, height, kbps }, setChoice] = useState(loadPreset);
   const [phase, setPhase] = useState<Phase>({ kind: "pick" });
   const cancelled = useRef(false);
@@ -117,13 +124,11 @@ export function ExportDialog({ open, onClose, buildRequest, firstSource, frameHe
       );
     });
     try {
-      const req = EditRequest.createFrom({
-        ...buildRequest(),
-        preset,
-        outPath,
-        ...(preset === "custom" ? { height: customHeight, kbps } : {}),
-      });
-      const path = await VideoService.Export(req);
+      const choice: ExportChoice = { preset, outPath, ...(preset === "custom" ? { height: customHeight, kbps } : {}) };
+      let path: string;
+      if (run) path = await run(choice);
+      else if (buildRequest) path = await VideoService.Export(EditRequest.createFrom({ ...buildRequest(), ...choice }));
+      else throw new Error("nothing to export");
       setPhase({ kind: "done", path });
     } catch (err) {
       setPhase(

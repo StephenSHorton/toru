@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type Ref } from "react";
+import { VideoService } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { clipsAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
 import { AudioMix, clipGain } from "@/trim/compositor/audio";
@@ -19,6 +20,11 @@ import type { PlaybackClock } from "@/trim/compositor/usePlayback";
 // Clips about to start are loaded and seeked ahead (PREROLL) so cuts don't
 // wait, and if a clip still has no frame when it's due the clock holds.
 // Images are textures, loaded once per media.
+//
+// A clip recorded with separate tracks whose per-track levels were changed
+// (clip.levels) plays those tracks instead of its mix: each is extracted by
+// Go (VideoService.PreviewTrack) and played from its own <audio>, synced like
+// the video and set to its level; until they are ready the mix plays.
 //
 // Text overlays, crop and the transform handles are DOM layers the window
 // lays over the canvas (canvasRef gives the element to measure).
@@ -145,22 +151,44 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       return t;
     };
 
-    const slotFor = (clip: Clip, media: Media, audioOnly: boolean, now: number): Slot => {
-      let s = pool.get(clip.id);
-      if (!s || s.url !== media.url) {
-        if (s) drop(clip.id);
+    const slotAt = (key: string, url: string, audioOnly: boolean, now: number): Slot => {
+      let s = pool.get(key);
+      if (!s || s.url !== url) {
+        if (s) drop(key);
         const el = document.createElement(audioOnly ? "audio" : "video");
         el.preload = "auto";
         el.crossOrigin = "anonymous";
         if (el instanceof HTMLVideoElement) el.playsInline = true;
         el.preservesPitch = true;
-        el.src = media.url;
-        s = { el, url: media.url, lastUsed: now, tex: null, uploaded: -1, starting: false, forcedMute: false };
-        pool.set(clip.id, s);
+        el.src = url;
+        s = { el, url, lastUsed: now, tex: null, uploaded: -1, starting: false, forcedMute: false };
+        pool.set(key, s);
       }
       s.lastUsed = now;
       return s;
     };
+    const slotFor = (clip: Clip, media: Media, audioOnly: boolean, now: number) => slotAt(clip.id, media.url, audioOnly, now);
+
+    // Extracted source tracks, by "path|index": the served URL once ready,
+    // null when extraction failed (the mix keeps playing).
+    const trackUrls = new Map<string, string | null>();
+    const trackUrl = (path: string, index: number): string | null | undefined => {
+      const key = `${path}|${index}`;
+      if (!trackUrls.has(key)) {
+        trackUrls.set(key, null);
+        pendingTracks.add(key);
+        VideoService.PreviewTrack(path, index)
+          .then((url) => {
+            if (disposed) void VideoService.ReleasePreviewTracks([url]);
+            else trackUrls.set(key, url);
+          })
+          .catch(() => trackUrls.set(key, null))
+          .finally(() => pendingTracks.delete(key));
+      }
+      return pendingTracks.has(key) ? undefined : trackUrls.get(key);
+    };
+    const pendingTracks = new Set<string>();
+    let disposed = false;
 
     const drop = (id: string) => {
       const s = pool.get(id);
@@ -250,7 +278,21 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         const audioOnly = a.track.kind === "audio";
         const s = slotFor(a.clip, a.media, audioOnly, now);
         used.add(a.clip.id);
-        sync(s, a, playing, clipGain(a.clip, a.track, t));
+        const g = clipGain(a.clip, a.track, t);
+        // Per-track levels: play the extracted tracks once all are ready.
+        const levels = a.media.tracks.length > 1 ? (a.clip.levels ?? []) : [];
+        const urls = levels.map((l) => trackUrl(a.media.path, l.index));
+        const byTrack = levels.length > 0 && urls.every((u) => typeof u === "string");
+        sync(s, a, playing, byTrack ? 0 : g);
+        if (byTrack) {
+          levels.forEach((l, i) => {
+            const key = `${a.clip.id}|t${l.index}`;
+            const ts = slotAt(key, urls[i] as string, true, now);
+            used.add(key);
+            sync(ts, a, playing, l.muted ? 0 : (g * l.volume) / 100);
+            if (stats) gain[key] = mix.level(ts.el);
+          });
+        }
         if (stats) gain[a.clip.id] = mix.level(s.el);
         if (!audioOnly && playing && s.el.readyState < 2) starving = true;
       }
@@ -349,7 +391,10 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
     raf = requestAnimationFrame(frame);
 
     return () => {
+      disposed = true;
       cancelAnimationFrame(raf);
+      const extracted = [...trackUrls.values()].filter((u): u is string => !!u);
+      if (extracted.length) void VideoService.ReleasePreviewTracks(extracted).catch(() => {});
       if (handle) handle.current = null;
       for (const id of [...pool.keys()]) drop(id);
       for (const s of stills.values()) if (s.tex) gl.deleteTexture(s.tex);
