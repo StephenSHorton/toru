@@ -438,6 +438,13 @@ export function clipsAt(p: Project, t: number): ActiveClip[] {
   return out;
 }
 
+// timelineTimeAt is the timeline time at which clip shows source time srcT
+// (clipsAt's srcT the other way round), kept inside the clip.
+export function timelineTimeAt(clip: Clip, srcT: number): number {
+  const t = clip.start + (srcT - clip.in) / (clip.speed > 0 ? clip.speed : 1);
+  return Math.max(clip.start, Math.min(clipEnd(clip) - EPS, t));
+}
+
 // --- v1 and export ---------------------------------------------------------
 
 // fromEdl turns a v1 edit into a project: each v1 source becomes video media,
