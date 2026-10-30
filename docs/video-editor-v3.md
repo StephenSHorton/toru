@@ -149,18 +149,23 @@ Per clip, the migration is exact, so a migrated project renders the same
 pixels:
 
 1. `chroma` → `{type: "chromaKey", params: {color, similarity, blend}}`
-2. `filters`, emitted in v2's order (saturation → look → contrast/brightness),
-   leaving out anything at its default:
-   1. `adjust{saturation}` if saturation ≠ 1
-   2. `look{look, amount: 1}` if the look isn't "none"
-   3. `adjust{contrast, brightness}` if either isn't at its default
+2. `filters`. v2 draws `clamp(look · saturation)`, then
+   `clamp(contrast/brightness)`, so (leaving out anything at its default):
+   - with a look: `look{look, amount: 1, saturation}`, then
+     `adjust{contrast, brightness}`
+   - without one: `adjust{saturation, contrast, brightness}`
 
-   Adjacent adjusts merge into one only when no look sits between them. The
-   adjust effect runs saturation before contrast and brightness, so the
-   merged instance matches v2. The order matters: a look matrix and the
-   contrast/brightness step don't commute unless the look's rows sum to 1
-   (only bw does; sepia's rows sum to 1.35, 1.20 and 0.94), so
-   `adjust{contrast}` must come after the look, as in v2.
+   Every effect clamps its output to 0..1, as v2 and the ffmpeg chains do.
+   That's why saturation can't be its own `adjust` in front of a look: it
+   would clamp between the two where v2 doesn't. So the look takes
+   saturation as its own param, applied before its matrix. Contrast and
+   brightness stay after the look: a look matrix and that step don't
+   commute unless the look's rows sum to 1 (only bw does; sepia's rows sum
+   to 1.35, 1.20 and 0.94). When the colour effects compile into one 3D LUT
+   (Decisions), it composes them in stack order with these clamps. The
+   `look` definition keeps v2's bw/sepia/vintage/cool/warm matrices among
+   its options, for migrated clips. `project-check.ts` runs 8000 colours
+   through 400 random filter sets both ways and requires an exact match.
 3. `blur > 0` → `{type: "blur", params: {amount: blur}}`. The `blur`
    definition stays a box blur (avgblur, the same shader as v2) in the same
    1080-line units, so migrated clips are exact. A gaussian blur is a

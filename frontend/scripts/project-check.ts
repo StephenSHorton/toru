@@ -5,7 +5,12 @@
 // export request.
 //
 //   bun scripts/project-check.ts
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { colorMatrix, LOOK_MATRICES, normFilters } from "../src/trim/compositor/effects";
 import { historyApply, historyInit, historyUndo, type Edl } from "../src/trim/edl";
+import { valueAt } from "../src/trim/fx/keyframes";
+import { migrateClipEffects, migrateProject } from "../src/trim/migrate";
 import {
   addMedia,
   addTrack,
@@ -14,7 +19,9 @@ import {
   clipLength,
   clipsAt,
   closeGap,
+  DEFAULT_FILTERS,
   findClip,
+  freezeFrame,
   fromEdl,
   insertClip,
   MIN_CLIP,
@@ -30,11 +37,14 @@ import {
   splitAt,
   timelineTimeAt,
   toExportRequest,
+  trackById,
   trimClip,
   updateClip,
   upsertProjectText,
   videoTracks,
   audioTracks,
+  type EffectInstance,
+  type Filters,
   type Media,
   type Project,
 } from "../src/trim/project";
@@ -278,6 +288,107 @@ for (const t of [11, 12, 13]) h = historyApply(h, (x) => trimClip(x, cam, "start
 check("history: keyed drag merges", h.past.length === 2 && near(findClip(h.present, cam)!.clip.start, 13));
 h = historyUndo(h);
 check("history: undo the whole drag", near(findClip(h.present, cam)!.clip.start, 10));
+
+// --- v3: keyframes golden table (shared with internal/fx/keyframes_test.go)
+{
+  const golden = JSON.parse(readFileSync(path.resolve(import.meta.dir, "../../internal/fx/testdata/keyframes_golden.json"), "utf8"));
+  let bad = 0;
+  for (const c of golden.cases) {
+    const got = valueAt(c.keys, c.t, c.base);
+    const ok = typeof got === "number" ? Math.abs(got - c.want) < 1e-9 : JSON.stringify(got) === JSON.stringify(c.want);
+    if (!ok) {
+      bad++;
+      console.log(`  keyframes ${c.name}: got ${JSON.stringify(got)}, want ${JSON.stringify(c.want)}`);
+    }
+  }
+  check(`keyframes: ${golden.cases.length} golden cases match`, bad === 0 && golden.cases.length > 100);
+}
+
+// --- v3: migration draws v2's pixels. v2's colour is clamp(look·sat) then
+// clamp(contrast/brightness); the migrated stack, run with each effect's
+// meaning (every effect clamps its output), must give the same colour.
+{
+  const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+  const mul = (m: number[], c: number[]) => [0, 1, 2].map((r) => m[r * 3] * c[0] + m[r * 3 + 1] * c[1] + m[r * 3 + 2] * c[2]);
+  const satM = (s: number) => colorMatrix({ brightness: 0, contrast: 1, saturation: s, look: "none", blur: 0 });
+  const cb = (c: number[], k: number, b: number) => c.map((v) => clamp01((v - 0.5) * k + 0.5 + b));
+  const v2 = (rgb: number[], f: Filters) => {
+    const n = normFilters(f);
+    return cb(mul(colorMatrix(n), rgb).map(clamp01), n.contrast, n.brightness);
+  };
+  const num = (v: unknown, d: number) => (typeof v === "number" ? v : d);
+  const run = (rgb: number[], fx: EffectInstance[]) => {
+    let c = rgb;
+    for (const e of fx) {
+      const q = e.params;
+      if (e.type === "adjust") c = cb(mul(satM(num(q.saturation, 1)), c).map(clamp01), num(q.contrast, 1), num(q.brightness, 0));
+      else if (e.type === "look") {
+        const L = LOOK_MATRICES[q.look as keyof typeof LOOK_MATRICES];
+        const out = mul(L, mul(satM(num(q.saturation, 1)), c)).map(clamp01);
+        const a = num(q.amount, 1);
+        c = c.map((v, i) => v + (out[i] - v) * a);
+      }
+    }
+    return c;
+  };
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const looks: Filters["look"][] = ["none", "bw", "sepia", "vintage", "cool", "warm"];
+  let worst = 0;
+  for (let i = 0; i < 400; i++) {
+    const f: Filters = {
+      brightness: i % 4 === 0 ? 0 : rnd() * 2 - 1,
+      contrast: i % 3 === 0 ? 1 : rnd() * 2,
+      saturation: i % 5 === 0 ? 1 : rnd() * 3,
+      look: looks[i % looks.length],
+      blur: 0,
+    };
+    const fx = migrateClipEffects(undefined, f);
+    for (let j = 0; j < 20; j++) {
+      const rgb = [rnd(), rnd(), rnd()];
+      const a = v2(rgb, f);
+      const b = run(rgb, fx);
+      worst = Math.max(worst, ...a.map((v, k) => Math.abs(v - b[k])));
+    }
+  }
+  check("migration: 8000 colours through 400 filter sets match v2", worst < 1e-9, worst);
+  const types = (f: Partial<Filters>, chroma = false) =>
+    migrateClipEffects(chroma ? { color: "#00ff00", similarity: 0.25, blend: 0.08 } : undefined, { ...DEFAULT_FILTERS, ...f }).map((e) => e.type).join(",");
+  check("migration: defaults give no effects", types({}) === "");
+  check("migration: order chroma, look, adjust, blur", types({ look: "sepia", contrast: 1.2, blur: 3 }, true) === "chromaKey,look,adjust,blur", types({ look: "sepia", contrast: 1.2, blur: 3 }, true));
+  check("migration: no look is one adjust", types({ saturation: 2, brightness: 0.1 }) === "adjust");
+  check("migration: saturation rides on the look", migrateClipEffects(undefined, { ...DEFAULT_FILTERS, look: "warm", saturation: 1.5 })[0].params.saturation === 1.5);
+  const v2p: Project = { ...tr, version: 2 };
+  const v3p = migrateProject(v2p);
+  check("migration: project becomes v3", v3p.version === 3 && v3p.tracks.every((t) => t.clips.every((c) => Array.isArray(c.effects) && c.chroma === undefined)));
+  check("migration: timing untouched", JSON.stringify(v3p.tracks.map((t) => t.clips.map((c) => [c.start, c.in, c.out, c.speed]))) === JSON.stringify(v2p.tracks.map((t) => t.clips.map((c) => [c.start, c.in, c.out, c.speed]))));
+  check("migration: a v3 project is left alone", migrateProject(v3p) === v3p);
+}
+
+// --- v3: hold clips (freeze frames)
+{
+  const base = newProject(G); // game 0..60 on the first video track
+  const vt = videoTracks(base)[0].id;
+  const fz = freezeFrame(base, vt, 10, 2);
+  const cs = trackById(fz, vt)!.clips;
+  const hold = cs.find((c) => c.hold)!;
+  check("freeze: split + hold + rest pushed right", cs.length === 3 && near(hold.start, 10) && near(hold.in, 10) && near(clipLength(hold), 2) && near(cs[2].start, 12) && near(cs[2].in, 10), spans(fz, vt));
+  check("freeze: hold is silent at 1x", hold.muted && hold.speed === 1);
+  check("freeze: clipsAt shows the held frame", near(clipsAt(fz, 11.5).find((a) => a.clip.id === hold.id)!.srcT, 10));
+  const sp = splitAt(fz, 11, vt);
+  const halves = trackById(sp, vt)!.clips.filter((c) => c.hold);
+  check("freeze: split keeps the frame in both halves", halves.length === 2 && halves.every((c) => near(c.in, 10)) && near(clipLength(halves[0]) + clipLength(halves[1]), 2));
+  const ts = trimClip(fz, hold.id, "start", 9.5);
+  const th = findClip(ts, hold.id);
+  check("freeze: start trim keeps the frame", !th || near(th.clip.in, 10));
+  const te = trimClip(fz, hold.id, "end", 11);
+  check("freeze: end trim shortens, frame kept", near(clipLength(findClip(te, hold.id)!.clip), 1) && near(findClip(te, hold.id)!.clip.in, 10));
+  const us = updateClip(fz, hold.id, { speed: 3 });
+  check("freeze: speed stays 1", findClip(us, hold.id)!.clip.speed === 1);
+  const edge = freezeFrame(base, vt, 0.02, 1);
+  check("freeze: near the start freezes at the start", near(trackById(edge, vt)!.clips.find((c) => c.hold)!.start, 0) && noOverlaps(edge), spans(edge, vt));
+  check("freeze: no overlaps", noOverlaps(fz));
+}
 
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

@@ -102,6 +102,7 @@ export type SpeedCurve = {
 };
 export const MIN_CURVE_SPEED = 0.1;
 export const MAX_CURVE_SPEED = 10;
+export const DEFAULT_FREEZE = 2; // s, a freeze frame's default length
 
 export type BlendFrames = "off" | "mix" | "smooth";
 // timeline length of a clip = (out - in) / speed
@@ -318,11 +319,16 @@ export function trimClip(p: Project, clipId: string, edge: "start" | "end", t: n
   const { clip: c, track, index } = hit;
   const m = mediaById(p, c.media);
   if (!m) return p;
-  const srcMax = m.kind === "image" ? Infinity : m.duration;
+  const srcMax = m.kind === "image" || c.hold ? Infinity : m.duration;
   const prevEnd = index > 0 ? clipEnd(track.clips[index - 1]) : 0;
   const nextStart = index < track.clips.length - 1 ? track.clips[index + 1].start : Infinity;
   let next: Clip;
-  if (edge === "start") {
+  if (c.hold && edge === "start") {
+    // A hold clip keeps its frame (in); the start edge only changes its length.
+    const end = clipEnd(c);
+    const s = clamp(finite(t, c.start), prevEnd, Math.max(prevEnd, end - MIN_CLIP));
+    next = { ...c, start: s, out: c.in + (end - s) };
+  } else if (edge === "start") {
     // Earliest: the previous clip, timeline 0, or source time 0.
     const lo = Math.max(prevEnd, c.start - c.in / c.speed);
     const hi = clipEnd(c) - MIN_CLIP;
@@ -353,15 +359,54 @@ export function splitAt(p: Project, t: number, trackId?: string): Project {
     const i = track.clips.findIndex((c) => c.start + MIN_CLIP <= t + EPS && t <= clipEnd(c) - MIN_CLIP + EPS);
     if (i < 0) return track;
     const c = track.clips[i];
-    const cut = c.in + (t - c.start) * c.speed;
+    // A hold clip's halves both show its frame (in); only the lengths split.
+    const cut = c.hold ? c.in + (t - c.start) : c.in + (t - c.start) * c.speed;
     const left: Clip = fitFades({ ...c, out: cut, fadeOut: 0 });
-    const right: Clip = fitFades({ ...c, id: newId("clip"), start: t, in: cut, fadeIn: 0 });
+    const right: Clip = c.hold
+      ? fitFades({ ...c, id: newId("clip"), start: t, out: c.in + (clipEnd(c) - t), fadeIn: 0 })
+      : fitFades({ ...c, id: newId("clip"), start: t, in: cut, fadeIn: 0 });
     const clips = track.clips.slice();
     clips.splice(i, 1, left, right);
     changed = true;
     return { ...track, clips };
   });
   return changed ? { ...p, tracks } : p;
+}
+
+// freezeFrame splits the clip under timeline time t on a track and puts a
+// hold clip (the frame at t, silent, len s long) between the halves; the
+// rest of that track moves right by len. Other tracks don't move. Returns
+// the same project when there's no clip there (or the track is locked).
+export function freezeFrame(p: Project, trackId: string, t: number, len = DEFAULT_FREEZE): Project {
+  const track = trackById(p, trackId);
+  if (!track || track.locked || track.kind !== "video" || !(len > 0)) return p;
+  const c = track.clips.find((x) => x.start - EPS <= t && t < clipEnd(x) - EPS);
+  if (!c || c.hold) return p;
+  const m = mediaById(p, c.media);
+  if (!m || m.kind !== "video") return p;
+  // Too close to an edge to split: freeze at that edge instead.
+  const at = t - c.start < MIN_CLIP ? c.start : clipEnd(c) - t < MIN_CLIP ? clipEnd(c) : t;
+  const frame = clamp(c.in + (t - c.start) * c.speed, c.in, c.out);
+  const hold: Clip = {
+    ...c,
+    id: newId("clip"),
+    start: at,
+    in: frame,
+    out: frame + len,
+    speed: 1,
+    muted: true,
+    fadeIn: 0,
+    fadeOut: 0,
+    hold: true,
+  };
+  delete hold.speedCurve;
+  delete hold.reversed;
+  delete hold.blendFrames;
+  // Split there (unless it's an edge), then push everything from there on.
+  const split = at === t ? splitAt(p, t, trackId) : p;
+  const t2 = trackById(split, trackId)!;
+  const shifted = t2.clips.map((x) => (x.start >= at - EPS ? { ...x, start: x.start + len } : x));
+  return withTrack(split, { ...t2, clips: sorted([...shifted, hold]) });
 }
 
 // removeClip deletes a clip and leaves a gap.
@@ -410,6 +455,13 @@ export function updateClip(p: Project, clipId: string, patch: ClipPatch): Projec
   const { clip: c, track, index } = hit;
   const next: Clip = { ...c, ...patch };
   next.speed = clamp(finite(next.speed, 1), MIN_SPEED, MAX_SPEED);
+  if (next.hold) {
+    // A freeze frame has no time of its own to change.
+    next.speed = 1;
+    delete next.speedCurve;
+    delete next.reversed;
+    delete next.blendFrames;
+  }
   const nextStart = index < track.clips.length - 1 ? track.clips[index + 1].start : Infinity;
   const room = nextStart - c.start;
   if ((next.out - next.in) / next.speed > room + EPS) next.speed = Math.min(MAX_SPEED, (next.out - next.in) / room);
@@ -486,7 +538,7 @@ export function clipsAt(p: Project, t: number): ActiveClip[] {
     if (!clip) continue;
     const media = mediaById(p, clip.media);
     if (!media) continue;
-    out.push({ track, clip, media, srcT: clip.in + (t - clip.start) * clip.speed });
+    out.push({ track, clip, media, srcT: clip.hold ? clip.in : clip.in + (t - clip.start) * clip.speed });
   }
   return out;
 }
