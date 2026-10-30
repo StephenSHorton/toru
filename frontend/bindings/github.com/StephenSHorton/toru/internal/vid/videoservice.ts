@@ -132,6 +132,14 @@ export function ReleasePreviewTracks(urls: string[]): $CancellablePromise<void> 
 }
 
 /**
+ * RenameProject gives a saved project a new name ("" or blank is refused).
+ * Only the name changes; the rest of the file is kept as saved.
+ */
+export function RenameProject(id: string, name: string): $CancellablePromise<void> {
+    return $Call.ByID(696052806, id, name);
+}
+
+/**
  * RevealFile shows path selected in Explorer: the export dialog's "Show in
  * folder". Only an existing file is revealed; Explorer selects it and runs
  * nothing.

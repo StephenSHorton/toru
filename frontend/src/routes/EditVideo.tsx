@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Crop, Download, Loader2, Pause, Play, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Events as WailsEvents } from "@wailsio/runtime";
 import { MediaService, VideoService } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ProjectExport } from "../../bindings/github.com/StephenSHorton/toru/internal/vid/models.js";
@@ -53,8 +54,10 @@ export default function EditVideo() {
   const absPath = params.get("path") ?? "";
   const devURL = params.get("vid") || "/sample.mp4";
   const projectID = params.get("project") ?? "";
+  // ?new=1 (the hub's New project): start empty, ready to import.
+  const startEmpty = params.get("new") === "1";
 
-  const { project, apply, undo, redo, reset, canUndo, canRedo } = useProjectHistory(emptyProject());
+  const { project, apply, undo, redo, reset, patchAll, canUndo, canRedo } = useProjectHistory(emptyProject());
   const duration = projectDuration(project);
   const pb = usePlayback(duration);
   const bin = useMediaBin();
@@ -78,12 +81,31 @@ export default function EditVideo() {
           setMissing(gone);
           reset(p);
         })
-      : firstMedia(absPath, devURL).then((m) => live && reset(newProject(m)));
+      : startEmpty
+        ? Promise.resolve()
+        : firstMedia(absPath, devURL).then((m) => live && reset(newProject(m)));
     start.catch((err) => live && setLoadErr(String(err))).finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [projectID, absPath, devURL, reset]);
+  }, [projectID, absPath, devURL, startEmpty, reset]);
+
+  // A project started empty takes its name from the first file added.
+  const nameSource = project.media.find((m) => m.path)?.path ?? "";
+  useEffect(() => {
+    if (!project.name && nameSource) patchAll((p) => (p.name ? p : { ...p, name: baseName(nameSource) }));
+  }, [project.name, nameSource, patchAll]);
+
+  // Renamed in the hub's project list while open here: keep the new name, so
+  // the next autosave doesn't put the old one back.
+  useEffect(
+    () =>
+      WailsEvents.On("project:renamed", (ev: { data?: { id?: string; name?: string } }) => {
+        const { id, name } = ev.data ?? {};
+        if (id && name) patchAll((p) => (p.id === id ? { ...p, name } : p));
+      }),
+    [patchAll],
+  );
 
   // Autosave a moment after the last change.
   useEffect(() => {

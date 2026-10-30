@@ -285,7 +285,13 @@ export function useHistory<T>(init: T) {
   const undo = useCallback(() => setH(historyUndo), []);
   const redo = useCallback(() => setH(historyRedo), []);
   const reset = useCallback((doc: T) => setH(historyInit(doc)), []);
-  return { doc: h.present, apply, undo, redo, reset, canUndo: h.past.length > 0, canRedo: h.future.length > 0 };
+  // patchAll changes every state in the history the same way, without an
+  // undo step (a rename from outside shouldn't come back on undo).
+  const patchAll = useCallback(
+    (fn: (e: T) => T) => setH((cur) => ({ ...cur, past: cur.past.map(fn), present: fn(cur.present), future: cur.future.map(fn) })),
+    [],
+  );
+  return { doc: h.present, apply, undo, redo, reset, patchAll, canUndo: h.past.length > 0, canRedo: h.future.length > 0 };
 }
 
 export function useEdlHistory(init: Edl) {

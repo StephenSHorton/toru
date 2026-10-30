@@ -17,6 +17,8 @@ import {
   MousePointerClick,
   Gamepad2,
   Layers,
+  Pencil,
+  Plus,
   TriangleAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,8 +51,8 @@ import { cn } from "@/lib/utils";
 // recent screenshots & recordings; Settings is a navigable panel (shortcuts,
 // launch-at-login, freeze, updater).
 
-type Page = "library" | "send" | "stream" | "clicker" | "settings";
-const PAGES: readonly Page[] = ["library", "send", "stream", "clicker", "settings"];
+type Page = "library" | "send" | "stream" | "clicker" | "editor" | "settings";
+const PAGES: readonly Page[] = ["library", "send", "stream", "clicker", "editor", "settings"];
 
 // initialPage honours `?page=` so the tray's "Send files…" can open the hub
 // straight onto Send Files (windows.go OpenSendFiles); anything else lands on Library.
@@ -68,9 +70,11 @@ export default function Settings() {
   useEffect(() => {
     const off = WailsEvents.On("transfer:open", () => setPage("send"));
     const offClicker = WailsEvents.On("clicker:open", () => setPage("clicker"));
+    const offEditor = WailsEvents.On("editor:open", () => setPage("editor"));
     return () => {
       off();
       offClicker();
+      offEditor();
     };
   }, []);
 
@@ -118,6 +122,12 @@ export default function Settings() {
           label="Auto Clicker"
           onClick={() => setPage("clicker")}
         />
+        <NavBtn
+          active={page === "editor"}
+          icon={Clapperboard}
+          label="Video Editor"
+          onClick={() => setPage("editor")}
+        />
 
         <div
           className="flex min-h-0 flex-1 items-center justify-center overflow-hidden"
@@ -155,6 +165,8 @@ export default function Settings() {
           <StreamPage />
         ) : page === "clicker" ? (
           <ClickerPage />
+        ) : page === "editor" ? (
+          <VideoEditorPage />
         ) : (
           <SettingsPage />
         )}
@@ -229,7 +241,6 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
 
   // Video editor projects (autosaved by the edit window).
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [pendingProject, setPendingProject] = useState<ProjectSummary | null>(null);
   const refreshProjects = useCallback(() => {
     void VideoService.ListProjects()
       .then((list) => setProjects(Array.isArray(list) ? list : []))
@@ -247,17 +258,6 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
     const t = window.setInterval(refreshProjects, 5000);
     return () => window.clearInterval(t);
   }, [view, refreshProjects]);
-  const confirmProjectDelete = async () => {
-    const p = pendingProject;
-    setPendingProject(null);
-    if (!p) return;
-    try {
-      await VideoService.DeleteProject(p.id);
-    } catch (e) {
-      report(e);
-    }
-    refreshProjects();
-  };
 
   const refreshSessions = useCallback(() => {
     void ReplayService.ListSessions()
@@ -559,20 +559,7 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
       </div>
 
       {view === "projects" ? (
-        projects.length === 0 ? (
-          <EmptyProjects />
-        ) : (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-            {projects.map((p) => (
-              <ProjectCard
-                key={p.id}
-                project={p}
-                onOpen={() => void WindowsService.OpenEditProject(p.id).catch(report)}
-                onDelete={() => setPendingProject(p)}
-              />
-            ))}
-          </div>
-        )
+        <ProjectGrid projects={projects} onChanged={refreshProjects} report={report} />
       ) : view === "sessions" ? (
         sessions.length === 0 ? (
           <EmptySessions />
@@ -627,20 +614,6 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
           )}
         </div>
       )}
-
-      {pendingProject ? (
-        <ConfirmDialog
-          title="Delete this project?"
-          body={
-            <>
-              The edit <span className="font-medium text-foreground">{pendingProject.name}</span> will be
-              deleted. Its videos, music and images stay where they are. This can’t be undone.
-            </>
-          }
-          onCancel={() => setPendingProject(null)}
-          onConfirm={() => void confirmProjectDelete()}
-        />
-      ) : null}
 
       {pendingSession ? (
         <ConfirmDialog
@@ -722,6 +695,162 @@ function EmptyClips() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Video Editor
+// ---------------------------------------------------------------------------
+
+// editableSource is a Library recording or saved clip the editor can open.
+type EditableSource = { path: string; name: string; when: Date; kind: "recording" | "clip"; thumb: string };
+
+const RECENT_SOURCES = 12;
+
+// VideoEditorPage is the hub's home for the video editor: start a new
+// project, reopen a saved one, or open a recent recording or clip.
+function VideoEditorPage() {
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [sources, setSources] = useState<EditableSource[]>([]);
+  const [note, setNote] = useState("");
+  useEffect(() => {
+    if (!note) return;
+    const t = window.setTimeout(() => setNote(""), 6000);
+    return () => window.clearTimeout(t);
+  }, [note]);
+  const report = useCallback((e: unknown) => setNote(String(e).replace(/^Error:\s*/, "")), []);
+
+  const refreshProjects = useCallback(() => {
+    void VideoService.ListProjects()
+      .then((list) => setProjects(Array.isArray(list) ? list : []))
+      .catch(() => setProjects([]));
+  }, []);
+  const refreshSources = useCallback(() => {
+    void Promise.all([
+      HistoryService.List().catch(() => [] as CaptureItem[]),
+      ReplayService.ListClips().catch(() => [] as ReplayClip[]),
+    ]).then(([items, clips]) => {
+      const out: EditableSource[] = [
+        ...(items ?? [])
+          .filter((it) => it.kind === "video")
+          .map((it) => ({ path: it.path, name: it.label, when: new Date(it.takenAt as unknown as string), kind: "recording" as const, thumb: "" })),
+        ...(clips ?? []).map((c) => ({
+          path: c.path,
+          name: c.name,
+          when: new Date(c.savedAt as unknown as string),
+          kind: "clip" as const,
+          thumb: c.thumbUrl,
+        })),
+      ];
+      out.sort((a, b) => b.when.getTime() - a.when.getTime());
+      setSources(out.slice(0, RECENT_SOURCES));
+    });
+  }, []);
+  useEffect(() => {
+    // The editor autosaves in its own window: re-list when this one comes
+    // back, and every few seconds while the page is open.
+    const refresh = () => {
+      refreshProjects();
+      refreshSources();
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    const t = window.setInterval(refreshProjects, 5000);
+    const offClip = WailsEvents.On("replay:saved", () => refreshSources());
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.clearInterval(t);
+      offClip();
+    };
+  }, [refreshProjects, refreshSources]);
+
+  return (
+    <div className="flex min-h-full flex-col gap-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Video Editor</h1>
+          <p className="text-sm text-muted-foreground">
+            Cut, join and caption your clips. Projects save as you edit.
+          </p>
+        </div>
+        <Button onClick={() => void WindowsService.OpenNewEditProject().catch(report)}>
+          <Plus /> New project
+        </Button>
+      </div>
+
+      {note ? (
+        <div className="frost border border-destructive/50 px-3 py-2 text-sm text-destructive" role="alert">
+          {note}
+        </div>
+      ) : null}
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium text-muted-foreground">Projects</h2>
+        <ProjectGrid projects={projects} onChanged={refreshProjects} report={report} />
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium text-muted-foreground">Edit a clip</h2>
+        {sources.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No recordings or clips yet. Record your screen or save an instant replay, and it shows up here.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+            {sources.map((src) => (
+              <SourceCard
+                key={src.path}
+                source={src}
+                onEdit={() => void WindowsService.OpenEditVideo(src.path).catch(report)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// SourceCard is a recent recording or clip; click opens it in the editor.
+function SourceCard({ source: s, onEdit }: { source: EditableSource; onEdit: () => void }) {
+  const [thumbFailed, setThumbFailed] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onEdit}
+      title="Open in the video editor"
+      className={cn(
+        "frost group flex flex-col overflow-hidden border border-transparent text-left",
+        "transition-[border-color,box-shadow,transform] duration-150",
+        "hover:-translate-y-0.5 hover:border-primary/70 hover:shadow-[0_0_0_1px_var(--color-ring),0_12px_28px_oklch(0_0_0/0.45)]",
+      )}
+    >
+      <span className="relative block aspect-video w-full overflow-hidden bg-black/40">
+        {s.kind === "recording" ? (
+          <video src={servedUrl(s.path)} className="h-full w-full object-contain" muted preload="metadata" />
+        ) : thumbFailed ? (
+          <span className="flex h-full w-full items-center justify-center">
+            <Clapperboard className="size-8 text-muted-foreground" />
+          </span>
+        ) : (
+          <img src={s.thumb} alt="" loading="lazy" onError={() => setThumbFailed(true)} className="h-full w-full object-contain" />
+        )}
+        <span className="pointer-events-none absolute inset-0 bg-primary/0 transition-colors duration-150 group-hover:bg-primary/10" />
+        <span className="absolute left-1.5 top-1.5 flex items-center gap-1 bg-black/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-white">
+          {s.kind === "recording" ? <Video className="size-3" /> : <Clapperboard className="size-3" />}
+          {s.kind === "recording" ? "Recording" : "Clip"}
+        </span>
+        <span className="absolute bottom-1.5 right-1.5 flex items-center gap-1 bg-black/60 px-1.5 py-0.5 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
+          <SquarePen className="size-3" /> Edit
+        </span>
+      </span>
+      <span className="block px-2 py-1.5">
+        <span className="block truncate text-xs font-medium" title={s.name}>
+          {s.name}
+        </span>
+        <span className="block truncate text-[10px] text-muted-foreground">{formatWhen(s.when)}</span>
+      </span>
+    </button>
+  );
+}
+
 function EmptyProjects() {
   return (
     <div className="frost flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
@@ -729,16 +858,99 @@ function EmptyProjects() {
       <div>
         <p className="font-medium">No projects yet</p>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">
-          Open a clip or recording with Edit video. Your edit saves here as you work, so you can come
-          back to it later.
+          Start one with New project on the Video Editor page, or open a clip or recording with Edit
+          video. Your edit saves here as you work, so you can come back to it later.
         </p>
       </div>
     </div>
   );
 }
 
-// ProjectCard is one saved video editor project; click reopens it.
-function ProjectCard({ project: p, onOpen, onDelete }: { project: ProjectSummary; onOpen: () => void; onDelete: () => void }) {
+// ProjectGrid lists saved video editor projects (the Library's Projects tab
+// and the Video Editor page): click to open, rename in place, delete after a
+// confirm.
+function ProjectGrid({
+  projects,
+  onChanged,
+  report,
+}: {
+  projects: ProjectSummary[];
+  onChanged: () => void;
+  report: (e: unknown) => void;
+}) {
+  const [pending, setPending] = useState<ProjectSummary | null>(null);
+  const confirmDelete = async () => {
+    const p = pending;
+    setPending(null);
+    if (!p) return;
+    try {
+      await VideoService.DeleteProject(p.id);
+    } catch (e) {
+      report(e);
+    }
+    onChanged();
+  };
+  const rename = async (p: ProjectSummary, name: string) => {
+    try {
+      await VideoService.RenameProject(p.id, name);
+      // An editor window that has it open keeps the new name.
+      void WailsEvents.Emit("project:renamed", { id: p.id, name });
+    } catch (e) {
+      report(e);
+    }
+    onChanged();
+  };
+  if (projects.length === 0) return <EmptyProjects />;
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+        {projects.map((p) => (
+          <ProjectCard
+            key={p.id}
+            project={p}
+            onOpen={() => void WindowsService.OpenEditProject(p.id).catch(report)}
+            onRename={(name) => void rename(p, name)}
+            onDelete={() => setPending(p)}
+          />
+        ))}
+      </div>
+      {pending ? (
+        <ConfirmDialog
+          title="Delete this project?"
+          body={
+            <>
+              The edit <span className="font-medium text-foreground">{pending.name}</span> will be
+              deleted. Its videos, music and images stay where they are. This can’t be undone.
+            </>
+          }
+          onCancel={() => setPending(null)}
+          onConfirm={() => void confirmDelete()}
+        />
+      ) : null}
+    </>
+  );
+}
+
+// ProjectCard is one saved video editor project; click reopens it, the
+// pencil renames it in place.
+function ProjectCard({
+  project: p,
+  onOpen,
+  onRename,
+  onDelete,
+}: {
+  project: ProjectSummary;
+  onOpen: () => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(p.name);
+  const finish = (save: boolean) => {
+    setEditing(false);
+    const name = draft.trim();
+    if (save && name && name !== p.name) onRename(name);
+  };
   return (
     <div
       className={cn(
@@ -765,13 +977,43 @@ function ProjectCard({ project: p, onOpen, onDelete }: { project: ProjectSummary
       </button>
       <div className="flex items-center gap-1 px-2 py-1.5">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-medium" title={p.name}>
-            {p.name}
-          </div>
+          {editing ? (
+            <input
+              autoFocus
+              value={draft}
+              maxLength={120}
+              aria-label="Project name"
+              onChange={(e) => setDraft(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              onBlur={() => finish(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") finish(true);
+                if (e.key === "Escape") finish(false);
+              }}
+              className="w-full border border-border bg-transparent px-1 text-xs font-medium outline-none focus:border-primary"
+            />
+          ) : (
+            <div className="truncate text-xs font-medium" title={p.name}>
+              {p.name}
+            </div>
+          )}
           <div className="truncate text-[10px] text-muted-foreground">
             {formatWhen(p.updatedAt)} · {p.clips} {p.clips === 1 ? "clip" : "clips"}
           </div>
         </div>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 shrink-0 opacity-60 hover:opacity-100"
+          title="Rename project"
+          aria-label="Rename project"
+          onClick={() => {
+            setDraft(p.name);
+            setEditing(true);
+          }}
+        >
+          <Pencil className="size-3.5" />
+        </Button>
         <Button
           size="icon"
           variant="ghost"
