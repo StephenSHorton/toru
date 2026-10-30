@@ -1,0 +1,24 @@
+{
+  "type": "look",
+  "version": 1,
+  "name": "Look",
+  "category": "color",
+  "kind": "pixel",
+  "params": [
+    { "id": "look", "label": "Look", "type": "enum", "default": "none", "animate": false,
+      "options": [
+        { "id": "none", "label": "None" },
+        { "id": "bw", "label": "Black & white" },
+        { "id": "sepia", "label": "Sepia" },
+        { "id": "vintage", "label": "Vintage" },
+        { "id": "cool", "label": "Cool" },
+        { "id": "warm", "label": "Warm" }
+      ] },
+    { "id": "saturation", "label": "Saturation", "type": "number", "min": 0, "max": 3, "default": 1, "step": 0.01, "display": "percent", "animate": "cmd",
+      "hint": "Applied before the look" },
+    { "id": "amount", "label": "Intensity", "type": "number", "min": 0, "max": 1, "default": 1, "step": 0.01, "display": "percent", "animate": "cmd" }
+  ],
+  "export": { "filters": ["lut3d"] },
+  "parity": { "mode": "pixels", "mean": 1, "p99": 6 },
+  "amount": "native"
+}

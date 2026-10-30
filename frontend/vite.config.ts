@@ -56,6 +56,9 @@ export default defineConfig({
     host: "127.0.0.1",
     port: Number(process.env.WAILS_VITE_PORT) || 9245,
     strictPort: true,
+    // The effect definitions live in internal/fx/defs (Go embeds them too);
+    // the dev server may serve files from the whole repo.
+    fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] },
   },
   plugins: [react(), tailwindcss(), wails("./bindings"), stripWasmCustomSections()],
 });
