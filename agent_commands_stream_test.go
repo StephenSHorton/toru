@@ -96,9 +96,9 @@ func newStreamReg(s *fakeStream, l *fakeLan) *agentctl.Registry {
 	return reg
 }
 
-// call runs a command and returns its result as JSON text, as the pipe
+// callStream runs a command and returns its result as JSON text, as the pipe
 // would send it.
-func call(t *testing.T, reg *agentctl.Registry, name, input string) (string, error) {
+func callStream(t *testing.T, reg *agentctl.Registry, name, input string) (string, error) {
 	t.Helper()
 	if input == "" {
 		input = "{}"
@@ -138,7 +138,7 @@ func TestRoomCodeHiddenUnlessAsked(t *testing.T) {
 		{"call.status", ""}, {"call.start", ""}, {"call.mute", ""},
 		{"share.start", ""}, {"share.stop", ""}, {"call.leave", ""}, {"lan.peers", ""},
 	} {
-		out, err := call(t, reg, c.name, c.in)
+		out, err := callStream(t, reg, c.name, c.in)
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -146,7 +146,7 @@ func TestRoomCodeHiddenUnlessAsked(t *testing.T) {
 			t.Errorf("%s leaked the room code: %s", c.name, out)
 		}
 	}
-	out, err := call(t, reg, "call.status", `{"showCode":true}`)
+	out, err := callStream(t, reg, "call.status", `{"showCode":true}`)
 	if err != nil || !strings.Contains(out, testCode) {
 		t.Errorf("call.status showCode: want the code, got %s (%v)", out, err)
 	}
@@ -156,11 +156,11 @@ func TestCallStart(t *testing.T) {
 	// Not in a room and nothing given: an error, no room made.
 	s := &fakeStream{}
 	reg := newStreamReg(s, &fakeLan{})
-	if _, err := call(t, reg, "call.start", ""); err == nil || s.creates != 0 {
+	if _, err := callStream(t, reg, "call.start", ""); err == nil || s.creates != 0 {
 		t.Fatalf("call.start outside a room: err %v, creates %d", err, s.creates)
 	}
 	// new: a room is made, the call joined and the new code shown.
-	out, err := call(t, reg, "call.start", `{"new":true}`)
+	out, err := callStream(t, reg, "call.start", `{"new":true}`)
 	if err != nil || !s.st.Call.InCall || !strings.Contains(out, otherCode) {
 		t.Fatalf("call.start new: %s, %v, inCall %v", out, err, s.st.Call.InCall)
 	}
@@ -168,29 +168,32 @@ func TestCallStart(t *testing.T) {
 	// In a room: joining its call needs nothing more.
 	s = &fakeStream{st: stream.State{Room: &stream.RoomState{Code: testCode}}}
 	reg = newStreamReg(s, &fakeLan{})
-	if _, err := call(t, reg, "call.start", ""); err != nil || !s.st.Call.InCall {
+	if _, err := callStream(t, reg, "call.start", ""); err != nil || !s.st.Call.InCall {
 		t.Fatalf("call.start in a room: %v", err)
 	}
 	// The same room's code (any spelling) is fine without confirm.
-	if _, err := call(t, reg, "call.start", `{"code":"abcd efgh jkmn pqrs"}`); err != nil {
+	if _, err := callStream(t, reg, "call.start", `{"code":"abcd efgh jkmn pqrs"}`); err != nil {
 		t.Fatalf("call.start same code: %v", err)
+	}
+	if len(s.joined) != 0 {
+		t.Fatalf("call.start same code rejoined the room (resetting its connection): %v", s.joined)
 	}
 	// Another room, or a new one, forgets this one's code: confirm first.
 	for _, in := range []string{`{"code":"` + otherCode + `"}`, `{"new":true}`} {
-		if _, err := call(t, reg, "call.start", in); err == nil || !strings.Contains(err.Error(), "confirm") {
+		if _, err := callStream(t, reg, "call.start", in); err == nil || !strings.Contains(err.Error(), "confirm") {
 			t.Errorf("call.start %s without confirm: %v", in, err)
 		}
 	}
 	if s.st.Room.Code != testCode || s.creates != 0 {
 		t.Fatalf("room changed without confirm: %s, creates %d", s.st.Room.Code, s.creates)
 	}
-	if _, err := call(t, reg, "call.start", `{"code":"`+otherCode+`","confirm":true}`); err != nil || s.st.Room.Code != otherCode {
+	if _, err := callStream(t, reg, "call.start", `{"code":"`+otherCode+`","confirm":true}`); err != nil || s.st.Room.Code != otherCode {
 		t.Fatalf("call.start other code with confirm: %v, room %s", err, s.st.Room.Code)
 	}
-	if _, err := call(t, reg, "call.start", `{"code":"x","new":true}`); err == nil {
+	if _, err := callStream(t, reg, "call.start", `{"code":"x","new":true}`); err == nil {
 		t.Error("code and new together should fail")
 	}
-	if _, err := call(t, reg, "call.start", `{"code":"nope","confirm":true}`); err == nil {
+	if _, err := callStream(t, reg, "call.start", `{"code":"nope","confirm":true}`); err == nil {
 		t.Error("a bad code should fail")
 	}
 }
@@ -198,22 +201,22 @@ func TestCallStart(t *testing.T) {
 func TestShareOnlyInCall(t *testing.T) {
 	s := &fakeStream{st: stream.State{Room: &stream.RoomState{Code: testCode}}}
 	reg := newStreamReg(s, &fakeLan{})
-	if _, err := call(t, reg, "share.start", ""); err == nil || s.golive != 0 {
+	if _, err := callStream(t, reg, "share.start", ""); err == nil || s.golive != 0 {
 		t.Fatalf("share.start outside the call: err %v, golive %d", err, s.golive)
 	}
-	if _, err := call(t, reg, "call.start", ""); err != nil {
+	if _, err := callStream(t, reg, "call.start", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := call(t, reg, "share.start", ""); err != nil || !s.st.Live.Live {
+	if _, err := callStream(t, reg, "share.start", ""); err != nil || !s.st.Live.Live {
 		t.Fatalf("share.start in the call: %v", err)
 	}
 	if s.st.Preview {
 		t.Error("share.start turned the self-preview on without being asked")
 	}
-	if _, err := call(t, reg, "share.start", `{"preview":true}`); err != nil || !s.st.Preview {
+	if _, err := callStream(t, reg, "share.start", `{"preview":true}`); err != nil || !s.st.Preview {
 		t.Fatalf("share.start preview: %v", err)
 	}
-	if _, err := call(t, reg, "share.stop", ""); err != nil || s.st.Live.Live || !s.st.Call.InCall {
+	if _, err := callStream(t, reg, "share.stop", ""); err != nil || s.st.Live.Live || !s.st.Call.InCall {
 		t.Fatalf("share.stop: %v, live %v, inCall %v", err, s.st.Live.Live, s.st.Call.InCall)
 	}
 }
@@ -221,19 +224,23 @@ func TestShareOnlyInCall(t *testing.T) {
 func TestMuteAndLeave(t *testing.T) {
 	s := &fakeStream{st: stream.State{Room: &stream.RoomState{Code: testCode}}}
 	reg := newStreamReg(s, &fakeLan{})
-	if _, err := call(t, reg, "call.mute", ""); err != nil || !s.st.Call.Muted {
+	// deafened alone leaves the mic as it is.
+	if _, err := callStream(t, reg, "call.mute", `{"deafened":false}`); err != nil || s.st.Call.Muted {
+		t.Fatalf("call.mute deafened:false muted the mic: %v", err)
+	}
+	if _, err := callStream(t, reg, "call.mute", ""); err != nil || !s.st.Call.Muted {
 		t.Fatalf("call.mute default: %v", err)
 	}
-	if _, err := call(t, reg, "call.mute", `{"deafened":true}`); err != nil || !s.st.Call.Deafened {
+	if _, err := callStream(t, reg, "call.mute", `{"deafened":true}`); err != nil || !s.st.Call.Deafened {
 		t.Fatalf("call.mute deafen: %v", err)
 	}
-	if _, err := call(t, reg, "call.mute", `{"muted":false}`); err != nil || s.st.Call.Muted || s.st.Call.Deafened {
+	if _, err := callStream(t, reg, "call.mute", `{"muted":false}`); err != nil || s.st.Call.Muted || s.st.Call.Deafened {
 		t.Fatalf("call.mute unmute: %v", err)
 	}
-	if _, err := call(t, reg, "room.leave", ""); err == nil || s.st.Room == nil {
+	if _, err := callStream(t, reg, "room.leave", ""); err == nil || s.st.Room == nil {
 		t.Fatalf("room.leave without confirm: %v", err)
 	}
-	if _, err := call(t, reg, "room.leave", `{"confirm":true}`); err != nil || s.st.Room != nil {
+	if _, err := callStream(t, reg, "room.leave", `{"confirm":true}`); err != nil || s.st.Room != nil {
 		t.Fatalf("room.leave: %v", err)
 	}
 }
@@ -249,21 +256,21 @@ func TestLanCommands(t *testing.T) {
 	}}}
 	reg := newStreamReg(s, l)
 
-	out, err := call(t, reg, "lan.status", "")
+	out, err := callStream(t, reg, "lan.status", "")
 	if err != nil || !strings.Contains(out, `"ip":"10.77.0.1"`) {
 		t.Fatalf("lan.status: %s %v", out, err)
 	}
-	if _, err := call(t, reg, "lan.set", ""); err == nil {
+	if _, err := callStream(t, reg, "lan.set", ""); err == nil {
 		t.Error("lan.set without on should fail")
 	}
-	if _, err := call(t, reg, "lan.set", `{"on":true}`); err != nil || l.enabled != 1 {
+	if _, err := callStream(t, reg, "lan.set", `{"on":true}`); err != nil || l.enabled != 1 {
 		t.Fatalf("lan.set on: %v", err)
 	}
-	if _, err := call(t, reg, "lan.set", `{"on":false}`); err != nil || l.disabled != 1 {
+	if _, err := callStream(t, reg, "lan.set", `{"on":false}`); err != nil || l.disabled != 1 {
 		t.Fatalf("lan.set off: %v", err)
 	}
 	l.err = errors.New("join a room first")
-	if _, err := call(t, reg, "lan.set", `{"on":true}`); err == nil {
+	if _, err := callStream(t, reg, "lan.set", `{"on":true}`); err == nil {
 		t.Error("lan.set on should pass Enable's error on")
 	}
 

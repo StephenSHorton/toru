@@ -108,12 +108,15 @@ func registerStreamAgentCommands(reg *agentctl.Registry, s streamAgent, lan lanA
 				return nil, errors.New("give code or new, not both")
 			}
 			cur := s.GetState().Room
+			sameRoom := false
+			if c, ok := stream.NormalizeCode(v.Code); ok && cur != nil && c == cur.Code {
+				sameRoom = true // already there: don't reset the room connection
+			}
 			switch {
+			case sameRoom:
 			case v.New || v.Code != "":
 				if cur != nil && !v.Confirm {
-					if c, ok := stream.NormalizeCode(v.Code); !ok || c != cur.Code {
-						return nil, errors.New(`you're already in a room; moving to another forgets its code, so send "confirm": true (or leave out code and new to join this room's call)`)
-					}
+					return nil, errors.New(`you're already in a room; moving to another forgets its code, so send "confirm": true (or leave out code and new to join this room's call)`)
 				}
 				if v.New {
 					_, err = s.CreateRoom()
@@ -168,7 +171,11 @@ func registerStreamAgentCommands(reg *agentctl.Registry, s streamAgent, lan lanA
 			if err != nil {
 				return nil, err
 			}
-			st := s.SetMuted(v.Muted == nil || *v.Muted)
+			// muted defaults to true only when deafened isn't given either.
+			st := s.GetState()
+			if v.Muted != nil || v.Deafened == nil {
+				st = s.SetMuted(v.Muted == nil || *v.Muted)
+			}
 			if v.Deafened != nil {
 				st = s.SetDeafened(*v.Deafened)
 			}
