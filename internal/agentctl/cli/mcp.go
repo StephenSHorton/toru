@@ -54,7 +54,7 @@ func newMCPServer(env Env) *mcpServer {
 		if err != nil {
 			return errorResult(err.Error()), nil
 		}
-		s.sync(ctx)
+		_ = s.sync(ctx)
 		b, _ := json.Marshal(res)
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil
 	})
@@ -62,11 +62,16 @@ func newMCPServer(env Env) *mcpServer {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			switch method {
 			case "tools/list":
-				s.sync(ctx)
+				_ = s.sync(ctx)
 			case "tools/call":
 				// A window command registered since the last list.
 				if r, ok := req.(*mcp.CallToolRequest); ok && r.Params != nil && !s.known(r.Params.Name) {
-					s.sync(ctx)
+					// A client with an older tool list calls a command while
+					// Toru is down or agent control is off: say so instead of
+					// "unknown tool".
+					if err := s.sync(ctx); errors.Is(err, errUnreachable) {
+						return errorResult(unreachableMessage(s.env, "call the app.start tool")), nil
+					}
 				}
 			}
 			return next(ctx, method, req)
@@ -86,8 +91,9 @@ func (s *mcpServer) known(name string) bool {
 }
 
 // sync makes the server's tools match the pipe's list. When Toru can't be
-// reached the list shrinks to app.start, whose description says why.
-func (s *mcpServer) sync(ctx context.Context) {
+// reached the list shrinks to app.start, whose description says why. It
+// returns the list error, if any.
+func (s *mcpServer) sync(ctx context.Context) error {
 	cmds, err := s.client.List(ctx)
 	if err != nil {
 		cmds = nil
@@ -120,6 +126,7 @@ func (s *mcpServer) sync(ctx context.Context) {
 		s.srv.AddTool(toolFor(c), s.forward(name))
 		s.tools[name] = c
 	}
+	return err
 }
 
 func sameCommand(a, b CommandInfo) bool {

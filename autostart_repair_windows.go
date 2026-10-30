@@ -31,7 +31,7 @@ func repairLaunchAtLogin() {
 	if err != nil {
 		return
 	}
-	defer key.Close()
+	defer func() { _ = key.Close() }()
 	val, _, err := key.GetStringValue(autostartID)
 	if err != nil {
 		return // not enabled

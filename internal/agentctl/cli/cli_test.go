@@ -388,6 +388,41 @@ func TestMCPWhenToruIsUnreachable(t *testing.T) {
 	}
 }
 
+// A client that kept an older tool list calls a command while Toru is
+// down or agent control is off: it hears why, not "unknown tool". With
+// Toru up, a name that really isn't a command is still unknown.
+func TestMCPCallWhenUnreachableExplains(t *testing.T) {
+	ctx := context.Background()
+	text := func(res *mcp.CallToolResult) string { return res.Content[0].(*mcp.TextContent).Text }
+
+	f := newFake(splitCmd)
+	cs := mcpSession(t, f, true)
+	toolNames(t, cs)
+	f.stop()
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "editor.split", Arguments: map[string]any{"t": 1}})
+	if err != nil || !res.IsError || !strings.Contains(text(res), "Toru isn't running") || !strings.Contains(text(res), "app.start") {
+		t.Errorf("down, known tool: %+v %v", res, err)
+	}
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "editor.frame"})
+	if err != nil || !res.IsError || !strings.Contains(text(res), "Toru isn't running") {
+		t.Errorf("down, tool never listed: %+v %v", res, err)
+	}
+
+	off := newFake(splitCmd)
+	off.running = false
+	cs = mcpSession(t, off, false)
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "capture.screenshot", Arguments: map[string]any{"mode": "fullscreen"}})
+	if err != nil || !res.IsError || !strings.Contains(text(res), "Agent control is off") || !strings.Contains(text(res), "Settings > General") {
+		t.Errorf("toggle off: %+v %v", res, err)
+	}
+
+	up := newFake(splitCmd)
+	cs = mcpSession(t, up, true)
+	if _, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "editor.nope"}); err == nil || !strings.Contains(err.Error(), "unknown tool") {
+		t.Errorf("running, no such tool: err = %v", err)
+	}
+}
+
 func TestToolForBadSchema(t *testing.T) {
 	for _, in := range []string{``, `null`, `{"type":"string"}`, `[1]`} {
 		tl := toolFor(CommandInfo{Name: "x", Input: json.RawMessage(in)})
