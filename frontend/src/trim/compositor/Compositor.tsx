@@ -3,13 +3,14 @@ import { VideoService } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { clipsAt, timelineTimeAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
 import { AudioMix, clipGain } from "@/trim/compositor/audio";
-import { EffectsRenderer } from "@/trim/compositor/effects";
+import { FxRenderer } from "@/trim/fx/renderer";
+import { clipStack } from "@/trim/fx/stack";
 import type { PlaybackClock } from "@/trim/compositor/usePlayback";
 
 // Compositor is the v2 editor's preview (docs/video-editor-v2.md, Preview
 // compositor): a WebGL2 canvas with the project's aspect that draws, every
 // frame, the clips under the clock's time bottom→top, each through its
-// effects (effects.ts) and placed by its transform and opacity; and that
+// effects (fx/renderer.ts) and placed by its transform and opacity; and that
 // plays their audio through the AudioMix.
 //
 // Media: one hidden <video> per video clip being shown (an <audio> per audio
@@ -135,7 +136,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       opacity: gl.getUniformLocation(prog, "u_opacity"),
     };
     const vao = gl.createVertexArray();
-    const effects = new EffectsRenderer(gl);
+    const effects = new FxRenderer(gl);
     const mix = new AudioMix();
     const pool = new Map<string, Slot>();
     const stills = new Map<string, Still>();
@@ -404,8 +405,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
           drift[a.clip.id] = v.currentTime - a.srcT;
         }
         if (!tex || w <= 0 || h <= 0) continue;
-        const chroma = rawClips.has(a.clip.id) ? undefined : a.clip.chroma;
-        const out = effects.apply(tex, w, h, { chroma, filters: a.clip.filters });
+        const out = effects.apply(tex, w, h, clipStack(a.clip, t - a.clip.start, rawClips.has(a.clip.id)), t - a.clip.start);
         drawLayer(gl, prog, vao, loc, out, w, h, a.clip, W, H);
       }
       // Read picks now, while this frame's pixels are still in the buffer.

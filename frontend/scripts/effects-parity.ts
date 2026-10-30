@@ -1,5 +1,5 @@
-// effects-parity checks that the preview's effects (src/trim/compositor/
-// effects.ts, WebGL2) match the export's (internal/vid/effects.go, ffmpeg).
+// effects-parity checks that the preview's effects (src/trim/fx/renderer.ts,
+// WebGL2) match the export's (internal/vid/effects.go, ffmpeg).
 // For each case in internal/vid/effects_parity_test.go it renders one frame
 // with a green box on it through ffmpeg using the exact filter chain the
 // export builds, and through the shader in headless Edge, then compares the
@@ -65,11 +65,15 @@ const expected = cases.map((c) =>
   run("ffmpeg", ["-v", "error", "-i", src, "-vf", (c.filter ? c.filter + "," : "") + "format=rgba", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]),
 );
 
-// 4. What the preview draws: effects.ts in headless Edge.
+// 4. What the preview draws: the renderer in headless Edge, with each case's
+// v2 settings migrated to an effect stack as the editor does.
 const entry = path.join(tmp, "page.ts");
+const mod = (f: string) => JSON.stringify(path.join(repo, "frontend/src/trim", f).replace(/\\/g, "/"));
 fs.writeFileSync(
   entry,
-  `import { EffectsRenderer } from ${JSON.stringify(path.join(repo, "frontend/src/trim/compositor/effects.ts").replace(/\\/g, "/"))};
+  `import { FxRenderer } from ${mod("fx/renderer.ts")};
+import { resolveStack } from ${mod("fx/registry.ts")};
+import { migrateClipEffects } from ${mod("migrate.ts")};
 (window as any).render = async (w: number, h: number, fx: any) => {
   const src = new Uint8Array(await (await fetch("/src")).arrayBuffer());
   const canvas = document.createElement("canvas");
@@ -79,8 +83,8 @@ fs.writeFileSync(
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, src);
-  const r = new EffectsRenderer(gl);
-  const out = r.apply(tex, w, h, fx);
+  const r = new FxRenderer(gl);
+  const out = r.apply(tex, w, h, resolveStack(migrateClipEffects(fx.chroma, fx.filters), 0));
   const fbo = gl.createFramebuffer();
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, out, 0);
@@ -92,7 +96,14 @@ fs.writeFileSync(
   return { renderer: String(gl.getParameter(gl.RENDERER)), pixels: btoa(s) };
 };`,
 );
-const built = await Bun.build({ entrypoints: [entry], target: "browser" });
+// The app's "@/" imports resolve to frontend/src.
+const alias: import("bun").BunPlugin = {
+  name: "at-alias",
+  setup(b) {
+    b.onResolve({ filter: /^@\// }, (a) => ({ path: Bun.resolveSync("./" + a.path.slice(2), path.join(repo, "frontend/src")) }));
+  },
+};
+const built = await Bun.build({ entrypoints: [entry], target: "browser", plugins: [alias] });
 if (!built.success) throw new Error(built.logs.join("\n"));
 const js = await built.outputs[0].text();
 const server = Bun.serve({

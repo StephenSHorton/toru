@@ -9,7 +9,8 @@
     "build": "tsc && vite build --mode production",
     "preview": "vite preview",
     "test:denoise": "node scripts/denoise-check.mjs",
-    "test:effects": "bun scripts/effects-parity.ts"
+    "test:effects": "bun scripts/effects-parity.ts",
+    "test:fx-lut": "bun scripts/fx-lut-check.ts"
   },
   "dependencies": {
     "@lofcz/deepfilternet-web": "0.1.0",

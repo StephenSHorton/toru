@@ -7,7 +7,7 @@
 //   bun scripts/project-check.ts
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { colorMatrix, LOOK_MATRICES, normFilters } from "../src/trim/compositor/effects";
+import { colorMatrix, LOOK_MATRICES, normFilters } from "../src/trim/fx/lut";
 import { historyApply, historyInit, historyUndo, type Edl } from "../src/trim/edl";
 import { valueAt } from "../src/trim/fx/keyframes";
 import { migrateClipEffects, migrateProject } from "../src/trim/migrate";

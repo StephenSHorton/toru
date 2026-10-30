@@ -9,7 +9,7 @@ import (
 
 // effects.go turns a v2 clip's effects (docs/video-editor-v2.md, Effects) into
 // ffmpeg filter chains for the multi-track export. The preview draws the
-// same effects with the shader in frontend/src/trim/compositor/effects.ts;
+// same effects with the shader in frontend/src/trim/fx/renderer.ts;
 // the two are one owner's job so they match (effects_parity_test.go and
 // frontend/scripts/effects-parity.ts check that they do).
 //

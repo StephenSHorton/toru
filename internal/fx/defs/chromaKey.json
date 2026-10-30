@@ -1,0 +1,15 @@
+{
+  "type": "chromaKey",
+  "version": 1,
+  "name": "Green screen",
+  "category": "key",
+  "kind": "neighbourhood",
+  "params": [
+    { "id": "color", "label": "Key colour", "type": "color", "default": "#00ff00", "animate": "cmd" },
+    { "id": "similarity", "label": "Strength", "type": "number", "min": 0.01, "max": 1, "default": 0.25, "step": 0.01, "display": "percent", "animate": "cmd" },
+    { "id": "blend", "label": "Softness", "type": "number", "min": 0, "max": 1, "default": 0.08, "step": 0.01, "display": "percent", "animate": "cmd" }
+  ],
+  "export": { "filters": ["chromakey"] },
+  "parity": { "mode": "pixels", "mean": 1, "p99": 6 },
+  "amount": "blend"
+}
