@@ -290,6 +290,10 @@ func main() {
 		app: func() *application.App { return app },
 	})
 	registerStreamAgentCommands(agentReg, streamSvc, lanSvc) // agent_commands_stream.go
+	registerMoreAgentCommands(agentReg, moreAgentDeps{       // agent_commands_more.go
+		clicker: clickerSvc, transfer: transferSvc, upload: uploadSvc, hotkeys: hotkeySvc,
+		settings: settingsSvc, replay: replaySvc, update: updateSvc,
+	})
 	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in
 	// the recorder.
