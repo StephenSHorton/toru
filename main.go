@@ -289,6 +289,7 @@ func main() {
 		history: histSvc, replay: replaySvc, export: exportSvc, windows: windowsSvc,
 		app: func() *application.App { return app },
 	})
+	registerStreamAgentCommands(agentReg, streamSvc, lanSvc) // agent_commands_stream.go
 	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in
 	// the recorder.
