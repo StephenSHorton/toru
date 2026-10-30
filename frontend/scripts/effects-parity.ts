@@ -40,12 +40,22 @@ const { height: H, cases } = JSON.parse(fs.readFileSync(path.join(tmp, "cases.js
   cases: { name: string; chroma?: unknown; filters: unknown; filter: string }[];
 };
 
-// 2. The source frame: test pattern, a pure green box and a near-green box
-// (so the soft key edge shows), as PNG and as raw RGBA.
+// The first case is the editor's default green screen; both sides must agree
+// on what that is.
+const { DEFAULT_CHROMA } = await import("../src/trim/project");
+if (JSON.stringify(cases[0].chroma) !== JSON.stringify(DEFAULT_CHROMA)) {
+  throw new Error(`Go DefaultChroma ${JSON.stringify(cases[0].chroma)} != project.ts DEFAULT_CHROMA ${JSON.stringify(DEFAULT_CHROMA)}`);
+}
+
+// 2. The source frame: test pattern, a pure green box, a near-green box (so
+// the soft key edge shows), and white and black boxes (which a green screen
+// must leave opaque), as PNG and as raw RGBA.
 const src = path.join(tmp, "src.png");
+const WHITE_BOX = { x: 250, y: 120, w: 50, h: 40 };
 run("ffmpeg", [
   "-v", "error", "-y", "-f", "lavfi", "-i", `testsrc2=s=${W}x${H}:r=1:d=1`,
-  "-vf", "drawbox=x=40:y=30:w=110:h=80:c=0x00FF00:t=fill,drawbox=x=170:y=40:w=70:h=60:c=0x3CC850:t=fill",
+  "-vf", "drawbox=x=40:y=30:w=110:h=80:c=0x00FF00:t=fill,drawbox=x=170:y=40:w=70:h=60:c=0x3CC850:t=fill," +
+    `drawbox=x=${WHITE_BOX.x}:y=${WHITE_BOX.y}:w=${WHITE_BOX.w}:h=${WHITE_BOX.h}:c=0xFFFFFF:t=fill,drawbox=x=40:y=125:w=60:h=40:c=0x000000:t=fill`,
   "-frames:v", "1", src,
 ]);
 const srcRGBA = run("ffmpeg", ["-v", "error", "-i", src, "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
@@ -155,7 +165,15 @@ try {
     const mean = diffs.reduce((s, d) => s + d, 0) / diffs.length;
     const p99 = diffs[Math.floor(diffs.length * 0.99)];
     const max = diffs[diffs.length - 1];
-    const ok = mean <= MAX_MEAN && p99 <= MAX_P99;
+    let ok = mean <= MAX_MEAN && p99 <= MAX_P99;
+    if (c.chroma) {
+      // A green screen leaves white opaque, in the export and the preview.
+      const o = ((WHITE_BOX.y + WHITE_BOX.h / 2) * W + WHITE_BOX.x + WHITE_BOX.w / 2) * 4 + 3;
+      if (exp[o] !== 255 || preview[o] !== 255) {
+        console.log(`     white box alpha: export ${exp[o]}, preview ${preview[o]} (want 255)`);
+        ok = false;
+      }
+    }
     if (!ok) failed++;
     console.log(`${ok ? "ok  " : "FAIL"} ${c.name.padEnd(28)} mean ${mean.toFixed(2).padStart(5)}  p99 ${p99.toFixed(1).padStart(5)}  max ${max.toFixed(1).padStart(5)}`);
     if (process.env.FX_PARITY_KEEP) {

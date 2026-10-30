@@ -21,7 +21,8 @@ type parityCase struct {
 const parityH = 180
 
 func parityCases() []parityCase {
-	green := &ChromaJSON{Color: "#00ff00", Similarity: 0.3, Blend: 0.1}
+	dc := DefaultChroma
+	green := &dc
 	none := FiltersJSON{Contrast: 1, Saturation: 1, Look: "none"}
 	with := func(mod func(*FiltersJSON)) FiltersJSON {
 		f := none
