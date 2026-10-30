@@ -204,7 +204,7 @@ func TestMoreCommandsRegistered(t *testing.T) {
 		have[c.Name] = c
 	}
 	for _, n := range []string{
-		"clicker.status", "clicker.start", "clicker.stop", "clicker.pause", "clicker.arm", "clicker.getSettings", "clicker.setSettings", "clicker.cursor", "clicker.preset",
+		"clicker.status", "clicker.start", "clicker.stop", "clicker.pause", "clicker.arm", "clicker.getSettings", "clicker.setSettings", "clicker.cursor", "clicker.preset", "clicker.updatePreset", "clicker.deletePreset",
 		"transfer.status", "transfer.send", "transfer.stopSend", "transfer.receive", "transfer.cancelReceive", "upload.shareLink", "upload.cancel",
 		"shortcuts.list", "shortcuts.set", "shortcuts.reset", "shortcuts.clear",
 		"settings.get", "settings.set", "replay.getSettings", "replay.setSettings", "update.status", "update.check", "update.install",
@@ -219,9 +219,17 @@ func TestMoreCommandsRegistered(t *testing.T) {
 			t.Errorf("%s: input schema %s", n, c.Input)
 		}
 	}
-	for _, n := range []string{"upload.shareLink", "update.install"} {
+	// Always need confirm: marked destructive (the registry enforces it).
+	for _, n := range []string{"upload.shareLink", "update.install", "transfer.send", "clicker.start", "clicker.updatePreset", "clicker.deletePreset"} {
 		if !have[n].Destructive {
 			t.Errorf("%s must be marked destructive", n)
+		}
+	}
+	// Need confirm only for some inputs (lowering the storage limit), so the
+	// handler checks it: marking them destructive would demand it always.
+	for _, n := range []string{"replay.setSettings", "clicker.preset"} {
+		if have[n].Destructive {
+			t.Errorf("%s needs confirm only sometimes; it must not be marked destructive", n)
 		}
 	}
 }
@@ -241,17 +249,23 @@ func TestClickerStartNeedsConfirm(t *testing.T) {
 
 func TestClickerPresetsConfirm(t *testing.T) {
 	reg, f := newMoreReg()
-	for _, in := range []string{`{"action":"delete","id":"p1"}`, `{"action":"update","id":"p1"}`, `{"action":"apply"}`, `{"action":"rename","id":"p1"}`} {
-		if _, err := callMore(t, reg, "clicker.preset", in); err == nil {
-			t.Errorf("%s: want an error", in)
+	for _, c := range []struct{ name, in string }{
+		{"clicker.deletePreset", `{"id":"p1"}`}, {"clicker.updatePreset", `{"id":"p1"}`},
+		{"clicker.preset", `{"action":"apply"}`}, {"clicker.preset", `{"action":"delete","id":"p1"}`},
+	} {
+		if _, err := callMore(t, reg, c.name, c.in); err == nil {
+			t.Errorf("%s %s: want an error", c.name, c.in)
 		}
 	}
-	for _, in := range []string{`{"action":"apply","id":"p1"}`, `{"action":"save","name":"Fast"}`, `{"action":"delete","id":"p1","confirm":true}`} {
-		if _, err := callMore(t, reg, "clicker.preset", in); err != nil {
-			t.Errorf("%s: %v", in, err)
+	for _, c := range []struct{ name, in string }{
+		{"clicker.preset", `{"action":"apply","id":"p1"}`}, {"clicker.preset", `{"action":"save","name":"Fast"}`},
+		{"clicker.updatePreset", `{"id":"p2","confirm":true}`}, {"clicker.deletePreset", `{"id":"p1","confirm":true}`},
+	} {
+		if _, err := callMore(t, reg, c.name, c.in); err != nil {
+			t.Errorf("%s %s: %v", c.name, c.in, err)
 		}
 	}
-	if got := strings.Join(f.clicker.presets, ","); got != "apply p1,save Fast,delete p1" {
+	if got := strings.Join(f.clicker.presets, ","); got != "apply p1,save Fast,update p2,delete p1" {
 		t.Errorf("preset ops = %s", got)
 	}
 }
@@ -297,10 +311,13 @@ func TestShareLinkConfirmAndCache(t *testing.T) {
 }
 
 func TestTransferSendReturnsCode(t *testing.T) {
-	reg, _ := newMoreReg()
+	reg, f := newMoreReg()
 	dir := t.TempDir()
 	b, _ := json.Marshal(dir)
-	out, err := callMore(t, reg, "transfer.send", `{"path":`+string(b)+`}`)
+	if _, err := callMore(t, reg, "transfer.send", `{"path":`+string(b)+`}`); err == nil || f.transfer.send.Active {
+		t.Fatalf("send without confirm: err %v, %+v", err, f.transfer.send)
+	}
+	out, err := callMore(t, reg, "transfer.send", `{"path":`+string(b)+`,"confirm":true}`)
 	if err != nil || !strings.Contains(out, "7-guitarist-revenge") {
 		t.Fatalf("send: %s %v", out, err)
 	}
@@ -348,17 +365,22 @@ func TestSettingsCommands(t *testing.T) {
 
 func TestReplaySettingsConfirmOnShrink(t *testing.T) {
 	reg, f := newMoreReg()
-	f.replay.set.MaxDiskGB, f.replay.set.RetentionSec = 50, 0
+	f.replay.set.MaxDiskGB, f.replay.set.RetentionSec = 50, 7200
 	if _, err := callMore(t, reg, "replay.setSettings", `{"settings":{"mode":"replay","durationSec":120,"desktopAudio":false}}`); err != nil {
 		t.Fatal(err)
 	}
 	if s := f.replay.set; s.Mode != "replay" || s.DurationSec != 120 || s.DesktopAudio || s.MaxDiskGB != 50 {
 		t.Errorf("merged = %+v", s)
 	}
-	for _, in := range []string{`{"settings":{"maxDiskGB":10}}`, `{"settings":{"retentionSec":3600}}`} {
-		if _, err := callMore(t, reg, "replay.setSettings", in); err == nil {
-			t.Errorf("%s without confirm: want an error", in)
-		}
+	if _, err := callMore(t, reg, "replay.setSettings", `{"settings":{"maxDiskGB":10}}`); err == nil {
+		t.Error("lowering maxDiskGB without confirm: want an error")
+	}
+	// Time-based retention is gone from Toru: not shown, not settable.
+	if _, err := callMore(t, reg, "replay.setSettings", `{"settings":{"retentionSec":3600},"confirm":true}`); err == nil || f.replay.set.RetentionSec != 7200 {
+		t.Errorf("retentionSec: err %v, now %d", err, f.replay.set.RetentionSec)
+	}
+	if out, _ := callMore(t, reg, "replay.getSettings", ""); strings.Contains(out, "retentionSec") || !strings.Contains(out, `"maxDiskGB":50`) {
+		t.Errorf("getSettings = %s", out)
 	}
 	if f.replay.set.MaxDiskGB != 50 {
 		t.Errorf("maxDiskGB changed without confirm: %d", f.replay.set.MaxDiskGB)

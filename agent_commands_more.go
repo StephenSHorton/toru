@@ -191,19 +191,9 @@ func registerClickerAgentCommands(reg *agentctl.Registry, c clickerAgent) {
 		Description: "Start the auto clicker with its current settings (after the start delay). It clicks for real wherever its settings say, " +
 			"so it needs confirm: true. It stops by itself on the screen-corner failsafes, stop zones, limits and Alt+Tab; clicker.stop stops it. " +
 			"It must be armed (clicker.arm).",
-		Input: schema(map[string]any{"confirm": map[string]any{"type": "boolean", "description": "Must be true: the clicker clicks the real mouse/keyboard."}}, "confirm"),
-		Handler: func(_ context.Context, in json.RawMessage) (any, error) {
-			v, err := decode[struct {
-				Confirm bool `json:"confirm"`
-			}](in)
-			if err != nil {
-				return nil, err
-			}
-			if !v.Confirm {
-				return nil, errors.New(`clicker.start clicks for real: send "confirm": true`)
-			}
-			return c.Start()
-		},
+		Input:       schema(map[string]any{"confirm": map[string]any{"type": "boolean", "description": "Must be true: the clicker clicks the real mouse/keyboard."}}, "confirm"),
+		Destructive: true,
+		Handler:     func(context.Context, json.RawMessage) (any, error) { return c.Start() },
 	})
 
 	reg.Register(agentctl.Command{
@@ -289,20 +279,18 @@ func registerClickerAgentCommands(reg *agentctl.Registry, c clickerAgent) {
 
 	reg.Register(agentctl.Command{
 		Name: "clicker.preset",
-		Description: "Auto clicker presets (named profiles; ids from clicker.getSettings presets). action: apply (load it), save (the current profile as a new preset named name), " +
-			"update (overwrite it with the current profile; needs confirm: true) or delete (needs confirm: true).",
+		Description: "Auto clicker presets (named profiles; ids from clicker.getSettings presets). action: apply (load it into the current profile) " +
+			"or save (the current profile as a new preset named name). clicker.updatePreset and clicker.deletePreset change saved ones.",
 		Input: schema(map[string]any{
-			"action":  map[string]any{"type": "string", "enum": []string{"apply", "save", "update", "delete"}},
-			"id":      map[string]any{"type": "string", "description": "The preset's id (apply, update, delete)."},
-			"name":    map[string]any{"type": "string", "description": "The new preset's name (save), 1..40 characters."},
-			"confirm": map[string]any{"type": "boolean", "description": "Needed for update and delete: the old preset is gone."},
+			"action": map[string]any{"type": "string", "enum": []string{"apply", "save"}},
+			"id":     map[string]any{"type": "string", "description": "The preset's id (apply)."},
+			"name":   map[string]any{"type": "string", "description": "The new preset's name (save), 1..40 characters."},
 		}, "action"),
 		Handler: func(_ context.Context, in json.RawMessage) (any, error) {
 			v, err := decode[struct {
-				Action  string `json:"action"`
-				ID      string `json:"id"`
-				Name    string `json:"name"`
-				Confirm bool   `json:"confirm"`
+				Action string `json:"action"`
+				ID     string `json:"id"`
+				Name   string `json:"name"`
 			}](in)
 			if err != nil {
 				return nil, err
@@ -310,26 +298,43 @@ func registerClickerAgentCommands(reg *agentctl.Registry, c clickerAgent) {
 			switch v.Action {
 			case "save":
 				return c.SavePreset(v.Name)
-			case "apply", "update", "delete":
-				if v.ID == "" {
-					return nil, fmt.Errorf("%s needs the preset's id", v.Action)
-				}
-			default:
-				return nil, errors.New("action must be apply, save, update or delete")
-			}
-			if v.Action != "apply" && !v.Confirm {
-				return nil, fmt.Errorf(`%s replaces the saved preset for good: send "confirm": true`, v.Action)
-			}
-			switch v.Action {
 			case "apply":
+				if v.ID == "" {
+					return nil, errors.New("apply needs the preset's id")
+				}
 				return c.ApplyPreset(v.ID)
-			case "update":
-				return c.UpdatePreset(v.ID)
 			default:
-				return c.DeletePreset(v.ID)
+				return nil, errors.New("action must be apply or save")
 			}
 		},
 	})
+
+	for _, p := range []struct {
+		name, what string
+		fn         func(string) (clicker.Settings, error)
+	}{
+		{"clicker.updatePreset", "Overwrite a saved auto clicker preset with the current profile. The old preset is gone, so it needs confirm: true.", c.UpdatePreset},
+		{"clicker.deletePreset", "Delete a saved auto clicker preset. It needs confirm: true.", c.DeletePreset},
+	} {
+		reg.Register(agentctl.Command{
+			Name:        p.name,
+			Description: p.what,
+			Input:       schema(map[string]any{"id": map[string]any{"type": "string", "description": "The preset's id, from clicker.getSettings presets."}, "confirm": propConfirm}, "id", "confirm"),
+			Destructive: true,
+			Handler: func(_ context.Context, in json.RawMessage) (any, error) {
+				v, err := decode[struct {
+					ID string `json:"id"`
+				}](in)
+				if err != nil {
+					return nil, err
+				}
+				if v.ID == "" {
+					return nil, errors.New("id is required")
+				}
+				return p.fn(v.ID)
+			},
+		})
+	}
 }
 
 // ---- Send Files and share links ---------------------------------------------
@@ -350,8 +355,13 @@ func registerTransferAgentCommands(reg *agentctl.Registry, t transferAgent, up u
 	reg.Register(agentctl.Command{
 		Name: "transfer.send",
 		Description: "Offer a file or folder through Send Files. Returns once the short code is issued (or after 30s, still preparing); " +
-			"the file goes to whoever types that code, end-to-end encrypted, so only give the code to the person it's for. One send at a time.",
-		Input: schema(map[string]any{"path": propPath}, "path"),
+			"the file goes to whoever types that code, end-to-end encrypted, so only give the code to the person it's for. " +
+			"It leaves this PC, so it needs confirm: true. One send at a time.",
+		Input: schema(map[string]any{
+			"path":    propPath,
+			"confirm": map[string]any{"type": "boolean", "description": "Must be true: the file is sent off this PC to whoever has the code."},
+		}, "path", "confirm"),
+		Destructive: true,
 		Handler: func(ctx context.Context, in json.RawMessage) (any, error) {
 			v, err := decode[struct {
 				Path string `json:"path"`
@@ -605,17 +615,17 @@ func registerSettingsAgentCommands(reg *agentctl.Registry, s settingsAgent, r re
 		Description: "The recording settings: enabled, mode (replay = keep the last durationSec for the save shortcut; background = record whole sessions; " +
 			"manual = record between presses), storage limit, video (monitor, fps, height, bitrate, codec) and audio (desktop, Discord, mic, volumes, separate tracks), and folders.",
 		Input:   schema(map[string]any{}),
-		Handler: func(context.Context, json.RawMessage) (any, error) { return r.GetSettings(), nil },
+		Handler: func(context.Context, json.RawMessage) (any, error) { return replaySettingsView(r.GetSettings()), nil },
 	})
 
 	reg.Register(agentctl.Command{
 		Name: "replay.setSettings",
 		Description: "Change recording settings: pass only what changes, e.g. {\"settings\":{\"mode\":\"replay\",\"durationSec\":120,\"desktopAudio\":true}}. " +
-			"Lowering maxDiskGB or retentionSec deletes the oldest recordings that no longer fit, so that needs confirm: true. " +
+			"Lowering maxDiskGB deletes the oldest whole sessions that no longer fit, so that needs confirm: true. " +
 			"Changing mode or turning recording off ends a manual recording. Returns the settings as saved and the recorder's status.",
 		Input: schema(map[string]any{
 			"settings": propSettingsPatch,
-			"confirm":  map[string]any{"type": "boolean", "description": "Needed to lower maxDiskGB or retentionSec: old recordings get deleted."},
+			"confirm":  map[string]any{"type": "boolean", "description": "Needed to lower maxDiskGB: old recordings get deleted."},
 		}, "settings"),
 		Handler: func(_ context.Context, in json.RawMessage) (any, error) {
 			v, err := decode[struct {
@@ -626,18 +636,18 @@ func registerSettingsAgentCommands(reg *agentctl.Registry, s settingsAgent, r re
 				return nil, err
 			}
 			cur := r.GetSettings()
-			next, err := mergeSettings(cur, v.Settings)
+			next, err := mergeSettings(cur, v.Settings, "retentionSec")
 			if err != nil {
 				return nil, err
 			}
-			if shrinksRetention(cur, next) && !v.Confirm {
-				return nil, errors.New(`lowering maxDiskGB or retentionSec deletes old recordings: send "confirm": true`)
+			if next.MaxDiskGB < cur.MaxDiskGB && !v.Confirm {
+				return nil, errors.New(`lowering maxDiskGB deletes old recordings: send "confirm": true`)
 			}
 			st, err := r.SetSettings(next)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"settings": r.GetSettings(), "status": st}, nil
+			return map[string]any{"settings": replaySettingsView(r.GetSettings()), "status": st}, nil
 		},
 	})
 
@@ -681,13 +691,15 @@ func registerSettingsAgentCommands(reg *agentctl.Registry, s settingsAgent, r re
 	})
 }
 
-// shrinksRetention reports whether next keeps less footage than cur, which
-// makes the recorder delete old recordings. RetentionSec 0 means no limit.
-func shrinksRetention(cur, next replay.Settings) bool {
-	if next.MaxDiskGB < cur.MaxDiskGB {
-		return true
-	}
-	return next.RetentionSec != 0 && (cur.RetentionSec == 0 || next.RetentionSec < cur.RetentionSec)
+// replaySettingsView is the recording settings as commands show them.
+// retentionSec is left out: the only retention rule is the storage limit
+// (oldest whole session deleted first).
+func replaySettingsView(st replay.Settings) map[string]any {
+	b, _ := json.Marshal(st)
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	delete(m, "retentionSec")
+	return m
 }
 
 // waitFor polls done until it's true, the wait runs out or ctx ends.
