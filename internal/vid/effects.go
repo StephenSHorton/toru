@@ -56,6 +56,12 @@ type ChromaJSON struct {
 	Blend      float64 `json:"blend"`
 }
 
+// DefaultChroma is a new green screen's settings, the same as the editor's
+// DEFAULT_CHROMA (frontend/src/trim/project.ts). chromakey compares colour
+// only, so white, grey and black all sit 0.377 from pure green; similarity
+// + blend stays below that so they stay opaque.
+var DefaultChroma = ChromaJSON{Color: "#00ff00", Similarity: 0.25, Blend: 0.08}
+
 // FiltersJSON is a clip's colour and blur: brightness -1..1 (0), contrast
 // 0..2 (1), saturation 0..3 (1), a look, blur 0..20 (0).
 type FiltersJSON struct {

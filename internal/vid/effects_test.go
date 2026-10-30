@@ -1,6 +1,8 @@
 package vid
 
 import (
+	"bytes"
+	"fmt"
 	"math"
 	"os/exec"
 	"strings"
@@ -167,5 +169,59 @@ func TestEffectsRunInFFmpeg(t *testing.T) {
 	}
 	if strings.Contains(ClipVideoFilter(all, 180), "boxblur") || strings.Contains(ClipVideoFilter(all, 180), "eq=") {
 		t.Error("GPL-only filter in the chain")
+	}
+}
+
+// TestDefaultChromaKeepsNeutrals runs the default green screen through a real
+// ffmpeg: white, grey and black stay opaque (chromakey compares colour only,
+// so all three sit 0.377 from pure green), while pure green and lit green
+// screen colours go fully transparent. Box centres only: the 3x3 average
+// softens the pixel ring where a box meets green. Skipped without ffmpeg.
+func TestDefaultChromaKeepsNeutrals(t *testing.T) {
+	ff, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("no ffmpeg on PATH")
+	}
+	boxes := []struct {
+		name   string
+		rgb    [3]byte
+		opaque bool
+	}{
+		{"white", [3]byte{255, 255, 255}, true},
+		{"grey", [3]byte{128, 128, 128}, true},
+		{"black", [3]byte{0, 0, 0}, true},
+		{"pure green", [3]byte{0, 255, 0}, false},
+		{"near green", [3]byte{0x3C, 0xC8, 0x50}, false},
+		{"lit green screen", [3]byte{60, 180, 75}, false},
+	}
+	const box = 16
+	w, h := box*len(boxes), box
+	frame := make([]byte, 0, w*h*3)
+	for y := 0; y < h; y++ {
+		for _, b := range boxes {
+			for x := 0; x < box; x++ {
+				frame = append(frame, b.rgb[:]...)
+			}
+		}
+	}
+	dc := DefaultChroma
+	vf := ClipVideoFilter(ClipJSON{Chroma: &dc}, h) + ",format=rgba"
+	cmd := exec.Command(ff, "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", fmt.Sprintf("%dx%d", w, h), "-i", "-",
+		"-vf", vf, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-")
+	cmd.Stdin = bytes.NewReader(frame)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil || len(out) != w*h*4 {
+		t.Fatalf("ffmpeg: %v (%d bytes)\n%s\nfilter: %s", err, len(out), stderr.String(), vf)
+	}
+	for i, b := range boxes {
+		a := out[((h/2)*w+i*box+box/2)*4+3]
+		if b.opaque && a != 255 {
+			t.Errorf("%s: alpha %d, want 255 (opaque)", b.name, a)
+		}
+		if !b.opaque && a != 0 {
+			t.Errorf("%s: alpha %d, want 0 (keyed)", b.name, a)
+		}
 	}
 }

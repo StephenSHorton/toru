@@ -82,7 +82,11 @@ export const MIN_SPEED = 0.25;
 export const MAX_SPEED = 4;
 export const OVERLAY_SCALE = 0.4; // clips above the bottom video track
 export const DEFAULT_CANVAS = { width: 1920, height: 1080, fps: 30 };
-export const DEFAULT_CHROMA: Chroma = { color: "#00ff00", similarity: 0.3, blend: 0.1 };
+// Green screen keys on colour only (ffmpeg chromakey), so white, grey and black
+// all sit 0.377 from pure green: similarity + blend must stay below that or
+// they turn partly see-through. 0.25 still keys a lit green screen (about
+// 0.23). internal/vid/effects.go DefaultChroma mirrors this.
+export const DEFAULT_CHROMA: Chroma = { color: "#00ff00", similarity: 0.25, blend: 0.08 };
 export const DEFAULT_FILTERS: Filters = { brightness: 0, contrast: 1, saturation: 1, look: "none", blur: 0 };
 export const FIT: Transform = { x: 0.5, y: 0.5, scale: 1, opacity: 1 };
 
