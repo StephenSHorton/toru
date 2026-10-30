@@ -28,6 +28,7 @@ import {
   rippleDelete,
   setTrackFlags,
   splitAt,
+  timelineTimeAt,
   toExportRequest,
   trimClip,
   updateClip,
@@ -173,6 +174,16 @@ check("speed clamps to 4", findClip(updateClip(tr, cam, { speed: 9 }), cam)!.cli
 const slow = updateClip(tr, second, { speed: 0.5 });
 const at50 = clipsAt(slow, 50).find((a) => a.clip.id === second)!;
 check("clipsAt source time uses speed", near(at50.srcT, 5), at50.srcT);
+
+// timelineTimeAt is clipsAt's srcT the other way (the preview's pause
+// moves the clock to the frame a video stopped on).
+for (const [label, proj, id] of [["1x", tr, cam], ["0.5x", slow, second], ["2x", updateClip(tr, cam, { speed: 2 }), cam]] as const) {
+  const c = findClip(proj, id)!.clip;
+  const mid = c.start + clipLength(c) * 0.37;
+  const a = clipsAt(proj, mid).find((x) => x.clip.id === id)!;
+  check(`timelineTimeAt round-trips (${label})`, near(timelineTimeAt(c, a.srcT), mid), [timelineTimeAt(c, a.srcT), mid]);
+  check(`timelineTimeAt stays in the clip (${label})`, timelineTimeAt(c, c.in - 5) === c.start && timelineTimeAt(c, c.out + 5) < clipEnd(c));
+}
 sp = updateClip(tr, cam, { fadeIn: 15, fadeOut: 15 });
 check("fades fit inside the clip", near(findClip(sp, cam)!.clip.fadeIn, 15) && near(findClip(sp, cam)!.clip.fadeOut, 5));
 check("volume clamps", findClip(updateClip(tr, cam, { volume: 5 }), cam)!.clip.volume === 2);

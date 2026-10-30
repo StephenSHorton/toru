@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type Ref } from "react";
 import { VideoService } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { clipsAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
+import { clipsAt, timelineTimeAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
 import { AudioMix, clipGain } from "@/trim/compositor/audio";
 import { EffectsRenderer } from "@/trim/compositor/effects";
 import type { PlaybackClock } from "@/trim/compositor/usePlayback";
@@ -17,6 +17,11 @@ import type { PlaybackClock } from "@/trim/compositor/usePlayback";
 // Each is kept at its clip's source time: while playing it plays at the
 // clip's speed (pitch kept), small drift is pulled in by nudging the rate, and
 // past MAX_DRIFT it re-seeks; while paused it seeks to the exact frame.
+// Pausing doesn't seek: the clock moves to the frame the top video stopped on
+// (a seek decodes from the last keyframe, a visible stall on long
+// recordings). Resuming holds the clock until that video is really playing,
+// so it doesn't start behind and re-seek. A video that has no new frame yet
+// (seeking, loading) keeps showing its last one instead of going black.
 // Clips about to start are loaded and seeked ahead (PREROLL) so cuts don't
 // wait, and if a clip still has no frame when it's due the clock holds.
 // Images are textures, loaded once per media.
@@ -81,6 +86,8 @@ type Slot = {
   uploaded: number; // element time of the frame in tex (-1 none)
   starting: boolean; // a play() is pending
   forcedMute: boolean; // muted because the browser blocked play() with sound
+  w: number; // size of the frame in tex
+  h: number;
 };
 type Still = { img: HTMLImageElement; tex: WebGLTexture | null; ready: boolean };
 
@@ -166,7 +173,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         if (el instanceof HTMLVideoElement) el.playsInline = true;
         el.preservesPitch = true;
         el.src = url;
-        s = { el, url, lastUsed: now, tex: null, uploaded: -1, starting: false, forcedMute: false };
+        s = { el, url, lastUsed: now, tex: null, uploaded: -1, starting: false, forcedMute: false, w: 0, h: 0 };
         pool.set(key, s);
       }
       s.lastUsed = now;
@@ -224,6 +231,23 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       return s;
     };
 
+    // holdOnPause runs on the frame playback pauses: it stops the top video
+    // where it is and moves the clock to that frame, so the sync below finds
+    // nothing to seek and the picture stays put.
+    const holdOnPause = (p: Project) => {
+      const t = clock.now();
+      const top = clipsAt(p, t)
+        .reverse()
+        .find((a) => a.track.kind === "video" && a.media.kind !== "image" && pool.has(a.clip.id));
+      const el = top && pool.get(top.clip.id)?.el;
+      if (!top || !el) return;
+      el.pause();
+      if (el.seeking || el.readyState < 2) return;
+      const at = timelineTimeAt(top.clip, el.currentTime);
+      // Only a normal playing drift; anything bigger is a real position.
+      if (Math.abs(at - t) <= MAX_DRIFT * Math.max(1, top.clip.speed) * 2) clock.seek(at);
+    };
+
     // sync keeps an element at its clip's source time.
     const sync = (s: Slot, a: ActiveClip, playing: boolean, gain: number) => {
       const el = s.el;
@@ -270,6 +294,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       const p = projectRef.current;
       const playing = clock.playing;
       if (playing && !wasPlaying) mix.resume();
+      if (!playing && wasPlaying) holdOnPause(p);
       wasPlaying = playing;
       const t = clock.now();
       const active = clipsAt(p, t);
@@ -299,7 +324,10 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
           });
         }
         if (stats) gain[a.clip.id] = mix.level(s.el);
-        if (!audioOnly && playing && s.el.readyState < 2) starving = true;
+        // Hold the clock while the picture can't keep up: no frame yet, or a
+        // play() that hasn't started (resuming would otherwise run ahead and
+        // force a re-seek).
+        if (!audioOnly && playing && (s.el.readyState < 2 || s.starting)) starving = true;
       }
       // Load what's about to start, parked at its first frame.
       if (playing) {
@@ -356,17 +384,23 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         } else {
           const s = pool.get(a.clip.id);
           const v = s?.el as HTMLVideoElement | undefined;
-          if (!s || !v || v.readyState < 2 || !v.videoWidth) continue;
-          if (!s.tex) s.tex = texture();
-          if (playing || s.uploaded !== v.currentTime) {
-            gl.bindTexture(gl.TEXTURE_2D, s.tex);
-            gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
-            s.uploaded = v.currentTime;
-          }
+          if (!s || !v) continue;
+          // Upload only a decoded frame; while seeking or loading, draw the
+          // last one (none yet: skip the layer).
+          if (v.readyState >= 2 && !v.seeking && v.videoWidth > 0) {
+            if (!s.tex) s.tex = texture();
+            if (playing || s.uploaded !== v.currentTime) {
+              gl.bindTexture(gl.TEXTURE_2D, s.tex);
+              gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+              gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
+              s.uploaded = v.currentTime;
+              s.w = v.videoWidth;
+              s.h = v.videoHeight;
+            }
+          } else if (s.uploaded < 0) continue;
           tex = s.tex;
-          w = v.videoWidth;
-          h = v.videoHeight;
+          w = s.w;
+          h = s.h;
           drift[a.clip.id] = v.currentTime - a.srcT;
         }
         if (!tex || w <= 0 || h <= 0) continue;
