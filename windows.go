@@ -771,7 +771,7 @@ func pillScreen(app *application.App, monitorID int) *application.Screen {
 			b := scr.PhysicalBounds
 			overlapsX := b.X < rec.X+rec.W && rec.X < b.X+b.Width
 			overlapsY := b.Y < rec.Y+rec.H && rec.Y < b.Y+b.Height
-			if !(overlapsX && overlapsY) {
+			if !overlapsX || !overlapsY {
 				return scr
 			}
 		}
