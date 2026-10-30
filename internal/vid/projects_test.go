@@ -132,3 +132,20 @@ func TestRenameProject(t *testing.T) {
 		t.Error("a bad id should fail")
 	}
 }
+
+func TestProjectsV3(t *testing.T) {
+	withProjectsDir(t)
+	s := &VideoService{}
+	v3 := `{"version":3,"id":"proj-v3","name":"ramped","media":[],"tracks":[{"clips":[
+		{"start":0,"in":5,"out":7,"speed":1,"hold":true,"effects":[{"id":"fx-1","type":"adjust","enabled":true,"params":{"contrast":1.2}}]}]}]}`
+	if err := s.SaveProject(v3); err != nil {
+		t.Fatalf("v3 save: %v", err)
+	}
+	list, err := s.ListProjects()
+	if err != nil || len(list) != 1 || list[0].Name != "ramped" || list[0].DurationMs != 2000 {
+		t.Fatalf("v3 list: %+v %v", list, err)
+	}
+	if err := s.SaveProject(`{"version":4,"id":"proj-v4","media":[],"tracks":[]}`); err == nil {
+		t.Error("a future version should be refused")
+	}
+}

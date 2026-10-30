@@ -68,6 +68,10 @@ type projectHead struct {
 	} `json:"tracks"`
 }
 
+// knownProjectVersion: v2 projects and v3 (docs/video-editor-v3.md, which
+// adds effect stacks, keyframes and time effects; clip timing is the same).
+func knownProjectVersion(v int) bool { return v == 2 || v == 3 }
+
 func projectPath(id string) (string, error) {
 	if !projectIDPattern.MatchString(id) {
 		return "", fmt.Errorf("bad project id %q", id)
@@ -87,7 +91,7 @@ func (s *VideoService) SaveProject(doc string) error {
 	if err := json.Unmarshal([]byte(doc), &h); err != nil {
 		return fmt.Errorf("project isn't valid JSON: %w", err)
 	}
-	if h.Version != 2 {
+	if !knownProjectVersion(h.Version) {
 		return fmt.Errorf("unsupported project version %d", h.Version)
 	}
 	path, err := projectPath(h.ID)
@@ -199,7 +203,7 @@ func (s *VideoService) ListProjects() ([]ProjectSummary, error) {
 // summarize reads a saved project's list entry.
 func summarize(b []byte, mod time.Time) (ProjectSummary, bool) {
 	var h projectHead
-	if json.Unmarshal(b, &h) != nil || h.Version != 2 || !projectIDPattern.MatchString(h.ID) {
+	if json.Unmarshal(b, &h) != nil || !knownProjectVersion(h.Version) || !projectIDPattern.MatchString(h.ID) {
 		return ProjectSummary{}, false
 	}
 	sum := ProjectSummary{ID: h.ID, Name: h.Name, UpdatedAt: mod}

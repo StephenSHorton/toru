@@ -372,7 +372,7 @@ function emptyProject(): Project {
 // project, listed as missing.
 async function openSaved(id: string): Promise<{ project: Project; missing: string[] }> {
   const p = JSON.parse(await VideoService.LoadProject(id)) as Project;
-  if (p?.version !== 2) throw new Error("that project can't be opened by this version of Toru");
+  if (p?.version !== 2 && p?.version !== 3) throw new Error("that project can't be opened by this version of Toru");
   const paths = p.media.map((m) => m.path).filter(Boolean);
   const found = paths.length ? await MediaService.Register(paths) : [];
   const byId = new Map(found.map((m) => [m.id, toMedia(m)]));
