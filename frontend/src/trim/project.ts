@@ -27,8 +27,9 @@ export type Media = {
   tracks: AudioTrack[]; // v1 type: audio streams with titles / mix flag
 };
 
-export type Transform = { x: number; y: number; scale: number; opacity: number };
-// x, y: clip centre in 0..1 of the canvas; scale: 1 = fit inside the canvas.
+export type Transform = { x: number; y: number; scale: number; opacity: number; rotation?: number };
+// x, y: clip centre in 0..1 of the canvas; scale: 1 = fit inside the canvas;
+// rotation: degrees clockwise (v3; absent = 0).
 
 export type Chroma = { color: string; similarity: number; blend: number }; // "#00ff00", 0.01..1, 0..1
 export type Look = "none" | "bw" | "sepia" | "vintage" | "cool" | "warm";
@@ -50,7 +51,59 @@ export type Clip = {
   transform: Transform; // video/image only
   chroma?: Chroma; // video/image only; undefined = off
   filters: Filters; // video/image only
+  // --- v3 (docs/video-editor-v3.md). Optional until the v2→v3 migration
+  // lands; then effects replaces chroma and filters.
+  effects?: EffectInstance[]; // video/image only; effects[0] runs first
+  anim?: Partial<Record<AnimTarget, Keyframe[]>>; // keyframed transform / volume
+  speedCurve?: SpeedCurve; // overrides speed
+  hold?: boolean; // freeze frame: shows source frame `in` for (out - in) s, silent
+  reversed?: boolean; // plays the source range backwards (a reverse proxy)
+  blendFrames?: BlendFrames; // slow motion: off (default), mix (tmix) or smooth (minterpolate)
 };
+
+// --- v3 effects, keyframes and time (frozen contract for the v3 cards) ----
+
+// Ease shapes a keyframe segment, from a keyframe to the next one.
+export type Ease = "linear" | "in" | "out" | "inOut" | "hold";
+// ParamValue is an effect parameter's value: number, boolean, "#rrggbb"
+// colour, an enum option id, a file path (LUT) or a point [x, y] (0..1 of
+// the frame).
+export type ParamValue = number | boolean | string | [number, number];
+// Keyframe: t is seconds from the clip's start ON THE TIMELINE (clip-local
+// output time), so keys stay put when the clip's end is trimmed or its
+// speed changes.
+export type Keyframe = { t: number; v: ParamValue; ease: Ease };
+
+// EffectInstance is one effect in a clip's stack. type is a registry id
+// (internal/fx/defs/<type>.json); params missing from `params` take the
+// definition's default; keys holds keyframes per param (absent = static).
+// group ties instances applied from one saved filter (its preset id), shown
+// as one card with an intensity.
+export type EffectInstance = {
+  id: string; // newId("fx")
+  type: string;
+  enabled: boolean;
+  params: Record<string, ParamValue>;
+  keys?: Record<string, Keyframe[]>; // sorted by t
+  group?: string;
+  amount?: number; // 0..1 (group intensity), 1 when absent
+};
+
+export type AnimTarget = "x" | "y" | "scale" | "opacity" | "rotation" | "volume";
+
+// SpeedCurve: speed is piecewise linear in SOURCE time. s is seconds from
+// clip.in, v the speed there (0.1..10); at least 2 points, sorted by s,
+// the first at 0 and the last at out - in. audio follows the speed
+// (0.25..4x; muted outside) or is muted wherever the speed isn't 1.
+export type SpeedCurve = {
+  points: { s: number; v: number }[];
+  audio: "follow" | "mute";
+  preset?: string; // the preset it started from (UI label only)
+};
+export const MIN_CURVE_SPEED = 0.1;
+export const MAX_CURVE_SPEED = 10;
+
+export type BlendFrames = "off" | "mix" | "smooth";
 // timeline length of a clip = (out - in) / speed
 
 export type TrackKind = "video" | "audio";
@@ -64,7 +117,7 @@ export type Track = {
 };
 
 export type Project = {
-  version: 2;
+  version: 2 | 3; // 3 once the v2→v3 migration lands (v3 cards)
   id: string;
   name: string;
   canvas: { width: number; height: number; fps: number };
@@ -538,7 +591,15 @@ export function toExportRequest(
     media: p.media.map((m) => ({ ...m, duration: ms(m.duration) })),
     tracks: p.tracks.map((t) => ({
       ...t,
-      clips: t.clips.map((c) => ({ ...c, start: ms(c.start), in: ms(c.in), out: ms(c.out), fadeIn: ms(c.fadeIn), fadeOut: ms(c.fadeOut) })),
+      clips: t.clips.map((c) => ({
+        ...c,
+        start: ms(c.start),
+        in: ms(c.in),
+        out: ms(c.out),
+        fadeIn: ms(c.fadeIn),
+        fadeOut: ms(c.fadeOut),
+        ...v3Ms(c, ms),
+      })),
     })),
     texts: p.texts
       .filter((t) => t.text.trim())
@@ -551,6 +612,17 @@ export function toExportRequest(
     if (extra.kbps) req.kbps = extra.kbps;
   }
   return req;
+}
+
+// v3Ms is a clip's v3 fields with keyframe times and speed-curve points in
+// ms, the way the export takes them (only the fields the clip has).
+function v3Ms(c: Clip, ms: (s: number) => number): Partial<Clip> {
+  const keys = (ks: Keyframe[]) => ks.map((k) => ({ ...k, t: ms(k.t) }));
+  const out: Partial<Clip> = {};
+  if (c.effects) out.effects = c.effects.map((e) => (e.keys ? { ...e, keys: Object.fromEntries(Object.entries(e.keys).map(([p, ks]) => [p, keys(ks)])) } : e));
+  if (c.anim) out.anim = Object.fromEntries(Object.entries(c.anim).map(([p, ks]) => [p, keys(ks ?? [])]));
+  if (c.speedCurve) out.speedCurve = { ...c.speedCurve, points: c.speedCurve.points.map((pt) => ({ s: ms(pt.s), v: pt.v })) };
+  return out;
 }
 
 // --- History -------------------------------------------------------------

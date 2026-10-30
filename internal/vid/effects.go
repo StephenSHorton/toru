@@ -18,35 +18,6 @@ import (
 // and the look, as one 3x3 matrix) and lutrgb (contrast and brightness), and
 // blur with avgblur.
 
-// ClipJSON is one clip of a v2 project as the frontend sends it
-// (frontend/src/trim/project.ts, toExportRequest): the TS Clip with every
-// time in whole milliseconds. The project export (project.go) uses this type.
-type ClipJSON struct {
-	ID        string        `json:"id"`
-	Media     string        `json:"media"`   // Media.id
-	Start     int           `json:"start"`   // timeline position, ms
-	In        int           `json:"in"`      // source range, ms
-	Out       int           `json:"out"`     //
-	Speed     float64       `json:"speed"`   // 0.25..4
-	Volume    float64       `json:"volume"`  // 0..2
-	Muted     bool          `json:"muted"`   //
-	FadeIn    int           `json:"fadeIn"`  // ms
-	FadeOut   int           `json:"fadeOut"` // ms
-	Levels    []TrackLevel  `json:"levels,omitempty"`
-	Transform TransformJSON `json:"transform"`
-	Chroma    *ChromaJSON   `json:"chroma,omitempty"` // nil = off
-	Filters   FiltersJSON   `json:"filters"`
-}
-
-// TransformJSON places a clip on the canvas: centre (0..1 of the canvas),
-// scale (1 = fit inside the canvas) and opacity.
-type TransformJSON struct {
-	X       float64 `json:"x"`
-	Y       float64 `json:"y"`
-	Scale   float64 `json:"scale"`
-	Opacity float64 `json:"opacity"`
-}
-
 // ChromaJSON is a clip's green screen: the key colour ("#rrggbb"), how close
 // a colour must be to go transparent (0.01..1) and how soft the edge is
 // (0..1). Same meaning as ffmpeg chromakey's similarity and blend.

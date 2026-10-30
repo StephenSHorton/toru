@@ -8,10 +8,10 @@ import (
 	"github.com/StephenSHorton/toru/internal/capture"
 )
 
-// project.go holds the v2 editor's export request (docs/video-editor-v2.md,
-// Data model): the frontend's Project (frontend/src/trim/project.ts,
-// toExportRequest) with every time in whole milliseconds. Clips are
-// ClipJSON (effects.go).
+// project.go holds the editor's export request (docs/video-editor-v2.md and
+// docs/video-editor-v3.md, Data model): the frontend's Project
+// (frontend/src/trim/project.ts, toExportRequest) with every time in whole
+// milliseconds.
 
 // MediaJSON is one source file of a project, as MediaService registered it.
 type MediaJSON struct {
@@ -25,6 +25,83 @@ type MediaJSON struct {
 	FPS      float64      `json:"fps"`      // 0 for image/audio
 	HasAudio bool         `json:"hasAudio"` //
 	Tracks   []AudioTrack `json:"tracks"`   // audio streams, titles, mix flag
+}
+
+// ClipJSON is one clip of a project as the frontend sends it
+// (frontend/src/trim/project.ts, toExportRequest): the TS Clip with every
+// time in whole milliseconds (keyframe times and speed-curve points too).
+type ClipJSON struct {
+	ID        string        `json:"id"`
+	Media     string        `json:"media"`   // Media.id
+	Start     int           `json:"start"`   // timeline position, ms
+	In        int           `json:"in"`      // source range, ms
+	Out       int           `json:"out"`     //
+	Speed     float64       `json:"speed"`   // 0.25..4
+	Volume    float64       `json:"volume"`  // 0..2
+	Muted     bool          `json:"muted"`   //
+	FadeIn    int           `json:"fadeIn"`  // ms
+	FadeOut   int           `json:"fadeOut"` // ms
+	Levels    []TrackLevel  `json:"levels,omitempty"`
+	Transform TransformJSON `json:"transform"`
+	Chroma    *ChromaJSON   `json:"chroma,omitempty"` // nil = off (v2)
+	Filters   FiltersJSON   `json:"filters"`          // v2
+
+	// v3 (docs/video-editor-v3.md); absent in v2 projects.
+	Effects     []EffectJSON              `json:"effects,omitempty"`     // effects[0] runs first
+	Anim        map[string][]KeyframeJSON `json:"anim,omitempty"`        // AnimTarget → keys
+	SpeedCurve  *SpeedCurveJSON           `json:"speedCurve,omitempty"`  // overrides Speed
+	Hold        bool                      `json:"hold,omitempty"`        // freeze frame: source frame In for Out-In ms, silent
+	Reversed    bool                      `json:"reversed,omitempty"`    // source range plays backwards
+	BlendFrames string                    `json:"blendFrames,omitempty"` // "" | "off" | "mix" | "smooth"
+}
+
+// TransformJSON places a clip on the canvas: centre (0..1 of the canvas),
+// scale (1 = fit inside the canvas), opacity and (v3) rotation in degrees
+// clockwise.
+type TransformJSON struct {
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	Scale    float64 `json:"scale"`
+	Opacity  float64 `json:"opacity"`
+	Rotation float64 `json:"rotation,omitempty"`
+}
+
+// EffectJSON is one effect in a clip's stack (TS EffectInstance). Type is a
+// registry id (internal/fx/defs/<type>.json); params missing from Params take
+// the definition's default. A param value is a JSON number, bool, string
+// ("#rrggbb", an enum id, a path) or [x, y].
+type EffectJSON struct {
+	ID      string                    `json:"id"`
+	Type    string                    `json:"type"`
+	Enabled bool                      `json:"enabled"`
+	Params  map[string]any            `json:"params"`
+	Keys    map[string][]KeyframeJSON `json:"keys,omitempty"`   // per param, sorted by T
+	Group   string                    `json:"group,omitempty"`  // saved filter it came from
+	Amount  *float64                  `json:"amount,omitempty"` // group intensity 0..1; nil = 1
+}
+
+// KeyframeJSON is one keyframe: T in ms from the clip's start on the
+// timeline, the value there, and the ease to the next keyframe ("linear",
+// "in", "out", "inOut", "hold").
+type KeyframeJSON struct {
+	T    int    `json:"t"`
+	V    any    `json:"v"`
+	Ease string `json:"ease"`
+}
+
+// SpeedCurveJSON is a speed ramp: speed piecewise linear in source time,
+// points at S ms from the clip's In with speed V (0.1..10). Audio is
+// "follow" (atempo, muted outside 0.25..4x) or "mute".
+type SpeedCurveJSON struct {
+	Points []SpeedPointJSON `json:"points"`
+	Audio  string           `json:"audio"`
+	Preset string           `json:"preset,omitempty"`
+}
+
+// SpeedPointJSON is one point of a speed curve.
+type SpeedPointJSON struct {
+	S int     `json:"s"` // ms from the clip's In, source time
+	V float64 `json:"v"`
 }
 
 // TrackJSON is one timeline track. Clips are sorted by start and never
