@@ -141,6 +141,24 @@ func (w *WindowsService) OpenClicker() {
 	w.openSettingsURL("/?view=settings&page=clicker")
 }
 
+// eventEditorOpen asks a live hub to switch to its Video Editor page (no
+// payload, like clicker:open).
+const eventEditorOpen = "editor:open"
+
+// OpenVideoEditor surfaces the hub's Video Editor page, the same way
+// OpenClicker does (editor:open for a live hub, ?page=editor otherwise).
+func (w *WindowsService) OpenVideoEditor() {
+	if w.app == nil {
+		return
+	}
+	if w.settingsWin != nil {
+		w.openSettingsURL("")
+		w.app.Event.Emit(eventEditorOpen, nil)
+		return
+	}
+	w.openSettingsURL("/?view=settings&page=editor")
+}
+
 // openSettingsURL is the shared body of OpenSettings/OpenSendFiles: raise the
 // singleton hub window if it exists, else create it at url. url is ignored when
 // the window already exists (singleton: never navigate a live hub).
@@ -405,6 +423,13 @@ func (w *WindowsService) OpenEditVideo(videoPath string) {
 // in its own editor window.
 func (w *WindowsService) OpenEditProject(projectID string) {
 	w.openEditWindow("project=" + url.QueryEscape(projectID))
+}
+
+// OpenNewEditProject opens the video editor on a new, empty project: media
+// come in through its media bin (import or drop) and it autosaves once the
+// first file is added.
+func (w *WindowsService) OpenNewEditProject() {
+	w.openEditWindow("new=1")
 }
 
 // openEditWindow opens an editor window with the given query (after

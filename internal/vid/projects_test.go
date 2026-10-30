@@ -101,3 +101,34 @@ func TestProjectsRejectBadInput(t *testing.T) {
 		t.Errorf("list with no folder: %v %v", list, err)
 	}
 }
+
+func TestRenameProject(t *testing.T) {
+	withProjectsDir(t)
+	s := &VideoService{}
+	doc := `{"version":2,"id":"proj-r","name":"old","media":[],"tracks":[],"crop":null,"extra":{"keep":[1,2]}}`
+	if err := s.SaveProject(doc); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RenameProject("proj-r", "  Montage \"final\"  "); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListProjects()
+	if err != nil || len(list) != 1 || list[0].Name != `Montage "final"` {
+		t.Fatalf("after rename: %+v %v", list, err)
+	}
+	got, _ := s.LoadProject("proj-r")
+	if !strings.Contains(got, `"extra":{"keep":[1,2]}`) || !strings.Contains(got, `"version":2`) {
+		t.Errorf("rename dropped other fields: %s", got)
+	}
+	for _, bad := range []string{"", "   ", strings.Repeat("x", 121)} {
+		if err := s.RenameProject("proj-r", bad); err == nil {
+			t.Errorf("RenameProject(%q) should fail", bad)
+		}
+	}
+	if err := s.RenameProject("proj-gone", "x"); err == nil {
+		t.Error("renaming a missing project should fail")
+	}
+	if err := s.RenameProject("../evil", "x"); err == nil {
+		t.Error("a bad id should fail")
+	}
+}

@@ -129,6 +129,36 @@ func (s *VideoService) DeleteProject(id string) error {
 	return nil
 }
 
+// RenameProject gives a saved project a new name ("" or blank is refused).
+// Only the name changes; the rest of the file is kept as saved.
+func (s *VideoService) RenameProject(id, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("give the project a name")
+	}
+	if len([]rune(name)) > 120 {
+		return errors.New("that name is too long (120 characters at most)")
+	}
+	doc, err := s.LoadProject(id)
+	if err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(doc), &fields); err != nil {
+		return fmt.Errorf("project isn't valid JSON: %w", err)
+	}
+	b, err := json.Marshal(name)
+	if err != nil {
+		return err
+	}
+	fields["name"] = b
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	return s.SaveProject(string(out))
+}
+
 // ListProjects lists the saved projects, most recently changed first.
 // Unreadable files are skipped.
 func (s *VideoService) ListProjects() ([]ProjectSummary, error) {

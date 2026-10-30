@@ -65,6 +65,15 @@ export function OpenEditor(imagePath: string): $CancellablePromise<void> {
 }
 
 /**
+ * OpenNewEditProject opens the video editor on a new, empty project: media
+ * come in through its media bin (import or drop) and it autosaves once the
+ * first file is added.
+ */
+export function OpenNewEditProject(): $CancellablePromise<void> {
+    return $Call.ByID(449411975);
+}
+
+/**
  * OpenOverlay opens the shared dim/crop capture overlay session: one frameless,
  * always-on-top, opaque window per monitor showing a FROZEN still dimmed with a
  * crop hole. Delegates to OverlayService.BeginSession, which freezes every
@@ -173,6 +182,14 @@ export function OpenShareControls(monitorID: number, regionX: number, regionY: n
  */
 export function OpenTrim(videoPath: string): $CancellablePromise<void> {
     return $Call.ByID(1119648552, videoPath);
+}
+
+/**
+ * OpenVideoEditor surfaces the hub's Video Editor page, the same way
+ * OpenClicker does (editor:open for a live hub, ?page=editor otherwise).
+ */
+export function OpenVideoEditor(): $CancellablePromise<void> {
+    return $Call.ByID(1958380026);
 }
 
 /**

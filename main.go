@@ -294,6 +294,11 @@ func main() {
 		clicker: clickerSvc, transfer: transferSvc, upload: uploadSvc, hotkeys: hotkeySvc,
 		settings: settingsSvc, replay: replaySvc, update: updateSvc,
 	})
+	registerProjectAgentCommands(agentReg, projectAgentDeps{ // agent_commands_projects.go
+		projects: vidSvc, newProject: windowsSvc.OpenNewEditProject, openPage: windowsSvc.OpenVideoEditor,
+		openProject: windowsSvc.OpenEditProject,
+		emit:        func(name string, data any) { app.Event.Emit(name, data) },
+	})
 	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in
 	// the recorder.
@@ -443,17 +448,18 @@ func main() {
 		systray.SetIcon(trayIconPNG) // PNG bytes; Win32 decodes via CreateSmallHIconFromImage + auto-scales
 		systray.SetTooltip("Toru — screen capture (⊞ Shift S)")
 		tray = &trayController{
-			tray:          systray,
-			app:           app,
-			history:       hist,
-			windows:       windowsSvc,
-			openOverlay:   windowsSvc.OpenOverlay,
-			replay:        replaySvc,
-			keys:          keys,
-			openSendFiles: windowsSvc.OpenSendFiles,
-			clicker:       clickerSvc,
-			openClicker:   windowsSvc.OpenClicker,
-			update:        updateSvc,
+			tray:            systray,
+			app:             app,
+			history:         hist,
+			windows:         windowsSvc,
+			openOverlay:     windowsSvc.OpenOverlay,
+			replay:          replaySvc,
+			keys:            keys,
+			openSendFiles:   windowsSvc.OpenSendFiles,
+			clicker:         clickerSvc,
+			openClicker:     windowsSvc.OpenClicker,
+			openVideoEditor: windowsSvc.OpenVideoEditor,
+			update:          updateSvc,
 		}
 		tray.rebuildMenu() // initial menu (includes any persisted recents)
 

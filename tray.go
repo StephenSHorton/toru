@@ -44,6 +44,8 @@ type trayController struct {
 	// clicker backs the "Auto clicker" check item; openClicker opens its hub page.
 	clicker     *clicker.ClickerService
 	openClicker func()
+	// openVideoEditor opens the hub's Video Editor page.
+	openVideoEditor func()
 }
 
 // rebuildMenu constructs a fresh tray menu and installs it. Safe to call from
@@ -84,6 +86,12 @@ func (t *trayController) rebuildMenu() {
 	})
 
 	t.addClickerItems(menu)
+
+	menu.Add("Video editor").OnClick(func(*application.Context) {
+		if t.openVideoEditor != nil {
+			t.openVideoEditor()
+		}
+	})
 
 	menu.AddSeparator()
 
