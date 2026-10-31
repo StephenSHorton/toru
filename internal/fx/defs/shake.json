@@ -1,0 +1,19 @@
+{
+  "type": "shake",
+  "version": 1,
+  "name": "Shake",
+  "category": "distort",
+  "kind": "geometry",
+  "params": [
+    { "id": "amplitude", "label": "Amount", "type": "number", "min": 0, "max": 100, "default": 12, "step": 0.5, "unit": "px", "animate": false,
+      "hint": "How far the picture moves, in pixels of a 1080-line frame" },
+    { "id": "frequency", "label": "Speed", "type": "number", "min": 0.5, "max": 30, "default": 8, "step": 0.1, "unit": "Hz", "animate": false },
+    { "id": "rotation", "label": "Rotation", "type": "number", "min": 0, "max": 10, "default": 1, "step": 0.1, "unit": "°", "animate": false },
+    { "id": "zoom", "label": "Zoom", "type": "number", "min": 1, "max": 1.5, "default": 1.1, "step": 0.01, "unit": "×", "animate": false,
+      "hint": "Zooms in so the moving picture's edges stay out of frame" },
+    { "id": "seed", "label": "Variation", "type": "number", "min": 0, "max": 9999, "default": 1, "step": 1, "animate": false }
+  ],
+  "export": { "filters": ["scale", "crop", "rotate"] },
+  "parity": { "mode": "pixels", "mean": 1, "p99": 6 },
+  "amount": "blend"
+}

@@ -1,0 +1,14 @@
+{
+  "type": "gaussianBlur",
+  "version": 1,
+  "name": "Gaussian blur",
+  "category": "blur",
+  "kind": "neighbourhood",
+  "params": [
+    { "id": "sigma", "label": "Amount", "type": "number", "min": 0, "max": 25, "default": 4, "step": 0.1, "animate": false,
+      "hint": "Blur radius (sigma) in pixels of a 1080-line frame" }
+  ],
+  "export": { "filters": ["gblur"] },
+  "parity": { "mode": "pixels", "mean": 1, "p99": 6 },
+  "amount": "blend"
+}

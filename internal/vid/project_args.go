@@ -1,16 +1,21 @@
 package vid
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	effectfx "github.com/StephenSHorton/toru/internal/fx"
 )
 
 // project_args.go turns a v2 ProjectExport into ffmpeg args
-// (docs/video-editor-v2.md, Export). PURE: no ffmpeg calls, no file access.
+// (docs/video-editor-v2.md, Export). No ffmpeg calls; the only files it
+// writes are v3 effects' LUTs, into the work folder it's given.
 //
 // Every clip is its own input ("-ss in -t len -i path"; images loop for the
 // clip's length). Video: a black canvas the length of the project, then each
@@ -22,8 +27,10 @@ import (
 
 // BuildProjectArgs builds the whole export. encoder is the H.264 encoder for
 // MP4 output (capture.TrimH264Encoder()); textFilter is TextFilter's chain
-// for the project's texts ("" for none). req must have passed Validate.
-func BuildProjectArgs(req ProjectExport, encoder string, textFilter string) []string {
+// for the project's texts ("" for none); work is a folder for the effects'
+// LUT files, which must outlive the ffmpeg run. req must have passed
+// Validate.
+func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work string) ([]string, error) {
 	p := req.Project
 	w, h := evenDim(p.Canvas.Width), evenDim(p.Canvas.Height)
 	fps := p.Canvas.FPS
@@ -73,7 +80,11 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string) []st
 			in := addInput(c, m)
 			if showVideo {
 				label := fmt.Sprintf("[v%d]", layer)
-				chain, x, y := clipVideoChain(in, c, m, w, h, fps)
+				pre, chain, x, y, err := clipVideoChain(in, c, m, w, h, fps, work, layer)
+				if err != nil {
+					return nil, err
+				}
+				graph = append(graph, pre...)
 				graph = append(graph, chain+label)
 				out := fmt.Sprintf("[o%d]", layer)
 				graph = append(graph, fmt.Sprintf("%s%soverlay=x=%d:y=%d:eof_action=pass:enable='between(t,%s,%s)'%s",
@@ -113,19 +124,47 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string) []st
 		audioOut = "[aout]"
 	}
 
-	args = append(args, "-filter_complex", strings.Join(graph, ";"), "-map", videoOut, "-map", audioOut)
+	fc, err := filterComplexArgs(strings.Join(graph, ";"), work)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, fc...)
+	args = append(args, "-map", videoOut, "-map", audioOut)
 	args = append(args, editCodecArgs(v1, encoder)...)
 	args = append(args, capture.ContainerFlags(req.OutPath)...)
-	return append(args, req.OutPath)
+	return append(args, req.OutPath), nil
+}
+
+// maxInlineGraph is the longest filtergraph passed on the command line;
+// Windows caps a whole command line at 32,767 characters, and effect-heavy
+// projects (each glitch is ~3.5 KB) can pass that.
+const maxInlineGraph = 16000
+
+// filterComplexArgs passes graph as -filter_complex, or, when it's longer
+// than maxInlineGraph, writes it to work (named by its content) and passes
+// the file with -/filter_complex (ffmpeg 7+; Toru ships 9).
+func filterComplexArgs(graph, work string) ([]string, error) {
+	if len(graph) <= maxInlineGraph || work == "" {
+		return []string{"-filter_complex", graph}, nil
+	}
+	sum := sha1.Sum([]byte(graph))
+	path := filepath.Join(work, "graph-"+hex.EncodeToString(sum[:8])+".txt")
+	if err := os.WriteFile(path, []byte(graph), 0o644); err != nil {
+		return nil, fmt.Errorf("export: write filtergraph: %w", err)
+	}
+	return []string{"-/filter_complex", path}, nil
 }
 
 // clipVideoChain is a clip's picture from input in, ready to overlay: timed
 // (speed, then shifted to the clip's start), at the canvas rate, with its
-// effects, scaled to its transform, with alpha and opacity. It returns the
-// chain (without its output label) and where its top-left goes on the
-// canvas.
-func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64) (string, int, int) {
+// effects, scaled to its transform, with alpha and opacity. It returns any
+// statements the effects need first (a v3 stack is a small graph of its
+// own; layer keeps its labels unique), the chain (without its output label)
+// and where its top-left goes on the canvas.
+func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64, work string, layer int) ([]string, string, int, int, error) {
 	tr := clipTransform(c)
+	head := fmt.Sprintf("[%d:v]", in)
+	var pre []string
 	parts := []string{}
 	if m.Kind == "image" {
 		parts = append(parts, "setpts=PTS-STARTPTS")
@@ -133,7 +172,20 @@ func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64) (str
 		parts = append(parts, fmt.Sprintf("setpts=(PTS-STARTPTS)/%s", num(clipSpeed(c))))
 	}
 	parts = append(parts, "fps="+formatFPS(fps))
-	if f := ClipVideoFilter(c, m.Height); f != "" {
+	if c.Effects != nil {
+		// v3: the effect stack (internal/fx), as its own graph between the
+		// timing and the scale.
+		fxIn, fxOut := fmt.Sprintf("[fx%din]", layer), fmt.Sprintf("[fx%dout]", layer)
+		stmts, err := effectfx.StackGraph(stackOf(c), effectfx.Ctx{W: m.Width, H: m.Height}, work, fmt.Sprintf("fx%d", layer), fxIn, fxOut)
+		if err != nil {
+			return nil, "", 0, 0, err
+		}
+		if stmts != nil {
+			pre = append(pre, head+strings.Join(parts, ",")+fxIn)
+			pre = append(pre, stmts...)
+			head, parts = fxOut, nil
+		}
+	} else if f := ClipVideoFilter(c, m.Height); f != "" {
 		parts = append(parts, f)
 	}
 	cw, ch := ClipSize(m.Width, m.Height, w, h, tr.Scale)
@@ -146,7 +198,20 @@ func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64) (str
 	parts = append(parts, fmt.Sprintf("setpts=PTS+%s/TB", msSeconds(c.Start)))
 	x := int(math.Round(tr.X*float64(w) - float64(cw)/2))
 	y := int(math.Round(tr.Y*float64(h) - float64(ch)/2))
-	return fmt.Sprintf("[%d:v]", in) + strings.Join(parts, ","), x, y
+	return pre, head + strings.Join(parts, ","), x, y, nil
+}
+
+// stackOf is a v3 clip's effects as the export reads them.
+func stackOf(c ClipJSON) []effectfx.Effect {
+	out := make([]effectfx.Effect, 0, len(c.Effects))
+	for _, e := range c.Effects {
+		amount := 1.0
+		if e.Amount != nil {
+			amount = *e.Amount
+		}
+		out = append(out, effectfx.Effect{Type: e.Type, Enabled: e.Enabled, Params: e.Params, Group: e.Group, Amount: amount})
+	}
+	return out
 }
 
 // ClipSize is a clip's size on the canvas: scale 1 fits the whole picture
