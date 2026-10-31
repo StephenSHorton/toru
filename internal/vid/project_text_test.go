@@ -52,7 +52,7 @@ func TestProjectTextFilterChain(t *testing.T) {
 	for _, want := range []string{
 		"null[txb0];movie=filename=", "[txi0];[txb0][txi0]overlay=x=10:y=20:eof_action=repeat:enable=gte(t\\,0.000)*lt(t\\,1.000)",
 		"[txb1];", "colorchannelmixer=aa=0.5", "overlay=x=30:y=40",
-		"loop=loop=-1:size=1:start=0,setpts=N/(30*TB)", "colorchannelmixer@txo2=aa=0", "setpts=PTS+0.200/TB", "eof_action=pass",
+		"loop=loop=-1:size=1:start=0,settb=AVTB,setpts=N/(30*TB)", "colorchannelmixer@txo2=aa=0", "setpts=PTS+0.200/TB", "eof_action=pass",
 	} {
 		if !strings.Contains(f, want) {
 			t.Errorf("filter lacks %q:\n%s", want, f)
@@ -102,7 +102,7 @@ func TestProjectTextExportInFFmpeg(t *testing.T) {
 			{ID: "a", Text: "A", Start: 0, End: 1000, Image: &TextImageJSON{PNG: textPNG(t, 60, 40), X: 11, Y: 21, W: 60, H: 40}},
 			{ID: "b", Text: "B", Start: 0, End: 2000, Image: &TextImageJSON{PNG: textPNG(t, 60, 40), X: 101, Y: 41, W: 60, H: 40}, Style: &TextStyleJSON{Opacity: &half}},
 			{ID: "c", Text: "C", Start: 500, End: 1500, Image: &TextImageJSON{PNG: textPNG(t, 60, 40), X: 201, Y: 61, W: 60, H: 40},
-				Style: &TextStyleJSON{OpacityKeys: []KeyframeJSON{{T: 0, V: 0.0, Ease: "linear"}, {T: 1000, V: 1.0, Ease: "linear"}}}},
+				Style: &TextStyleJSON{OpacityKeys: []KeyframeJSON{{T: 0, V: 0.0, Ease: "inOut"}, {T: 1000, V: 1.0, Ease: "linear"}}}},
 		}}
 	work := t.TempDir()
 	tf, err := ProjectTextFilter(p, work)
@@ -142,14 +142,46 @@ func TestProjectTextExportInFFmpeg(t *testing.T) {
 	near("a: right of it untouched", px(f, 73, 41)[0], 0, 8)
 	near("b: centre at half opacity", px(f, 131, 61)[0], 128, 14)
 	near("c: keyed 0 at its start", px(f, 231, 81)[0], 0, 10)
-	// Frame 31 = 1.03 s: a gone (it shows while t < end, as the player), c half way.
+	// Frame 31 = 1.03 s: a gone (it shows while t < end, as the player), c
+	// 533 ms into an inOut ramp (the preview's fx/keyframes.ts ease).
 	f = frame(31)
 	near("a: gone after its end", px(f, 41, 41)[0], 0, 8)
-	near("c: keyed half way", px(f, 231, 81)[0], 255*0.533, 20)
+	u := 1 - math.Pow(-2*0.5333+2, 3)/2
+	near("c: keyed inOut part way", px(f, 231, 81)[0], 255*u, 14)
 	// Frame 50 = 1.67 s: c gone.
 	f = frame(50)
 	near("c: gone after its end", px(f, 231, 81)[0], 0, 8)
 	near("b: still there", px(f, 131, 61)[0], 128, 14)
+
+	// Filters after the text chain keep chaining: a custom preset's scale, and the
+	// export screen's GIF (fps, scale, palette).
+	small := filepath.Join(dir, "small.mkv")
+	args, err = BuildProjectArgs(ProjectExport{Project: p, Preset: "custom", Height: 90, OutPath: small}, "ffv1", tf, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err := exec.Command(ff, append([]string{"-v", "error"}, args...)...).CombinedOutput(); err != nil {
+		t.Fatalf("scaled export: %v\n%s\n%q", err, b, args)
+	}
+	fs, err := exec.Command(ff, "-v", "error", "-i", small, "-vf", "select=eq(n\\,15)", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-").Output()
+	if err != nil || len(fs) != 160*90*3 {
+		t.Fatalf("scaled frame: %v (%d bytes)", err, len(fs))
+	}
+	near("scaled: a's centre at half size", float64(fs[(20*160+20)*3]), 255, 20)
+
+	gif := filepath.Join(dir, "out.gif")
+	args, err = BuildProjectArgs(ProjectExport{Project: p, Preset: "original", OutPath: gif, Options: &ExportOptions{Format: FormatGIF, GIF: GIFOptions{FPS: 10, Width: 320}}}, "ffv1", tf, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err := exec.Command(ff, append([]string{"-v", "error"}, args...)...).CombinedOutput(); err != nil {
+		t.Fatalf("gif export: %v\n%s\n%q", err, b, args)
+	}
+	fg, err := exec.Command(ff, "-v", "error", "-i", gif, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-").Output()
+	if err != nil || len(fg) != W*H*3 {
+		t.Fatalf("gif frame: %v (%d bytes)", err, len(fg))
+	}
+	near("gif: a's centre", px(fg, 41, 41)[0], 255, 20)
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }

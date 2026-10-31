@@ -1,4 +1,5 @@
 import type { Text, TextStyle } from "@/trim/edl";
+import { ease } from "@/trim/fx/keyframes";
 import { DEFAULT_FONT_CSS, DEFAULT_LINE_HEIGHT, fontFamily, fontInfo, loadFonts } from "@/trim/fonts";
 
 // textRender.ts draws a text overlay (edl.ts Text + TextStyle) into a
@@ -123,15 +124,9 @@ export const hasDroppedChars = (s: string) => s.replace(EMOJI, "") !== s;
 
 // --- opacity over time -------------------------------------------------------
 
-const EASES: Record<string, (x: number) => number> = {
-  linear: (x) => x,
-  in: (x) => x * x * x,
-  out: (x) => 1 - (1 - x) ** 3,
-  inOut: (x) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2),
-};
-
 // textOpacityAt is the whole text's opacity at t seconds after its start:
-// its keyframes (ease of the key a segment starts at, as clip keyframes) or
+// its keyframes (the ease of the key a segment starts at: fx/keyframes.ts,
+// the export's effectfx.Ease) or
 // its static opacity.
 export function textOpacityAt(s: ResolvedStyle, t: number): number {
   const ks = s.opacityKeys;
@@ -143,7 +138,7 @@ export function textOpacityAt(s: ResolvedStyle, t: number): number {
     if (t < b.t) {
       if (a.ease === "hold") return clamp(a.v, 0, 1);
       const x = (t - a.t) / (b.t - a.t);
-      return clamp(a.v + (b.v - a.v) * (EASES[a.ease] ?? EASES.linear)(x), 0, 1);
+      return clamp(a.v + (b.v - a.v) * ease(a.ease, x), 0, 1);
     }
   }
   return clamp(ks[ks.length - 1].v, 0, 1);

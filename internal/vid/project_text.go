@@ -87,7 +87,8 @@ func ProjectTextFilter(p ProjectJSON, work string) (string, error) {
 		}
 		switch {
 		case len(keys) > 0:
-			// A stream of the image at the canvas rate with local
+			// A stream of the image at the canvas rate (a fine time base, so
+			// frame times are exact) with local
 			// timestamps, so sendcmd can set the alpha per frame, then moved
 			// to the text's start; overlay drops it after its end.
 			frames := effectfx.Frames(float64(lenMs), fps)
@@ -100,7 +101,7 @@ func ProjectTextFilter(p ProjectJSON, work string) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("text %d: %w", i+1, err)
 			}
-			src += fmt.Sprintf(",loop=loop=-1:size=1:start=0,setpts=N/(%s*TB),format=rgba,%s,%s=aa=%s,trim=duration=%s,setpts=PTS+%s/TB",
+			src += fmt.Sprintf(",loop=loop=-1:size=1:start=0,settb=AVTB,setpts=N/(%s*TB),format=rgba,%s,%s=aa=%s,trim=duration=%s,setpts=PTS+%s/TB",
 				formatFPS(fps), send, target, cmds[0].Value, msSeconds(lenMs), msSeconds(t.Start))
 			eof = "pass"
 		case op < 1:
