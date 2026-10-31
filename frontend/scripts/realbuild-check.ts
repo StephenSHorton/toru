@@ -23,7 +23,11 @@
 //         default the newest file in Videos/Toru Replays); a 16:9 edit
 //         switched to a 9:16 frame with fill, preview vs export
 //
-//   ui and v17 need the build started with --remote-debugging-port.
+//   trans a cross dissolve and a wipe on the source's cuts (editor.split,
+//         editor.addTransition): length kept, preview vs export through
+//         both, the dissolve's middle a mix
+//
+//   ui, v17 and trans need the build started with --remote-debugging-port.
 //
 // --dry runs without the app: makes the test source, builds and validates the
 // fx project, calibrates the frame diff on the source's own encode and, with
@@ -50,7 +54,7 @@ const DRY = flag("dry");
 const KEEP = flag("keep");
 const EXE = opt("exe");
 const OUT = path.resolve(opt("out", path.join(os.tmpdir(), `toru-realbuild-${Date.now()}`)));
-const PHASES = opt("phases", "time,fx,fx7,ui,v17").split(",").map((s) => s.trim());
+const PHASES = opt("phases", "time,fx,fx7,ui,v17,trans").split(",").map((s) => s.trim());
 const URL_ = opt("url");
 const CDP = Number(process.env.TORU_CDP || 9333);
 const FFMPEG = process.env.FFMPEG || "ffmpeg";
@@ -726,6 +730,46 @@ async function phaseV17(src: string) {
   }
 }
 
+// ---- phase: trans (transitions) ----------------------------------------------
+
+// The source cut at 2 s and 4 s: a cross dissolve on the first cut, a wipe
+// on the second. Transitions sit centred on the cut, so the length stays 6 s;
+// frames through both (and in the plain parts) must match preview vs export,
+// and the dissolve's middle must be a mix of red and green, neither alone.
+async function phaseTrans(src: string) {
+  say("== trans: cross dissolve + wipe on cuts");
+  const g0 = await openFresh(src);
+  const vt = g0.tracks.find((t: { kind: string }) => t.kind === "video");
+  const b: string = ctl("editor.split", { t: 2, trackId: vt.id }).newClips[0];
+  const c: string = ctl("editor.split", { t: 4, trackId: vt.id }).newClips[0];
+  const t1 = ctl("editor.addTransition", { clipId: b, type: "fade", duration: 1 });
+  const t2 = ctl("editor.addTransition", { clipId: c, type: "wipeleft", duration: 0.8 });
+  say(`  added ${JSON.stringify(t1)} ${JSON.stringify(t2)}`);
+  const g = await until("both transitions", () => {
+    const x = ctl("editor.get");
+    const clips = x.tracks.flatMap((t: { clips: (CtlClip & { transition?: unknown })[] }) => t.clips);
+    return clips.filter((k: { transition?: unknown }) => k.transition).length === 2 && x;
+  });
+  const dur = projectDuration(g as Project);
+  if (Math.abs(dur - 6) > 0.05) fail(`trans: the timeline is ${dur.toFixed(2)} s with transitions, want 6`);
+  const fps = 30;
+  const at = (t: number) => (Math.floor(t * fps) + 0.5) / fps;
+  const ts = [0.6, 1.6, 1.85, 2.0, 2.2, 2.4, 3.0, 3.7, 4.0, 4.3, 5.2].map(at);
+  const out = await compare("trans", ts, dur, fps);
+  const mid = describe(rgb(out, at(2.0) - 0.5 / fps - 0.001));
+  say(`  dissolve middle (export): ${mid}`);
+  if (/^(red|green) /.test(mid)) fail(`trans: the dissolve's middle is plain ${mid.split(" ")[0]}, not a mix`);
+  // Timeline screenshot with the transition boxes.
+  const page = await cdpPage(CDP, (u) => u.includes("view=edit"));
+  try {
+    await sleep(800);
+    const dir = path.join(OUT, "trans");
+    await page.shot(path.join(dir, "timeline.png"));
+  } finally {
+    page.close();
+  }
+}
+
 // ---- cleanup ---------------------------------------------------------------
 
 function cleanup() {
@@ -864,6 +908,7 @@ try {
     if (PHASES.includes("fx7")) await phaseFx7(src);
     if (PHASES.includes("ui")) await phaseUi(CDP, (u) => u.includes("view=edit"));
     if (PHASES.includes("v17")) await phaseV17(src);
+    if (PHASES.includes("trans")) await phaseTrans(src);
   }
 } catch (e) {
   fail(`error: ${e instanceof Error ? e.message : e}`);
