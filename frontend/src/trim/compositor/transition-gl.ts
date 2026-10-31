@@ -16,6 +16,9 @@ import type { TransitionType } from "@/trim/transition";
 //
 // hblur's box blur is sampled with 32 taps across its window rather than
 // every pixel (its parity limits are looser); the rest are exact formulas.
+// What can't match: xfade runs per plane on 4:2:0, so the half-size chroma
+// planes get their own whole-pixel offsets (slides, zoom) and colour edges
+// land a pixel apart (transition-parity.ts has the limits).
 
 const TYPE_ID: Record<TransitionType, number> = {
   fade: 0,
@@ -71,7 +74,10 @@ void main() {
   if (u_type == 0) {
     r = mx(A, B, p);
   } else if (u_type == 1 || u_type == 2) {
-    vec4 bg = u_type == 1 ? vec4(0.0, 0.0, 0.0, 1.0) : vec4(1.0);
+    // xfade's black is Y=0 and its white Y=255 on limited-range planes:
+    // below black and above white in RGB (1.164*(Y-16)/255), so a dip goes
+    // darker (brighter) than the plain colour until the output clamps.
+    vec4 bg = u_type == 1 ? vec4(vec3(-0.07303), 1.0) : vec4(vec3(1.09094), 1.0);
     r = mx(mx(A, bg, ss(0.8, 1.0, p)), mx(bg, B, ss(0.2, 1.0, p)), p);
   } else if (u_type == 3) {
     int z = int(float(w) * p);

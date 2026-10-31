@@ -1,7 +1,9 @@
 package vid
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -168,4 +170,87 @@ func TestTransitionsInFFmpeg(t *testing.T) {
 	near("wipe left half", px(mid, 40, 90), [3]int{0, 0, 255})
 	near("wipe right half", px(mid, 280, 90), [3]int{0, 255, 0})
 	near("green after", px(frame(at(150)), 160, 90), [3]int{0, 255, 0})
+}
+
+// TestWriteTransitionParityCases writes frames of every transition as the
+// export draws them, for frontend/scripts/transition-parity.ts to compare
+// with the preview. Runs only with TORU_TRANSITION_PARITY_DIR set (the
+// script sets it). Two stills (test pattern into colour bars), 320x180 at
+// 30 fps, A 0..2 s then B 2..4 s with a 1 s transition (window 1.5..2.5 s),
+// frames at progress 0.75, 0.5 and 0.25; some types again with B at 60% so
+// the transparent canvas around it is checked too.
+func TestWriteTransitionParityCases(t *testing.T) {
+	dir := os.Getenv("TORU_TRANSITION_PARITY_DIR")
+	if dir == "" {
+		t.Skip("set TORU_TRANSITION_PARITY_DIR (frontend/scripts/transition-parity.ts does)")
+	}
+	ff := fxtest.PinnedFFmpeg(t)
+	const w, h, fps = 320, 180, 30
+	still := func(name, src string) string {
+		p := filepath.Join(dir, name+".png")
+		if b, err := exec.Command(ff, "-v", "error", "-y", "-f", "lavfi", "-i", src, "-frames:v", "1", p).CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", name, err, b)
+		}
+		raw := filepath.Join(dir, name+".rgba")
+		if b, err := exec.Command(ff, "-v", "error", "-y", "-i", p, "-f", "rawvideo", "-pix_fmt", "rgba", raw).CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", name, err, b)
+		}
+		return p
+	}
+	a := still("a", fmt.Sprintf("testsrc2=s=%dx%d:r=1", w, h))
+	b := still("b", fmt.Sprintf("smptebars=s=%dx%d:r=1", w, h))
+	frames := []int{52, 60, 67} // progress 1-(k/30-1.5): 0.767, 0.5, 0.267
+	type pcase struct {
+		Name   string   `json:"name"`
+		Type   string   `json:"type"`
+		ScaleB float64  `json:"scaleB"`
+		Frames []int    `json:"frames"`
+		Files  []string `json:"files"`
+	}
+	var cases []pcase
+	add := func(typ string, scaleB float64) {
+		name := typ
+		if scaleB != 1 {
+			name += fmt.Sprintf("-b%.0f", scaleB*100)
+		}
+		clipB := tclip("b", 2000, 2000, &TransitionJSON{Type: typ, Duration: 1000})
+		clipB.Media = "b"
+		clipB.Transform.Scale = scaleB
+		clipA := tclip("a", 0, 2000, nil)
+		clipA.Media = "a"
+		p := ProjectJSON{Version: 3, Canvas: CanvasJSON{Width: w, Height: h, FPS: fps},
+			Media: []MediaJSON{
+				{ID: "a", Path: a, Kind: "image", Width: w, Height: h},
+				{ID: "b", Path: b, Kind: "image", Width: w, Height: h},
+			},
+			Tracks: []TrackJSON{{ID: "v", Kind: "video", Clips: []ClipJSON{clipA, clipB}}}}
+		out := filepath.Join(dir, name+".mkv")
+		args, err := BuildProjectArgs(ProjectExport{Project: p, Preset: "original", OutPath: out}, "ffv1", "", dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bb, err := exec.Command(ff, append([]string{"-v", "error"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", name, err, bb)
+		}
+		c := pcase{Name: name, Type: typ, ScaleB: scaleB, Frames: frames}
+		for _, k := range frames {
+			f := filepath.Join(dir, fmt.Sprintf("%s-%d.rgba", name, k))
+			sel := fmt.Sprintf(`select=eq(n\,%d)`, k)
+			if bb, err := exec.Command(ff, "-v", "error", "-y", "-i", out, "-vf", sel, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", f).CombinedOutput(); err != nil {
+				t.Fatalf("%s frame %d: %v\n%s", name, k, err, bb)
+			}
+			c.Files = append(c.Files, filepath.Base(f))
+		}
+		cases = append(cases, c)
+	}
+	for _, typ := range TransitionTypes {
+		add(typ, 1)
+	}
+	for _, typ := range []string{"fade", "fadeblack", "wipeleft", "slideleft"} {
+		add(typ, 0.6)
+	}
+	j, _ := json.MarshalIndent(map[string]any{"w": w, "h": h, "fps": fps, "cases": cases}, "", " ")
+	if err := os.WriteFile(filepath.Join(dir, "cases.json"), j, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }

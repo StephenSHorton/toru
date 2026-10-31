@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test:denoise": "node scripts/denoise-check.mjs",
     "test:effects": "bun scripts/effects-parity.ts",
+    "test:transitions": "bun scripts/transition-parity.ts",
     "test:fx-lut": "bun scripts/fx-lut-check.ts",
     "test:fx-ops": "bun scripts/fx-ops-check.ts",
     "test:fx-check": "bun scripts/fx-check.ts",
