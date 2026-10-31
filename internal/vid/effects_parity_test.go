@@ -23,6 +23,11 @@ type parityCase struct {
 	// the filtergraph StackGraph builds for it, from [0:v] to [fxout].
 	Effects []EffectJSON `json:"effects,omitempty"`
 	Graph   string       `json:"graph,omitempty"`
+	// T is the clip-local time the frame is drawn at (time-based effects);
+	// Border is how many pixels at the frame's edge to skip, where the two
+	// sides treat pixels past the edge differently.
+	T      float64 `json:"t,omitempty"`
+	Border int     `json:"border,omitempty"`
 }
 
 const parityH = 180
@@ -73,6 +78,26 @@ func parityV3Cases(work string) ([]parityCase, error) {
 		{Name: "v3 sharpen", Effects: []EffectJSON{fx("adjust", map[string]any{"sharpen": 0.8})}},
 		{Name: "v3 blur 6", Effects: []EffectJSON{fx("blur", map[string]any{"amount": 6.0})}},
 		{Name: "v3 group at 50%", Effects: []EffectJSON{grouped(fx("look", map[string]any{"look": "bw"}), &half), grouped(fx("adjust", map[string]any{"contrast": 1.5}), &half)}},
+		{Name: "v3 gaussian blur 4", Effects: []EffectJSON{fx("gaussianBlur", map[string]any{"sigma": 4.0})}, Border: 8},
+		{Name: "v3 gaussian blur 12", Effects: []EffectJSON{fx("gaussianBlur", map[string]any{"sigma": 12.0})}, Border: 16},
+		{Name: "v3 gaussian blur 0.6", Effects: []EffectJSON{fx("gaussianBlur", map[string]any{"sigma": 0.6})}, Border: 3},
+		{Name: "v3 rgb split right", Effects: []EffectJSON{fx("rgbSplit", map[string]any{"amount": 24.0})}, Border: 6},
+		{Name: "v3 rgb split 135deg", Effects: []EffectJSON{fx("rgbSplit", map[string]any{"amount": 30.0, "angle": 135.0})}, Border: 6},
+		{Name: "v3 sharpen effect", Effects: []EffectJSON{fx("sharpen", map[string]any{"amount": 0.8})}, Border: 2},
+		{Name: "v3 zoom in, mid-ease", Effects: []EffectJSON{fx("zoom", map[string]any{"scale": 1.6, "in": 0.5, "center": []any{0.3, 0.6}})}, T: 0.3, Border: 2},
+		{Name: "v3 zoom hold, corner", Effects: []EffectJSON{fx("zoom", map[string]any{"scale": 2.37, "ease": "linear", "center": []any{0.9, 0.1}})}, T: 0.8, Border: 2},
+		{Name: "v3 zoom out, default", Effects: []EffectJSON{fx("zoom", map[string]any{})}, T: 1.45, Border: 2},
+		{Name: "v3 flash, default, t=0", Effects: []EffectJSON{fx("flash", map[string]any{})}},
+		{Name: "v3 flash red, decaying", Effects: []EffectJSON{fx("flash", map[string]any{"color": "#ff2010", "intensity": 1.0, "start": 0.5, "duration": 0.8})}, T: 0.73},
+		{Name: "v3 flash on a green screen", Effects: []EffectJSON{fx("chromaKey", map[string]any{}), fx("flash", map[string]any{})}, T: 0.1},
+		{Name: "v3 shake, default", Effects: []EffectJSON{fx("shake", map[string]any{})}, T: 0.37, Border: 4},
+		{Name: "v3 shake, big turn", Effects: []EffectJSON{fx("shake", map[string]any{"amplitude": 40.0, "rotation": 8.0, "zoom": 1.3, "seed": 77.0})}, T: 1.234, Border: 4},
+		{Name: "v3 shake, rotation only", Effects: []EffectJSON{fx("shake", map[string]any{"amplitude": 0.0, "rotation": 6.0, "zoom": 1.0})}, T: 0.5, Border: 4},
+		{Name: "v3 glitch burst (no noise)", Effects: []EffectJSON{fx("glitch", map[string]any{"noise": 0.0})}, T: 0.05, Border: 16},
+		{Name: "v3 glitch quiet slot", Effects: []EffectJSON{fx("glitch", map[string]any{"noise": 0.0})}, T: 0.15},
+		{Name: "v3 glitch 6 slices, seed 41", Effects: []EffectJSON{fx("glitch", map[string]any{"noise": 0.0, "seed": 41.0, "slices": 6.0, "sliceShift": 120.0, "sliceSize": 0.1, "shift": 20.0})}, T: 0.35, Border: 24},
+		{Name: "v3 glitch in a 50% group", Effects: []EffectJSON{grouped(fx("glitch", map[string]any{"noise": 0.0}), &half)}, T: 0.85, Border: 16},
+		{Name: "v3 zoom before start", Effects: []EffectJSON{fx("zoom", map[string]any{"start": 2.0})}, T: 1.0},
 	}
 	for i := range cases {
 		stmts, err := effectfx.StackGraph(stackOf(ClipJSON{Effects: cases[i].Effects}), effectfx.Ctx{W: 320, H: parityH}, work, "p", "[0:v]", "[fxout]")

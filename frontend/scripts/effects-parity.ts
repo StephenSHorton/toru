@@ -39,7 +39,7 @@ const { height: H, cases } = JSON.parse(fs.readFileSync(path.join(tmp, "cases.js
   height: number;
   // v2 cases carry chroma/filters and a -vf chain; v3 cases an effect stack
   // and the -filter_complex graph StackGraph builds ([0:v] → [fxout]).
-  cases: { name: string; chroma?: unknown; filters?: { blur: number }; filter: string; effects?: { type: string; params: Record<string, unknown> }[]; graph?: string }[];
+  cases: { name: string; chroma?: unknown; filters?: { blur: number }; filter: string; effects?: { type: string; params: Record<string, unknown> }[]; graph?: string; t?: number; border?: number }[];
 };
 
 // The first case is the editor's default green screen; both sides must agree
@@ -65,7 +65,7 @@ const srcRGBA = run("ffmpeg", ["-v", "error", "-i", src, "-f", "rawvideo", "-pix
 // 3. What the export draws.
 const expected = cases.map((c) =>
   c.graph
-    ? run("ffmpeg", ["-v", "error", "-i", src, "-filter_complex", `${c.graph};[fxout]format=rgba[o]`, "-map", "[o]", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+    ? run("ffmpeg", ["-v", "error", ...(c.t ? ["-framerate", "1000"] : []), "-i", src, "-filter_complex", `${c.t ? `[0:v]setpts=PTS-STARTPTS+${c.t}/TB[tin];` + c.graph.replaceAll("[0:v]", "[tin]") : c.graph};[fxout]format=rgba[o]`, "-map", "[o]", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
     : run("ffmpeg", ["-v", "error", "-i", src, "-vf", (c.filter ? c.filter + "," : "") + "format=rgba", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]),
 );
 
@@ -78,7 +78,7 @@ fs.writeFileSync(
   `import { FxRenderer } from ${mod("fx/renderer.ts")};
 import { resolveStack } from ${mod("fx/registry.ts")};
 import { migrateClipEffects } from ${mod("migrate.ts")};
-(window as any).render = async (w: number, h: number, fx: any) => {
+(window as any).render = async (w: number, h: number, fx: any, t = 0) => {
   const src = new Uint8Array(await (await fetch("/src")).arrayBuffer());
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
@@ -88,7 +88,7 @@ import { migrateClipEffects } from ${mod("migrate.ts")};
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, src);
   const r = new FxRenderer(gl);
-  const out = r.apply(tex, w, h, resolveStack(fx.effects ?? migrateClipEffects(fx.chroma, fx.filters), 0));
+  const out = r.apply(tex, w, h, resolveStack(fx.effects ?? migrateClipEffects(fx.chroma, fx.filters), t), t);
   const fbo = gl.createFramebuffer();
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, out, 0);
@@ -160,14 +160,14 @@ try {
   console.log(`effects parity, ${W}x${H}, limits mean <= ${MAX_MEAN}, p99 <= ${MAX_P99}`);
   for (const [i, c] of cases.entries()) {
     const fx = c.effects ? { effects: c.effects.map((e, k) => ({ id: `e${k}`, enabled: true, ...e })) } : { chroma: c.chroma, filters: c.filters };
-    const got = await evaluate(`render(${W}, ${H}, ${JSON.stringify(fx)})`);
+    const got = await evaluate(`render(${W}, ${H}, ${JSON.stringify(fx)}, ${c.t ?? 0})`);
     if (i === 0) console.log(`renderer: ${got.renderer}`);
     const preview = Buffer.from(got.pixels, "base64");
     const exp = expected[i];
     // Skip the frame's edge, where the two blurs treat the border differently.
     // Sharpen and blur read neighbours, which the two sides treat differently there.
     const blur = c.filters?.blur ?? Math.max(0, ...(c.effects ?? []).map((e) => (e.type === "blur" ? Number(e.params.amount) : e.params.sharpen ? 1 : 0)));
-    const border = Math.ceil((blur * H) / 1080) + 2;
+    const border = Math.max(Math.ceil((blur * H) / 1080) + 2, c.border ?? 0);
     const diffs: number[] = [];
     for (let y = border; y < H - border; y++) {
       for (let x = border; x < W - border; x++) {
