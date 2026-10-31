@@ -1802,8 +1802,58 @@ function SettingsPage() {
 
         {/* Keyed on the folder: switching it can pause auto-delete (store.go SetDir). */}
         <LibraryAutoDelete key={libraryDir} />
+
+        <EditorStorage />
       </div>
       ) : null}
+    </div>
+  );
+}
+
+// Storage: the video editor's cache of reversed clips (internal/vid/
+// reverse.go). It keeps up to 10 GB, dropping the least recently used;
+// clearing it makes reversed clips render again when they're next shown.
+const fmtBytes = (n: number) =>
+  n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${Math.round(n / (1 << 20))} MB` : n > 0 ? "under 1 MB" : "empty";
+
+function EditorStorage() {
+  const [size, setSize] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const refresh = useCallback(() => {
+    void VideoService.ReverseCacheSize()
+      .then((n) => setSize(Number(n)))
+      .catch(() => setSize(null));
+  }, []);
+  useEffect(refresh, [refresh]);
+
+  const clear = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await VideoService.ClearReverseCache();
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setBusy(false);
+      refresh();
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-border pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col">
+          <span className="text-sm font-medium">Storage</span>
+          <span className="text-xs text-muted-foreground">
+            Reversed clips in the video editor: {size === null ? "…" : fmtBytes(size)} (keeps up to 10 GB)
+          </span>
+        </div>
+        <Button size="sm" variant="secondary" disabled={busy || !size} onClick={() => void clear()}>
+          <Trash2 /> {busy ? "…" : "Clear"}
+        </Button>
+      </div>
+      {error ? <span className="text-xs text-destructive">{error}</span> : null}
     </div>
   );
 }
