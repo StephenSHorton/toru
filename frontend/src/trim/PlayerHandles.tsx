@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { CompositorHandle } from "@/trim/compositor/Compositor";
-import { clipsAt, DEFAULT_CHROMA, findClip, mediaById, updateClip, type Clip, type Media, type Project } from "@/trim/project";
+import { animAt, setKeyColor, setValue } from "@/trim/fx/ops";
+import { clipsAt, findClip, mediaById, type Clip, type Media, type Project } from "@/trim/project";
 
 // PlayerHandles lies over the Compositor's canvas (docs/video-editor-v2.md,
 // Inspector): click a picture on the player to select its clip (the topmost
@@ -77,20 +78,23 @@ export function PlayerHandles({ project, time, canvas, selection, onSelect, appl
 
   const W = box.width;
   const H = box.height;
-  // The rect a clip is drawn in (as Compositor's drawLayer, in CSS px).
+  // A clip's transform at the playhead (keyframes applied).
+  const tf = (c: Clip) => animAt(c, time - c.start);
+  // The rect a clip is drawn in (as Compositor's drawLayer, in CSS px; a
+  // rotated clip's handles stay on its unrotated rect).
   const rectOf = (c: Clip, m: Media | undefined): Rect | null => {
     if (!m || m.width <= 0 || m.height <= 0 || W <= 0 || H <= 0) return null;
-    const fit = Math.min(W / m.width, H / m.height) * c.transform.scale;
+    const fit = Math.min(W / m.width, H / m.height) * tf(c).scale;
     const dw = m.width * fit;
     const dh = m.height * fit;
-    const cx = c.transform.x * W;
-    const cy = c.transform.y * H;
+    const cx = tf(c).x * W;
+    const cy = tf(c).y * H;
     return { x0: cx - dw / 2, y0: cy - dh / 2, x1: cx + dw / 2, y1: cy + dh / 2 };
   };
 
   // Visible picture clips at `time`, top to bottom.
   const visible = clipsAt(project, time)
-    .filter((a) => a.track.kind === "video" && a.media.kind !== "audio" && a.clip.transform.opacity > 0)
+    .filter((a) => a.track.kind === "video" && a.media.kind !== "audio" && tf(a.clip).opacity > 0)
     .reverse();
   const sel = selection ? findClip(project, selection) : undefined;
   const selShown = sel && visible.some((a) => a.clip.id === sel.clip.id) ? sel : undefined;
@@ -118,7 +122,8 @@ export function PlayerHandles({ project, time, canvas, selection, onSelect, appl
   const startMove = (e: React.PointerEvent, c: Clip, locked: boolean) => {
     if (locked) return;
     const p0 = local(e);
-    const { x: x0, y: y0 } = c.transform;
+    const { x: x0, y: y0 } = tf(c);
+    const lt = time - c.start;
     const key = `handles:move:${c.id}:${++dragSeq}`;
     let moved = false;
     capture(e, (ev) => {
@@ -132,23 +137,25 @@ export function PlayerHandles({ project, time, canvas, selection, onSelect, appl
       if (snapV) x = 0.5;
       if (snapH) y = 0.5;
       setGuide({ v: snapV, h: snapH });
-      apply((q) => updateClip(q, c.id, { transform: { ...c.transform, x: round4(x), y: round4(y) } }), key);
+      apply((q) => setValue(setValue(q, c.id, { anim: "x" }, round4(x), lt), c.id, { anim: "y" }, round4(y), lt), key);
     });
   };
 
   const startResize = (e: React.PointerEvent, c: Clip) => {
     e.preventDefault();
     e.stopPropagation();
-    const cx = c.transform.x * W;
-    const cy = c.transform.y * H;
+    const t0 = tf(c);
+    const lt = time - c.start;
+    const cx = t0.x * W;
+    const cy = t0.y * H;
     const p0 = local(e);
     const d0 = Math.max(1, Math.hypot(p0.x - cx, p0.y - cy));
-    const s0 = c.transform.scale;
+    const s0 = t0.scale;
     const key = `handles:size:${c.id}:${++dragSeq}`;
     capture(e, (ev) => {
       const p = local(ev);
       const s = Math.max(0.02, Math.min(10, (s0 * Math.hypot(p.x - cx, p.y - cy)) / d0));
-      apply((q) => updateClip(q, c.id, { transform: { ...c.transform, scale: round4(s) } }), key);
+      apply((q) => setValue(q, c.id, { anim: "scale" }, round4(s), lt), key);
     });
   };
 
@@ -166,7 +173,7 @@ export function PlayerHandles({ project, time, canvas, selection, onSelect, appl
       void comp.pickColor(x / W, y / H, target.id).then((color) => {
         apply((q) => {
           const cur = findClip(q, target.id)?.clip;
-          return cur ? updateClip(q, target.id, { chroma: { ...(cur.chroma ?? DEFAULT_CHROMA), color } }) : q;
+          return cur ? setKeyColor(q, target.id, color, time - cur.start) : q;
         });
         onPickingChange?.(false);
       });
