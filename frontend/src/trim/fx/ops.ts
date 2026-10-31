@@ -6,8 +6,6 @@ import { clipEffects } from "@/trim/fx/stack";
 import {
   DEFAULT_FILTERS,
   findClip,
-  MAX_CURVE_SPEED,
-  MIN_CURVE_SPEED,
   updateClip,
   type AnimTarget,
   type Clip,
@@ -388,42 +386,11 @@ export function paramIsDefault(e: EffectInstance, param: string): boolean {
 
 // --- Speed curve ------------------------------------------------------------------
 
-// SPEED_PRESETS are the ramp presets (docs/video-editor-v3.md, Speed ramps),
-// as speeds at evenly spaced points over the clip's source range.
-export const SPEED_PRESETS: { id: string; label: string; v: number[] }[] = [
-  { id: "montage", label: "Montage", v: [1, 3, 0.3, 3, 1] },
-  { id: "hero", label: "Hero", v: [1, 0.2, 0.2, 1] },
-  { id: "bullet", label: "Bullet", v: [1, 0.1, 1] },
-  { id: "jump", label: "Jump cut", v: [1, 6, 1] },
-  { id: "flashIn", label: "Flash in", v: [4, 1] },
-  { id: "flashOut", label: "Flash out", v: [1, 4] },
-];
-
-// presetCurve is a preset scaled to a source range of len seconds.
-export function presetCurve(id: string, len: number, audio: SpeedCurve["audio"] = "follow"): SpeedCurve | undefined {
-  const pre = SPEED_PRESETS.find((x) => x.id === id);
-  if (!pre) return undefined;
-  const n = pre.v.length - 1;
-  return { points: pre.v.map((v, i) => ({ s: (len * i) / n, v })), audio, preset: id };
-}
-
-// normalizeCurve fits a curve to a clip of source length len: speeds in
-// 0.1..10, points sorted, at least two, the first at 0 and the last at len.
-export function normalizeCurve(curve: SpeedCurve, len: number): SpeedCurve {
-  const pts = curve.points
-    .filter((q) => Number.isFinite(q.s) && Number.isFinite(q.v))
-    .map((q) => ({ s: Math.max(0, Math.min(len, q.s)), v: Math.max(MIN_CURVE_SPEED, Math.min(MAX_CURVE_SPEED, q.v)) }))
-    .sort((a, b) => a.s - b.s);
-  if (!pts.length) pts.push({ s: 0, v: 1 });
-  pts[0] = { ...pts[0], s: 0 };
-  if (pts.length < 2 || pts[pts.length - 1].s < len - EPS) pts.push({ s: len, v: pts[pts.length - 1].v });
-  pts[pts.length - 1] = { ...pts[pts.length - 1], s: len };
-  return { ...curve, points: pts, audio: curve.audio === "mute" ? "mute" : "follow" };
-}
-
 // setSpeedCurve sets (or with undefined, removes) a clip's speed curve.
+// updateClip fits it to the clip (normCurve in speed.ts). Presets live in
+// speed.ts (RAMP_PRESETS, presetCurve).
 export function setSpeedCurve(p: Project, clipId: string, curve: SpeedCurve | undefined): Project {
   const c = findClip(p, clipId)?.clip;
   if (!c || c.hold) return p;
-  return updateClip(p, clipId, { speedCurve: curve ? normalizeCurve(curve, c.out - c.in) : undefined });
+  return updateClip(p, clipId, { speedCurve: curve });
 }

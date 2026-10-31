@@ -10,17 +10,17 @@ import {
   moveEffect,
   moveKey,
   newEffect,
-  normalizeCurve,
-  presetCurve,
   removeEffect,
   setGreenScreen,
   setKeyColor,
   setKeyEase,
+  setSpeedCurve,
   setValue,
   toggleKey,
   valueOf,
 } from "../src/trim/fx/ops";
 import type { Clip, Project } from "../src/trim/project";
+import { presetCurve } from "../src/trim/speed";
 
 let failed = 0;
 function check(name: string, ok: boolean, got?: unknown) {
@@ -111,15 +111,11 @@ p = toggleKey(p, "c1", { anim: "opacity" }, 0);
 p = toggleKey(p, "c1", { anim: "opacity" }, 2);
 check("last key removed leaves the value", !get(p).anim && get(p).transform.opacity === 0, get(p));
 
-// Speed curves.
-const pre = presetCurve("montage", 8)!;
-check("preset spans the clip", pre.points[0].s === 0 && pre.points[pre.points.length - 1].s === 8 && pre.points.length === 5);
-const n = normalizeCurve({ points: [{ s: 5, v: 50 }, { s: -1, v: 0 }], audio: "follow" }, 8);
-check(
-  "normalized curve",
-  JSON.stringify(n.points) === JSON.stringify([{ s: 0, v: 0.1 }, { s: 5, v: 10 }, { s: 8, v: 10 }]),
-  n.points,
-);
+// Speed curves (presets and fitting are speed.ts; setSpeedCurve fits through updateClip).
+const pre = presetCurve("montage", 8);
+check("preset spans the clip", pre.points[0].s === 0 && pre.points[pre.points.length - 1].s === 8 && pre.preset === "montage");
+p = setSpeedCurve(p, "c1", { points: [{ s: 5, v: 50 }, { s: -1, v: 0 }], audio: "follow" });
+check("set curve is fitted to the clip", !!get(p).speedCurve && get(p).speedCurve!.points[0].s === 0 && Math.max(...get(p).speedCurve!.points.map((q) => q.v)) <= 10, get(p).speedCurve);
 
 if (failed) {
   console.error(`${failed} check(s) failed`);

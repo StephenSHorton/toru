@@ -3,7 +3,8 @@ import { Snowflake } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NumberInput } from "@/components/ui/number-input";
 import { Segmented } from "@/components/ui/segmented";
-import { presetCurve, setSpeedCurve, SPEED_PRESETS } from "@/trim/fx/ops";
+import { setSpeedCurve } from "@/trim/fx/ops";
+import { presetCurve, RAMP_PRESETS } from "@/trim/speed";
 import { clipLength, DEFAULT_FREEZE, freezeFrame, MAX_SPEED, MIN_SPEED, updateClip, type SpeedCurve } from "@/trim/project";
 import { fmtSec, round, Section } from "@/trim/inspector/controls";
 import type { TabProps } from "@/trim/inspector/Inspector";
@@ -95,7 +96,7 @@ export function SpeedTab({ clip: c, track, media, t, edit }: TabProps) {
         ) : c.speedCurve ? (
           <>
             <div className="flex flex-wrap gap-1">
-              {SPEED_PRESETS.map((x) => (
+              {RAMP_PRESETS.map((x) => (
                 <Button
                   key={x.id}
                   size="sm"
