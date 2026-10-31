@@ -3,6 +3,8 @@ import { VideoService } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { clipsAt, timelineTimeAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
 import { AudioMix, clipGain } from "@/trim/compositor/audio";
+import { reverseUrl } from "@/trim/reverse";
+import { clipAudible, fromSource, toSource } from "@/trim/speed";
 import { FxRenderer } from "@/trim/fx/renderer";
 import { clipStack } from "@/trim/fx/stack";
 import type { PlaybackClock } from "@/trim/compositor/usePlayback";
@@ -17,7 +19,11 @@ import type { PlaybackClock } from "@/trim/compositor/usePlayback";
 // track clip), from a pool keyed by clip id and reused while the clip lives.
 // Each is kept at its clip's source time: while playing it plays at the
 // clip's speed (pitch kept), small drift is pulled in by nudging the rate, and
-// past MAX_DRIFT it re-seeks; while paused it seeks to the exact frame.
+// past MAX_DRIFT it re-seeks; while paused it seeks to the exact frame. A
+// speed curve sets the rate every frame from the curve (ActiveClip.rate,
+// speed.ts). Below MIN_RATE, on a freeze frame and on a reversed clip whose
+// reverse proxy isn't ready yet (reverse.ts) the element stays paused and
+// is stepped by seeks instead; once it is, the proxy plays forwards.
 // Pausing doesn't seek: the clock moves to the frame the top video stopped on
 // (a seek decodes from the last keyframe, a visible stall on long
 // recordings). Resuming holds the clock until that video is really playing,
@@ -48,6 +54,29 @@ const PREROLL = 1; // s: load clips starting this soon
 const MAX_STALL = 1.5; // s: hold the clock at most this long for a frame
 const POOL_IDLE = 8; // s: drop elements unused this long
 const MAX_POOL = 16;
+// Below this rate an element is paused and stepped by seeks (spec, Speed
+// ramps): the browser's slow playback stutters, and the audio rule mutes
+// it anyway. playbackRate itself is capped to what browsers allow.
+const MIN_RATE = 0.25;
+const RATE_LO = 0.0625;
+const RATE_HI = 16;
+
+// Shown is an ActiveClip as its element plays it: from the clip's media, or
+// for a reversed clip from its reverse proxy, where srcT is the proxy's
+// time (u, seconds from the clip's out point) and url the proxy's.
+type Shown = ActiveClip & { url: string; proxied: boolean };
+
+// stepped says whether a clip's element is stepped by seeks rather than
+// played: a freeze frame, a rate below MIN_RATE, or a reversed clip whose
+// proxy isn't ready.
+const stepped = (a: Shown) => a.rate < MIN_RATE || (!!a.clip.reversed && !a.proxied);
+
+// shown maps an active clip onto the element that plays it.
+function shown(a: ActiveClip, now: number): Shown {
+  const proxy = a.track.kind === "video" ? reverseUrl(a.clip, a.media, now) : undefined;
+  if (!proxy) return { ...a, url: a.media.url, proxied: false };
+  return { ...a, srcT: fromSource(a.clip, a.srcT), url: proxy, proxied: true };
+}
 
 export type CompositorStats = {
   frames: number;
@@ -180,7 +209,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       s.lastUsed = now;
       return s;
     };
-    const slotFor = (clip: Clip, media: Media, audioOnly: boolean, now: number) => slotAt(clip.id, media.url, audioOnly, now);
+    const slotFor = (clip: Clip, url: string, audioOnly: boolean, now: number) => slotAt(clip.id, url, audioOnly, now);
 
     // Extracted source tracks, by "path|index": the served URL once ready,
     // null when extraction failed (the mix keeps playing).
@@ -239,27 +268,29 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       const t = clock.now();
       const top = clipsAt(p, t)
         .reverse()
+        .map((a) => shown(a, performance.now()))
         .find((a) => a.track.kind === "video" && a.media.kind !== "image" && pool.has(a.clip.id));
       const el = top && pool.get(top.clip.id)?.el;
       if (!top || !el) return;
       el.pause();
-      if (el.seeking || el.readyState < 2) return;
-      const at = timelineTimeAt(top.clip, el.currentTime);
+      // A stepped clip (freeze, slow, reversed) already shows the clock's frame.
+      if (stepped(top) || el.seeking || el.readyState < 2) return;
+      const at = timelineTimeAt(top.clip, top.proxied ? toSource(top.clip, el.currentTime) : el.currentTime);
       // Only a normal playing drift; anything bigger is a real position.
-      if (Math.abs(at - t) <= MAX_DRIFT * Math.max(1, top.clip.speed) * 2) clock.seek(at);
+      if (Math.abs(at - t) <= MAX_DRIFT * Math.max(1, top.rate) * 2) clock.seek(at);
     };
 
     // sync keeps an element at its clip's source time.
-    const sync = (s: Slot, a: ActiveClip, playing: boolean, gain: number) => {
+    const sync = (s: Slot, a: Shown, playing: boolean, gain: number) => {
       const el = s.el;
       const want = a.srcT;
-      if (playing) {
+      if (playing && !stepped(a)) {
         const drift = el.currentTime - want;
-        if (!el.seeking && Math.abs(drift) > MAX_DRIFT * Math.max(1, a.clip.speed)) {
+        if (!el.seeking && Math.abs(drift) > MAX_DRIFT * Math.max(1, a.rate)) {
           el.currentTime = want;
         }
         const step = NUDGES.find(([d]) => Math.abs(drift) > d)?.[1] ?? 0;
-        const rate = a.clip.speed * (1 - Math.sign(drift) * step);
+        const rate = Math.max(RATE_LO, Math.min(RATE_HI, a.rate)) * (1 - Math.sign(drift) * step);
         if (Math.abs(el.playbackRate - rate) > 1e-3) el.playbackRate = rate;
         if (el.paused && !el.ended && !s.starting) {
           // A play() the browser blocks (no user gesture yet, autoplay
@@ -284,7 +315,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         el.muted = false;
         s.forcedMute = false;
       }
-      mix.set(el, playing ? gain : 0);
+      mix.set(el, playing && !stepped(a) ? gain : 0);
     };
 
     const frame = () => {
@@ -298,7 +329,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       if (!playing && wasPlaying) holdOnPause(p);
       wasPlaying = playing;
       const t = clock.now();
-      const active = clipsAt(p, t);
+      const active = clipsAt(p, t).map((a) => shown(a, now));
       const used = new Set<string>();
 
       // Media for everything under the playhead.
@@ -307,11 +338,14 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       for (const a of active) {
         if (a.media.kind === "image") continue;
         const audioOnly = a.track.kind === "audio";
-        const s = slotFor(a.clip, a.media, audioOnly, now);
+        const s = slotFor(a.clip, a.url, audioOnly, now);
         used.add(a.clip.id);
-        const g = clipGain(a.clip, a.track, t);
-        // Per-track levels: play the extracted tracks once all are ready.
-        const levels = a.media.tracks.length > 1 ? (a.clip.levels ?? []) : [];
+        // The speed rule mutes ramps outside 0.25..4x, as the export does.
+        const u = a.proxied ? a.srcT : fromSource(a.clip, a.srcT);
+        const g = clipAudible(a.clip, u) ? clipGain(a.clip, a.track, t) : 0;
+        // Per-track levels: play the extracted tracks once all are ready (a
+        // reversed clip plays its proxy's mix: the extracts run forwards).
+        const levels = a.media.tracks.length > 1 && !a.proxied ? (a.clip.levels ?? []) : [];
         const urls = levels.map((l) => trackUrl(a.media.path, l.index));
         const byTrack = levels.length > 0 && urls.every((u) => typeof u === "string");
         sync(s, a, playing, byTrack ? 0 : g);
@@ -328,7 +362,20 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         // Hold the clock while the picture can't keep up: no frame yet, or a
         // play() that hasn't started (resuming would otherwise run ahead and
         // force a re-seek).
-        if (!audioOnly && playing && (s.el.readyState < 2 || s.starting)) starving = true;
+        // A stepped clip seeks every frame; it only holds the clock until its
+        // first frame.
+        const waiting = stepped(a) ? s.uploaded < 0 && s.el.readyState < 2 : s.el.readyState < 2 || s.starting;
+        if (!audioOnly && playing && waiting) starving = true;
+      }
+      // Reverse proxies render ahead for every reversed clip, not only the
+      // ones near the playhead (a store lookup until one is due).
+      for (const track of p.tracks) {
+        if (track.kind !== "video") continue;
+        for (const c of track.clips) {
+          if (!c.reversed) continue;
+          const m = p.media.find((x) => x.id === c.media);
+          if (m) reverseUrl(c, m, now);
+        }
       }
       // Load what's about to start, parked at its first frame.
       if (playing) {
@@ -338,10 +385,12 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
             if (c.start <= t || c.start > t + PREROLL || used.has(c.id)) continue;
             const m = p.media.find((x) => x.id === c.media);
             if (!m || m.kind === "image") continue;
-            const s = slotFor(c, m, track.kind === "audio", now);
+            const proxy = track.kind === "video" ? reverseUrl(c, m, now) : undefined;
+            const s = slotFor(c, proxy ?? m.url, track.kind === "audio", now);
             used.add(c.id);
             if (!s.el.paused) s.el.pause();
-            if (!s.el.seeking && Math.abs(s.el.currentTime - c.in) > 1e-3) s.el.currentTime = c.in;
+            const first = proxy ? 0 : toSource(c, 0); // a reversed clip starts at out
+            if (!s.el.seeking && Math.abs(s.el.currentTime - first) > 1e-3) s.el.currentTime = first;
             mix.set(s.el, 0);
           }
         }

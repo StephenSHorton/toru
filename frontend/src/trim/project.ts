@@ -1,6 +1,7 @@
 import type { AudioTrack, TrackLevel } from "@/lib/api";
 import type { Rect } from "@/lib/contract";
 import { newId, useHistory, type Edl, type Text } from "@/trim/edl";
+import { clipOutLength, fromSource, localOut, localSrc, normCurve, rateAt, retime, toSource } from "@/trim/speed";
 
 // The v2 video editor's project (docs/video-editor-v2.md, Data model): media,
 // free-form video and audio tracks of clips, v1 texts and crop. Pure data and
@@ -9,8 +10,9 @@ import { newId, useHistory, type Edl, type Text } from "@/trim/edl";
 //
 // Times are SECONDS, all on the timeline (output time) except a clip's
 // in/out, which are SOURCE time. A clip's timeline length is
-// (out - in) / speed. Clips on one track are sorted by start and never
-// overlap; a clip placed on an occupied spot lands at the nearest free one.
+// (out - in) / speed, or its speed curve's length (speed.ts). Clips on
+// one track are sorted by start and never overlap; a clip placed on an
+// occupied spot lands at the nearest free one.
 // Ops on a locked track (as source or target) do nothing.
 
 export type MediaKind = "video" | "image" | "audio";
@@ -105,7 +107,7 @@ export const MAX_CURVE_SPEED = 10;
 export const DEFAULT_FREEZE = 2; // s, a freeze frame's default length
 
 export type BlendFrames = "off" | "mix" | "smooth";
-// timeline length of a clip = (out - in) / speed
+// timeline length of a clip = (out - in) / speed, or the curve's length
 
 export type TrackKind = "video" | "audio";
 export type Track = {
@@ -150,7 +152,7 @@ const EPS = 1e-6;
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const finite = (n: number, fallback: number) => (Number.isFinite(n) ? n : fallback);
 
-export const clipLength = (c: Clip) => (c.out - c.in) / c.speed;
+export const clipLength = (c: Clip) => clipOutLength(c);
 export const clipEnd = (c: Clip) => c.start + clipLength(c);
 
 // --- Lookups -------------------------------------------------------------
@@ -328,18 +330,25 @@ export function trimClip(p: Project, clipId: string, edge: "start" | "end", t: n
     const end = clipEnd(c);
     const s = clamp(finite(t, c.start), prevEnd, Math.max(prevEnd, end - MIN_CLIP));
     next = { ...c, start: s, out: c.in + (end - s) };
-  } else if (edge === "start") {
-    // Earliest: the previous clip, timeline 0, or source time 0.
-    const lo = Math.max(prevEnd, c.start - c.in / c.speed);
-    const hi = clipEnd(c) - MIN_CLIP;
-    const s = clamp(finite(t, c.start), lo, Math.max(lo, hi));
-    const inPt = Math.max(0, c.in + (s - c.start) * c.speed);
-    next = { ...c, start: s, in: inPt };
   } else {
-    const lo = c.start + MIN_CLIP;
-    const hi = Math.min(nextStart, c.start + (srcMax - c.in) / c.speed);
-    const e = clamp(finite(t, clipEnd(c)), Math.min(lo, hi), hi);
-    next = { ...c, out: Math.min(srcMax, c.in + (e - c.start) * c.speed) };
+    // u: source seconds from where the clip starts playing (speed.ts); a
+    // reversed clip counts down from out. uMin/uMax: how far the source goes.
+    const len = c.out - c.in;
+    const uMin = c.reversed ? -(srcMax - c.out) : -c.in;
+    const uMax = c.reversed ? c.out : srcMax - c.in;
+    if (edge === "start") {
+      // Earliest: the previous clip, timeline 0, or the source's start.
+      const lo = Math.max(prevEnd, c.start + localOut(c, uMin));
+      const hi = clipEnd(c) - MIN_CLIP;
+      const s = clamp(finite(t, c.start), lo, Math.max(lo, hi));
+      const u0 = Math.max(uMin, localSrc(c, s - c.start));
+      next = { ...c, start: s, ...retime(c, u0, len) };
+    } else {
+      const lo = c.start + MIN_CLIP;
+      const hi = Math.min(nextStart, c.start + localOut(c, uMax));
+      const e = clamp(finite(t, clipEnd(c)), Math.min(lo, hi), hi);
+      next = { ...c, ...retime(c, 0, Math.min(uMax, localSrc(c, e - c.start))) };
+    }
   }
   if (Math.abs(next.start - c.start) < EPS && Math.abs(next.in - c.in) < EPS && Math.abs(next.out - c.out) < EPS) return p;
   next = fitFades(next);
@@ -360,11 +369,17 @@ export function splitAt(p: Project, t: number, trackId?: string): Project {
     if (i < 0) return track;
     const c = track.clips[i];
     // A hold clip's halves both show its frame (in); only the lengths split.
-    const cut = c.hold ? c.in + (t - c.start) : c.in + (t - c.start) * c.speed;
-    const left: Clip = fitFades({ ...c, out: cut, fadeOut: 0 });
-    const right: Clip = c.hold
-      ? fitFades({ ...c, id: newId("clip"), start: t, out: c.in + (clipEnd(c) - t), fadeIn: 0 })
-      : fitFades({ ...c, id: newId("clip"), start: t, in: cut, fadeIn: 0 });
+    let left: Clip;
+    let right: Clip;
+    if (c.hold) {
+      left = fitFades({ ...c, out: c.in + (t - c.start), fadeOut: 0 });
+      right = fitFades({ ...c, id: newId("clip"), start: t, out: c.in + (clipEnd(c) - t), fadeIn: 0 });
+    } else {
+      // Each half keeps its part of the speed curve (and direction).
+      const u = localSrc(c, t - c.start);
+      left = fitFades({ ...c, ...retime(c, 0, u), fadeOut: 0 });
+      right = fitFades({ ...c, id: newId("clip"), start: t, ...retime(c, u, c.out - c.in), fadeIn: 0 });
+    }
     const clips = track.clips.slice();
     clips.splice(i, 1, left, right);
     changed = true;
@@ -386,7 +401,7 @@ export function freezeFrame(p: Project, trackId: string, t: number, len = DEFAUL
   if (!m || m.kind !== "video") return p;
   // Too close to an edge to split: freeze at that edge instead.
   const at = t - c.start < MIN_CLIP ? c.start : clipEnd(c) - t < MIN_CLIP ? clipEnd(c) : t;
-  const frame = clamp(c.in + (t - c.start) * c.speed, c.in, c.out);
+  const frame = clamp(toSource(c, localSrc(c, t - c.start)), c.in, c.out);
   const hold: Clip = {
     ...c,
     id: newId("clip"),
@@ -462,17 +477,26 @@ export function updateClip(p: Project, clipId: string, patch: ClipPatch): Projec
     delete next.reversed;
     delete next.blendFrames;
   }
+  if (next.speedCurve) next.speedCurve = normCurve(next.speedCurve, next.out - next.in);
+  else delete next.speedCurve;
+  if (!next.reversed) delete next.reversed;
+  if (next.blendFrames !== "mix" && next.blendFrames !== "smooth") delete next.blendFrames;
   const nextStart = index < track.clips.length - 1 ? track.clips[index + 1].start : Infinity;
   const room = nextStart - c.start;
-  if ((next.out - next.in) / next.speed > room + EPS) next.speed = Math.min(MAX_SPEED, (next.out - next.in) / room);
-  if ((next.out - next.in) / next.speed > room + EPS) return p; // can't fit even at 4x
+  // A curve that runs into the next clip is refused (its shape is the
+  // point); a constant speed is raised just enough to fit.
+  if (next.speedCurve && clipLength(next) > room + EPS) return p;
+  if (!next.speedCurve && (next.out - next.in) / next.speed > room + EPS) next.speed = Math.min(MAX_SPEED, (next.out - next.in) / room);
+  if (clipLength(next) > room + EPS) return p; // can't fit even at 4x
   next.volume = clamp(finite(next.volume, 1), 0, 2);
+  const rotation = next.transform.rotation;
   next.transform = {
     x: clamp(finite(next.transform.x, 0.5), -1, 2),
     y: clamp(finite(next.transform.y, 0.5), -1, 2),
     scale: clamp(finite(next.transform.scale, 1), 0.01, 10),
     opacity: clamp(finite(next.transform.opacity, 1), 0, 1),
   };
+  if (rotation !== undefined) next.transform.rotation = clamp(finite(rotation, 0), -360, 360);
   next.filters = {
     brightness: clamp(finite(next.filters.brightness, 0), -1, 1),
     contrast: clamp(finite(next.filters.contrast, 1), 0, 2),
@@ -525,7 +549,9 @@ export function projectDuration(p: Project): number {
   return end;
 }
 
-export type ActiveClip = { track: Track; clip: Clip; media: Media; srcT: number };
+// srcT: the source time to show; rate: how fast the source plays there
+// (speed or the curve's speed; 0 for a freeze frame).
+export type ActiveClip = { track: Track; clip: Clip; media: Media; srcT: number; rate: number };
 
 // clipsAt lists the clips playing at timeline time t: visible video tracks
 // bottom→top, then the audio tracks, each with the source time to show.
@@ -538,7 +564,12 @@ export function clipsAt(p: Project, t: number): ActiveClip[] {
     if (!clip) continue;
     const media = mediaById(p, clip.media);
     if (!media) continue;
-    out.push({ track, clip, media, srcT: clip.hold ? clip.in : clip.in + (t - clip.start) * clip.speed });
+    if (clip.hold) {
+      out.push({ track, clip, media, srcT: clip.in, rate: 0 });
+      continue;
+    }
+    const u = localSrc(clip, t - clip.start);
+    out.push({ track, clip, media, srcT: toSource(clip, u), rate: rateAt(clip, u) });
   }
   return out;
 }
@@ -546,7 +577,7 @@ export function clipsAt(p: Project, t: number): ActiveClip[] {
 // timelineTimeAt is the timeline time at which clip shows source time srcT
 // (clipsAt's srcT the other way round), kept inside the clip.
 export function timelineTimeAt(clip: Clip, srcT: number): number {
-  const t = clip.start + (srcT - clip.in) / (clip.speed > 0 ? clip.speed : 1);
+  const t = clip.start + (clip.hold ? 0 : localOut(clip, fromSource(clip, srcT)));
   return Math.max(clip.start, Math.min(clipEnd(clip) - EPS, t));
 }
 
