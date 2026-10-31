@@ -1,0 +1,258 @@
+<!doctype html>
+<!--
+  Rough layout mockups for docs/editor-layout-proposal.md. Static HTML, no app
+  code: open with ?v=now|a|b|bk|c. The PNGs are headless Edge screenshots:
+  msedge --headless=new --window-size=1600,900 --screenshot=b.png "file:///…/mockups.html?v=b"
+  Colours are the app's tokens (index.css).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Editor layout mockups</title>
+<style>
+  :root {
+    --bg: oklch(0.145 0.004 264); --fg: oklch(0.985 0 0); --muted: oklch(0.25 0.006 264);
+    --muted-fg: oklch(0.708 0.01 264); --border: oklch(0.3 0.006 264); --primary: oklch(0.72 0.15 248);
+    --panel: oklch(0.19 0.005 264); --panel2: oklch(0.22 0.006 264);
+    --v1: oklch(0.55 0.12 248); --v2: oklch(0.55 0.11 300); --a1: oklch(0.55 0.11 150); --txt: oklch(0.62 0.13 75);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 12px/1.35 "Segoe UI", system-ui, sans-serif; }
+  .app { height: 100vh; display: flex; flex-direction: column; gap: 6px; padding: 6px; }
+  .row { display: flex; gap: 6px; min-height: 0; }
+  .col { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 0; min-height: 0; overflow: hidden; }
+  .ph { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--muted-fg); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .ph b { color: var(--fg); font-weight: 600; text-transform: none; letter-spacing: 0; font-size: 12px; }
+  .grow { flex: 1; }
+  .btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border: 1px solid var(--border); background: var(--panel2); color: var(--fg); font-size: 11px; white-space: nowrap; }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--muted-fg); }
+  .btn.pri { background: var(--primary); color: oklch(0.145 0.02 264); border-color: var(--primary); font-weight: 600; }
+  .btn.on { background: var(--muted); color: var(--fg); border-color: var(--border); }
+  .sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+  .viewer { flex: 1; display: flex; align-items: center; justify-content: center; background: oklch(0.11 0.003 264); }
+  .frame { aspect-ratio: 16/9; height: 82%; max-width: 92%; background: linear-gradient(135deg, oklch(0.42 0.07 230), oklch(0.3 0.05 280) 55%, oklch(0.36 0.08 30)); position: relative; }
+  .frame::after { content: "Preview"; position: absolute; left: 10px; bottom: 8px; color: oklch(0.9 0 0 / .7); font-size: 11px; }
+  .transport { display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
+  .tc { font-variant-numeric: tabular-nums; color: var(--muted-fg); }
+  .thumbs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 8px; }
+  .thumbs.three { grid-template-columns: repeat(3, 1fr); }
+  .thumbs.four { grid-template-columns: repeat(4, 1fr); }
+  .thumb { aspect-ratio: 16/9; background: var(--muted); position: relative; }
+  .thumb span { position: absolute; left: 0; right: 0; bottom: -15px; font-size: 10px; color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thumbs .thumb { margin-bottom: 14px; }
+  .tabs { display: flex; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--border); }
+  .tab { padding: 5px 8px; color: var(--muted-fg); font-size: 11px; border: 1px solid transparent; border-bottom: none; }
+  .tab.on { color: var(--fg); background: var(--panel2); border-color: var(--border); }
+  .field { display: grid; grid-template-columns: 78px 1fr 34px 12px; align-items: center; gap: 6px; padding: 5px 10px; color: var(--muted-fg); }
+  .bar { height: 4px; background: var(--muted); position: relative; }
+  .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--primary); }
+  .kf { color: var(--muted-fg); font-size: 10px; }
+  .sec { padding: 8px 10px 2px; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted-fg); }
+  .tl { display: flex; flex-direction: column; }
+  .tlbar { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  .grp { display: flex; align-items: center; gap: 2px; padding: 0 4px; border-right: 1px solid var(--border); }
+  .grp:last-child { border-right: none; }
+  .grp small { color: var(--muted-fg); font-size: 9px; text-transform: uppercase; letter-spacing: .05em; margin-right: 4px; }
+  .ruler { height: 18px; margin-left: 120px; border-bottom: 1px solid var(--border); background: repeating-linear-gradient(90deg, var(--border) 0 1px, transparent 1px 60px); position: relative; }
+  .tracks { position: relative; flex: 1; }
+  .track { display: flex; align-items: stretch; height: 30px; border-bottom: 1px solid oklch(0.24 0.005 264); }
+  .track.tall { height: 40px; }
+  .thead { width: 120px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 8px; color: var(--muted-fg); font-size: 11px; border-right: 1px solid var(--border); }
+  .lane { flex: 1; position: relative; }
+  .clip { position: absolute; top: 3px; bottom: 3px; padding: 2px 6px; font-size: 10px; color: oklch(0.98 0 0 / .9); overflow: hidden; white-space: nowrap; }
+  .clip.v { background: var(--v1); } .clip.v2 { background: var(--v2); } .clip.a { background: var(--a1); } .clip.t { background: var(--txt); }
+  .clip.sel { outline: 2px solid oklch(0.95 0 0); outline-offset: -2px; }
+  .wave { position: absolute; left: 6px; right: 6px; top: 50%; height: 60%; transform: translateY(-50%); background: repeating-linear-gradient(90deg, oklch(0.98 0 0 / .35) 0 2px, transparent 2px 4px); mask: linear-gradient(0deg, transparent, #000 30%, #000 70%, transparent); }
+  .xfade { position: absolute; top: 3px; bottom: 3px; width: 26px; background: repeating-linear-gradient(135deg, oklch(0.98 0 0 / .45) 0 3px, transparent 3px 6px); border: 1px solid oklch(0.98 0 0 / .6); }
+  .playhead { position: absolute; top: -18px; bottom: 0; width: 2px; background: oklch(0.72 0.18 25); left: 420px; }
+  .marker { position: absolute; top: 2px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 8px solid oklch(0.8 0.15 85); }
+  .rail { width: 58px; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 6px 4px; }
+  .ri { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 0; color: var(--muted-fg); font-size: 10px; }
+  .ri.on { background: var(--muted); color: var(--fg); box-shadow: inset 2px 0 0 var(--primary); }
+  .ico { width: 18px; height: 18px; border: 1.5px solid currentColor; border-radius: 3px; opacity: .85; }
+  .pages { display: flex; justify-content: center; gap: 4px; padding: 5px; }
+  .page { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 18px; color: var(--muted-fg); font-size: 11px; }
+  .page.on { color: var(--fg); background: var(--muted); box-shadow: inset 0 -2px 0 var(--primary); }
+  .palette { position: absolute; left: 50%; top: 70px; transform: translateX(-50%); width: 520px; background: var(--panel2); border: 1px solid var(--border); box-shadow: 0 18px 60px oklch(0 0 0 / .55); z-index: 10; }
+  .palette input { width: 100%; padding: 10px 12px; background: transparent; border: 0; border-bottom: 1px solid var(--border); color: var(--fg); font: inherit; font-size: 13px; outline: none; }
+  .pi { display: flex; justify-content: space-between; padding: 7px 12px; color: var(--muted-fg); }
+  .pi.on { background: var(--muted); color: var(--fg); }
+  .pi kbd, .kbd { font: 10px ui-monospace, monospace; color: var(--muted-fg); border: 1px solid var(--border); padding: 1px 5px; }
+  .menu { position: absolute; background: var(--panel2); border: 1px solid var(--border); box-shadow: 0 10px 40px oklch(0 0 0 / .5); z-index: 9; min-width: 210px; padding: 4px 0; }
+  .mi { display: flex; justify-content: space-between; gap: 16px; padding: 5px 12px; color: var(--fg); }
+  .mi.dim { color: var(--muted-fg); }
+  .mi.on { background: var(--muted); }
+  .msep { height: 1px; background: var(--border); margin: 4px 0; }
+  .float { position: absolute; z-index: 8; width: 300px; background: var(--panel); border: 1px solid var(--border); box-shadow: 0 14px 50px oklch(0 0 0 / .5); }
+  .label { position: fixed; right: 10px; top: 8px; padding: 3px 8px; background: var(--primary); color: oklch(0.145 0.02 264); font-weight: 700; font-size: 11px; z-index: 20; }
+  .note { color: var(--muted-fg); font-size: 11px; padding: 6px 10px; }
+  .chip { display: inline-block; padding: 2px 7px; border: 1px solid var(--border); color: var(--muted-fg); font-size: 10px; margin: 0 4px 4px 0; }
+  .chip.on { color: var(--fg); background: var(--muted); }
+  .search { margin: 8px; padding: 5px 8px; border: 1px solid var(--border); color: var(--muted-fg); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const v = new URLSearchParams(location.search).get("v") || "b";
+const h = (s) => s;
+
+function timeline({ toolbarGroups = false, waves = false, extras = false, height = 210 } = {}) {
+  const bar = toolbarGroups
+    ? `<div class="tlbar">
+        <div class="grp"><small>Edit</small><span class="btn ghost">Select</span><span class="btn ghost">Blade</span><span class="btn ghost">Ripple</span><span class="btn ghost">Roll</span><span class="btn ghost">Slip</span></div>
+        <div class="grp"><small>Clip</small><span class="btn ghost">Split</span><span class="btn ghost">Delete</span><span class="btn ghost">Freeze</span></div>
+        <div class="grp"><small>Insert</small><span class="btn ghost">Text</span><span class="btn ghost">Transition</span><span class="btn ghost">Marker</span></div>
+        <div class="grp"><span class="btn on">Snap</span><span class="btn ghost">Undo</span><span class="btn ghost">Redo</span></div>
+        <div class="grow"></div>
+        <div class="grp"><span class="btn ghost">−</span><span class="bar" style="width:90px"><i style="width:40%"></i></span><span class="btn ghost">+</span><span class="btn ghost">Fit</span></div>
+      </div>`
+    : `<div class="tlbar">
+        <span class="btn ghost">Split</span><span class="btn ghost">Delete</span><span class="btn ghost">Text</span><span class="btn ghost">Undo</span><span class="btn ghost">Redo</span>
+        <div class="grow"></div><span class="btn ghost">−</span><span class="bar" style="width:90px"><i style="width:40%"></i></span><span class="btn ghost">+</span>
+      </div>`;
+  const xf = extras ? `<div class="xfade" style="left:298px"></div>` : "";
+  const mk = extras ? `<div class="marker" style="left:200px"></div><div class="marker" style="left:560px"></div>` : "";
+  return `<div class="panel tl" style="height:${height}px">
+    ${bar}
+    <div class="ruler">${mk}</div>
+    <div class="tracks">
+      <div class="playhead"></div>
+      <div class="track"><div class="thead">Text</div><div class="lane"><div class="clip t" style="left:140px;width:150px">Title</div></div></div>
+      <div class="track"><div class="thead">Video 2</div><div class="lane"><div class="clip v2" style="left:380px;width:200px">Overlay</div></div></div>
+      <div class="track"><div class="thead">Video 1</div><div class="lane"><div class="clip v" style="left:0;width:310px">Clip A</div><div class="clip v sel" style="left:298px;width:340px">Clip B</div>${xf}</div></div>
+      <div class="track ${waves ? "tall" : ""}"><div class="thead">Audio 1</div><div class="lane"><div class="clip a" style="left:0;width:640px">${waves ? '<div class="wave"></div>' : "Audio"}</div></div></div>
+      <div class="track ${waves ? "tall" : ""}"><div class="thead">Music</div><div class="lane"><div class="clip a" style="left:60px;width:700px">${waves ? '<div class="wave"></div>' : "Music"}</div></div></div>
+    </div>
+  </div>`;
+}
+
+function viewer({ extra = "" } = {}) {
+  return `<div class="panel col grow" style="gap:0">
+    <div class="viewer"><div class="frame"></div></div>
+    <div class="transport"><span class="btn">▶</span><span class="tc">00:12.40 / 01:03.00</span><span class="tc">1920×1080 · 60 fps</span><div class="grow"></div>${extra}<span class="btn ghost">Crop</span><span class="sep"></span><span class="btn pri">Export</span></div>
+  </div>`;
+}
+
+function inspector({ tabs = ["Video", "Adjust", "Filters", "Effects", "Speed", "Audio"], on = "Effects", width = 300 } = {}) {
+  return `<div class="panel col" style="width:${width}px;flex:none;gap:0">
+    <div class="ph"><b>Clip B</b><div class="grow"></div><span class="kf">0:04.2 – 0:10.1</span></div>
+    <div class="tabs">${tabs.map((t) => `<span class="tab ${t === on ? "on" : ""}">${t}</span>`).join("")}</div>
+    <div class="sec">This clip (2)</div>
+    <div class="field"><span>RGB split</span><span class="bar"><i style="width:30%"></i></span><span>6 px</span><span class="kf">◆</span></div>
+    <div class="field"><span>Angle</span><span class="bar"><i style="width:50%"></i></span><span>0°</span><span class="kf">◇</span></div>
+    <div class="field"><span>Shake</span><span class="bar"><i style="width:20%"></i></span><span>12</span><span class="kf">◇</span></div>
+    <div class="sec">Transform</div>
+    <div class="field"><span>Position</span><span class="bar"><i style="width:50%"></i></span><span>50%</span><span class="kf">◇</span></div>
+    <div class="field"><span>Size</span><span class="bar"><i style="width:70%"></i></span><span>100%</span><span class="kf">◇</span></div>
+    <div class="field"><span>Opacity</span><span class="bar"><i style="width:100%"></i></span><span>100%</span><span class="kf">◇</span></div>
+  </div>`;
+}
+
+function mediaBin(width = 220) {
+  return `<div class="panel col" style="width:${width}px;flex:none;gap:0">
+    <div class="ph"><b>Media</b><div class="grow"></div><span class="btn">+ Add</span></div>
+    <div class="thumbs"><div class="thumb"><span>Clip A.mp4</span></div><div class="thumb"><span>Clip B.mp4</span></div><div class="thumb"><span>Overlay.png</span></div><div class="thumb"><span>Music.mp3</span></div></div>
+  </div>`;
+}
+
+const views = {};
+
+// Today: media bin | viewer | inspector, timeline across the bottom.
+views.now = () => `<div class="label">Today</div><div class="app">
+  <div class="row grow">${mediaBin()}${viewer()}${inspector()}</div>
+  ${timeline()}
+</div>`;
+
+// A: workspace pages along the bottom; each page rearranges the same project.
+views.a = () => `<div class="label">A · Workspace pages</div><div class="app">
+  <div class="row grow">
+    <div class="panel col" style="width:330px;flex:none;gap:0">
+      <div class="ph"><b>Effects</b><div class="grow"></div><span class="kf">Effects page</span></div>
+      <div class="search">Search effects</div>
+      <div style="padding:0 8px"><span class="chip on">All</span><span class="chip">Blur</span><span class="chip">Stylize</span><span class="chip">Distort</span><span class="chip">Light</span><span class="chip">Key</span><span class="chip">Transitions</span></div>
+      <div class="thumbs three"><div class="thumb"><span>RGB split</span></div><div class="thumb"><span>Shake</span></div><div class="thumb"><span>Zoom</span></div><div class="thumb"><span>Glitch</span></div><div class="thumb"><span>Flash</span></div><div class="thumb"><span>Blur</span></div><div class="thumb"><span>Crossfade</span></div><div class="thumb"><span>Dip to black</span></div><div class="thumb"><span>Wipe</span></div></div>
+    </div>
+    ${viewer()}
+    ${inspector({ tabs: ["Effects", "Filters", "Adjust"], on: "Effects" })}
+  </div>
+  ${timeline({ height: 190, extras: true })}
+  <div class="panel pages">
+    <span class="page"><span class="ico"></span>Media</span>
+    <span class="page"><span class="ico"></span>Edit</span>
+    <span class="page on"><span class="ico"></span>Effects</span>
+    <span class="page"><span class="ico"></span>Audio</span>
+    <span class="page"><span class="ico"></span>Captions</span>
+    <span class="page"><span class="ico"></span>Export</span>
+  </div>
+</div>`;
+
+// B: one workspace; a left rail opens one library panel at a time, the right
+// inspector follows the selection, grouped timeline toolbar, Ctrl+K palette.
+views.b = (palette) => `<div class="label">B · Library rail + contextual inspector${palette ? " (Ctrl+K open)" : ""}</div><div class="app" style="position:relative">
+  ${palette ? `<div class="palette"><input value="dip"><div class="pi on"><span>Add transition: Dip to black</span><kbd>Enter</kbd></div><div class="pi"><span>Add transition: Dip to white</span><span></span></div><div class="pi"><span>Effect: Gaussian blur (dip)</span><span></span></div><div class="pi"><span>Go to: Transitions library</span><kbd>T</kbd></div><div class="pi"><span>Keyboard shortcuts…</span><kbd>?</kbd></div></div>` : ""}
+  <div class="row grow">
+    <div class="panel rail">
+      <span class="ri"><span class="ico"></span>Media</span>
+      <span class="ri"><span class="ico"></span>Text</span>
+      <span class="ri on"><span class="ico"></span>Effects</span>
+      <span class="ri"><span class="ico"></span>Transitions</span>
+      <span class="ri"><span class="ico"></span>Audio</span>
+      <span class="ri"><span class="ico"></span>Captions</span>
+      <span class="ri"><span class="ico"></span>Filters</span>
+      <div class="grow"></div>
+      <span class="ri"><span class="ico"></span>Keys</span>
+    </div>
+    <div class="panel col" style="width:280px;flex:none;gap:0">
+      <div class="ph"><b>Effects</b><div class="grow"></div><span class="kf">hover = preview · drag onto a clip</span></div>
+      <div class="search">Search effects   Ctrl+K</div>
+      <div style="padding:0 8px"><span class="chip on">All</span><span class="chip">Blur</span><span class="chip">Stylize</span><span class="chip">Distort</span><span class="chip">Light</span><span class="chip">Key</span></div>
+      <div class="thumbs"><div class="thumb"><span>RGB split</span></div><div class="thumb"><span>Shake</span></div><div class="thumb"><span>Zoom</span></div><div class="thumb"><span>Glitch</span></div><div class="thumb"><span>Flash</span></div><div class="thumb"><span>Gaussian blur</span></div></div>
+    </div>
+    ${viewer({ extra: '<span class="btn ghost">16:9 ▾</span>' })}
+    ${inspector({ tabs: ["Video", "Adjust", "Effects", "Speed", "Audio"], on: "Effects", width: 290 })}
+  </div>
+  ${timeline({ toolbarGroups: true, waves: true, extras: true, height: 240 })}
+</div>`;
+views.bk = () => views.b(true);
+
+// C: viewer + timeline only; everything else is a right-click menu, a
+// floating inspector next to the clip, or the Ctrl+K palette.
+views.c = () => `<div class="label">C · Context-first, minimal chrome</div><div class="app" style="position:relative">
+  <div class="menu" style="left:520px;top:395px">
+    <div class="mi"><span>Split at playhead</span><span class="kbd">S</span></div>
+    <div class="mi"><span>Freeze frame here</span><span class="kbd">F</span></div>
+    <div class="mi on"><span>Add effect ▸</span><span></span></div>
+    <div class="mi"><span>Add transition ▸</span><span></span></div>
+    <div class="mi"><span>Speed ▸</span><span></span></div>
+    <div class="msep"></div>
+    <div class="mi"><span>Copy effects</span><span class="kbd">Ctrl+Alt+C</span></div>
+    <div class="mi"><span>Paste effects</span><span class="kbd">Ctrl+Alt+V</span></div>
+    <div class="msep"></div>
+    <div class="mi dim"><span>Properties…</span><span class="kbd">Enter</span></div>
+    <div class="mi"><span>Delete</span><span class="kbd">Del</span></div>
+  </div>
+  <div class="menu" style="left:732px;top:455px;min-width:170px">
+    <div class="mi">RGB split</div><div class="mi">Shake</div><div class="mi">Zoom</div><div class="mi">Glitch</div><div class="msep"></div><div class="mi dim">Browse all… (Ctrl+K)</div>
+  </div>
+  <div class="float" style="right:16px;top:60px">
+    <div class="ph"><b>Clip B</b><div class="grow"></div><span class="kf">pinned ✕</span></div>
+    <div class="tabs"><span class="tab">Video</span><span class="tab on">Effects</span><span class="tab">Speed</span></div>
+    <div class="field"><span>RGB split</span><span class="bar"><i style="width:30%"></i></span><span>6 px</span><span class="kf">◆</span></div>
+    <div class="field"><span>Shake</span><span class="bar"><i style="width:20%"></i></span><span>12</span><span class="kf">◇</span></div>
+  </div>
+  <div class="row grow">
+    <div class="panel col grow" style="gap:0">
+      <div class="viewer"><div class="frame"></div></div>
+      <div class="transport"><span class="btn">▶</span><span class="tc">00:12.40 / 01:03.00</span><div class="grow"></div><span class="btn ghost">Media</span><span class="btn ghost">Ctrl+K</span><span class="sep"></span><span class="btn pri">Export</span></div>
+    </div>
+  </div>
+  ${timeline({ waves: true, extras: true, height: 240 })}
+</div>`;
+
+document.getElementById("root").innerHTML = (views[v] || views.b)();
+</script>
+</body>
+</html>
