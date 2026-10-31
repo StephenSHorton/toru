@@ -1,8 +1,11 @@
 package vid
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -121,10 +124,35 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work
 		audioOut = "[aout]"
 	}
 
-	args = append(args, "-filter_complex", strings.Join(graph, ";"), "-map", videoOut, "-map", audioOut)
+	fc, err := filterComplexArgs(strings.Join(graph, ";"), work)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, fc...)
+	args = append(args, "-map", videoOut, "-map", audioOut)
 	args = append(args, editCodecArgs(v1, encoder)...)
 	args = append(args, capture.ContainerFlags(req.OutPath)...)
 	return append(args, req.OutPath), nil
+}
+
+// maxInlineGraph is the longest filtergraph passed on the command line;
+// Windows caps a whole command line at 32,767 characters, and effect-heavy
+// projects (each glitch is ~3.5 KB) can pass that.
+const maxInlineGraph = 16000
+
+// filterComplexArgs passes graph as -filter_complex, or, when it's longer
+// than maxInlineGraph, writes it to work (named by its content) and passes
+// the file with -/filter_complex (ffmpeg 7+; Toru ships 9).
+func filterComplexArgs(graph, work string) ([]string, error) {
+	if len(graph) <= maxInlineGraph || work == "" {
+		return []string{"-filter_complex", graph}, nil
+	}
+	sum := sha1.Sum([]byte(graph))
+	path := filepath.Join(work, "graph-"+hex.EncodeToString(sum[:8])+".txt")
+	if err := os.WriteFile(path, []byte(graph), 0o644); err != nil {
+		return nil, fmt.Errorf("export: write filtergraph: %w", err)
+	}
+	return []string{"-/filter_complex", path}, nil
 }
 
 // clipVideoChain is a clip's picture from input in, ready to overlay: timed
