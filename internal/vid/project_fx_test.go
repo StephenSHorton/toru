@@ -23,6 +23,7 @@ func TestV3EffectsExportInFFmpeg(t *testing.T) {
 			t.Skip("no ffmpeg (set TORU_FFMPEG or put it on PATH)")
 		}
 	}
+	half := 0.5
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.mkv")
 	if out, err := exec.Command(ff, "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=2", "-c:v", "ffv1", src).CombinedOutput(); err != nil {
@@ -36,6 +37,8 @@ func TestV3EffectsExportInFFmpeg(t *testing.T) {
 		{{Type: "rgbSplit", Params: map[string]any{"amount": 10.0, "angle": 30.0}}},
 		{{Type: "sharpen", Params: map[string]any{}}},
 		{{Type: "chromaKey", Params: map[string]any{}}, {Type: "zoom", Params: map[string]any{}}, {Type: "gaussianBlur", Params: map[string]any{}}},
+		{{Type: "glitch", Params: map[string]any{"density": 0.8}}},
+		{{Type: "glitch", Params: map[string]any{"seed": 41.0, "slices": 6.0}, Group: "g", Amount: &half}, {Type: "zoom", Params: map[string]any{}, Group: "g", Amount: &half}},
 	}
 	p := ProjectJSON{
 		Version: 3,
@@ -57,8 +60,24 @@ func TestV3EffectsExportInFFmpeg(t *testing.T) {
 		t.Fatal(err)
 	}
 	i := slices.Index(args, "-filter_complex")
+	if i < 0 {
+		t.Fatalf("no -filter_complex in %q", args)
+	}
 	t.Logf("filter_complex: %d bytes for %d clips", len(args[i+1]), len(stacks))
 	if out, err := exec.Command(ff, append([]string{"-v", "error"}, args...)...).CombinedOutput(); err != nil {
 		t.Fatalf("export: %v\n%s\ngraph: %s", err, out, args[i+1])
+	}
+
+	// Twice the clips: past maxInlineGraph, so the graph goes in a file.
+	p.Tracks = append(p.Tracks, p.Tracks...)
+	req.Project = p
+	if args, err = BuildProjectArgs(req, "ffv1", "", dir); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(args, "-/filter_complex") {
+		t.Fatalf("a long graph should go in a file: %q", args)
+	}
+	if out, err := exec.Command(ff, append([]string{"-v", "error"}, args...)...).CombinedOutput(); err != nil {
+		t.Fatalf("export with a graph file: %v\n%s", err, out)
 	}
 }
