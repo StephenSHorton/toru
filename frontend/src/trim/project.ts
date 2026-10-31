@@ -659,13 +659,35 @@ export interface ProjectExport {
   height?: number;
   kbps?: number;
   outPath: string;
+  options?: ExportSettings; // the export screen's settings (Go ExportOptions); absent = the preset's
+}
+
+// ExportSettings mirrors Go's ExportOptions (internal/vid/export_options.go):
+// format and size, quality, audio, the range (ms on the timeline) and GIF
+// settings. Zero / absent fields take the Go defaults.
+export type ExportFormat = "mp4" | "hevc" | "webm" | "gif" | "m4a";
+export interface ExportSettings {
+  format: ExportFormat;
+  width?: number;
+  height?: number;
+  fit?: "fit" | "fill";
+  fps?: number;
+  quality?: "low" | "medium" | "high" | "best";
+  kbps?: number;
+  encoder?: string;
+  noAudio?: boolean;
+  audioKbps?: number;
+  sampleRate?: number;
+  rangeIn?: number;
+  rangeOut?: number;
+  gif?: { fps?: number; width?: number; loop?: number; dither?: string; colors?: number };
 }
 
 // toExportRequest builds the export request. Blank texts and texts with no
 // time on screen are dropped, and texts are clipped to the project's length.
 export function toExportRequest(
   p: Project,
-  extra: { preset: ProjectExport["preset"]; height?: number; kbps?: number; outPath?: string },
+  extra: { preset: ProjectExport["preset"]; height?: number; kbps?: number; outPath?: string; options?: ExportSettings },
 ): ProjectExport {
   const ms = (s: number) => Math.round(s * 1000);
   const dur = projectDuration(p);
@@ -694,6 +716,7 @@ export function toExportRequest(
     if (extra.height) req.height = extra.height;
     if (extra.kbps) req.kbps = extra.kbps;
   }
+  if (extra.options) req.options = extra.options;
   return req;
 }
 

@@ -440,6 +440,137 @@ export class EffectJSON {
 }
 
 /**
+ * ExportCapabilities is what this PC's ffmpeg can export: the usable video
+ * encoders per format (best first). A format with no encoder is missing
+ * from Encoders; gif and m4a need none.
+ */
+export class ExportCapabilities {
+    "formats": string[];
+    "encoders": { [_ in string]?: string[] };
+
+    /** Creates a new ExportCapabilities instance. */
+    constructor($$source: Partial<ExportCapabilities> = {}) {
+        if (!("formats" in $$source)) {
+            this["formats"] = [];
+        }
+        if (!("encoders" in $$source)) {
+            this["encoders"] = {};
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExportCapabilities instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ExportCapabilities {
+        const $$createField0_0 = $$createType13;
+        const $$createField1_0 = $$createType21;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("formats" in $$parsedSource) {
+            $$parsedSource["formats"] = $$createField0_0($$parsedSource["formats"]);
+        }
+        if ("encoders" in $$parsedSource) {
+            $$parsedSource["encoders"] = $$createField1_0($$parsedSource["encoders"]);
+        }
+        return new ExportCapabilities($$parsedSource as Partial<ExportCapabilities>);
+    }
+}
+
+/**
+ * ExportOptions are the export screen's settings. When a ProjectExport
+ * carries them, they replace the preset's size and codec choice; without
+ * them (nil) the preset path is unchanged. The Discord preset still applies
+ * on top (render re-encodes the result to fit 10 MB).
+ */
+export class ExportOptions {
+    /**
+     * Format is the output: "mp4" (H.264 + AAC), "hevc" (H.265 + AAC in
+     * MP4), "webm" (VP9 + Opus), "gif" (no audio) or "m4a" (audio only,
+     * AAC). OutPath's extension must match it.
+     */
+    "format": string;
+
+    /**
+     * Width x Height is the output frame (even numbers); 0 x 0 keeps the
+     * canvas (or crop). Width 0 with a height scales to that height and
+     * keeps the aspect. Ignored by gif (GIF.Width) and m4a.
+     */
+    "width"?: number;
+    "height"?: number;
+
+    /**
+     * Fit is how a picture with another aspect goes into Width x Height:
+     * "fit" (whole picture, black bars; the default) or "fill" (cropped to
+     * fill the frame).
+     */
+    "fit"?: string;
+
+    /**
+     * FPS is the output frame rate; 0 keeps the canvas rate.
+     */
+    "fps"?: number;
+
+    /**
+     * Quality is "low", "medium", "high" (the default) or "best": the
+     * encoder's own quality mode. Kbps > 0 sets a bitrate instead.
+     */
+    "quality"?: string;
+    "kbps"?: number;
+
+    /**
+     * Encoder is a video encoder for the format (ExportCapabilities lists
+     * the usable ones); "" picks the best one.
+     */
+    "encoder"?: string;
+
+    /**
+     * NoAudio leaves the sound out (mp4, hevc, webm).
+     */
+    "noAudio"?: boolean;
+
+    /**
+     * AudioKbps (default 160) and SampleRate (44100 or 48000, the default;
+     * webm is always 48000).
+     */
+    "audioKbps"?: number;
+    "sampleRate"?: number;
+
+    /**
+     * RangeIn..RangeOut (ms on the timeline) is the part to export;
+     * RangeOut 0 means the end.
+     */
+    "rangeIn"?: number;
+    "rangeOut"?: number;
+
+    /**
+     * GIF settings, used when Format is "gif".
+     */
+    "gif"?: GIFOptions;
+
+    /** Creates a new ExportOptions instance. */
+    constructor($$source: Partial<ExportOptions> = {}) {
+        if (!("format" in $$source)) {
+            this["format"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExportOptions instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ExportOptions {
+        const $$createField13_0 = $$createType22;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("gif" in $$parsedSource) {
+            $$parsedSource["gif"] = $$createField13_0($$parsedSource["gif"]);
+        }
+        return new ExportOptions($$parsedSource as Partial<ExportOptions>);
+    }
+}
+
+/**
  * FiltersJSON is a clip's colour and blur: brightness -1..1 (0), contrast
  * 0..2 (1), saturation 0..3 (1), a look, blur 0..20 (0).
  */
@@ -575,6 +706,51 @@ export class Font {
 }
 
 /**
+ * GIFOptions shape an animated GIF: a palette made for the clip
+ * (palettegen), then each frame mapped onto it (paletteuse).
+ */
+export class GIFOptions {
+    /**
+     * default 15, 1..50
+     */
+    "fps"?: number;
+
+    /**
+     * default 480; height follows the aspect
+     */
+    "width"?: number;
+
+    /**
+     * 0 forever (default), -1 play once, n repeats n more times
+     */
+    "loop"?: number;
+
+    /**
+     * sierra2_4a (default), floyd_steinberg, bayer, none
+     */
+    "dither"?: string;
+
+    /**
+     * 2..256, default 256
+     */
+    "colors"?: number;
+
+    /** Creates a new GIFOptions instance. */
+    constructor($$source: Partial<GIFOptions> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GIFOptions instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GIFOptions {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GIFOptions($$parsedSource as Partial<GIFOptions>);
+    }
+}
+
+/**
  * KeyframeJSON is one keyframe: T in ms from the clip's start on the
  * timeline, the value there, and the ease to the next keyframe ("linear",
  * "in", "out", "inOut", "hold").
@@ -657,7 +833,7 @@ export class MediaInfo {
      * Creates a new MediaInfo instance from a string or object.
      */
     static createFrom($$source: any = {}): MediaInfo {
-        const $$createField5_0 = $$createType22;
+        const $$createField5_0 = $$createType24;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tracks" in $$parsedSource) {
             $$parsedSource["tracks"] = $$createField5_0($$parsedSource["tracks"]);
@@ -749,7 +925,7 @@ export class MediaJSON {
      * Creates a new MediaJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): MediaJSON {
-        const $$createField9_0 = $$createType22;
+        const $$createField9_0 = $$createType24;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tracks" in $$parsedSource) {
             $$parsedSource["tracks"] = $$createField9_0($$parsedSource["tracks"]);
@@ -773,6 +949,12 @@ export class ProjectExport {
     "kbps"?: number;
     "outPath": string;
 
+    /**
+     * Options are the export screen's settings; nil keeps the preset's
+     * (export_options.go).
+     */
+    "options"?: ExportOptions | null;
+
     /** Creates a new ProjectExport instance. */
     constructor($$source: Partial<ProjectExport> = {}) {
         if (!("project" in $$source)) {
@@ -792,10 +974,14 @@ export class ProjectExport {
      * Creates a new ProjectExport instance from a string or object.
      */
     static createFrom($$source: any = {}): ProjectExport {
-        const $$createField0_0 = $$createType23;
+        const $$createField0_0 = $$createType25;
+        const $$createField5_0 = $$createType27;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("project" in $$parsedSource) {
             $$parsedSource["project"] = $$createField0_0($$parsedSource["project"]);
+        }
+        if ("options" in $$parsedSource) {
+            $$parsedSource["options"] = $$createField5_0($$parsedSource["options"]);
         }
         return new ProjectExport($$parsedSource as Partial<ProjectExport>);
     }
@@ -856,10 +1042,10 @@ export class ProjectJSON {
      * Creates a new ProjectJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): ProjectJSON {
-        const $$createField3_0 = $$createType24;
-        const $$createField4_0 = $$createType26;
-        const $$createField5_0 = $$createType28;
-        const $$createField6_0 = $$createType30;
+        const $$createField3_0 = $$createType28;
+        const $$createField4_0 = $$createType30;
+        const $$createField5_0 = $$createType32;
+        const $$createField6_0 = $$createType34;
         const $$createField7_0 = $$createType17;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("canvas" in $$parsedSource) {
@@ -1003,7 +1189,7 @@ export class SpeedCurveJSON {
      * Creates a new SpeedCurveJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): SpeedCurveJSON {
-        const $$createField0_0 = $$createType32;
+        const $$createField0_0 = $$createType36;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("points" in $$parsedSource) {
             $$parsedSource["points"] = $$createField0_0($$parsedSource["points"]);
@@ -1216,7 +1402,7 @@ export class TrackJSON {
      * Creates a new TrackJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): TrackJSON {
-        const $$createField5_0 = $$createType34;
+        const $$createField5_0 = $$createType38;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("clips" in $$parsedSource) {
             $$parsedSource["clips"] = $$createField5_0($$parsedSource["clips"]);
@@ -1333,17 +1519,21 @@ const $$createType17 = $Create.Nullable($$createType16);
 const $$createType18 = TextOverlay.createFrom;
 const $$createType19 = $Create.Array($$createType18);
 const $$createType20 = $Create.Map($Create.Any, $Create.Any);
-const $$createType21 = AudioTrack.createFrom;
-const $$createType22 = $Create.Array($$createType21);
-const $$createType23 = ProjectJSON.createFrom;
-const $$createType24 = CanvasJSON.createFrom;
-const $$createType25 = MediaJSON.createFrom;
-const $$createType26 = $Create.Array($$createType25);
-const $$createType27 = TrackJSON.createFrom;
-const $$createType28 = $Create.Array($$createType27);
-const $$createType29 = TextJSON.createFrom;
+const $$createType21 = $Create.Map($Create.Any, $$createType13);
+const $$createType22 = GIFOptions.createFrom;
+const $$createType23 = AudioTrack.createFrom;
+const $$createType24 = $Create.Array($$createType23);
+const $$createType25 = ProjectJSON.createFrom;
+const $$createType26 = ExportOptions.createFrom;
+const $$createType27 = $Create.Nullable($$createType26);
+const $$createType28 = CanvasJSON.createFrom;
+const $$createType29 = MediaJSON.createFrom;
 const $$createType30 = $Create.Array($$createType29);
-const $$createType31 = SpeedPointJSON.createFrom;
+const $$createType31 = TrackJSON.createFrom;
 const $$createType32 = $Create.Array($$createType31);
-const $$createType33 = ClipJSON.createFrom;
+const $$createType33 = TextJSON.createFrom;
 const $$createType34 = $Create.Array($$createType33);
+const $$createType35 = SpeedPointJSON.createFrom;
+const $$createType36 = $Create.Array($$createType35);
+const $$createType37 = ClipJSON.createFrom;
+const $$createType38 = $Create.Array($$createType37);

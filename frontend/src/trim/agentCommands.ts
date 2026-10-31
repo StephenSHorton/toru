@@ -31,6 +31,7 @@ import {
   setTrackFlags,
   splitAt,
   toExportRequest,
+  type ExportSettings,
   trackById,
   trimClip,
   updateClip,
@@ -602,29 +603,70 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
       "editor.export",
       {
         description:
-          "Export the edit to a video file and return its path once it's written. preset: original (the canvas), 1080p, 720p, discord (fits 10MB; may become .webm) or custom (height + kbps). path defaults to <first file>-edited.mp4 next to the first file; an existing file is never overwritten.",
+          "Export the edit to a file and return its path once it's written. Simple: preset original (the canvas), 1080p, 720p, discord (fits 10MB; may become .webm) or custom (height + kbps). Full control: options (format mp4 / hevc / webm / gif / m4a, size, fit, fps, quality or kbps, encoder, audio, range, gif settings; see editor.exportFormats for what this PC can make). path defaults to <first file>-edited.<ext> next to the first file; an existing file is never overwritten.",
         input: obj({
-          preset: str("Output preset.", { enum: ["original", "1080p", "720p", "discord", "custom"] }),
-          path: str("Absolute output path (.mp4, or .webm)."),
-          height: num("custom only: output height (even)."),
-          kbps: num("custom only: video bitrate."),
+          preset: str("Output preset (with options: only discord changes anything, fitting the result to 10MB).", { enum: ["original", "1080p", "720p", "discord", "custom"] }),
+          path: str("Absolute output path; its extension must match the format (.mp4 for mp4/hevc, .webm, .gif, .m4a)."),
+          height: num("custom preset only: output height (even)."),
+          kbps: num("custom preset only: video bitrate."),
+          options: {
+            type: "object",
+            description: "Export settings. Zero/absent fields keep the defaults.",
+            properties: {
+              format: str("mp4 (H.264), hevc (H.265 in .mp4), webm (VP9), gif, or m4a (audio only).", { enum: ["mp4", "hevc", "webm", "gif", "m4a"] }),
+              width: num("Output width (even; needs height). 0 = keep."),
+              height: num("Output height (even). Height alone keeps the aspect."),
+              fit: str("How another aspect fits width x height: fit (black bars) or fill (cropped).", { enum: ["fit", "fill"] }),
+              fps: num("Frame rate (0 = the canvas rate)."),
+              quality: str("Quality level (ignored with kbps).", { enum: ["low", "medium", "high", "best"] }),
+              kbps: num("Video bitrate in kbps instead of a quality level."),
+              encoder: str("Video encoder (editor.exportFormats lists the usable ones); default the best."),
+              noAudio: bool("Leave the sound out."),
+              audioKbps: num("Audio bitrate (default 160)."),
+              sampleRate: num("44100 or 48000 (default)."),
+              rangeIn: num("Start of the exported part, ms on the timeline."),
+              rangeOut: num("End of the exported part, ms (0 = the end)."),
+              gif: {
+                type: "object",
+                properties: {
+                  fps: num("1..50 (default 15)."),
+                  width: num("Width (default 480); height follows."),
+                  loop: num("0 forever (default), -1 play once, n = repeat n more times."),
+                  dither: str("Dithering.", { enum: ["sierra2_4a", "floyd_steinberg", "bayer", "none"] }),
+                  colors: num("2..256 (default 256)."),
+                },
+              },
+            },
+            required: ["format"],
+          },
         }),
         timeoutSec: 30 * 60,
       },
-      async (input: { preset?: string; path?: string; height?: number; kbps?: number }) => {
+      async (input: { preset?: string; path?: string; height?: number; kbps?: number; options?: ExportSettings }) => {
         const { project: p, firstPath, pb } = d();
         if (projectDuration(p) <= 0) throw new Error("the timeline is empty");
         const preset = (input.preset ?? "original") as "original" | "1080p" | "720p" | "discord" | "custom";
         if (!["original", "1080p", "720p", "discord", "custom"].includes(preset)) throw new Error(`unknown preset "${preset}"`);
-        const out = input.path?.trim() || editedPath(firstPath);
+        const options = input.options;
+        const ext = options ? EXPORT_EXT[options.format] : ".mp4";
+        if (options && !ext) throw new Error(`unknown format "${options.format}" (mp4, hevc, webm, gif or m4a)`);
+        const out = input.path?.trim() || editedPath(firstPath, ext);
         if (!out) throw new Error("path is required (the edit has no file to name it after)");
         if (await exists(out)) throw new Error(`${out} already exists: pick another path`);
         pb.pause();
         const written = await VideoService.ExportProject(
-          ProjectExport.createFrom(toExportRequest(p, { preset, height: input.height, kbps: input.kbps, outPath: out })),
+          ProjectExport.createFrom(toExportRequest(p, { preset, height: input.height, kbps: input.kbps, outPath: out, options })),
         );
         return { path: written };
       },
+    );
+
+    reg(
+      "editor.exportFormats",
+      {
+        description: "What this PC can export: formats and, per video format, the usable encoders (best first) for editor.export's options.encoder.",
+      },
+      async () => VideoService.ExportCapabilities(),
     );
 
     registerTimeCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, clipOr, obj, lockedNote, selectClip: (id) => void selectClip(id) });
@@ -634,13 +676,15 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
   }, []);
 }
 
-// editedPath is <dir>\<name>-edited.mp4 for the first file ("" without one).
-function editedPath(first: string): string {
+const EXPORT_EXT: Record<string, string> = { mp4: ".mp4", hevc: ".mp4", webm: ".webm", gif: ".gif", m4a: ".m4a" };
+
+// editedPath is <dir>\<name>-edited<ext> for the first file ("" without one).
+function editedPath(first: string, ext = ".mp4"): string {
   if (!first) return "";
   const i = Math.max(first.lastIndexOf("\\"), first.lastIndexOf("/"));
   const dir = first.slice(0, i + 1);
   const base = first.slice(i + 1).replace(/\.[^.]+$/, "");
-  return `${dir}${base}-edited.mp4`;
+  return `${dir}${base}-edited${ext}`;
 }
 
 // exists asks Go whether a path is taken (MediaService.Register probes only
