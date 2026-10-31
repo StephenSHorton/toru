@@ -241,10 +241,21 @@ func (s *VideoService) exportProject(ctx context.Context, req ProjectExport, onP
 		return "", err
 	}
 	defer cleanupText()
+	work, err := os.MkdirTemp("", "toru-editfx-")
+	if err != nil {
+		return "", fmt.Errorf("export: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(work) }()
+	// Build once up front, so a failure (writing a LUT) is an error, not a
+	// broken ffmpeg run.
+	if _, err := BuildProjectArgs(req, capture.TrimH264Encoder(), textFilter, work); err != nil {
+		return "", fmt.Errorf("export: %w", err)
+	}
 	build := func(tmp string) []string {
 		run := req
 		run.OutPath = tmp
-		return BuildProjectArgs(run, capture.TrimH264Encoder(), textFilter)
+		args, _ := BuildProjectArgs(run, capture.TrimH264Encoder(), textFilter, work)
+		return args
 	}
 	return s.render(ctx, req.OutPath, req.Preset == "discord", build, ProjectDurationMs(req.Project), onProgress)
 }

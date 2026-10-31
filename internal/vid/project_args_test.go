@@ -51,7 +51,7 @@ func TestBuildProjectArgs(t *testing.T) {
 	if d := ProjectDurationMs(req.Project); d != 4000 {
 		t.Fatalf("duration %d", d)
 	}
-	args := BuildProjectArgs(req, "h264_nvenc", "")
+	args, _ := BuildProjectArgs(req, "h264_nvenc", "", t.TempDir())
 	joined := strings.Join(args, " ")
 	graph := args[indexOf(args, "-filter_complex")+1]
 
@@ -122,7 +122,7 @@ func TestBuildProjectArgsTracksSpeedAndPost(t *testing.T) {
 	if d := ProjectDurationMs(*p); d != 4000 { // the muted music still sets the length, as project.ts does
 		t.Fatalf("duration %d", d)
 	}
-	args := BuildProjectArgs(req, "h264_nvenc", "drawtext=x")
+	args, _ := BuildProjectArgs(req, "h264_nvenc", "drawtext=x", t.TempDir())
 	graph := args[indexOf(args, "-filter_complex")+1]
 	for _, w := range []string{
 		"[0:v]setpts=(PTS-STARTPTS)/2,",
