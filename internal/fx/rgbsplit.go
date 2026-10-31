@@ -17,7 +17,7 @@ func RGBSplitShift(amount, angle float64, h int) (int, int) {
 func init() {
 	Register("rgbSplit", func(p map[string]any, ctx Ctx) []Step {
 		dx, dy := RGBSplitShift(pnum(p, "amount"), pnum(p, "angle"), ctx.H)
-		if dx == 0 && dy == 0 {
+		if dx == 0 && dy == 0 && !ctx.Live {
 			return nil
 		}
 		return []Step{{Filters: []string{"rgbashift=rh=" + num(float64(dx)) + ":rv=" + num(float64(dy)) +
