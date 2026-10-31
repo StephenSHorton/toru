@@ -1,0 +1,13 @@
+{
+  "type": "sharpen",
+  "version": 1,
+  "name": "Sharpen",
+  "category": "adjust",
+  "kind": "neighbourhood",
+  "params": [
+    { "id": "amount", "label": "Amount", "type": "number", "min": 0, "max": 1, "default": 0.5, "step": 0.01, "display": "percent", "animate": false }
+  ],
+  "export": { "filters": ["cas"] },
+  "parity": { "mode": "pixels", "mean": 1, "p99": 6 },
+  "amount": "blend"
+}
