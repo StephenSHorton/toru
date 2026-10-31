@@ -68,7 +68,7 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work
 	for _, t := range p.Tracks {
 		for _, c := range t.Clips {
 			m := media[c.Media]
-			showVideo := t.Kind == "video" && !t.Hidden && m.Kind != "audio" && clipOpacity(c) > 0
+			showVideo := t.Kind == "video" && !t.Hidden && m.Kind != "audio" && clipMaxOpacity(c) > 0
 			audible := !t.Muted && (m.Kind == "audio" || m.HasAudio)
 			var picks []audioPick
 			if audible {
@@ -87,7 +87,7 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work
 				graph = append(graph, pre...)
 				graph = append(graph, chain+label)
 				out := fmt.Sprintf("[o%d]", layer)
-				graph = append(graph, fmt.Sprintf("%s%soverlay=x=%d:y=%d:eof_action=pass:enable='between(t,%s,%s)'%s",
+				graph = append(graph, fmt.Sprintf("%s%soverlay=x=%s:y=%s:eof_action=pass:enable='between(t,%s,%s)'%s",
 					videoOut, label, x, y, msSeconds(c.Start), msSeconds(c.Start+ClipLengthMs(c)), out))
 				videoOut = out
 				layer++
@@ -160,9 +160,8 @@ func filterComplexArgs(graph, work string) ([]string, error) {
 // effects, scaled to its transform, with alpha and opacity. It returns any
 // statements the effects need first (a v3 stack is a small graph of its
 // own; layer keeps its labels unique), the chain (without its output label)
-// and where its top-left goes on the canvas.
-func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64, work string, layer int) ([]string, string, int, int, error) {
-	tr := clipTransform(c)
+// and where its top-left goes on the canvas (overlay x/y arguments).
+func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64, work string, layer int) ([]string, string, string, string, error) {
 	head := fmt.Sprintf("[%d:v]", in)
 	var pre []string
 	parts := []string{}
@@ -178,7 +177,7 @@ func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64, work
 		fxIn, fxOut := fmt.Sprintf("[fx%din]", layer), fmt.Sprintf("[fx%dout]", layer)
 		stmts, err := effectfx.StackGraph(stackOf(c), effectfx.Ctx{W: m.Width, H: m.Height}, work, fmt.Sprintf("fx%d", layer), fxIn, fxOut)
 		if err != nil {
-			return nil, "", 0, 0, err
+			return nil, "", "", "", err
 		}
 		if stmts != nil {
 			pre = append(pre, head+strings.Join(parts, ",")+fxIn)
@@ -188,16 +187,12 @@ func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64, work
 	} else if f := ClipVideoFilter(c, m.Height); f != "" {
 		parts = append(parts, f)
 	}
-	cw, ch := ClipSize(m.Width, m.Height, w, h, tr.Scale)
-	parts = append(parts, fmt.Sprintf("scale=%d:%d", cw, ch))
-	if op := clipOpacity(c); op < 1 {
-		parts = append(parts, "format=rgba", "colorchannelmixer=aa="+num(op))
-	} else {
-		parts = append(parts, "format=yuva420p")
+	place, x, y, err := clipPlacement(c, m.Width, m.Height, w, h, fps, work, layer)
+	if err != nil {
+		return nil, "", "", "", err
 	}
+	parts = append(parts, place...)
 	parts = append(parts, fmt.Sprintf("setpts=PTS+%s/TB", msSeconds(c.Start)))
-	x := int(math.Round(tr.X*float64(w) - float64(cw)/2))
-	y := int(math.Round(tr.Y*float64(h) - float64(ch)/2))
 	return pre, head + strings.Join(parts, ","), x, y, nil
 }
 
