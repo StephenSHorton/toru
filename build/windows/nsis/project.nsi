@@ -172,8 +172,8 @@ Section
     # creates it, mcp/ctl exit before the app is built. Then, if toru.exe is
     # still locked after a short grace, only mcp/ctl hold it: move it aside
     # (Windows lets a running exe be renamed; they keep running from
-    # toru.exe.old) and install the new one. Toru deletes the .old files at
-    # its next start once nothing runs them.
+    # toru.exe.old) and install the new one. The .old files are deleted once
+    # nothing runs them: at Toru's next start, and by the next update.
     #
     # Rename is only safe AFTER the mutex wait. Used as the "has the app
     # exited" probe, it passed while the old Toru was still shutting down,
@@ -197,6 +197,11 @@ Section
             Goto toru_gave_up
         toru_app_gone:
 
+        # Exes earlier updates moved aside: delete every one nothing runs any
+        # more (Delete skips the ones still running), so they don't pile up
+        # even when Toru itself isn't started in between.
+        Delete "$INSTDIR\${PRODUCT_EXECUTABLE}.old*"
+
         # The app is gone; its exe image can take a moment to be released.
         StrCpy $0 0
         toru_wait_unlock:
@@ -212,15 +217,14 @@ Section
             Sleep 200
             Goto toru_wait_unlock
 
-        # Still locked: mcp/ctl processes. Use toru.exe.old, or .old.1 ...
-        # .old.9 when an older one is itself still running.
+        # Still locked: mcp/ctl processes. Use toru.exe.old, or the first free
+        # .old.1 ... .old.9 when an older one is itself still running.
         toru_move_aside:
             StrCpy $3 0
             toru_pick_old:
                 StrCpy $2 "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
                 StrCmp $3 0 +2
                 StrCpy $2 "$INSTDIR\${PRODUCT_EXECUTABLE}.old.$3"
-                Delete "$2"
                 IfFileExists "$2" 0 toru_rename
                 IntOp $3 $3 + 1
                 IntCmp $3 10 toru_no_slot 0 toru_no_slot
