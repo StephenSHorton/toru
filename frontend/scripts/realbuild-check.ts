@@ -92,12 +92,17 @@ function run(cmd: string, args: string[], input?: string): string {
 // the source second, the box the source time to about a frame (2.5 px at
 // SAMPLE_W per frame), and silence a muted stretch.
 const COLORS = ["red", "green", "blue", "yellow", "magenta", "cyan"];
+// Tagged like Toru's own recordings (BT.601 matrix, limited range), so the
+// check sees what a real clip does. (2026-10-31: the preview still decoded
+// it with BT.709 (red 254,0,0 showed as 255,24,0) while the export kept
+// BT.601; see #98.)
+const SOURCE_TAGS = ["-colorspace", "bt470bg", "-color_primaries", "bt709", "-color_trc", "iec61966-2-1", "-color_range", "tv"];
 function makeSource(): string {
   fs.mkdirSync(MEDIA_DIR, { recursive: true });
   const out = path.join(MEDIA_DIR, "source.mp4");
   const bg = COLORS.map((c, i) => `color=c=${c}:s=1280x720:r=30:d=1[c${i}]`).join(";");
   const graph = `${bg};${COLORS.map((_, i) => `[c${i}]`).join("")}concat=n=${COLORS.length}:v=1:a=0[bg];color=c=white:s=80x40:r=30:d=6[box];[bg][box]overlay=x='mod(t*600,1200)':y=44:shortest=1,format=yuv420p[v]`;
-  run(FFMPEG, ["-v", "error", "-y", "-filter_complex", graph, "-f", "lavfi", "-i", "sine=f=440:d=6:sample_rate=48000", "-map", "[v]", "-map", "0:a", "-c:v", "libx264", "-g", "15", "-crf", "16", "-c:a", "aac", "-shortest", out]);
+  run(FFMPEG, ["-v", "error", "-y", "-filter_complex", graph, "-f", "lavfi", "-i", "sine=f=440:d=6:sample_rate=48000", "-map", "[v]", "-map", "0:a", "-c:v", "libx264", "-g", "15", "-crf", "16", ...SOURCE_TAGS, "-c:a", "aac", "-shortest", out]);
   return out;
 }
 
@@ -241,13 +246,26 @@ function meanVolume(file: string, from: number, d: number): number {
   return m ? (m[1] === "-inf" ? -999 : Number(m[1])) : NaN;
 }
 
+// openFresh opens src in the editor and waits for the window to show it as a
+// new edit (one clip): the window reloads asynchronously, so
+// right after editor.open, editor.get can still answer for the old edit.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ctl results are JSON
+async function openFresh(src: string): Promise<any> {
+  ctl("editor.open", { path: src });
+  const norm = (x: string) => x.replaceAll("\\", "/").toLowerCase();
+  return until("a fresh edit of the source", () => {
+    const g = ctl("editor.get");
+    const clips = g.tracks.flatMap((t: { clips: CtlClip[] }) => t.clips);
+    return clips.length === 1 && g.media.length === 1 && norm(g.media[0].path) === norm(src) && g;
+  });
+}
+
 // ---- phase: time (C5) --------------------------------------------------------
 
 type CtlClip = Clip & { end: number };
 async function phaseTime(src: string) {
   say("== time: bullet ramp + blend, reversed clip, freeze frame");
-  ctl("editor.open", { path: src });
-  let g = await until("editor window", () => ctl("editor.get"));
+  let g = await openFresh(src);
   const vt = g.tracks.find((t: { kind: string }) => t.kind === "video");
   const aId: string = vt.clips[0].id;
   const bId: string = ctl("editor.split", { t: 3, trackId: vt.id }).newClips[0];
@@ -329,8 +347,7 @@ export function fxProject(media: Media, id: string): Project {
 
 async function phaseFx(src: string) {
   say("== fx: v3 effects, effect keys and anim keys");
-  ctl("editor.open", { path: src });
-  const g = await until("editor window", () => ctl("editor.get"));
+  const g = await openFresh(src);
   const m = g.media[0];
   const media: Media = { id: m.id, path: m.path, url: "", kind: m.kind, duration: m.duration, width: m.width, height: m.height, fps: m.fps, hasAudio: m.hasAudio, tracks: m.audioTracks ?? [] };
   const id = `proj-toru-check-${stamp}`;
@@ -392,8 +409,7 @@ async function phaseFx7(src: string) {
     made.luts.push(lut.id);
     say(`  imported LUT ${lut.id} (${lut.name}, size ${lut.size})`);
 
-    ctl("editor.open", { path: src });
-    let g = await until("editor window", () => ctl("editor.get"));
+    let g = await openFresh(src);
     let vt = g.tracks.find((t: { kind: string }) => t.kind === "video");
     const aId: string = vt.clips[0].id;
     const bId: string = ctl("editor.split", { t: 3, trackId: vt.id }).newClips[0];
@@ -539,7 +555,9 @@ function cleanup() {
       const full = path.join(PROJECTS_DIR, f);
       if (!f.endsWith(".json") || fs.statSync(full).mtimeMs < startedAt) continue;
       const doc = fs.readFileSync(full, "utf8");
-      if (doc.includes(JSON.stringify(MEDIA_DIR).slice(1, -1)) || f.startsWith(`proj-toru-check-${stamp}`)) {
+      // Any run's test media (an earlier run's edit can be autosaved again
+      // when the window reopens it).
+      if (/toru-check-\d{14}/.test(doc) || f.startsWith("proj-toru-check-")) {
         fs.rmSync(full);
         say(`removed project ${f}`);
       }
