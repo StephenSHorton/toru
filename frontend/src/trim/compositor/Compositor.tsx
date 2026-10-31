@@ -5,6 +5,7 @@ import { clipsAt, timelineTimeAt, type ActiveClip, type Clip, type Media, type P
 import { AudioMix, clipGain } from "@/trim/compositor/audio";
 import { FxRenderer } from "@/trim/fx/renderer";
 import { clipStack } from "@/trim/fx/stack";
+import { animAt } from "@/trim/fx/ops";
 import type { PlaybackClock } from "@/trim/compositor/usePlayback";
 
 // Compositor is the v2 editor's preview (docs/video-editor-v2.md, Preview
@@ -132,6 +133,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
     const prog = layerProgram(gl);
     const loc = {
       rect: gl.getUniformLocation(prog, "u_rect"),
+      view: gl.getUniformLocation(prog, "u_view"),
       tex: gl.getUniformLocation(prog, "u_tex"),
       opacity: gl.getUniformLocation(prog, "u_opacity"),
     };
@@ -406,7 +408,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         }
         if (!tex || w <= 0 || h <= 0) continue;
         const out = effects.apply(tex, w, h, clipStack(a.clip, t - a.clip.start, rawClips.has(a.clip.id)), t - a.clip.start);
-        drawLayer(gl, prog, vao, loc, out, w, h, a.clip, W, H);
+        drawLayer(gl, prog, vao, loc, out, w, h, a.clip, t - a.clip.start, W, H);
       }
       // Read picks now, while this frame's pixels are still in the buffer.
       if (picks.length) {
@@ -468,12 +470,16 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
 // layerProgram draws one textured quad (a clip layer) with an opacity.
 function layerProgram(gl: WebGL2RenderingContext): WebGLProgram {
   const vs = `#version 300 es
-uniform vec4 u_rect; // x0, y0 (top-left), x1, y1 in clip space
+uniform vec4 u_rect; // centre x, y and half width, height, canvas pixels (top-left origin)
+uniform vec3 u_view; // canvas width, height; rotation (radians, clockwise)
 out vec2 v_uv;
 void main() {
   vec2 c = vec2(gl_VertexID & 1, (gl_VertexID >> 1) & 1); // 0,0 1,0 0,1 1,1
-  v_uv = c;
-  gl_Position = vec4(mix(u_rect.x, u_rect.z, c.x), mix(u_rect.y, u_rect.w, c.y), 0.0, 1.0);
+  v_uv = c; // texture row 0 = the frame's top
+  vec2 d = (c * 2.0 - 1.0) * u_rect.zw;
+  float s = sin(u_view.z), k = cos(u_view.z);
+  vec2 px = u_rect.xy + vec2(d.x * k - d.y * s, d.x * s + d.y * k);
+  gl_Position = vec4(px.x / u_view.x * 2.0 - 1.0, 1.0 - px.y / u_view.y * 2.0, 0.0, 1.0);
 }`;
   const fs = `#version 300 es
 precision mediump float;
@@ -501,33 +507,25 @@ void main() {
   return p;
 }
 
-// drawLayer places a w×h frame on the W×H canvas by the clip's transform:
-// scale 1 fits it inside the canvas, centred on (x, y) in 0..1 of the canvas.
+// drawLayer places a w×h frame on the W×H canvas by the clip's transform at
+// clip-local time lt (keyframes applied): scale 1 fits it inside the canvas,
+// centred on (x, y) in 0..1 of the canvas, turned clockwise by rotation°.
 function drawLayer(
   gl: WebGL2RenderingContext,
   prog: WebGLProgram,
   vao: WebGLVertexArrayObject | null,
-  loc: { rect: WebGLUniformLocation | null; tex: WebGLUniformLocation | null; opacity: WebGLUniformLocation | null },
+  loc: { rect: WebGLUniformLocation | null; view: WebGLUniformLocation | null; tex: WebGLUniformLocation | null; opacity: WebGLUniformLocation | null },
   tex: WebGLTexture,
   w: number,
   h: number,
   clip: Clip,
+  lt: number,
   W: number,
   H: number,
 ) {
-  const tr = clip.transform;
+  const tr = animAt(clip, lt);
   if (tr.opacity <= 0 || tr.scale <= 0) return;
   const fit = Math.min(W / w, H / h) * tr.scale;
-  const dw = w * fit;
-  const dh = h * fit;
-  const cx = tr.x * W;
-  const cy = tr.y * H;
-  // Pixel rect (top-left origin) → clip space (y up). Texture row 0 is the
-  // frame's top, so the quad's top edge gets v = 0.
-  const x0 = ((cx - dw / 2) / W) * 2 - 1;
-  const x1 = ((cx + dw / 2) / W) * 2 - 1;
-  const y0 = 1 - ((cy - dh / 2) / H) * 2;
-  const y1 = 1 - ((cy + dh / 2) / H) * 2;
   gl.useProgram(prog);
   gl.bindVertexArray(vao);
   gl.activeTexture(gl.TEXTURE0);
@@ -536,7 +534,8 @@ function drawLayer(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.uniform1i(loc.tex, 0);
-  gl.uniform4f(loc.rect, x0, y0, x1, y1);
+  gl.uniform4f(loc.rect, tr.x * W, tr.y * H, (w * fit) / 2, (h * fit) / 2);
+  gl.uniform3f(loc.view, W, H, (tr.rotation * Math.PI) / 180);
   gl.uniform1f(loc.opacity, Math.min(1, tr.opacity));
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
