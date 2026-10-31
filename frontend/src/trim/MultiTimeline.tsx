@@ -29,6 +29,7 @@ import { ContextMenu, type ContextMenuItem } from "@/components/ui/context-menu"
 import { cn } from "@/lib/utils";
 import { greenScreen } from "@/trim/fx/ops";
 import { clipEffects } from "@/trim/fx/stack";
+import { ClipWave } from "@/trim/ClipWave";
 import { KeyLane } from "@/trim/inspector/KeyLane";
 import type { TabId } from "@/trim/inspector/Inspector";
 import type { Text } from "@/trim/edl";
@@ -690,6 +691,8 @@ export function MultiTimeline({
                     left={x(c.start)}
                     width={x(clipLength(c))}
                     selected={selection?.kind === "clip" && selection.id === c.id}
+                    pxPerSec={pxPerSec}
+                    scroller={scrollRef}
                     onBody={(e) => startClipDrag(e, track, c)}
                     onEdge={(e, edge) => startEdgeDrag(e, track, c, edge)}
                     onMenu={(e) => {
@@ -816,6 +819,8 @@ function ClipBox({
   left,
   width,
   selected,
+  pxPerSec,
+  scroller,
   onBody,
   onEdge,
   onMenu,
@@ -826,6 +831,8 @@ function ClipBox({
   left: number;
   width: number;
   selected: boolean;
+  pxPerSec: number;
+  scroller: React.RefObject<HTMLDivElement | null>;
   onBody: (e: React.PointerEvent) => void;
   onEdge: (e: React.PointerEvent, edge: "start" | "end") => void;
   onMenu: (e: React.MouseEvent) => void;
@@ -853,6 +860,7 @@ function ClipBox({
       onPointerDown={onBody}
       onContextMenu={onMenu}
     >
+      <ClipWave clip={c} media={media} track={track} left={left} width={width} pxPerSec={pxPerSec} scroller={scroller} color={`${color}b0`} dim={c.muted || track.muted} top={track.kind === "audio" ? 2 : 14} />
       {fadeInW > 1 ? (
         <div className="pointer-events-none absolute inset-y-0 left-0 bg-[linear-gradient(to_bottom_right,rgb(0_0_0/0.45)_50%,transparent_50%)]" style={{ width: fadeInW }} />
       ) : null}
@@ -860,7 +868,7 @@ function ClipBox({
         <div className="pointer-events-none absolute inset-y-0 right-0 bg-[linear-gradient(to_bottom_left,rgb(0_0_0/0.45)_50%,transparent_50%)]" style={{ width: fadeOutW }} />
       ) : null}
       {width > 36 ? (
-        <div className="pointer-events-none flex items-center gap-1 truncate px-1.5 pt-0.5 text-[11px] text-foreground/85">
+        <div className="pointer-events-none relative flex items-center gap-1 truncate px-1.5 pt-0.5 text-[11px] text-foreground/85">
           <Icon className="size-3 shrink-0 opacity-70" />
           <span className="truncate">{name}</span>
           {c.speed !== 1 ? <span className="shrink-0 bg-black/40 px-1 tabular-nums">{c.speed}x</span> : null}
