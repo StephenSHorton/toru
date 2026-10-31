@@ -28,7 +28,9 @@ function schedule() {
   requestAnimationFrame(pump);
 }
 
-export function Thumb({ frame, stack, className }: { frame: HTMLCanvasElement | null; stack: EffectInstance[]; className?: string }) {
+// t is the clip-local time the stack is drawn at (time-based effects such
+// as zoom or flash only show inside their window).
+export function Thumb({ frame, stack, t = 0, className }: { frame: HTMLCanvasElement | null; stack: EffectInstance[]; t?: number; className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const sig = JSON.stringify(stack);
   useEffect(() => {
@@ -47,7 +49,7 @@ export function Thumb({ frame, stack, className }: { frame: HTMLCanvasElement | 
             cv.getContext("2d")!.drawImage(frame, 0, 0, w, h);
             return;
           }
-          const bmp = renderThumb(frame, list, w, h);
+          const bmp = renderThumb(frame, list, w, h, t);
           cv.width = bmp.width;
           cv.height = bmp.height;
           cv.getContext("2d")!.drawImage(bmp, 0, 0);
@@ -63,6 +65,6 @@ export function Thumb({ frame, stack, className }: { frame: HTMLCanvasElement | 
       const i = queue.indexOf(job);
       if (i >= 0) queue.splice(i, 1);
     };
-  }, [frame, sig]);
+  }, [frame, sig, t]);
   return <canvas ref={ref} width={W} height={H} className={cn("aspect-video w-full bg-black/60 object-cover", className)} />;
 }
