@@ -27,6 +27,14 @@ export function CancelExport(): $CancellablePromise<void> {
 }
 
 /**
+ * ClearReverseCache deletes every cached reverse proxy (not one that's
+ * rendering). Reversed clips render again when next shown or exported.
+ */
+export function ClearReverseCache(): $CancellablePromise<void> {
+    return $Call.ByID(2312487196);
+}
+
+/**
  * DeleteProject removes a saved project (not its media).
  */
 export function DeleteProject(id: string): $CancellablePromise<void> {
@@ -146,6 +154,30 @@ export function RenameProject(id: string, name: string): $CancellablePromise<voi
  */
 export function RevealFile(path: string): $CancellablePromise<void> {
     return $Call.ByID(3502652220, path);
+}
+
+/**
+ * ReverseCacheSize is how many bytes the reverse cache holds.
+ */
+export function ReverseCacheSize(): $CancellablePromise<number> {
+    return $Call.ByID(3364875374);
+}
+
+/**
+ * ReverseKey is the key progress events use for a range (the frontend
+ * matches events to clips with it).
+ */
+export function ReverseKey(path: string, inMs: number, outMs: number): $CancellablePromise<string> {
+    return $Call.ByID(226423994, path, inMs, outMs);
+}
+
+/**
+ * ReverseProxy returns the reverse proxy of path's inMs..outMs, rendering
+ * it first if it isn't cached ("reverse:progress" events meanwhile). The
+ * proxy's time t shows the source at outMs - t.
+ */
+export function ReverseProxy(path: string, inMs: number, outMs: number): $CancellablePromise<string> {
+    return $Call.ByID(1019306973, path, inMs, outMs);
 }
 
 /**

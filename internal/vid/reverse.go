@@ -29,6 +29,10 @@ import (
 // EventReverseProgress carries a ReverseProgress while a proxy renders.
 const EventReverseProgress = "reverse:progress"
 
+// EventReverseCleared is sent when the cache is cleared, so editor windows
+// drop the proxies they were showing.
+const EventReverseCleared = "reverse:cleared"
+
 // ReverseProgress is how far a reverse proxy is: Key is ReverseKey's value
 // for the clip's range, Pct 0..1.
 type ReverseProgress struct {
@@ -111,7 +115,13 @@ func (s *VideoService) ClearReverseCache() error {
 			errs = append(errs, err)
 		}
 	}
-	return errors.Join(errs...)
+	if app := application.Get(); app != nil {
+		app.Event.Emit(EventReverseCleared, nil)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("some reversed clips are still open in the editor: %w", errors.Join(errs...))
+	}
+	return nil
 }
 
 func emitReverseProgress(key string, pct float64) {
