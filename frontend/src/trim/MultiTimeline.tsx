@@ -18,6 +18,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { greenScreen } from "@/trim/fx/ops";
+import { clipEffects } from "@/trim/fx/stack";
+import { KeyLane } from "@/trim/inspector/KeyLane";
 import type { Text } from "@/trim/edl";
 import {
   addMedia,
@@ -27,6 +30,7 @@ import {
   clipLength,
   closeGap,
   findClip,
+  freezeFrame,
   insertClip,
   mediaById,
   moveClip,
@@ -259,6 +263,17 @@ export function MultiTimeline({
     apply((q) => (ripple ? rippleDelete(q, selection.id) : removeClip(q, selection.id)));
     onSelect(null);
   };
+  // F: freeze the frame at the playhead, on the selected clip's track, or
+  // else the topmost video track with a clip there (one undo step).
+  const doFreeze = () =>
+    apply((q) => {
+      const order = selClip ? [selClip.track] : q.tracks.filter((t) => t.kind === "video").reverse();
+      for (const t of order) {
+        const n = freezeFrame(q, t.id, outTime);
+        if (n !== q) return n;
+      }
+      return q;
+    });
   const canSplit = splitAt(p, outTime, selClip?.track.id) !== p;
   const canDelete = selection?.kind === "text" || (!!selClip && !selClip.track.locked);
 
@@ -293,6 +308,11 @@ export function MultiTimeline({
             e.preventDefault();
             doDelete(e.shiftKey);
           }
+          break;
+        case "f":
+        case "F":
+          e.preventDefault();
+          doFreeze();
           break;
         case "Escape":
           setMenu(null);
@@ -641,6 +661,21 @@ export function MultiTimeline({
                     onEdge={(e, edge) => startEdgeDrag(e, track, c, edge)}
                   />
                 ))}
+                {track.clips.map((c) =>
+                  selection?.kind === "clip" && selection.id === c.id ? (
+                    <KeyLane
+                      key={`keys-${c.id}`}
+                      clip={c}
+                      left={x(c.start)}
+                      width={x(clipLength(c))}
+                      pxPerSec={pxPerSec}
+                      length={clipLength(c)}
+                      locked={track.locked}
+                      apply={apply}
+                      onSeek={onSeek}
+                    />
+                  ) : null,
+                )}
                 {dropAt?.trackId === track.id ? (
                   <div className="pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-primary" style={{ left: x(dropAt.t) }} />
                 ) : null}
@@ -778,6 +813,8 @@ function ClipBox({
   const name = media ? baseName(media.path) : "(missing)";
   const fadeInW = len > 0 ? (c.fadeIn / len) * width : 0;
   const fadeOutW = len > 0 ? (c.fadeOut / len) * width : 0;
+  const key = greenScreen(clipEffects(c));
+  const keyColor = key?.enabled ? String(key.params.color ?? "#00ff00") : undefined;
   return (
     <div
       data-clip={c.id}
@@ -803,7 +840,7 @@ function ClipBox({
           <span className="truncate">{name}</span>
           {c.speed !== 1 ? <span className="shrink-0 bg-black/40 px-1 tabular-nums">{c.speed}x</span> : null}
           {c.muted ? <VolumeX className="size-3 shrink-0" /> : null}
-          {c.chroma ? <span className="size-2 shrink-0 rounded-full" style={{ background: c.chroma.color }} title="Green screen" /> : null}
+          {keyColor ? <span className="size-2 shrink-0 rounded-full" style={{ background: keyColor }} title="Green screen" /> : null}
         </div>
       ) : null}
       {!track.locked ? (

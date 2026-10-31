@@ -1,3 +1,4 @@
+import { valueAt } from "@/trim/fx/keyframes";
 import { clipEnd, type Clip, type Track } from "@/trim/project";
 
 // audio.ts is the v2 preview's audio mix (docs/video-editor-v2.md, Preview
@@ -11,13 +12,14 @@ import { clipEnd, type Clip, type Track } from "@/trim/project";
 // short enough for fades, long enough that a step doesn't click.
 const GAIN_SMOOTHING = 0.012;
 
-// clipGain is a clip's level at timeline time t: its volume, ramped up over
-// its fade in and down over its fade out (linear, like ffmpeg afade's
-// default), 0 when the clip or its track is muted.
+// clipGain is a clip's level at timeline time t: its volume (with its
+// keyframes, at clip-local time), ramped up over its fade in and down over
+// its fade out (linear, like ffmpeg afade's default), 0 when the clip or its
+// track is muted.
 export function clipGain(clip: Clip, track: Track, t: number): number {
   if (clip.muted || track.muted) return 0;
   const end = clipEnd(clip);
-  let g = clip.volume;
+  let g = valueAt(clip.anim?.volume, t - clip.start, clip.volume) as number;
   if (clip.fadeIn > 0 && t < clip.start + clip.fadeIn) g *= Math.max(0, (t - clip.start) / clip.fadeIn);
   if (clip.fadeOut > 0 && t > end - clip.fadeOut) g *= Math.max(0, (end - t) / clip.fadeOut);
   return Math.max(0, Math.min(2, g));
