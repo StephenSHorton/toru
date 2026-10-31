@@ -30,6 +30,7 @@ import {
   clipLength,
   closeGap,
   findClip,
+  freezeFrame,
   insertClip,
   mediaById,
   moveClip,
@@ -262,6 +263,17 @@ export function MultiTimeline({
     apply((q) => (ripple ? rippleDelete(q, selection.id) : removeClip(q, selection.id)));
     onSelect(null);
   };
+  // F: freeze the frame at the playhead, on the selected clip's track, or
+  // else the topmost video track with a clip there (one undo step).
+  const doFreeze = () =>
+    apply((q) => {
+      const order = selClip ? [selClip.track] : q.tracks.filter((t) => t.kind === "video").reverse();
+      for (const t of order) {
+        const n = freezeFrame(q, t.id, outTime);
+        if (n !== q) return n;
+      }
+      return q;
+    });
   const canSplit = splitAt(p, outTime, selClip?.track.id) !== p;
   const canDelete = selection?.kind === "text" || (!!selClip && !selClip.track.locked);
 
@@ -296,6 +308,11 @@ export function MultiTimeline({
             e.preventDefault();
             doDelete(e.shiftKey);
           }
+          break;
+        case "f":
+        case "F":
+          e.preventDefault();
+          doFreeze();
           break;
         case "Escape":
           setMenu(null);
