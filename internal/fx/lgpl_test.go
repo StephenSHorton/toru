@@ -34,8 +34,10 @@ func allowlist() map[string]bool {
 	return out
 }
 
-// filtersIn is the filter names in a filtergraph (labels stripped).
+// filtersIn is the filter names in a filtergraph (labels stripped; commas
+// inside '…' quoted expressions don't split filters).
 func filtersIn(graph string) []string {
+	graph = regexp.MustCompile(`'[^']*'`).ReplaceAllString(graph, "q")
 	graph = regexp.MustCompile(`\[[^\]]*\]`).ReplaceAllString(graph, ",")
 	var out []string
 	for _, part := range strings.FieldsFunc(graph, func(r rune) bool { return r == ',' || r == ';' }) {
@@ -168,5 +170,9 @@ func TestFiltersIn(t *testing.T) {
 	want := []string{"format", "split", "lut3d", "cas", "blend", "null"}
 	if !slices.Equal(got, want) {
 		t.Errorf("filtersIn = %v, want %v", got, want)
+	}
+	got = filtersIn("[in]crop=w=320:h=180:x='floor(clip(t*2,0,10))':y=0,geq=r='r(X,Y)':enable='between(t,0.2,0.5)'[out]")
+	if want := []string{"crop", "geq"}; !slices.Equal(got, want) {
+		t.Errorf("filtersIn (quoted) = %v, want %v", got, want)
 	}
 }
