@@ -60,3 +60,13 @@ func newWobble(f, ph1, ph2 float64) wobble {
 func (w wobble) expr() string {
 	return "(0.6*sin(" + num(w.w1) + "*t+" + num(w.p1) + ")+0.4*sin(" + num(w.w2) + "*t+" + num(w.p2) + "))"
 }
+
+// slotRandExpr is the k-th 0..1 random of the current slot (floor(t·rate))
+// as an expression (types/glitch.ts slotRand): two Park–Miller steps from
+// a mix of slot, seed and k. Every product stays under 2^53, so ffmpeg's
+// doubles and JS numbers agree exactly.
+func slotRandExpr(rate, seed float64, k int) string {
+	mix := "floor(t*" + num(rate) + ")*7919+" + num(math.Trunc(seed)*104729+float64(k)*15485863+1)
+	m := num(minstdM)
+	return "(mod(mod((" + mix + ")*48271," + m + ")*48271," + m + ")/" + m + ")"
+}
