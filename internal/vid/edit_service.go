@@ -236,6 +236,11 @@ func (s *VideoService) exportProject(ctx context.Context, req ProjectExport, onP
 			return "", fmt.Errorf("export: %s is missing (moved or deleted?)", m.Path)
 		}
 	}
+	// Reversed clips play their reverse proxy (reverse.go), made now if needed.
+	req, err := withReverseProxies(ctx, req)
+	if err != nil {
+		return "", err
+	}
 	textFilter, cleanupText, err := projectTextFilter(req.Project)
 	if err != nil {
 		return "", err

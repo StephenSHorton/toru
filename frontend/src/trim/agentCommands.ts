@@ -3,6 +3,7 @@ import { Window } from "@wailsio/runtime";
 import { registerAgentCommand, type AgentCommandSpec, type AgentHandler } from "@/lib/agent";
 import { VideoService } from "@/lib/api";
 import { ProjectExport } from "../../bindings/github.com/StephenSHorton/toru/internal/vid/models.js";
+import { registerTimeCommands } from "@/trim/agentCommandsTime";
 import type { CompositorHandle } from "@/trim/compositor/Compositor";
 import { newId } from "@/trim/edl";
 import type { MediaBinState } from "@/trim/MediaBin";
@@ -579,6 +580,8 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
         return { path: written };
       },
     );
+
+    registerTimeCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, clipOr, obj, lockedNote, selectClip: (id) => void selectClip(id) });
 
     return () => offs.forEach((off) => off());
   }, []);
