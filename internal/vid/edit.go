@@ -56,6 +56,10 @@ type MediaInfo struct {
 	FPS        float64      `json:"fps"`
 	HasAudio   bool         `json:"hasAudio"`
 	Tracks     []AudioTrack `json:"tracks"`
+	// ColorSpace is the video's YUV matrix tag as ffprobe names it (bt709,
+	// bt470bg, smpte170m, ...), "" when untagged. The preview needs it: the
+	// browser picks the matrix by frame height, ffmpeg by this tag.
+	ColorSpace string `json:"colorSpace"`
 }
 
 // AudioTrack is one audio stream of a source.

@@ -529,6 +529,13 @@ export class MediaInfo {
     "hasAudio": boolean;
     "tracks": AudioTrack[];
 
+    /**
+     * ColorSpace is the video's YUV matrix tag as ffprobe names it (bt709,
+     * bt470bg, smpte170m, ...), "" when untagged. The preview needs it: the
+     * browser picks the matrix by frame height, ffmpeg by this tag.
+     */
+    "colorSpace": string;
+
     /** Creates a new MediaInfo instance. */
     constructor($$source: Partial<MediaInfo> = {}) {
         if (!("durationMs" in $$source)) {
@@ -548,6 +555,9 @@ export class MediaInfo {
         }
         if (!("tracks" in $$source)) {
             this["tracks"] = [];
+        }
+        if (!("colorSpace" in $$source)) {
+            this["colorSpace"] = "";
         }
 
         Object.assign(this, $$source);
