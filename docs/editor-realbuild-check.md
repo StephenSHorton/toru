@@ -13,6 +13,11 @@ What it covers:
 | `fx`   | a saved v3 project: look, keyed gaussian blur, zoom punch-in, keyed opacity and x; exposure, keyed RGB split, flash, seeded shake | preview vs export frames, export length, effects survive `project.open` |
 | `fx7`  | the same kind of stack through C7's commands: a red↔blue `.cube` imported (`preset.importLut`) as a lut effect, `editor.addEffect` + `editor.setKeyframe` (blur sigma, opacity), clip A's stack saved (`editor.savePreset`), written to `.torufx` (`preset.export`), imported back (`preset.import`) and applied to clip B, plus a built-in look | preview vs export frames, the LUT shows in the export, the `.torufx` round trip keeps the LUT |
 | `ui`   | (the open edit) | every inspector tab selects; screenshots |
+| `v17`  | the test source split in three; a real recording (newest in `Videos/Toru Replays`, or `TORU_REAL`), only opened; the source on a 9:16 frame with fill (`editor.setCanvas`) | library rail tabs open their panels; Ctrl+K palette finds Split and Escape closes it; clip and player right-click menus; select two clips, copy, paste (+2 clips), undo; waveforms drawn and not flat on both files; 9:16 preview vs export frames and a 1080x1920 export |
+
+`v17`'s rail/palette/menu checks also run in the dry run (`--url`). Its
+autosaves of the real recording are removed afterwards; projects that
+existed before the run are never touched.
 
 Per-effect pixel parity is the job of `bun scripts/effects-parity.ts`, which
 needs no app. This check covers the wiring between the parts: the project the

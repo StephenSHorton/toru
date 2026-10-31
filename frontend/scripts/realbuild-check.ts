@@ -17,6 +17,13 @@
 //         applied (editor.savePreset, preset.export/import, applyPreset)
 //   ui    screenshots of every inspector tab over CDP (C6); needs the build
 //         started with --remote-debugging-port (TORU_CDP, default 9333)
+//   v17   v0.17.0's editor: the library rail, the Ctrl+K palette and the
+//         right-click menus (CDP); multi-select copy/paste and undo (ctl);
+//         waveforms on the test source and on a real recording (TORU_REAL,
+//         default the newest file in Videos/Toru Replays); a 16:9 edit
+//         switched to a 9:16 frame with fill, preview vs export
+//
+//   ui and v17 need the build started with --remote-debugging-port.
 //
 // --dry runs without the app: makes the test source, builds and validates the
 // fx project, calibrates the frame diff on the source's own encode and, with
@@ -43,7 +50,7 @@ const DRY = flag("dry");
 const KEEP = flag("keep");
 const EXE = opt("exe");
 const OUT = path.resolve(opt("out", path.join(os.tmpdir(), `toru-realbuild-${Date.now()}`)));
-const PHASES = opt("phases", "time,fx,fx7,ui").split(",").map((s) => s.trim());
+const PHASES = opt("phases", "time,fx,fx7,ui,v17").split(",").map((s) => s.trim());
 const URL_ = opt("url");
 const CDP = Number(process.env.TORU_CDP || 9333);
 const FFMPEG = process.env.FFMPEG || "ffmpeg";
@@ -79,6 +86,8 @@ const MEDIA_DIR = DRY ? path.join(OUT, "media") : path.join(os.homedir(), "Video
 const PROJECTS_DIR = path.join(process.env.APPDATA ?? "", "toru", "projects");
 const REVERSE_DIR = path.join(process.env.LOCALAPPDATA ?? "", "toru", "cache", "reverse");
 const startedAt = Date.now();
+// Projects saved before the run: cleanup never removes these.
+const projectsBefore = new Set(fs.existsSync(PROJECTS_DIR) ? fs.readdirSync(PROJECTS_DIR) : []);
 
 function run(cmd: string, args: string[], input?: string): string {
   const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 256 << 20, input });
@@ -542,6 +551,181 @@ async function phaseUi(port: number, match: (url: string) => boolean) {
   }
 }
 
+// ---- phase: v17 (v0.17.0 editor) --------------------------------------------
+
+type Page = Awaited<ReturnType<typeof cdpPage>>;
+const v17Dir = () => {
+  const d = path.join(OUT, "v17");
+  fs.mkdirSync(d, { recursive: true });
+  return d;
+};
+const centerOf = (page: Page, sel: string) =>
+  page.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const r = e.getBoundingClientRect(); return r.width > 0 ? [r.x + r.width / 2, r.y + r.height / 2] : null; })()`) as Promise<[number, number] | null>;
+
+// v17Ui checks the layout rail, the palette and the menus. It needs only the
+// page, so the dry run does it against vite too.
+async function v17Ui(page: Page) {
+  const dir = v17Dir();
+  // Rail: every library tab opens its panel.
+  const tabs = (await page.evaluate(`[...document.querySelectorAll('[role="tablist"][aria-label="Libraries"] [role="tab"]')].map((e) => e.textContent.trim())`)) as string[];
+  say(`  rail: ${tabs.join(", ") || "(none)"}`);
+  if (tabs.length < 3) fail("v17: the library rail has fewer than 3 tabs");
+  for (let i = 0; i < tabs.length; i++) {
+    await page.evaluate(`(() => { const t = document.querySelectorAll('[role="tablist"][aria-label="Libraries"] [role="tab"]')[${i}]; if (t.getAttribute('aria-selected') !== 'true') t.click(); return true })()`);
+    await sleep(400);
+    const shown = await page.evaluate(`(() => { const p = document.querySelector('[role="tabpanel"]'); return !!p && p.getBoundingClientRect().width > 0 && document.querySelectorAll('[role="tablist"][aria-label="Libraries"] [role="tab"]')[${i}].getAttribute('aria-selected') === 'true' })()`);
+    if (!shown) fail(`v17: library tab ${tabs[i]} didn't open its panel`);
+    await page.shot(path.join(dir, `rail_${i}_${tabs[i].toLowerCase().replace(/\W+/g, "-")}.png`));
+  }
+  // Palette: Ctrl+K opens it, a search finds Split, Escape closes it.
+  await page.evaluate(`(document.activeElement && document.activeElement.blur && document.activeElement.blur(), true)`);
+  for (const type of ["keyDown", "keyUp"]) await page.send("Input.dispatchKeyEvent", { type, key: "k", code: "KeyK", windowsVirtualKeyCode: 75, modifiers: 2 });
+  const open = await until("palette", () => page.evaluate(`!!document.querySelector('[role="dialog"][aria-label="Search actions"]')`), 5000).catch(() => false);
+  if (!open) fail("v17: Ctrl+K didn't open the palette");
+  else {
+    await page.send("Input.insertText", { text: "split" });
+    await sleep(400);
+    const opts = (await page.evaluate(`[...document.querySelectorAll('#palette-list [role="option"]')].map((o) => o.textContent.trim())`)) as string[];
+    say(`  palette "split": ${opts.slice(0, 4).join(" | ") || "(nothing)"}`);
+    if (!opts.some((o) => /split/i.test(o))) fail("v17: the palette doesn't find Split");
+    await page.shot(path.join(dir, "palette.png"));
+    for (const type of ["keyDown", "keyUp"]) await page.send("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await sleep(300);
+    if (await page.evaluate(`!!document.querySelector('[role="dialog"][aria-label="Search actions"]')`)) fail("v17: Escape didn't close the palette");
+  }
+  // Menus: right-click a clip, then an empty part of a track.
+  const rightClick = async (x: number, y: number) => {
+    for (const type of ["mousePressed", "mouseReleased"]) await page.send("Input.dispatchMouseEvent", { type, x, y, button: "right", clickCount: 1 });
+  };
+  const menuItems = () => page.evaluate(`[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((e) => e.textContent.trim())`) as Promise<string[]>;
+  const clip = await centerOf(page, "[data-clip]");
+  if (!clip) fail("v17: no clip on the timeline to right-click");
+  else {
+    await rightClick(clip[0], clip[1]);
+    await sleep(400);
+    const items = await menuItems();
+    say(`  clip menu: ${items.length} items (${items.slice(0, 5).join(", ")}…)`);
+    if (items.length < 4) fail("v17: the clip menu didn't open");
+    await page.shot(path.join(dir, "menu_clip.png"));
+    for (const type of ["keyDown", "keyUp"]) await page.send("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await sleep(300);
+  }
+  // The player: the biggest canvas on the page (clip waveforms are canvases too).
+  const player = (await page.evaluate(`(() => { let best = null, area = 0; for (const c of document.querySelectorAll('canvas')) { const r = c.getBoundingClientRect(); if (r.width * r.height > area) { area = r.width * r.height; best = [r.x + r.width / 2, r.y + r.height / 2]; } } return best })()`)) as [number, number] | null;
+  if (player) {
+    await rightClick(player[0], player[1]);
+    await sleep(400);
+    const items = await menuItems();
+    say(`  player menu: ${items.length} items`);
+    if (!items.length) fail("v17: the player's menu didn't open");
+    await page.shot(path.join(dir, "menu_player.png"));
+    for (const type of ["keyDown", "keyUp"]) await page.send("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await sleep(300);
+  }
+  if (await page.evaluate(`document.body.innerText.includes("Something went wrong")`)) fail("v17: the editor shows an error boundary");
+}
+
+// waveCheck says whether the clips of the open edit draw a waveform that
+// isn't flat (some column of a clip canvas has paint well off the middle).
+async function waveCheck(page: Page, label: string, shot: string) {
+  await until(`${label} waveform`, () => page.evaluate(`[...document.querySelectorAll('[data-clip] canvas')].some((c) => c.style.display !== 'none' && c.width > 0)`), 30000).catch(() => false);
+  const stat = (await page.evaluate(`(() => {
+    let best = 0, n = 0;
+    for (const c of document.querySelectorAll('[data-clip] canvas')) {
+      if (c.style.display === 'none' || !c.width) continue;
+      n++;
+      const g = c.getContext('2d'); const d = g.getImageData(0, 0, c.width, c.height).data;
+      for (let x = 0; x < c.width; x += 2) { let top = c.height; for (let y = 0; y < c.height; y++) if (d[(y * c.width + x) * 4 + 3] > 40) { top = y; break; } best = Math.max(best, (c.height - top) / c.height); }
+    }
+    return { n, best };
+  })()`)) as { n: number; best: number };
+  say(`  ${label}: ${stat.n} waveform canvas(es), tallest column ${(stat.best * 100).toFixed(0)}% of the clip`);
+  if (!stat.n) fail(`v17: no waveform on ${label}`);
+  else if (stat.best < 0.6) fail(`v17: the ${label} waveform is flat`);
+  await page.shot(path.join(v17Dir(), shot));
+}
+
+// realRecording is the newest recording in Videos/Toru Replays (or TORU_REAL):
+// it is only opened, never changed.
+function realRecording(): string | null {
+  if (process.env.TORU_REAL) return process.env.TORU_REAL;
+  const root = path.join(os.homedir(), "Videos", "Toru Replays");
+  let best: { f: string; t: number } | null = null;
+  const walk = (d: string, depth: number) => {
+    for (const e of fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }) : []) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory() && depth < 2 && !e.name.startsWith("toru-check-")) walk(f, depth + 1);
+      else if (e.isFile() && /\.(mp4|mkv)$/i.test(e.name)) {
+        const t = fs.statSync(f).mtimeMs;
+        if (!best || t > best.t) best = { f, t };
+      }
+    }
+  };
+  walk(root, 0);
+  return best ? (best as { f: string }).f : null;
+}
+
+const realOpened = new Set<string>();
+
+async function phaseV17(src: string) {
+  say("== v17: rail, palette, menus, multi-select, waveforms, 9:16 fill");
+  let g = await openFresh(src);
+  const page = await cdpPage(CDP, (u) => u.includes("view=edit"));
+  try {
+    await sleep(1500);
+    await v17Ui(page);
+
+    // Multi-select: split into three, select two, copy, paste after the end.
+    const vt = g.tracks.find((t: { kind: string }) => t.kind === "video");
+    ctl("editor.split", { t: 2, trackId: vt.id });
+    ctl("editor.split", { t: 4, trackId: vt.id });
+    g = ctl("editor.get");
+    const ids: string[] = g.tracks.find((t: { id: string }) => t.id === vt.id).clips.map((c: { id: string }) => c.id);
+    const count = () => (ctl("editor.get").tracks as { clips: unknown[] }[]).reduce((n, t) => n + t.clips.length, 0);
+    const before = count();
+    ctl("editor.selectClips", { clipIds: [ids[0], ids[2]] });
+    await sleep(400);
+    const selected = (await page.evaluate(`document.querySelectorAll('[data-clip][aria-selected="true"], [data-clip].outline-primary, [data-clip][data-selected="true"]').length`)) as number;
+    ctl("editor.copyClips", { clipIds: [ids[0], ids[2]] });
+    const pasted = ctl("editor.pasteClips", { t: 7 });
+    const after = count();
+    say(`  multi-select: ${selected} shown selected; pasted ${JSON.stringify(pasted).slice(0, 80)}; clips ${before} → ${after}`);
+    if (after !== before + 2) fail(`v17: pasting 2 clips made ${after - before}`);
+    await page.shot(path.join(v17Dir(), "multiselect_paste.png"));
+    ctl("editor.undo");
+    if (count() !== before) fail("v17: undo didn't take the pasted clips back");
+
+    // Waveforms: the test source's tone, then a real recording.
+    await waveCheck(page, "the test source", "wave_source.png");
+    const real = realRecording();
+    if (!real) say("  (no recording in Videos/Toru Replays: real-recording waveform skipped)");
+    else {
+      realOpened.add(real);
+      say(`  real recording: ${real}`);
+      await openFresh(real);
+      await sleep(1500);
+      await waveCheck(page, path.basename(real), "wave_real.png");
+    }
+
+    // 9:16 with fill: preview vs export, and the export's size.
+    g = await openFresh(src);
+    ctl("editor.setCanvas", { preset: "9:16", place: "fill" });
+    g = await until("the 9:16 frame", () => {
+      const x = ctl("editor.get");
+      return x.canvas.width === 1080 && x.canvas.height === 1920 && x;
+    });
+    await sleep(1500);
+    await page.shot(path.join(v17Dir(), "canvas_9x16_fill.png"));
+    const clips = g.tracks.flatMap((t: { clips: CtlClip[] }) => t.clips);
+    const out = await compare("v17-canvas", samples(clips, 30, 4), projectDuration(g as Project), 30);
+    const size = run(FFPROBE, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", out]).trim();
+    say(`  9:16 export: ${size}`);
+    if (size !== "1080x1920") fail(`v17: the 9:16 export is ${size}`);
+  } finally {
+    page.close();
+  }
+}
+
 // ---- cleanup ---------------------------------------------------------------
 
 function cleanup() {
@@ -556,8 +740,10 @@ function cleanup() {
       if (!f.endsWith(".json") || fs.statSync(full).mtimeMs < startedAt) continue;
       const doc = fs.readFileSync(full, "utf8");
       // Any run's test media (an earlier run's edit can be autosaved again
-      // when the window reopens it).
-      if (/toru-check-\d{14}/.test(doc) || f.startsWith("proj-toru-check-")) {
+      // when the window reopens it), and new autosaves of a real recording
+      // the v17 phase opened (projects that existed before the run stay).
+      const real = [...realOpened].some((r) => doc.includes(JSON.stringify(r).slice(1, -1)) || doc.includes(r.replaceAll("\\", "/")));
+      if (/toru-check-\d{14}/.test(doc) || f.startsWith("proj-toru-check-") || (real && !projectsBefore.has(f))) {
         fs.rmSync(full);
         say(`removed project ${f}`);
       }
@@ -650,6 +836,13 @@ async function dry(src: string) {
       await until("edge", async () => (await fetch(`http://127.0.0.1:${port}/json/list`)).ok, 20000);
       await sleep(4000);
       await phaseUi(port, (u) => u.includes("view=edit"));
+      say("== dry: v17 rail, palette, menus (vite)");
+      const page = await cdpPage(port, (u) => u.includes("view=edit"));
+      try {
+        await v17Ui(page);
+      } finally {
+        page.close();
+      }
     } finally {
       proc.kill();
       await sleep(500);
@@ -670,6 +863,7 @@ try {
     if (PHASES.includes("fx")) await phaseFx(src);
     if (PHASES.includes("fx7")) await phaseFx7(src);
     if (PHASES.includes("ui")) await phaseUi(CDP, (u) => u.includes("view=edit"));
+    if (PHASES.includes("v17")) await phaseV17(src);
   }
 } catch (e) {
   fail(`error: ${e instanceof Error ? e.message : e}`);
