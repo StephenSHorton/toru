@@ -1,3 +1,4 @@
+import { MultiInspector } from "@/trim/inspector/MultiInspector";
 import { useEffect, useRef, useState } from "react";
 import { AudioLines, Film, Gauge, Lock, SlidersHorizontal, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ import { AudioTab } from "@/trim/inspector/AudioTab";
 export interface InspectorProps {
   project: Project;
   clipId: string | null; // the selected clip
+  clipIds?: string[]; // every selected clip, when there are several
   apply: (fn: (p: Project) => Project, key?: string) => void;
   playhead: number; // timeline seconds
   onSeek: (t: number) => void;
@@ -134,7 +136,14 @@ export function useClipTarget(a: ClipTargetArgs): {
   };
 }
 
-export function Inspector({ project, clipId, apply, playhead, onSeek, picking, onPickingChange, tabRequest, onOpenLibrary, className }: InspectorProps) {
+export function Inspector(props: InspectorProps) {
+  if (props.clipIds && props.clipIds.length > 1) {
+    return <MultiInspector project={props.project} clipIds={props.clipIds} apply={props.apply} className={props.className} />;
+  }
+  return <OneClipInspector {...props} />;
+}
+
+function OneClipInspector({ project, clipId, apply, playhead, onSeek, picking, onPickingChange, tabRequest, onOpenLibrary, className }: InspectorProps) {
   const [tab, setTab] = useState<TabId>(() => readTab());
   const asked = tabRequest?.seq ?? 0;
   useEffect(() => {

@@ -19,6 +19,7 @@
     "test:clip-menu": "bun scripts/clip-menu-check.ts",
     "test:canvas": "bun scripts/canvas-check.ts",
     "test:waveform": "bun scripts/waveform-check.ts",
+    "test:multi": "bun scripts/multi-check.ts",
     "test:colorspace": "bun scripts/colorspace-check.ts"
   },
   "dependencies": {

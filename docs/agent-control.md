@@ -118,7 +118,12 @@ video clip is muted), `editor.saveAudio` (a clip's sound to .m4a or .wav),
 `editor.updateClip` (transform,
 speed, audio, chroma, filters), `editor.setText` (size in px or s/m/l, font),
 `editor.listFonts`, `editor.removeText`,
-`editor.setCrop`, `editor.undo`, `editor.redo`), time effects
+`editor.setCrop`, `editor.undo`, `editor.redo`), several clips at once
+(`editor.selectClips`, `editor.moveClips`, `editor.removeClips` (ripple
+optional), `editor.duplicateClips`, `editor.setClipsMuted`), the clip
+clipboard (`editor.copyClips`, `editor.cutClips`, `editor.pasteClips` at t
+or the playhead, `editor.pasteAttributes`: another clip's effects,
+transform and sound, not its timing), time effects
 (`editor.setSpeedCurve` (preset or points, audio follow/mute),
 `editor.freezeFrame`, `editor.setReverse`, `editor.setSlowMotion`), plus `editor.seek`,
 `editor.play`, `editor.pause`, `editor.export` (preset, path; returns the
