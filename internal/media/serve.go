@@ -26,7 +26,8 @@ var thumbDir = func() string { return filepath.Join(os.TempDir(), "toru", "media
 
 // Middleware serves registered files at /__media/<id>/<name> (Range
 // requests included, so the player can seek) and video thumbnails at
-// /__media/thumb/<id>.jpg, and installed fonts at /__media/font/<name>.
+// /__media/thumb/<id>.jpg, waveform peaks at /__media/peaks/<id> and
+// installed fonts at /__media/font/<name>.
 // Anything else passes to next. Go-only.
 //
 //wails:ignore
@@ -62,6 +63,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if rest, ok := strings.CutPrefix(r.URL.Path, thumbPrefix); ok {
 		s.serveThumb(w, r, strings.TrimSuffix(rest, ".jpg"))
+		return
+	}
+	if id, ok := strings.CutPrefix(r.URL.Path, peaksPrefix); ok {
+		s.servePeaks(w, r, id)
 		return
 	}
 	// <id>/<name>: the name is only for the browser (type, downloads); the
