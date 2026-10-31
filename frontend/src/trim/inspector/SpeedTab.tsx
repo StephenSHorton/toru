@@ -127,9 +127,9 @@ export function SpeedTab({ clip: c, track, media, t, edit }: TabProps) {
       </Section>
 
       {visual ? (
-        <Section title="Freeze frame">
+        <Section title="Freeze frame at the playhead">
           <div className="flex items-center gap-1.5">
-            <span className="flex-1">Hold the frame at the playhead for</span>
+            <span className="flex-1">Length</span>
             <NumberInput
               value={freezeLen}
               onChange={setFreezeLen}

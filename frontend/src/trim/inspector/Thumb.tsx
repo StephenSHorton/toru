@@ -39,7 +39,15 @@ export function Thumb({ frame, stack, className }: { frame: HTMLCanvasElement | 
     const job: Job = {
       run: () => {
         try {
-          const bmp = renderThumb(frame, JSON.parse(sig) as EffectInstance[], w, h);
+          const list = JSON.parse(sig) as EffectInstance[];
+          if (!list.length) {
+            // Nothing to apply: the frame as it is.
+            cv.width = w;
+            cv.height = h;
+            cv.getContext("2d")!.drawImage(frame, 0, 0, w, h);
+            return;
+          }
+          const bmp = renderThumb(frame, list, w, h);
           cv.width = bmp.width;
           cv.height = bmp.height;
           cv.getContext("2d")!.drawImage(bmp, 0, 0);
