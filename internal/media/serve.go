@@ -47,7 +47,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if name, ok := vid.FontNameFromURLPath(r.URL.Path); ok {
+	if name, ok := vid.FontNameFromURLPath(r.URL.EscapedPath()); ok {
 		// An installed font for the text preview (vid.Font.URL); only names
 		// in the installed list resolve, so no other file can be asked for.
 		f := vid.FontFile(name)

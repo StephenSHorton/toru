@@ -27,6 +27,7 @@ export type FontInfo = {
 };
 
 // The default face (Go: DefaultTextFont), drawn with the system's Segoe UI.
+// It's also an installed font; the picker shows it once, as the default.
 export const DEFAULT_FONT_LABEL = "Segoe UI Semibold";
 export const DEFAULT_FONT_CSS = '"Segoe UI", sans-serif';
 export const DEFAULT_LINE_HEIGHT = 1.33;
@@ -34,6 +35,7 @@ export const DEFAULT_LINE_HEIGHT = 1.33;
 let fonts: FontInfo[] | null = null;
 let byName = new Map<string, FontInfo>();
 let loading: Promise<FontInfo[]> | null = null;
+let failed = false;
 let version = 0;
 const listeners = new Set<() => void>();
 const bump = () => {
@@ -47,13 +49,19 @@ export function loadFonts(refresh = false): Promise<FontInfo[]> {
   if (loading && !refresh) return loading;
   loading = VideoService.ListFonts(refresh)
     .then((list) => {
+      failed = false;
       fonts = (list ?? []) as FontInfo[];
       byName = new Map(fonts.map((f) => [f.name, f]));
       bump();
       return fonts;
     })
     .catch((err) => {
-      loading = null;
+      // Kept as the result (no retry per render: the overlay re-renders every
+      // frame while playing); the picker's reload button tries again.
+      failed = true;
+      fonts = [];
+      byName = new Map();
+      bump();
       throw err;
     });
   return loading;
@@ -72,6 +80,9 @@ export function useFonts(): FontInfo[] | null {
   if (!fonts && !loading) void loadFonts().catch(() => {});
   return fonts;
 }
+
+// fontsFailed reports that the last attempt to list the fonts failed.
+export const fontsFailed = () => failed;
 
 // fontInfo is the installed font called name; undefined for the default
 // ("" or unset), a font this PC doesn't have, or before the list loads.

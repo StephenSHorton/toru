@@ -257,6 +257,9 @@ func CheckFont(ctx context.Context, name string) error {
 	if ctx.Err() != nil {
 		return ctx.Err() // a timeout says nothing about the font: not cached
 	}
+	if capture.IsFFmpegMissing(err) {
+		return err // nor does ffmpeg not being downloaded yet
+	}
 	if err != nil {
 		err = fmt.Errorf("the export can't draw text in %q", name)
 	}

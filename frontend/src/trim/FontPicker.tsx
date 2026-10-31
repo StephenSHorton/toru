@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Check, ChevronDown, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { checkFont, DEFAULT_FONT_CSS, DEFAULT_FONT_LABEL, fontFamily, fontInfo, loadFonts, useFonts, type FontInfo } from "@/trim/fonts";
+import { checkFont, DEFAULT_FONT_CSS, DEFAULT_FONT_LABEL, fontFamily, fontInfo, fontsFailed, loadFonts, useFonts, type FontInfo } from "@/trim/fonts";
 
 // FontPicker chooses a text's font from the installed ones: a button showing
 // the current font in its own face, opening a searchable dropdown (below the
@@ -28,7 +28,7 @@ export function FontPicker({ value, onChange }: { value: string; onChange: (font
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = fonts ?? [];
+    const list = (fonts ?? []).filter((f) => f.name !== DEFAULT_FONT_LABEL); // listed first, as the default
     return q ? list.filter((f) => f.name.toLowerCase().includes(q) || f.family.toLowerCase().includes(q)) : list;
   }, [fonts, query]);
 
@@ -154,9 +154,15 @@ export function FontPicker({ value, onChange }: { value: string; onChange: (font
                 </Button>
               </div>
               <div role="listbox" aria-label="Installed fonts" className="min-h-0 flex-1 overflow-y-auto py-1">
-                {!query.trim() ? <FontRow label={DEFAULT_FONT_LABEL} selected={!value} onPick={() => void pick("")} /> : null}
+                {!query.trim() || DEFAULT_FONT_LABEL.toLowerCase().includes(query.trim().toLowerCase()) ? (
+              <FontRow label={DEFAULT_FONT_LABEL} selected={!value || value === DEFAULT_FONT_LABEL} onPick={() => void pick("")} />
+            ) : null}
                 {fonts === null ? <p className="px-2 py-1 text-[11px] text-muted-foreground">Loading fonts…</p> : null}
-                {fonts && !shown.length ? <p className="px-2 py-1 text-[11px] text-muted-foreground">No installed font matches.</p> : null}
+                {fonts && !shown.length ? (
+                  <p className="px-2 py-1 text-[11px] text-muted-foreground">
+                    {fontsFailed() ? "Couldn't read the installed fonts. Reload to try again." : "No installed font matches."}
+                  </p>
+                ) : null}
                 {shown.map((f) => (
                   <FontRow key={f.name} font={f} label={f.name} selected={f.name === value} busy={busy === f.name} onPick={() => void pick(f.name)} />
                 ))}
