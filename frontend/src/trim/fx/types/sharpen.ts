@@ -21,8 +21,9 @@ void main() {
 }`;
 
 // casSteps is the CAS pass at strength s (as Go's casStep); none at 0.
+// u_peak follows ffmpeg's cas: -1/lerp(16, 4.01, s).
 export function casSteps(s: number): Step[] {
-  return s > 0 ? [{ kind: "pass", id: "cas", frag: CAS, uniforms: { u_peak: -1 / (8 - 3 * s) } }] : [];
+  return s > 0 ? [{ kind: "pass", id: "cas", frag: CAS, uniforms: { u_peak: -1 / (16 - 11.99 * s) } }] : [];
 }
 
 const sharpen: ShaderModule = {

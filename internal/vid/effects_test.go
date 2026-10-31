@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/StephenSHorton/toru/internal/fx/fxtest"
 )
 
 func fx(mod func(*ClipJSON)) ClipJSON {
@@ -142,12 +145,18 @@ func TestAtempoFactorsMultiplyBack(t *testing.T) {
 }
 
 // TestEffectsRunInFFmpeg runs every chain through a real ffmpeg, so a typo
-// or a filter the build lacks fails here and not in an export. Skipped
-// without ffmpeg on PATH.
+// or a filter the build lacks fails here and not in an export. It runs the
+// pinned LGPL build with TORU_FFMPEG_PINNED=1 or $TORU_FFMPEG (see
+// internal/fx/fxtest), else ffmpeg on PATH; skipped without any.
 func TestEffectsRunInFFmpeg(t *testing.T) {
-	ff, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		t.Skip("no ffmpeg on PATH")
+	ff := os.Getenv("TORU_FFMPEG")
+	if ff != "" || os.Getenv("TORU_FFMPEG_PINNED") == "1" {
+		ff = fxtest.PinnedFFmpeg(t)
+	} else {
+		var err error
+		if ff, err = exec.LookPath("ffmpeg"); err != nil {
+			t.Skip("no ffmpeg on PATH")
+		}
 	}
 	all := fx(func(c *ClipJSON) {
 		c.Chroma = &ChromaJSON{Color: "#00FF00", Similarity: 0.3, Blend: 0.1}
