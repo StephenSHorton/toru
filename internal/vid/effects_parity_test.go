@@ -34,12 +34,15 @@ type parityCase struct {
 	// [fxout] (empty when the stack changes nothing).
 	Effects []EffectJSON `json:"effects,omitempty"`
 	Graph   string       `json:"graph,omitempty"`
-	// T is the clip-local time in seconds the preview resolves keyframes at;
-	// the export side resolved them at the same time (see keyedCase).
+	// T is the clip-local time in seconds the frame is drawn at: the preview
+	// resolves keyframes and draws at T, the script gives the export's frame
+	// that timestamp (keyframes themselves the Go side resolves, keyedCase).
+	// Generated cases take it from the def's parity.t.
 	T float64 `json:"t,omitempty"`
 	// Limits come from the defs' parity blocks (the loosest in the stack);
 	// Border is how many pixels at the frame's edge the comparison skips,
-	// where neighbourhood effects treat the border differently.
+	// where neighbourhood effects treat the border differently (a hand-set
+	// Border is a minimum; the defs' reach can raise it).
 	Limits *effectfx.Parity `json:"limits,omitempty"`
 	Border int              `json:"border"`
 	// resolved is a keyed case's stack with its keys resolved at T, which
@@ -114,7 +117,7 @@ func registryCases() []parityCase {
 		h.Write([]byte(d.Type))
 		r := rand.New(rand.NewSource(int64(h.Sum64())))
 		add := func(name string, params map[string]any) {
-			out = append(out, parityCase{Name: d.Type + " " + name, Effects: []EffectJSON{fxOf(d.Type, params)}})
+			out = append(out, parityCase{Name: d.Type + " " + name, Effects: []EffectJSON{fxOf(d.Type, params)}, T: d.Parity.T})
 		}
 		add("default", map[string]any{})
 		def := d.Resolve(nil)
@@ -146,7 +149,7 @@ func registryCases() []parityCase {
 			half := 0.5
 			e := fxOf(d.Type, randomParams(d, r))
 			e.Amount = &half
-			out = append(out, parityCase{Name: d.Type + " random at 50%", Effects: []EffectJSON{e}})
+			out = append(out, parityCase{Name: d.Type + " random at 50%", Effects: []EffectJSON{e}, T: d.Parity.T})
 		}
 		if c, ok := keyedCase(d, r); ok {
 			out = append(out, c)
@@ -246,15 +249,17 @@ func finishV3(cases []parityCase, work string) error {
 			return fmt.Errorf("%s: %w", c.Name, err)
 		}
 		c.Graph = strings.Join(stmts, ";")
-		c.Limits, c.Border = limitsOf(stack)
+		var border int
+		c.Limits, border = limitsOf(stack)
+		c.Border = max(c.Border, border)
 	}
 	return nil
 }
 
 // limitsOf is the loosest parity limit in a stack ("none" beats "stats"
 // beats "pixels"; then the largest mean and p99) and the border to skip: 2
-// pixels, plus a blur radius at its widest (20 px of a 1080-line frame) when
-// the stack has a neighbourhood or geometry effect.
+// pixels, plus the widest reach in the stack: a def's parity.border, else
+// 20 px of a 1080-line frame for neighbourhood and geometry effects.
 func limitsOf(stack []EffectJSON) (*effectfx.Parity, int) {
 	rank := map[string]int{"pixels": 0, "stats": 1, "none": 2}
 	var lim *effectfx.Parity
@@ -264,9 +269,11 @@ func limitsOf(stack []EffectJSON) (*effectfx.Parity, int) {
 		if !ok {
 			continue
 		}
-		if d.Kind != "pixel" {
-			border = 2 + int(math.Ceil(20.0*parityH/1080))
+		reach := d.Parity.Border
+		if reach == 0 && d.Kind != "pixel" {
+			reach = 20
 		}
+		border = max(border, 2+int(math.Ceil(reach*parityH/1080)))
 		p := d.Parity
 		switch {
 		case lim == nil || rank[p.Mode] > rank[lim.Mode]:

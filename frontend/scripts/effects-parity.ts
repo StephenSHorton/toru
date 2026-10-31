@@ -62,10 +62,14 @@ run(ffmpeg, [
 ]);
 const srcRGBA = run(ffmpeg, ["-v", "error", "-i", src, "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
 
-// 3. What the export draws.
+// 3. What the export draws. A case at time t gives the frame that
+// timestamp (setpts) for effects that depend on t; -framerate 1000 makes
+// the PNG input's timebase 1 ms, so t isn't rounded to 1/25 s.
+const atT = (c: (typeof cases)[number]) =>
+  c.t ? { input: ["-framerate", "1000"], graph: `[0:v]setpts=PTS-STARTPTS+${c.t}/TB[tin];` + c.graph!.replaceAll("[0:v]", "[tin]") } : { input: [], graph: c.graph! };
 const exportFrame = (c: (typeof cases)[number]) =>
   c.graph
-    ? run(ffmpeg, ["-v", "error", "-i", src, "-filter_complex", `${c.graph};[fxout]format=rgba[o]`, "-map", "[o]", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+    ? run(ffmpeg, ["-v", "error", ...atT(c).input, "-i", src, "-filter_complex", `${atT(c).graph};[fxout]format=rgba[o]`, "-map", "[o]", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
     : run(ffmpeg, ["-v", "error", "-i", src, "-vf", (c.filter ? c.filter + "," : "") + "format=rgba", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
 
 // The editor's stack: keyframe times in seconds (the save writes ms).
