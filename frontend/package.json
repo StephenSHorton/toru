@@ -22,7 +22,8 @@
     "test:waveform": "bun scripts/waveform-check.ts",
     "test:multi": "bun scripts/multi-check.ts",
     "test:actions": "bun scripts/actions-check.ts",
-    "test:colorspace": "bun scripts/colorspace-check.ts"
+    "test:colorspace": "bun scripts/colorspace-check.ts",
+    "test:text-style": "bun scripts/text-style-check.ts"
   },
   "dependencies": {
     "@lofcz/deepfilternet-web": "0.1.0",

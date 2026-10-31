@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Crop, Download, Loader2, Pause, Play, RotateCcw, Type } from "lucide-react";
+import { Crop, Download, Loader2, Pause, Play, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { MediaService, VideoService } from "@/lib/api";
@@ -18,10 +18,14 @@ import { EditorCommands } from "@/trim/CommandPalette";
 import { EffectBrowser } from "@/trim/inspector/EffectsTab";
 import { FiltersBrowser } from "@/trim/inspector/FiltersTab";
 import { Inspector, tabsFor, useClipTarget, type TabId } from "@/trim/inspector/Inspector";
+import { TextInspector } from "@/trim/inspector/TextInspector";
 import { TransitionInspector } from "@/trim/inspector/TransitionInspector";
 import { TransitionsBrowser } from "@/trim/library/Transitions";
 import { addTransition } from "@/trim/transition";
 import { LibraryColumn, useLibrary, type LibraryId } from "@/trim/library/Library";
+import { TextLibrary } from "@/trim/library/TextLibrary";
+import { withTextImages } from "@/trim/textExport";
+import { replaceTextStyle, type TextPreset } from "@/trim/textStyle";
 import { migrateProject } from "@/trim/migrate";
 import { MediaBin, toMedia, useMediaBin } from "@/trim/MediaBin";
 import { MultiTimeline, selectedClipIds, type TimelineSelection } from "@/trim/MultiTimeline";
@@ -176,13 +180,14 @@ export default function EditVideo() {
   );
 
   // addText adds an empty text at the playhead (or at, from a gap's menu)
-  // and opens it for typing.
-  const addText = useCallback((at?: unknown) => {
+  // and opens it for typing; preset (the Text library) gives its style.
+  const addText = useCallback((at?: unknown, preset?: TextPreset) => {
     if (duration <= 0) return;
     pb.pause();
     const start = Math.min(typeof at === "number" ? at : pb.clock.now(), Math.max(0, duration - 0.5));
     const id = newId("txt");
-    apply((p) => upsertProjectText(p, { id, text: "", x: 0.5, y: 0.5, size: "m", start, end: Math.min(duration, start + 3) }));
+    const style = preset && Object.keys(preset.style).length ? structuredClone(preset.style) : undefined;
+    apply((p) => upsertProjectText(p, { id, text: "", x: 0.5, y: 0.5, size: "m", start, end: Math.min(duration, start + 3), ...(style ? { style } : {}) }));
     setSelection({ kind: "text", id });
   }, [apply, duration, pb]);
 
@@ -199,8 +204,8 @@ export default function EditVideo() {
   );
 
   const runExport = useCallback(
-    (choice: Parameters<typeof toExportRequest>[1]) =>
-      VideoService.ExportProject(ProjectExport.createFrom(toExportRequest(project, choice))),
+    async (choice: Parameters<typeof toExportRequest>[1]) =>
+      VideoService.ExportProject(ProjectExport.createFrom(await withTextImages(toExportRequest(project, choice)))),
     [project],
   );
   // The preview's current frame, cropped to the output, for the export
@@ -324,12 +329,12 @@ export default function EditVideo() {
         return <MediaBin bin={bin} onAppend={appendMedia} only="audio" className="h-full" />;
       case "text":
         return (
-          <div className="flex flex-col gap-2 p-3">
-            <Button size="sm" variant="secondary" className="justify-start" disabled={!ready || duration <= 0} onClick={addText} title="Add text at the playhead">
-              <Type /> Add text
-            </Button>
-            <p className="text-[11px] text-muted-foreground">Text is added at the playhead. Click it on the player to type, move or style it.</p>
-          </div>
+          <TextLibrary
+            selected={selection?.kind === "text" ? project.texts.find((x) => x.id === selection.id) : undefined}
+            canAdd={ready && duration > 0}
+            onAdd={(pre) => addText(undefined, pre)}
+            onApply={(pre) => selection?.kind === "text" && apply((p) => replaceTextStyle(p, selection.id, pre.style))}
+          />
         );
       case "effects":
         return (
@@ -490,6 +495,8 @@ export default function EditVideo() {
 
         {selection?.kind === "transition" ? (
           <TransitionInspector project={project} clipId={selection.id} apply={apply} onClose={() => setSelection(null)} className="frost w-80 shrink-0" />
+        ) : selection?.kind === "text" && project.texts.some((x) => x.id === selection.id) ? (
+          <TextInspector project={project} textId={selection.id} apply={apply} playhead={pb.time} onSeek={pb.seek} className="frost w-80 shrink-0" />
         ) : (
           <Inspector project={project} clipId={selectedClip} clipIds={selectedClips} apply={apply} playhead={pb.time} onSeek={pb.seek} picking={picking} onPickingChange={setPicking} tabRequest={tabRequest} onOpenLibrary={openLibrary} className="frost w-80 shrink-0" />
         )}
@@ -508,7 +515,7 @@ export default function EditVideo() {
           onRedo={redo}
           canUndo={canUndo}
           canRedo={canRedo}
-          onAddText={addText}
+          onAddText={() => addText()}
           onEditText={editText}
         />
       </div>

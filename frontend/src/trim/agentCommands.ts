@@ -34,11 +34,14 @@ import type { CompositorHandle } from "@/trim/compositor/Compositor";
 import { registerFxCommands } from "@/trim/agentCommandsFx";
 import { CANVAS_PRESETS, MAX_CANVAS, MIN_CANVAS, normCanvas, placeClip, setCanvas, type ClipPlace, type Placement } from "@/trim/canvas";
 import { registerMultiCommands } from "@/trim/agentCommandsMulti";
-import { newId, type Text } from "@/trim/edl";
+import { newId, type Text, type TextStyle } from "@/trim/edl";
 import { checkFont, DEFAULT_FONT_LABEL, fontInfo, loadFonts } from "@/trim/fonts";
 import type { MediaBinState } from "@/trim/MediaBin";
 import type { TimelineSelection } from "@/trim/MultiTimeline";
-import { MAX_FONT_PX, MIN_FONT_PX, textFontSize } from "@/trim/TextOverlays";
+import { withTextImages } from "@/trim/textExport";
+import { resolveStyle, TEXT_DEFAULTS } from "@/trim/textRender";
+import { BUILTIN_TEXT_PRESETS, savedTextPresets, textPresetById, tidyStyle } from "@/trim/textStyle";
+import { MAX_FONT_PX, MIN_FONT_PX, textFontSize } from "@/trim/textRender";
 import { addTransition, cutFor, DEFAULT_TRANSITION, isTransitionType, MAX_TRANSITION, MIN_TRANSITION, setClipTransition, TRANSITIONS, transitionLabel, type TransitionType } from "@/trim/transition";
 import {
   addMedia,
@@ -807,7 +810,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
       "editor.setText",
       {
         description:
-          "Add a text overlay (no id) or change one (id). White text with a dark outline, centred at x, y (0..1 of the frame), shown from start to end seconds. size is pixels of the output frame (after crop) or a preset s/m/l (4/6/9% of its height); font is an installed font's name (editor.listFonts), \"\" for the default. Returns the text.",
+          "Add a text overlay (no id) or change one (id). Centred at x, y (0..1 of the frame), shown from start to end seconds. size is pixels of the output frame (after crop) or a preset s/m/l (4/6/9% of its height); font is an installed font's name (editor.listFonts), \"\" for the default. preset applies a text style from editor.textPresets; style changes single style fields on top (unset fields keep the plain look: white with a dark outline). Returns the text.",
         input: obj({
           id: str("A text's id to change it."),
           text: str("The words."),
@@ -820,6 +823,12 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
           font: str(`An installed font's name from editor.listFonts; "" for the default (${DEFAULT_FONT_LABEL}).`),
           start: num("Seconds."),
           end: num("Seconds."),
+          preset: str("A text style's id from editor.textPresets: replaces the text's style (its opacity keyframes stay)."),
+          style: {
+            type: "object",
+            description:
+              "Style fields to change (null resets one). Colours \"#rrggbb\"; opacities 0..1; lengths are fractions of the font size. color, fillOpacity; outlineColor, outlineOpacity (0 = none), outlineWidth (0..0.3); shadowColor, shadowOpacity (0 = none), shadowX, shadowY (-0.5..0.5), shadowBlur (0..0.5); boxColor, boxOpacity (0 = none), boxPad (0..1.5), boxRadius (0..1); bold, italic; letterSpacing (-0.2..1), lineSpacing (0.6..3, × the font's line height); align left|center|right; opacity (whole text, 0..1); opacityKeys [{t seconds from the text's start, v 0..1, ease linear|in|out|inOut|hold}] ([] removes them).",
+          },
         }),
         // The person types the words in the text editor.
         ui: {
@@ -834,7 +843,18 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
           run: (c) => d().ui?.addText(c.t),
         },
       },
-      async (input: { id?: string; text?: string; x?: number; y?: number; size?: number | string; font?: string; start?: number; end?: number }) => {
+      async (input: {
+        id?: string;
+        text?: string;
+        x?: number;
+        y?: number;
+        size?: number | string;
+        font?: string;
+        start?: number;
+        end?: number;
+        preset?: string;
+        style?: Record<string, unknown>;
+      }) => {
         const p0 = d().project;
         const old = input.id ? p0.texts.find((t) => t.id === input.id) : undefined;
         if (input.id && !old) throw new Error(`no text "${input.id}"`);
@@ -862,6 +882,32 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
             if (why) throw new Error(why);
           }
         }
+        let style = old?.style;
+        if (input.preset !== undefined) {
+          const pre = textPresetById(String(input.preset));
+          if (!pre) throw new Error(`no text style "${input.preset}" (see editor.textPresets)`);
+          style = tidyStyle({ ...pre.style, opacityKeys: style?.opacityKeys });
+        }
+        if (input.style !== undefined) {
+          if (!input.style || typeof input.style !== "object") throw new Error("style must be an object");
+          const known = new Set([...Object.keys(TEXT_DEFAULTS), "opacityKeys"]);
+          const bad = Object.keys(input.style).filter((k) => !known.has(k));
+          if (bad.length) throw new Error(`unknown style field(s): ${bad.join(", ")}`);
+          const patch = Object.fromEntries(Object.entries(input.style).map(([k, v]) => [k, v === null ? undefined : v]));
+          if (Array.isArray(patch.opacityKeys)) {
+            patch.opacityKeys = (patch.opacityKeys as { t: number; v: number; ease?: string }[])
+              .map((k) => ({ t: Number(k.t), v: Number(k.v), ease: (["linear", "in", "out", "inOut", "hold"].includes(String(k.ease)) ? k.ease : "linear") as "linear" }))
+              .filter((k) => Number.isFinite(k.t) && Number.isFinite(k.v))
+              .sort((a, b) => a.t - b.t);
+          }
+          // Validated and clamped as the renderer reads it; only what was asked is kept.
+          const resolved = resolveStyle({ ...(style ?? {}), ...patch } as TextStyle);
+          const next: TextStyle = { ...(style ?? {}) };
+          for (const k of Object.keys(patch) as (keyof TextStyle)[]) {
+            (next as Record<string, unknown>)[k] = patch[k] === undefined ? undefined : k === "opacityKeys" ? patch[k] : resolved[k];
+          }
+          style = tidyStyle(next);
+        }
         const t: Text = {
           id: old?.id ?? newId("txt"),
           text: input.text ?? old?.text ?? "",
@@ -872,6 +918,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
           ...(font ? { font } : {}),
           start,
           end: time(input.end, "end", old?.end ?? Math.min(Math.max(dur, start + 0.5), start + 3)),
+          ...(style ? { style } : {}),
         };
         if (!t.text.trim()) throw new Error("text is required");
         if (t.end <= t.start) throw new Error("end must be after start");
@@ -962,6 +1009,12 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
         edit((p) => setClipTransition(p, String(input.clipId), undefined), `clip "${input.clipId}" has no transition`);
         return { removed: input.clipId };
       },
+    );
+
+    reg(
+      "editor.textPresets",
+      { description: "The text styles editor.setText's preset takes: built-in ones and the ones saved in the Text library. Each has an id, a name and its style fields." },
+      () => [...BUILTIN_TEXT_PRESETS, ...savedTextPresets()].map((x) => ({ id: x.id, name: x.name, builtin: !!x.builtin, style: x.style })),
     );
 
     reg(
@@ -1195,7 +1248,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
         if (await exists(out)) throw new Error(`${out} already exists: pick another path`);
         pb.pause();
         const written = await VideoService.ExportProject(
-          ProjectExport.createFrom(toExportRequest(p, { preset, height: input.height, kbps: input.kbps, outPath: out, options })),
+          ProjectExport.createFrom(await withTextImages(toExportRequest(p, { preset, height: input.height, kbps: input.kbps, outPath: out, options }))),
         );
         return { path: written };
       },

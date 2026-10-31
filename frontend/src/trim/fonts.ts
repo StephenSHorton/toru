@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
-import { VideoService } from "@/lib/api";
+// The Go service, imported lazily so this module (and the text renderer)
+// loads without the Wails runtime (scripts/text-style-check.ts).
+const videoService = () => import("@/lib/api").then((m) => m.VideoService);
 
 // fonts.ts is the installed fonts a text overlay can use (Go:
 // internal/vid/fonts.go). A text stores a font's name; the preview draws it
@@ -47,7 +49,8 @@ const bump = () => {
 // the user installs one).
 export function loadFonts(refresh = false): Promise<FontInfo[]> {
   if (loading && !refresh) return loading;
-  loading = VideoService.ListFonts(refresh)
+  loading = videoService()
+    .then((vs) => vs.ListFonts(refresh))
     .then((list) => {
       failed = false;
       fonts = (list ?? []) as FontInfo[];
@@ -79,6 +82,12 @@ export function useFonts(): FontInfo[] | null {
   );
   if (!fonts && !loading) void loadFonts().catch(() => {});
   return fonts;
+}
+
+// useFontsVersion changes whenever the font list or a font file loads.
+export function useFontsVersion(): number {
+  useFonts();
+  return version;
 }
 
 // fontsFailed reports that the last attempt to list the fonts failed.
@@ -124,7 +133,9 @@ const checks = new Map<string, Promise<string>>();
 export function checkFont(name: string): Promise<string> {
   let p = checks.get(name);
   if (!p) {
-    p = VideoService.CheckFont(name).catch((err) => {
+    p = videoService()
+      .then((vs) => vs.CheckFont(name))
+      .catch((err) => {
       checks.delete(name);
       return String(err);
     });

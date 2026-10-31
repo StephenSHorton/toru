@@ -1231,6 +1231,47 @@ export class SpeedPointJSON {
 }
 
 /**
+ * TextImageJSON is a text drawn by the editor: a PNG (a data URL) and its
+ * top-left on the output frame (after crop), output px.
+ */
+export class TextImageJSON {
+    "png": string;
+    "x": number;
+    "y": number;
+    "w": number;
+    "h": number;
+
+    /** Creates a new TextImageJSON instance. */
+    constructor($$source: Partial<TextImageJSON> = {}) {
+        if (!("png" in $$source)) {
+            this["png"] = "";
+        }
+        if (!("x" in $$source)) {
+            this["x"] = 0;
+        }
+        if (!("y" in $$source)) {
+            this["y"] = 0;
+        }
+        if (!("w" in $$source)) {
+            this["w"] = 0;
+        }
+        if (!("h" in $$source)) {
+            this["h"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TextImageJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TextImageJSON {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TextImageJSON($$parsedSource as Partial<TextImageJSON>);
+    }
+}
+
+/**
  * TextJSON is a v1 text overlay in output time (ms).
  */
 export class TextJSON {
@@ -1252,6 +1293,12 @@ export class TextJSON {
     "font"?: string;
     "start": number;
     "end": number;
+
+    /**
+     * Style and Image: the editor's styled text (project_text.go).
+     */
+    "style"?: TextStyleJSON | null;
+    "image"?: TextImageJSON | null;
 
     /** Creates a new TextJSON instance. */
     constructor($$source: Partial<TextJSON> = {}) {
@@ -1284,7 +1331,15 @@ export class TextJSON {
      * Creates a new TextJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): TextJSON {
+        const $$createField9_0 = $$createType38;
+        const $$createField10_0 = $$createType40;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("style" in $$parsedSource) {
+            $$parsedSource["style"] = $$createField9_0($$parsedSource["style"]);
+        }
+        if ("image" in $$parsedSource) {
+            $$parsedSource["image"] = $$createField10_0($$parsedSource["image"]);
+        }
         return new TextJSON($$parsedSource as Partial<TextJSON>);
     }
 }
@@ -1360,6 +1415,40 @@ export class TextOverlay {
 }
 
 /**
+ * TextStyleJSON is the part of the editor's text style the export applies
+ * itself; the rest is already in the image.
+ */
+export class TextStyleJSON {
+    /**
+     * 0..1; nil = 1
+     */
+    "opacity"?: number | null;
+
+    /**
+     * T in ms from the text's start
+     */
+    "opacityKeys"?: KeyframeJSON[];
+
+    /** Creates a new TextStyleJSON instance. */
+    constructor($$source: Partial<TextStyleJSON> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TextStyleJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TextStyleJSON {
+        const $$createField1_0 = $$createType9;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("opacityKeys" in $$parsedSource) {
+            $$parsedSource["opacityKeys"] = $$createField1_0($$parsedSource["opacityKeys"]);
+        }
+        return new TextStyleJSON($$parsedSource as Partial<TextStyleJSON>);
+    }
+}
+
+/**
  * TrackJSON is one timeline track. Clips are sorted by start and never
  * overlap. A hidden video track draws nothing; a muted track plays no audio.
  */
@@ -1403,7 +1492,7 @@ export class TrackJSON {
      * Creates a new TrackJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): TrackJSON {
-        const $$createField5_0 = $$createType38;
+        const $$createField5_0 = $$createType42;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("clips" in $$parsedSource) {
             $$parsedSource["clips"] = $$createField5_0($$parsedSource["clips"]);
@@ -1536,5 +1625,9 @@ const $$createType33 = TextJSON.createFrom;
 const $$createType34 = $Create.Array($$createType33);
 const $$createType35 = SpeedPointJSON.createFrom;
 const $$createType36 = $Create.Array($$createType35);
-const $$createType37 = ClipJSON.createFrom;
-const $$createType38 = $Create.Array($$createType37);
+const $$createType37 = TextStyleJSON.createFrom;
+const $$createType38 = $Create.Nullable($$createType37);
+const $$createType39 = TextImageJSON.createFrom;
+const $$createType40 = $Create.Nullable($$createType39);
+const $$createType41 = ClipJSON.createFrom;
+const $$createType42 = $Create.Array($$createType41);

@@ -5,23 +5,19 @@ import { NumberInput } from "@/components/ui/number-input";
 import { cn } from "@/lib/utils";
 import type { RenderedBox } from "@/trim/CropBox";
 import { FontPicker } from "@/trim/FontPicker";
-import { baselineShift, DEFAULT_FONT_CSS, DEFAULT_LINE_HEIGHT, fontFamily, fontInfo, useFonts } from "@/trim/fonts";
+import type { Text } from "@/trim/edl";
+import { useFontsVersion } from "@/trim/fonts";
+import { cleanText, hasDroppedChars, renderText, resolveStyle, textFontSize, textOpacityAt, TEXT_SIZES, MAX_FONT_PX, MIN_FONT_PX, type TextBitmap } from "@/trim/textRender";
 
-// TextOverlays draws the editor's text overlays over the player, exactly as
-// the export will (internal/vid/edit_text.go), and lets the user drag them
-// and edit them. It is laid over the rendered OUTPUT frame: the parent passes
-// the CSS box of the video, or of the crop rect when there is a crop, plus
-// that frame's size in video pixels.
+// TextOverlays draws the editor's text overlays over the player and lets
+// the user drag them and edit them. It is laid over the rendered OUTPUT
+// frame: the parent passes the CSS box of the video, or of the crop rect when
+// there is a crop, plus that frame's size in video pixels.
 //
-// Matching the export: the text's font (fonts.ts: the same file the export
-// draws with, or Segoe UI Semibold when it has none or this PC lacks it),
-// fontPx output pixels (older texts: 4/6/9% of the output height for s/m/l,
-// rounded), lines centred at the font's own line height (what drawtext
-// advances by), moved by baselineShift to drawtext's baseline, the block
-// centred on (x, y), and an outline 6% of the font size drawn under the
-// fill. Text goes
-// through cleanText, the same rules the export applies, so what is dropped
-// there (emoji) is not shown here either. Keep both sides in step.
+// Each text is drawn by textRender.ts at the output frame's pixel size and
+// shown scaled: the same bitmap the export composites, so what's on the
+// player is what's exported (font, outline, shadow, box, spacing). The
+// whole-text opacity (keyframable) is applied on top, as the export does.
 //
 // Positions are fractions of the output frame (0..1, the text's centre);
 // times are output seconds. A drag or an edit reports once, when it ends,
@@ -30,94 +26,61 @@ import { baselineShift, DEFAULT_FONT_CSS, DEFAULT_LINE_HEIGHT, fontFamily, fontI
 export type OverlaySize = "s" | "m" | "l";
 
 // Same shape as edl.ts's Text.
-export type OverlayText = {
-  id: string;
-  text: string;
-  x: number;
-  y: number;
-  size: OverlaySize;
-  fontPx?: number; // output px; unset = from size
-  font?: string; // installed font's name; unset/"" = the default
-  start: number;
-  end: number;
-};
+export type OverlayText = Text;
 
-export const TEXT_SIZES: Record<OverlaySize, number> = { s: 0.04, m: 0.06, l: 0.09 };
-// Font size limits in output px (Go: MaxTextFontPx).
-export const MIN_FONT_PX = 4;
-export const MAX_FONT_PX = 1000;
-const BORDER_RATIO = 0.06;
+export { MAX_FONT_PX, MIN_FONT_PX, TEXT_SIZES, textFontSize } from "@/trim/textRender";
+
 // A seek lands on the frame at or before the time asked for, so a text added
 // at the playhead starts a few ms after the frame on screen. This much slack
 // (under a frame at 24fps) keeps it showing on that frame.
 const START_SLACK = 0.04;
 
-// presetFontPx is a preset size in output pixels (Go: TextFontSize).
+// presetFontPx is a preset size in output pixels.
 export function presetFontPx(size: OverlaySize, frameH: number): number {
   return Math.max(1, Math.round(TEXT_SIZES[size] * frameH));
 }
 
-// textFontSize is a text's font size in output pixels (Go: textPx): fontPx
-// when set, else its preset size.
-export function textFontSize(t: { size: OverlaySize; fontPx?: number }, frameH: number): number {
-  if (t.fontPx && t.fontPx > 0) return Math.min(Math.round(t.fontPx), MAX_FONT_PX);
-  return presetFontPx(t.size, frameH);
-}
-
-// textFont is how the preview draws t's font: the installed face, or the
-// default when it has none or it isn't installed (as the export falls back).
-function textFont(t: OverlayText, fontPx: number) {
-  const f = fontInfo(t.font);
-  if (!f) return { family: DEFAULT_FONT_CSS, weight: 600, lineHeight: DEFAULT_LINE_HEIGHT, shift: 0 };
-  return { family: fontFamily(f), weight: 400, lineHeight: f.lineHeight, shift: baselineShift(f, fontPx) };
-}
-
-// Emoji blocks and the invisible runes that build emoji sequences (Go:
-// isEmojiRune). Segoe UI has no glyphs for them.
-const EMOJI =
-  /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{E0020}-\u{E007F}\u{200D}\u{20E3}]/gu;
-
-// cleanText is the text as the export draws it (Go: CleanOverlayText).
-export function cleanText(s: string): string {
-  const lines = s
-    .replace(/\r\n?/g, "\n")
-    .replace(/\t/g, " ")
-    .replace(EMOJI, "")
-    .split("\n")
-    .map((l) => l.replace(/ +$/, ""));
-  return lines.join("\n").replace(/^\n+|\n+$/g, "");
-}
-
-export const hasDroppedChars = (s: string) => s.replace(EMOJI, "") !== s;
-
-// textStyle places and styles one overlay over a frameH-tall frame drawn
-// `scale` CSS px per output px, inside a box positioned at the frame's origin.
-export function textStyle(t: OverlayText, box: RenderedBox, frameH: number): CSSProperties {
-  const scale = box.height / frameH;
-  const fontPx = textFontSize(t, frameH);
-  const border = Math.max(1, Math.round(fontPx * BORDER_RATIO));
-  const font = textFont(t, fontPx);
-  return {
-    position: "absolute",
-    left: box.left + clamp01(t.x) * box.width,
-    top: box.top + clamp01(t.y) * box.height,
-    transform: `translate(-50%, calc(-50% + ${font.shift * scale}px))`,
-    fontFamily: font.family,
-    fontWeight: font.weight,
-    fontSynthesis: "none",
-    fontSize: fontPx * scale,
-    lineHeight: font.lineHeight,
-    whiteSpace: "pre",
-    textAlign: "center",
-    color: "white",
-    // The stroke is centred on the outline and paint-order puts it under the
-    // fill, so only the outer half shows: border px outside, like drawtext.
-    WebkitTextStroke: `${2 * border * scale}px rgba(0, 0, 0, 0.8)`,
-    paintOrder: "stroke fill",
-  };
-}
-
 const clamp01 = (n: number) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.5);
+
+// TextBitmapView shows one text's bitmap over the frame box, cached until
+// the text, the frame size or the fonts change.
+function TextBitmapView({ bmp, box, scale, opacity }: { bmp: TextBitmap; box: RenderedBox; scale: number; opacity: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    cv.width = bmp.canvas.width;
+    cv.height = bmp.canvas.height;
+    const ctx = cv.getContext("2d")!;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(bmp.canvas, 0, 0);
+  }, [bmp]);
+  return (
+    <canvas
+      ref={ref}
+      aria-hidden
+      className="pointer-events-none absolute z-20"
+      style={{ left: box.left + bmp.x * scale, top: box.top + bmp.y * scale, width: bmp.canvas.width * scale, height: bmp.canvas.height * scale, opacity }}
+    />
+  );
+}
+
+// useBitmaps renders each text once per change (text, style, font, frame
+// size, a font file loading).
+function useBitmaps(texts: OverlayText[], frameW: number, frameH: number, fontsVersion: unknown) {
+  const cache = useRef(new Map<string, { key: string; bmp: TextBitmap | null }>());
+  const out = new Map<string, TextBitmap | null>();
+  for (const t of texts) {
+    const key = JSON.stringify([t.text, t.style, t.font, t.fontPx, t.size, t.x, t.y, frameW, frameH, fontsVersion]);
+    let hit = cache.current.get(t.id);
+    if (!hit || hit.key !== key) {
+      hit = { key, bmp: renderText(t, frameW, frameH, "Text") };
+      cache.current.set(t.id, hit);
+    }
+    out.set(t.id, hit.bmp);
+  }
+  return out;
+}
 
 export interface TextOverlaysProps {
   texts: OverlayText[];
@@ -142,7 +105,12 @@ export function TextOverlays({ texts, time, frameW, frameH, box, selectedId, onS
   // The selected text while it's being typed or resized in the editor:
   // shown live, reported once when the edit lands.
   const [draft, setDraft] = useState<OverlayText | null>(null);
-  useFonts(); // re-render once the font list (and each font file) loads
+  const fontsVersion = useFontsVersion(); // re-render once the font list (and each font file) loads
+  const shownTexts = texts.map((t) => {
+    const base = draft?.id === t.id ? draft : t;
+    return dragPos?.id === t.id ? { ...base, x: dragPos.x, y: dragPos.y } : base;
+  });
+  const bitmaps = useBitmaps(shownTexts, frameW, frameH, fontsVersion);
 
   if (frameW <= 0 || frameH <= 0 || box.width <= 0 || box.height <= 0) return null;
 
@@ -175,36 +143,37 @@ export function TextOverlays({ texts, time, frameW, frameH, box, selectedId, onS
 
   return (
     <>
-      {texts.map((t) => {
+      {texts.map((t, i) => {
         const isSel = t.id === selectedId;
         const active = time >= t.start - START_SLACK && time < t.end;
         if (!active && !isSel) return null;
-        const base = draft?.id === t.id ? draft : t;
-        const shown = dragPos?.id === t.id ? { ...base, x: dragPos.x, y: dragPos.y } : base;
+        const shown = shownTexts[i];
         const body = cleanText(shown.text);
+        const bmp = bitmaps.get(t.id);
+        const scale = box.height / frameH;
+        const op = textOpacityAt(resolveStyle(shown.style), Math.max(0, time - t.start));
+        const blk = bmp?.block ?? { left: clamp01(shown.x) * frameW - 20, top: clamp01(shown.y) * frameH - 10, width: 40, height: 20 };
         return (
-          <div
-            key={t.id}
-            role="button"
-            aria-label={`Text: ${body || "empty"}`}
-            title="Drag to move"
-            onPointerDown={begin(t)}
-            onPointerMove={move}
-            onPointerUp={end(t)}
-            onLostPointerCapture={() => {
-              drag.current = null;
-              setDragPos(null);
-            }}
-            onClick={(e) => e.stopPropagation()}
-            style={textStyle(shown, box, frameH)}
-            className={cn(
-              "z-20 cursor-move touch-none select-none outline-offset-4",
-              isSel ? "outline-2 outline-dashed outline-primary" : "hover:outline-1 hover:outline-dashed hover:outline-white/60",
-              !active && "opacity-40",
-            )}
-          >
-            {/* An empty text still needs a box to grab. */}
-            {body || <span className="text-white/50 [-webkit-text-stroke:0]">Text</span>}
+          <div key={t.id}>
+            {bmp ? <TextBitmapView bmp={bmp} box={box} scale={scale} opacity={active ? (body ? op : 0.5) : 0.4} /> : null}
+            <div
+              role="button"
+              aria-label={`Text: ${body || "empty"}`}
+              title="Drag to move"
+              onPointerDown={begin(t)}
+              onPointerMove={move}
+              onPointerUp={end(t)}
+              onLostPointerCapture={() => {
+                drag.current = null;
+                setDragPos(null);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              style={{ position: "absolute", left: box.left + blk.left * scale, top: box.top + blk.top * scale, width: blk.width * scale, height: blk.height * scale }}
+              className={cn(
+                "z-20 cursor-move touch-none select-none outline-offset-4",
+                isSel ? "outline-2 outline-dashed outline-primary" : "hover:outline-1 hover:outline-dashed hover:outline-white/60",
+              )}
+            />
           </div>
         );
       })}
@@ -233,7 +202,7 @@ export function TextOverlays({ texts, time, frameW, frameH, box, selectedId, onS
 function textAnchor(t: OverlayText, box: RenderedBox, frameH: number) {
   const lines = Math.max(1, cleanText(t.text).split("\n").length);
   const px = textFontSize(t, frameH);
-  const half = (lines * textFont(t, px).lineHeight * px * (box.height / frameH)) / 2;
+  const half = (lines * 1.33 * resolveStyle(t.style).lineSpacing * px * (box.height / frameH)) / 2;
   return { x: box.left + clamp01(t.x) * box.width, y: box.top + clamp01(t.y) * box.height, half };
 }
 

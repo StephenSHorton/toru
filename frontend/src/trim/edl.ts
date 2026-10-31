@@ -15,7 +15,46 @@ export type Seg = { id: string; source: number; start: number; end: number }; //
 // size is the older preset (4/6/9% of the output height), used when fontPx
 // is unset; font is an installed font's name (fonts.ts), "" or unset for the
 // default (Segoe UI Semibold).
-export type Text = { id: string; text: string; x: number; y: number; size: "s" | "m" | "l"; fontPx?: number; font?: string; start: number; end: number }; // output time
+export type Text = {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  size: "s" | "m" | "l";
+  fontPx?: number;
+  font?: string;
+  start: number;
+  end: number; // output time
+  style?: TextStyle; // unset fields: the classic look (textRender.ts TEXT_DEFAULTS)
+};
+
+// TextStyle is how a text is drawn (trim/textRender.ts). Lengths are
+// fractions of the font size, so a style looks the same at any size;
+// colours are "#rrggbb" with a separate opacity 0..1.
+export type TextStyle = {
+  color?: string; // fill
+  fillOpacity?: number;
+  outlineColor?: string;
+  outlineOpacity?: number; // 0 = no outline
+  outlineWidth?: number; // fraction of the font size, outside the glyphs
+  shadowColor?: string;
+  shadowOpacity?: number; // 0 = no shadow
+  shadowX?: number;
+  shadowY?: number;
+  shadowBlur?: number;
+  boxColor?: string;
+  boxOpacity?: number; // 0 = no box
+  boxPad?: number;
+  boxRadius?: number;
+  bold?: boolean;
+  italic?: boolean;
+  letterSpacing?: number; // fraction of the font size between letters
+  lineSpacing?: number; // multiplies the font's line height
+  align?: "left" | "center" | "right";
+  opacity?: number; // the whole text, 0..1
+  // Keyframes on the whole text's opacity, t in seconds from the text's start.
+  opacityKeys?: { t: number; v: number; ease: "linear" | "in" | "out" | "inOut" | "hold" }[];
+};
 export type Edl = { sources: Source[]; segs: Seg[]; texts: Text[] }; // segs in output order
 
 // Local mirror of internal/vid EditRequest (card #2) until its bindings land;
