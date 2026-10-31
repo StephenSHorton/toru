@@ -68,9 +68,16 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work
 	var audioIn []string
 	layer := 0
 	for _, t := range p.Tracks {
-		for _, c := range t.Clips {
+		shows := func(c ClipJSON) bool {
+			return t.Kind == "video" && !t.Hidden && media[c.Media].Kind != "audio" && clipMaxOpacity(c) > 0
+		}
+		trans := trackTransitions(t, shows)
+		// A run is clips joined by transitions: their layers go through
+		// xfade one after another, then onto the picture as one.
+		run, runStart := "", 0
+		for i, c := range t.Clips {
 			m := media[c.Media]
-			showVideo := t.Kind == "video" && !t.Hidden && m.Kind != "audio" && clipMaxOpacity(c) > 0
+			showVideo := shows(c)
 			audible := !t.Muted && (m.Kind == "audio" || m.HasAudio)
 			var picks []audioPick
 			if audible && !c.Hold { // a freeze frame is silent
@@ -79,24 +86,59 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work
 			if !showVideo && len(picks) == 0 {
 				continue
 			}
+			trIn, hasIn := trans[i]
+			trOut, hasOut := trans[i+1]
 			in := addInput(c, m)
 			if showVideo {
+				padStart, padEnd := 0, 0
+				if hasIn {
+					padStart = trIn.Half()
+				}
+				if hasOut {
+					padEnd = trOut.Duration - trOut.Half()
+				}
 				label := fmt.Sprintf("[v%d]", layer)
-				pre, chain, x, y, err := clipVideoChain(in, c, m, w, h, fps, work, layer)
+				pre, chain, x, y, err := clipVideoChain(in, c, m, w, h, fps, work, layer, padStart, padEnd)
 				if err != nil {
 					return nil, err
 				}
 				graph = append(graph, pre...)
 				graph = append(graph, chain+label)
-				out := fmt.Sprintf("[o%d]", layer)
-				graph = append(graph, fmt.Sprintf("%s%soverlay=x=%s:y=%s:eof_action=pass:enable='between(t,%s,%s)'%s",
-					videoOut, label, x, y, msSeconds(c.Start), msSeconds(c.Start+ClipLengthMs(c)), out))
-				videoOut = out
+				end := c.Start + ClipLengthMs(c)
+				if !hasIn && !hasOut {
+					out := fmt.Sprintf("[o%d]", layer)
+					graph = append(graph, fmt.Sprintf("%s%soverlay=x=%s:y=%s:eof_action=pass:enable='between(t,%s,%s)'%s",
+						videoOut, label, x, y, msSeconds(c.Start), msSeconds(end), out))
+					videoOut = out
+				} else {
+					lay := fmt.Sprintf("[l%d]", layer)
+					graph = append(graph, transitionLayer(label, lay, w, h, fps, c.Start-padStart, ClipLengthMs(c)+padStart+padEnd, x, y))
+					if !hasIn {
+						run, runStart = lay, c.Start
+					} else {
+						joined := fmt.Sprintf("[x%d]", layer)
+						graph = append(graph, xfadeFilter(run, lay, joined, trIn, runStart))
+						run = joined
+					}
+					if !hasOut {
+						out := fmt.Sprintf("[o%d]", layer)
+						graph = append(graph, fmt.Sprintf("%s%soverlay=eof_action=pass:enable='between(t,%s,%s)'%s",
+							videoOut, run, msSeconds(runStart), msSeconds(end), out))
+						videoOut, run = out, ""
+					}
+				}
 				layer++
 			}
 			if len(picks) > 0 {
 				label := fmt.Sprintf("[c%d]", len(audioIn))
-				graph = append(graph, clipAudioChains(in, c, picks, label)...)
+				var cut []string
+				if hasIn {
+					cut = append(cut, "afade=t=in:st=0:d="+msSeconds(trIn.Duration-trIn.Half()))
+				}
+				if hasOut {
+					cut = append(cut, fmt.Sprintf("afade=t=out:st=%s:d=%s", msSeconds(ClipLengthMs(c)-trOut.Half()), msSeconds(trOut.Half())))
+				}
+				graph = append(graph, clipAudioChains(in, c, picks, label, cut)...)
 				audioIn = append(audioIn, label)
 			}
 		}
@@ -168,7 +210,7 @@ func filterComplexArgs(graph, work string) ([]string, error) {
 // statements the effects need first (a v3 stack is a small graph of its
 // own; layer keeps its labels unique), the chain (without its output label)
 // and where its top-left goes on the canvas (overlay x/y arguments).
-func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64, work string, layer int) ([]string, string, string, string, error) {
+func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64, work string, layer int, padStart, padEnd int) ([]string, string, string, string, error) {
 	head := fmt.Sprintf("[%d:v]", in)
 	var pre []string
 	if m.Untagged709 && m.Kind == "video" {
@@ -212,7 +254,12 @@ func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64, work
 		return nil, "", "", "", err
 	}
 	parts = append(parts, place...)
-	parts = append(parts, fmt.Sprintf("setpts=PTS+%s/TB", msSeconds(c.Start)))
+	if padStart > 0 || padEnd > 0 {
+		// A transition holds the edge frames (transitions.go): the first one
+		// for padStart before the clip, the last one for padEnd after it.
+		parts = append(parts, fmt.Sprintf("tpad=start_mode=clone:start_duration=%s:stop_mode=clone:stop_duration=%s", msSeconds(padStart), msSeconds(padEnd)))
+	}
+	parts = append(parts, fmt.Sprintf("setpts=PTS+%s/TB", msSeconds(c.Start-padStart)))
 	return pre, head + strings.Join(parts, ","), x, y, nil
 }
 
@@ -291,7 +338,7 @@ func clipAudioPicks(c ClipJSON, m MediaJSON) []audioPick {
 // clipAudioChains leaves a clip's audio on label: its picked streams at
 // their levels (summed when several), then speed, volume and fades
 // (ClipAudioFilter), delayed to the clip's start.
-func clipAudioChains(in int, c ClipJSON, picks []audioPick, label string) []string {
+func clipAudioChains(in int, c ClipJSON, picks []audioPick, label string, cut []string) []string {
 	src := fmt.Sprintf("[ca%d]", in)
 	var chains []string
 	var mixIn strings.Builder
@@ -323,6 +370,8 @@ func clipAudioChains(in int, c ClipJSON, picks []audioPick, label string) []stri
 	if f := ClipAudioFilter(c, float64(ClipLengthMs(c))/1000); f != "" {
 		parts = append(parts, f)
 	}
+	// Fades at a transition's cut (transitions.go), on top of the clip's own.
+	parts = append(parts, cut...)
 	if c.Start > 0 {
 		parts = append(parts, fmt.Sprintf("adelay=delays=%d:all=1", c.Start))
 	}

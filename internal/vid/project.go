@@ -57,6 +57,7 @@ type ClipJSON struct {
 	Hold        bool                      `json:"hold,omitempty"`        // freeze frame: source frame In for Out-In ms, silent
 	Reversed    bool                      `json:"reversed,omitempty"`    // source range plays backwards
 	BlendFrames string                    `json:"blendFrames,omitempty"` // "" | "off" | "mix" | "smooth"
+	Transition  *TransitionJSON           `json:"transition,omitempty"`  // with the clip before it (transitions.go)
 }
 
 // TransformJSON places a clip on the canvas: centre (0..1 of the canvas),
