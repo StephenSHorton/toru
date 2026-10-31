@@ -105,7 +105,7 @@ func TestTimeEffectsRunInFFmpeg(t *testing.T) {
 		}
 		in := []string{"-i", src}
 		if tc.c.Hold {
-			in = holdInputArgs(tc.c, src)
+			in = holdInputArgs(tc.c, src, 30)
 		}
 		args := append(in, "-filter_complex", strings.Join(graph, ";"), "-map", "[v]", "-c:v", "mpeg4", "-q:v", "5", out)
 		run(tc.name, args...)

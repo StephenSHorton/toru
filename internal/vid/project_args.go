@@ -52,7 +52,7 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work
 			}
 			args = append(args, "-loop", "1", "-framerate", formatFPS(fps), "-t", msSeconds(ClipLengthMs(c)), "-i", m.Path)
 		} else if c.Hold {
-			args = append(args, holdInputArgs(c, m.Path)...)
+			args = append(args, holdInputArgs(c, m.Path, m.FPS)...)
 		} else {
 			args = append(args, "-ss", msSeconds(c.In), "-t", msSeconds(c.Out-c.In), "-i", m.Path)
 		}

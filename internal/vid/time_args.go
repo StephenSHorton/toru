@@ -3,6 +3,7 @@ package vid
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -11,10 +12,27 @@ import (
 // curve or freeze, and how slow motion is blended. project_args.go calls
 // these where it times a clip. Pure: no ffmpeg calls, no file access.
 
-// holdInputArgs is a freeze frame's input: just past its frame, since only
-// the first decoded frame is used.
-func holdInputArgs(c ClipJSON, path string) []string {
-	return []string{"-ss", msSeconds(c.In), "-t", "0.5", "-i", path}
+// holdInputArgs is a freeze frame's input; only its first decoded frame is
+// used (clipTiming). fps is the media's frame rate (0 if unknown).
+func holdInputArgs(c ClipJSON, path string, fps float64) []string {
+	return []string{"-ss", holdSeek(c.In, fps), "-t", "0.5", "-i", path}
+}
+
+// holdSeek is the -ss that makes a freeze frame's first decoded frame the
+// one the preview shows. The preview sets the video element to `in`, which
+// shows the frame whose interval contains `in` (it started at or before
+// it). An input -ss drops every frame that starts before it, so -ss in
+// would give the NEXT frame whenever `in` falls inside a frame. Seeking a
+// quarter frame before that frame's start keeps it and drops the one
+// before. Six decimals, since a quarter frame at 240 fps is ~1 ms.
+func holdSeek(inMs int, fps float64) string {
+	if !(fps > 0) {
+		return msSeconds(inMs)
+	}
+	in := float64(inMs) / 1000
+	// The tolerance absorbs float error when `in` is exactly on a frame.
+	start := math.Floor(in*fps+1e-6) / fps
+	return strconv.FormatFloat(math.Max(0, start-0.25/fps), 'f', 6, 64)
 }
 
 // clipTiming is the filters that time a video clip's frames, from its
