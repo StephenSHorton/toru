@@ -10,8 +10,11 @@
 // Phases:
 //   time  speed ramp (bullet) + frame blending, reversed clip, freeze frame (C5)
 //   fx    a saved v3 project with effects, effect keyframes and anim keys,
-//         opened with project.open (C3); uses editor.addEffect/setKeyframe
-//         instead once they exist (C7)
+//         opened with project.open (C3)
+//   fx7   the same kind of stack through C7's commands: a .cube imported
+//         (preset.importLut) and used as a lut effect, editor.addEffect /
+//         setKeyframe, a filter saved, exported to .torufx, imported and
+//         applied (editor.savePreset, preset.export/import, applyPreset)
 //   ui    screenshots of every inspector tab over CDP (C6); needs the build
 //         started with --remote-debugging-port (TORU_CDP, default 9333)
 //
@@ -40,7 +43,7 @@ const DRY = flag("dry");
 const KEEP = flag("keep");
 const EXE = opt("exe");
 const OUT = path.resolve(opt("out", path.join(os.tmpdir(), `toru-realbuild-${Date.now()}`)));
-const PHASES = opt("phases", "time,fx,ui").split(",").map((s) => s.trim());
+const PHASES = opt("phases", "time,fx,fx7,ui").split(",").map((s) => s.trim());
 const URL_ = opt("url");
 const CDP = Number(process.env.TORU_CDP || 9333);
 const FFMPEG = process.env.FFMPEG || "ffmpeg";
@@ -326,7 +329,6 @@ export function fxProject(media: Media, id: string): Project {
 
 async function phaseFx(src: string) {
   say("== fx: v3 effects, effect keys and anim keys");
-  if (hasCommand("editor.addEffect")) say("  note: editor.addEffect exists (C7); this phase still opens a saved project so it checks the same stack every run");
   ctl("editor.open", { path: src });
   const g = await until("editor window", () => ctl("editor.get"));
   const m = g.media[0];
@@ -349,6 +351,101 @@ async function phaseFx(src: string) {
   }
   await sleep(1500);
   await compare("fx", samples(vt.clips, got.canvas.fps, 8), projectDuration(p), got.canvas.fps);
+}
+
+// ---- phase: fx7 (C7 commands) -----------------------------------------------
+
+// makeCube writes a 17³ .cube that swaps red and blue: unmistakable on the
+// coloured seconds (red reads blue), and smooth, so the preview's 3D-LUT
+// texture and ffmpeg's lut3d interpolate it the same way.
+export function makeCube(file: string, n = 17) {
+  const lines = ["TITLE \"Toru check swap RB\"", `LUT_3D_SIZE ${n}`];
+  for (let b = 0; b < n; b++)
+    for (let g = 0; g < n; g++)
+      for (let r = 0; r < n; r++) lines.push(`${(b / (n - 1)).toFixed(6)} ${(g / (n - 1)).toFixed(6)} ${(r / (n - 1)).toFixed(6)}`);
+  fs.writeFileSync(file, lines.join("\n") + "\n");
+}
+
+// Ids this run created in Toru's stores, removed in the phase's finally.
+const made = { presets: [] as string[], luts: [] as string[] };
+
+// phaseFx7 builds the stack through C7's agent commands instead of a saved
+// project: a .cube imported with preset.importLut and put on clip A
+// (editor.addEffect lut), a gaussian blur keyed with editor.setKeyframe, a
+// keyed opacity; A's stack saved as a filter (editor.savePreset), written to
+// a .torufx (preset.export), imported back (preset.import) and applied to
+// clip B (editor.applyPreset), then a built-in look on B on top.
+async function phaseFx7(src: string) {
+  say("== fx7: C7 commands (LUT import, effects, keyframes, presets, .torufx)");
+  if (!hasCommand("editor.addEffect")) {
+    fail("fx7: this build has no editor.addEffect (C7 isn't in it)");
+    return;
+  }
+  const dir = path.join(OUT, "fx7");
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    // Its file name is its id in Toru's LUT folder: stamped, so it never
+    // replaces one of Blake's.
+    const cube = path.join(MEDIA_DIR, `toru-check-${stamp}.cube`);
+    makeCube(cube);
+    const lut = ctl("preset.importLut", { path: cube });
+    made.luts.push(lut.id);
+    say(`  imported LUT ${lut.id} (${lut.name}, size ${lut.size})`);
+
+    ctl("editor.open", { path: src });
+    let g = await until("editor window", () => ctl("editor.get"));
+    let vt = g.tracks.find((t: { kind: string }) => t.kind === "video");
+    const aId: string = vt.clips[0].id;
+    const bId: string = ctl("editor.split", { t: 3, trackId: vt.id }).newClips[0];
+
+    ctl("editor.addEffect", { clipId: aId, type: "lut", params: { lut: lut.id, amount: 1 } });
+    const blur = ctl("editor.addEffect", { clipId: aId, type: "gaussianBlur", params: { sigma: 0 } });
+    ctl("editor.setKeyframe", { clipId: aId, effectId: blur.effectId, param: "sigma", t: 0.2, value: 0, ease: "linear" });
+    ctl("editor.setKeyframe", { clipId: aId, effectId: blur.effectId, param: "sigma", t: 2.6, value: 8, ease: "linear" });
+    ctl("editor.setKeyframe", { clipId: aId, target: "opacity", t: 0, value: 1, ease: "linear" });
+    ctl("editor.setKeyframe", { clipId: aId, target: "opacity", t: 2.9, value: 0.5, ease: "linear" });
+
+    // A's stack → My filters → .torufx → imported copy → clip B.
+    const saved = ctl("editor.savePreset", { clipId: aId, name: `Toru check ${stamp}` });
+    made.presets.push(saved.id);
+    const torufx = ctl("preset.export", { id: saved.id, path: path.join(dir, `toru-check-${stamp}.torufx`) }).path;
+    const imported = ctl("preset.import", { path: torufx });
+    made.presets.push(imported.id);
+    say(`  saved filter ${saved.id} (${saved.effects} effects) → ${torufx} → imported ${imported.id}`);
+    ctl("editor.applyPreset", { clipId: bId, presetId: imported.id, replace: true });
+    const look = (ctl("preset.list").presets as { id: string; name: string; builtin?: boolean }[]).find((x) => x.builtin && /sepia|cool|warm|vintage/i.test(x.name + x.id));
+    if (look) ctl("editor.applyPreset", { clipId: bId, presetId: look.id });
+    else fail("fx7: preset.list has no built-in look");
+
+    g = ctl("editor.get");
+    vt = g.tracks.find((t: { id: string }) => t.id === vt.id);
+    for (const c of vt.clips as CtlClip[]) say(`  ${c.id} ${c.start.toFixed(3)}-${c.end.toFixed(3)} effects ${(c.effects ?? []).map((e) => e.type + (e.keys ? "(keyed)" : "")).join(", ")}${c.anim ? ` anim ${Object.keys(c.anim).join("/")}` : ""}`);
+    const B = (vt.clips as CtlClip[]).find((c) => c.id === bId);
+    if (!B?.effects?.some((e) => e.type === "lut")) fail("fx7: the imported .torufx didn't bring the LUT to clip B");
+
+    // The LUT must show in the export too: A's first second is red in the
+    // source, blue through the swap.
+    await sleep(1500);
+    const out = await compare("fx7", samples(vt.clips, g.canvas.fps, 8), g.duration, g.canvas.fps);
+    const first = describe(rgb(out, 0.5));
+    say(`  export at 0.5 s: ${first} (source is red there; the LUT makes it blue)`);
+    if (!first.startsWith("blue")) fail("fx7: the export doesn't show the LUT");
+  } finally {
+    for (const id of made.presets.splice(0)) {
+      try {
+        ctl("preset.delete", { id, confirm: true });
+      } catch (e) {
+        say(`  cleanup: preset ${id}: ${e}`);
+      }
+    }
+    for (const id of made.luts.splice(0)) {
+      try {
+        ctl("preset.deleteLut", { id, confirm: true });
+      } catch (e) {
+        say(`  cleanup: LUT ${id}: ${e}`);
+      }
+    }
+  }
 }
 
 // ---- phase: ui (C6) ------------------------------------------------------------
@@ -475,6 +572,17 @@ async function dry(src: string) {
   const vt = p.tracks.find((t) => t.kind === "video")!;
   say(`  ${f}: ${vt.clips.map((c) => `${c.id} ${c.start}-${clipEnd(c).toFixed(2)} [${(c.effects ?? []).map((e) => e.type).join(", ")}]`).join("; ")}`);
 
+  say("== dry: .cube LUT through ffmpeg lut3d (the export side of fx7)");
+  {
+    const cube = path.join(OUT, "swap-rb.cube");
+    makeCube(cube);
+    const png = path.join(OUT, "lut.png");
+    run(FFMPEG, ["-v", "error", "-y", "-ss", "0.5", "-i", src, "-frames:v", "1", "-vf", `lut3d=file='${cube.replaceAll("\\", "/").replace(":", "\\:")}'`, png]);
+    const got = describe(rgb(png));
+    say(`  red second through the LUT: ${got}`);
+    if (!got.startsWith("blue")) fail("dry: the swap-RB cube doesn't turn red into blue");
+  }
+
   say("== dry: frame diff calibration (source encode vs its own frames)");
   const dir = path.join(OUT, "calib");
   fs.mkdirSync(dir, { recursive: true });
@@ -542,6 +650,7 @@ try {
   else {
     if (PHASES.includes("time")) await phaseTime(src);
     if (PHASES.includes("fx")) await phaseFx(src);
+    if (PHASES.includes("fx7")) await phaseFx7(src);
     if (PHASES.includes("ui")) await phaseUi(CDP, (u) => u.includes("view=edit"));
   }
 } catch (e) {
