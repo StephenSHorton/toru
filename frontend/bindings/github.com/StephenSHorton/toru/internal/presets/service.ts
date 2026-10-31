@@ -88,6 +88,36 @@ export function ListLuts(): $CancellablePromise<$models.Lut[]> {
 }
 
 /**
+ * PickExport asks where to save a filter as .torufx and writes it. It
+ * returns the path written, or "" when the dialog was cancelled.
+ */
+export function PickExport(id: string): $CancellablePromise<string> {
+    return $Call.ByID(2139035612, id);
+}
+
+/**
+ * PickImport asks for a .torufx file and adds it to My filters. ok is false
+ * when the dialog was cancelled.
+ */
+export function PickImport(): $CancellablePromise<[$models.Preset, boolean]> {
+    return $Call.ByID(2609996987).then(($result: any) => {
+        $result[0] = $$createType0($result[0]);
+        return $result;
+    });
+}
+
+/**
+ * PickLut asks for a .cube file and imports it. ok is false when the dialog
+ * was cancelled.
+ */
+export function PickLut(): $CancellablePromise<[$models.Lut, boolean]> {
+    return $Call.ByID(91672463).then(($result: any) => {
+        $result[0] = $$createType1($result[0]);
+        return $result;
+    });
+}
+
+/**
  * ReadLut is an imported LUT's .cube text (the preview parses it; the
  * folder isn't reachable from the page otherwise).
  */

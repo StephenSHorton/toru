@@ -31,6 +31,8 @@
 //   AgentService.GetEnabled / SetEnabled(on)  (agent control: the per-user pipe exists only while on)
 //   AgentService.RegisterWindowCommands(window, cmds) / UnregisterWindowCommands / TouchWindow / Respond(id, result, err)  (use @/lib/agent)
 //   MediaService.Thumbnail(id): Promise<string>  (JPEG URL for video, the image itself, "" for audio)
+//   PresetService.List / Get / Save(json) / Rename / Delete / Import(path) / Export(id, path) / PickImport / PickExport(id)  (saved filters, %AppData%/toru/presets; "presets:changed")
+//   PresetService.ListLuts / ImportLut(path) / PickLut / ReadLut(id) / DeleteLut(id)  (imported .cube LUTs, %AppData%/toru/luts)
 //   SettingsService.GetLaunchAtLogin(): Promise<boolean>
 //   SettingsService.SetLaunchAtLogin(enabled: boolean): Promise<void>  (registry Run key; --startup => silent-to-tray)
 //   SettingsService.GetNotifications / SetNotifications(o) -> NotificationOptions  (enabled, sound, volume 0..1, corner)
@@ -74,6 +76,8 @@ import * as VideoService from "../../bindings/github.com/StephenSHorton/toru/int
 import * as AgentService from "../../bindings/github.com/StephenSHorton/toru/internal/agentctl/service.js";
 import { WindowCommand as AgentWindowCommand } from "../../bindings/github.com/StephenSHorton/toru/internal/agentctl/models.js";
 import * as MediaService from "../../bindings/github.com/StephenSHorton/toru/internal/media/service.js";
+import * as PresetService from "../../bindings/github.com/StephenSHorton/toru/internal/presets/service.js";
+import { Preset, Lut } from "../../bindings/github.com/StephenSHorton/toru/internal/presets/models.js";
 import { Media as BinMedia } from "../../bindings/github.com/StephenSHorton/toru/internal/media/models.js";
 import {
   MediaInfo,
@@ -158,6 +162,9 @@ export {
   AgentWindowCommand,
   MediaService,
   BinMedia,
+  PresetService,
+  Preset,
+  Lut,
   MediaInfo,
   AudioTrack,
   TrackLevel,

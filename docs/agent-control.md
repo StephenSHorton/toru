@@ -120,6 +120,22 @@ speed, audio, chroma, filters), `editor.setText`, `editor.removeText`,
 `editor.play`, `editor.pause`, `editor.export` (preset, path; returns the
 written path).
 
+Effects (TS, editor v3, `frontend/src/trim/agentCommandsFx.ts`):
+`editor.effects` (every effect type's params as JSON Schema, and which can
+be keyframed), `editor.addEffect`, `editor.setEffect` (params, on/off),
+`editor.removeEffect`, `editor.moveEffect`, `editor.setKeyframe` /
+`editor.removeKeyframe` (an effect param or a clip property: x, y, scale,
+opacity, rotation, volume; times in timeline seconds),
+`editor.applyPreset` (append as a group, or replace) and
+`editor.savePreset`. On a v3 clip, use these rather than
+`editor.updateClip`'s v2 `chroma`/`filters`.
+
+Saved filters and LUTs (Go, `agent_commands_presets.go`): `preset.list`
+(saved filters and the built-in looks), `preset.rename`, `preset.delete`
+(destructive), `preset.import` / `preset.export` (`.torufx`),
+`preset.luts`, `preset.importLut` (a `.cube` file; returns the id a `lut`
+effect takes) and `preset.deleteLut` (destructive).
+
 ## Work split (cards under #1)
 
 | Card | Owns | Needs |

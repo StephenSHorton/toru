@@ -5,6 +5,7 @@ import { VideoService } from "@/lib/api";
 import { ProjectExport } from "../../bindings/github.com/StephenSHorton/toru/internal/vid/models.js";
 import { registerTimeCommands } from "@/trim/agentCommandsTime";
 import type { CompositorHandle } from "@/trim/compositor/Compositor";
+import { registerFxCommands } from "@/trim/agentCommandsFx";
 import { newId } from "@/trim/edl";
 import type { MediaBinState } from "@/trim/MediaBin";
 import type { TimelineSelection } from "@/trim/MultiTimeline";
@@ -153,7 +154,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
       "editor.get",
       {
         description:
-          "The open edit: canvas, media, tracks (video bottom to top, then audio) with their clips (timeline start/end and source in/out in seconds, speed, volume, transform, green screen, filters), texts, crop, playhead, and whether undo/redo are possible.",
+          "The open edit: canvas, media, tracks (video bottom to top, then audio) with their clips (timeline start/end and source in/out in seconds, speed, volume, transform, effects with their ids, params and keyframes), texts, crop, playhead, and whether undo/redo are possible.",
         input: obj(),
       },
       async () => {
@@ -582,6 +583,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
     );
 
     registerTimeCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, clipOr, obj, lockedNote, selectClip: (id) => void selectClip(id) });
+    registerFxCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, clipOr, obj, lockedNote, selectClip: (id) => void selectClip(id) });
 
     return () => offs.forEach((off) => off());
   }, []);

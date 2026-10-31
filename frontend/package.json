@@ -14,7 +14,8 @@
     "test:fx-ops": "bun scripts/fx-ops-check.ts",
     "test:fx-check": "bun scripts/fx-check.ts",
     "test:fx-perf": "bun scripts/fx-perf.ts",
-    "test:migration": "bun scripts/migration-golden.ts"
+    "test:migration": "bun scripts/migration-golden.ts",
+    "test:fx-presets": "bun scripts/fx-presets-check.ts"
   },
   "dependencies": {
     "@lofcz/deepfilternet-web": "0.1.0",
