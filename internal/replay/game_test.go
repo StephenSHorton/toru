@@ -19,6 +19,10 @@ func TestGameFolderFor(t *testing.T) {
 		{"generic description falls back to title", foregroundApp{ExePath: `C:\X\Game-Win64-Shipping.exe`, Description: "BootstrapPackagedGame", Title: "Hollow: Knight?", Fullscreen: true}, "Hollow Knight"},
 		{"no title falls back to exe", foregroundApp{ExePath: `C:\X\Elden-Win64-Shipping.exe`, Fullscreen: true}, "Elden"},
 		{"fullscreen browser is not a game", foregroundApp{ExePath: `C:\Program Files\Google\Chrome\Application\chrome.exe`, Title: "YouTube", Fullscreen: true}, ""},
+		{"bar fullscreen", foregroundApp{ExePath: `C:\Users\b\AppData\Local\Programs\Beyond-All-Reason\data\engine\recoil_2026.07.04\spring.exe`, Title: "Beyond All Reason (Spring 2026.07.04)", Fullscreen: true}, "Beyond All Reason"},
+		{"bar windowed", foregroundApp{ExePath: `C:\Users\b\AppData\Local\Programs\Beyond-All-Reason\data\engine\recoil_2026.07.04\spring.exe`, Title: "Beyond All Reason (Spring 2026.07.04)"}, "Beyond All Reason"},
+		{"bar launcher is not a game", foregroundApp{ExePath: `C:\Users\b\AppData\Local\Programs\Beyond-All-Reason\Beyond-All-Reason.exe`, Description: "Beyond-All-Reason"}, ""},
+		{"title parenthesis without a version stays", foregroundApp{ExePath: `C:\X\g.exe`, Title: "Portal (Remix)", Fullscreen: true}, "Portal (Remix)"},
 		{"windowed non-library app", foregroundApp{ExePath: `C:\Tools\notepad.exe`, Title: "notes"}, ""},
 	}
 	for _, c := range cases {

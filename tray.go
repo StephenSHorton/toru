@@ -215,6 +215,10 @@ func (t *trayController) addReplayItems(menu *application.Menu) {
 		return
 	}
 	st := t.replay.GetSettings()
+	if st.Enabled && t.replay.CaptureTrouble() != "" {
+		// The buffer keeps retrying; this says so where a gamer looks.
+		menu.Add("Game recording: capture keeps stopping, retrying").SetEnabled(false)
+	}
 	if st.Enabled && st.Mode == replay.ModeManual {
 		label := "Start recording"
 		if t.replay.GetRecorderState().Manual {
