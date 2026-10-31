@@ -121,13 +121,17 @@ type TrackJSON struct {
 
 // TextJSON is a v1 text overlay in output time (ms).
 type TextJSON struct {
-	ID    string  `json:"id"`
-	Text  string  `json:"text"`
-	X     float64 `json:"x"`
-	Y     float64 `json:"y"`
-	Size  string  `json:"size"`
-	Start int     `json:"start"`
-	End   int     `json:"end"`
+	ID   string  `json:"id"`
+	Text string  `json:"text"`
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+	Size string  `json:"size"`
+	// FontPx is the size in output pixels; 0 in projects from before it
+	// existed, which use Size.
+	FontPx int    `json:"fontPx,omitempty"`
+	Font   string `json:"font,omitempty"` // installed font's name; "" = DefaultTextFont
+	Start  int    `json:"start"`
+	End    int    `json:"end"`
 }
 
 // CanvasJSON is the output frame before crop and the preset's scale.
@@ -279,7 +283,7 @@ func (req ProjectExport) Validate() error {
 func (p ProjectJSON) textOverlays() []TextOverlay {
 	out := make([]TextOverlay, 0, len(p.Texts))
 	for _, t := range p.Texts {
-		out = append(out, TextOverlay{Text: t.Text, X: t.X, Y: t.Y, Size: t.Size, StartMs: t.Start, EndMs: t.End})
+		out = append(out, TextOverlay{Text: t.Text, X: t.X, Y: t.Y, Size: t.Size, FontPx: t.FontPx, Font: t.Font, StartMs: t.Start, EndMs: t.End})
 	}
 	return out
 }
