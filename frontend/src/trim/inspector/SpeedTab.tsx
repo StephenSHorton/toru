@@ -2,17 +2,21 @@ import { useState } from "react";
 import { Snowflake } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NumberInput } from "@/components/ui/number-input";
+import { Progress } from "@/components/ui/progress";
 import { Segmented } from "@/components/ui/segmented";
+import { Switch } from "@/components/ui/switch";
 import { setSpeedCurve } from "@/trim/fx/ops";
 import { presetCurve, RAMP_PRESETS } from "@/trim/speed";
-import { clipLength, DEFAULT_FREEZE, freezeFrame, MAX_SPEED, MIN_SPEED, updateClip, type SpeedCurve } from "@/trim/project";
+import { clipLength, DEFAULT_FREEZE, freezeFrame, MAX_SPEED, MIN_SPEED, updateClip, type BlendFrames, type SpeedCurve } from "@/trim/project";
+import { useReverseState } from "@/trim/reverse";
 import { fmtSec, round, Section } from "@/trim/inspector/controls";
 import type { TabProps } from "@/trim/inspector/Inspector";
 import { SpeedCurveEditor } from "@/trim/inspector/SpeedCurveEditor";
 
 // SpeedTab: a constant speed (log slider, typed value, quick picks) or a
 // speed curve (ramp presets and the curve editor, with what the audio does
-// during a ramp), and a freeze frame at the playhead.
+// during a ramp), reverse (with the preview's "Preparing reverse… N%"),
+// how slow motion looks in the export, and a freeze frame at the playhead.
 
 const SPEEDS = [0.25, 0.5, 1, 1.5, 2, 4];
 
@@ -22,6 +26,10 @@ export function SpeedTab({ clip: c, track, media, t, edit }: TabProps) {
   const mode = c.speedCurve ? "curve" : "constant";
   const setCurve = (curve: SpeedCurve | undefined, what = "curve") => edit((p) => setSpeedCurve(p, c.id, curve), what);
   const visual = track.kind === "video" && media?.kind !== "audio";
+  const video = visual && media?.kind === "video";
+  const rev = useReverseState(c, media);
+  // Blending only changes the parts slower than 1x.
+  const slow = c.speedCurve ? c.speedCurve.points.some((q) => q.v < 1 - 1e-3) : c.speed < 1 - 1e-3;
 
   if (c.hold) {
     return (
@@ -126,6 +134,45 @@ export function SpeedTab({ clip: c, track, media, t, edit }: TabProps) {
           </>
         ) : null}
       </Section>
+
+      {video ? (
+        <Section
+          title="Reverse"
+          action={<Switch checked={!!c.reversed} onCheckedChange={(on) => edit((p) => updateClip(p, c.id, { reversed: on }), "reverse")} aria-label="Reverse" />}
+        >
+          {rev && !rev.url ? (
+            rev.error ? (
+              <div className="text-[11px] text-destructive">Couldn't prepare the reversed copy: {rev.error}</div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <div className="text-[11px] text-muted-foreground tabular-nums">Preparing reverse… {Math.round(rev.pct * 100)}%</div>
+                <Progress value={rev.pct * 100} />
+              </div>
+            )
+          ) : (
+            <div className="text-[11px] text-muted-foreground">Plays the whole clip backwards. Split it first to reverse only part of it.</div>
+          )}
+        </Section>
+      ) : null}
+
+      {video ? (
+        <Section title="Slow motion">
+          <Segmented
+            size="xs"
+            aria-label="Slow motion"
+            value={c.blendFrames ?? "off"}
+            options={[
+              { value: "off", label: "Off", title: "Frames repeat" },
+              { value: "mix", label: "Blend", title: "Neighbouring frames are mixed (quick)" },
+              { value: "smooth", label: "Smooth", title: "In-between frames are generated from the motion (a slow export)" },
+            ]}
+            onChange={(m: BlendFrames) => edit((p) => updateClip(p, c.id, { blendFrames: m }), "blend")}
+          />
+          <div className="text-[11px] text-muted-foreground">
+            {slow ? "Applies to the parts slower than 1× in the export. The preview repeats frames." : "Only changes parts slower than 1×; this clip has none yet."}
+          </div>
+        </Section>
+      ) : null}
 
       {visual ? (
         <Section title="Freeze frame at the playhead">
