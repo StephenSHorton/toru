@@ -3,6 +3,8 @@ package fx
 import (
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -88,5 +90,38 @@ func TestLutPath(t *testing.T) {
 	}
 	if _, err := LutPath("Teal Orange (2).cube"); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestLutBuilder(t *testing.T) {
+	dir := t.TempDir()
+	old := LutDir
+	LutDir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { LutDir = old })
+	text := "LUT_3D_SIZE 2\n"
+	for bi := 0; bi < 2; bi++ {
+		for g := 0; g < 2; g++ {
+			for r := 0; r < 2; r++ {
+				text += fmt.Sprintf("%d %d %d\n", 1-r, 1-g, 1-bi)
+			}
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Invert.cube"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	def, _ := Lookup("lut")
+	b := builders["lut"]
+	if steps := b(def.Resolve(map[string]any{}), Ctx{}); len(steps) != 0 {
+		t.Errorf("no LUT: %d steps", len(steps))
+	}
+	if steps := b(def.Resolve(map[string]any{"lut": "Missing.cube"}), Ctx{}); len(steps) != 0 {
+		t.Errorf("missing LUT: %d steps", len(steps))
+	}
+	steps := b(def.Resolve(map[string]any{"lut": "Invert.cube", "amount": 0.5}), Ctx{})
+	if len(steps) != 1 || steps[0].Color == nil {
+		t.Fatalf("steps = %+v", steps)
+	}
+	if got := steps[0].Color(RGB{0, 1, 0.25}); math.Abs(got[0]-0.5) > 1e-9 || math.Abs(got[1]-0.5) > 1e-9 || math.Abs(got[2]-0.5) > 1e-9 {
+		t.Errorf("half invert = %v", got)
 	}
 }
