@@ -28,7 +28,7 @@ export interface ActionState {
   project: Project;
   playhead: number;
   playing: boolean;
-  selection: { kind: "clip"; id: string; ids?: string[] } | { kind: "text"; id: string } | null;
+  selection: { kind: "clip"; id: string; ids?: string[] } | { kind: "text"; id: string } | { kind: "transition"; id: string } | null;
   cropping?: boolean;
 }
 
@@ -43,6 +43,7 @@ export interface ActionCtx extends ActionState {
   clipIds: string[];
   trackId?: string;
   textId?: string;
+  transitionId?: string; // a selected transition: its incoming clip's id (transition.ts)
   t: number; // timeline seconds: the gap's time from a gap menu, else the playhead
 }
 
@@ -176,6 +177,7 @@ export function actionCtx(from: ActionCtx["from"], target?: { clipId?: string; t
     clipIds: selected,
     trackId: clipId ? findClip(s.project, clipId)?.track.id : undefined,
     textId: sel?.kind === "text" ? sel.id : undefined,
+    transitionId: sel?.kind === "transition" ? sel.id : undefined,
     t: s.playhead,
   };
 }

@@ -18,6 +18,9 @@ import { EditorCommands } from "@/trim/CommandPalette";
 import { EffectBrowser } from "@/trim/inspector/EffectsTab";
 import { FiltersBrowser } from "@/trim/inspector/FiltersTab";
 import { Inspector, tabsFor, useClipTarget, type TabId } from "@/trim/inspector/Inspector";
+import { TransitionInspector } from "@/trim/inspector/TransitionInspector";
+import { TransitionsBrowser } from "@/trim/library/Transitions";
+import { addTransition } from "@/trim/transition";
 import { LibraryColumn, useLibrary, type LibraryId } from "@/trim/library/Library";
 import { migrateProject } from "@/trim/migrate";
 import { MediaBin, toMedia, useMediaBin } from "@/trim/MediaBin";
@@ -340,6 +343,20 @@ export default function EditVideo() {
             <FiltersBrowser target={visualTarget} preview={previewMedia} note={targetNote} />
           </div>
         );
+      case "transitions":
+        return (
+          <TransitionsBrowser
+            note="Drag a transition onto a cut between two clips, or select a clip and click one."
+            onPick={(type) => {
+              const id = selection?.kind === "transition" ? selection.id : selectedClip;
+              if (!id) return "Select a clip next to another on its track, or a transition, first.";
+              const r = addTransition(project, id, type);
+              if (typeof r === "string") return r;
+              apply(() => r.project);
+              setSelection({ kind: "transition", id: r.clipId });
+            }}
+          />
+        );
       default:
         return null;
     }
@@ -471,7 +488,11 @@ export default function EditVideo() {
           </div>
         </div>
 
-        <Inspector project={project} clipId={selectedClip} clipIds={selectedClips} apply={apply} playhead={pb.time} onSeek={pb.seek} picking={picking} onPickingChange={setPicking} tabRequest={tabRequest} onOpenLibrary={openLibrary} className="frost w-80 shrink-0" />
+        {selection?.kind === "transition" ? (
+          <TransitionInspector project={project} clipId={selection.id} apply={apply} onClose={() => setSelection(null)} className="frost w-80 shrink-0" />
+        ) : (
+          <Inspector project={project} clipId={selectedClip} clipIds={selectedClips} apply={apply} playhead={pb.time} onSeek={pb.seek} picking={picking} onPickingChange={setPicking} tabRequest={tabRequest} onOpenLibrary={openLibrary} className="frost w-80 shrink-0" />
+        )}
       </div>
 
       <div className="frost m-2 p-2">

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { Window } from "@wailsio/runtime";
 import {
+  ArrowLeftRight,
   ArrowLeftToLine,
   AudioLines,
   Copy,
@@ -38,6 +39,7 @@ import { checkFont, DEFAULT_FONT_LABEL, fontInfo, loadFonts } from "@/trim/fonts
 import type { MediaBinState } from "@/trim/MediaBin";
 import type { TimelineSelection } from "@/trim/MultiTimeline";
 import { MAX_FONT_PX, MIN_FONT_PX, textFontSize } from "@/trim/TextOverlays";
+import { addTransition, cutFor, DEFAULT_TRANSITION, isTransitionType, MAX_TRANSITION, MIN_TRANSITION, setClipTransition, TRANSITIONS, transitionLabel, type TransitionType } from "@/trim/transition";
 import {
   addMedia,
   addTrack,
@@ -550,7 +552,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
       },
     );
 
-    // The Delete keys delete a selected text too.
+    // The Delete keys delete a selected text or transition too.
     for (const [name, op, what, ui] of [
       ["editor.removeClip", removeClip, "Delete a clip and leave a gap.", { id: "clip.delete", label: "Delete", shortcut: "Del", keys: ["Del", "Backspace"], hint: "Leaves a gap" }],
       [
@@ -580,10 +582,16 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
             destructive: true,
             keywords: "remove",
             scopes: ["clip"],
-            enabled: (c) => (!c.clipId && c.textId ? true : clipOk(c)),
-            hint: (c) => (!c.clipId && c.textId ? "Deletes the selected text" : ui.hint),
+            enabled: (c) => (!c.clipId && (c.textId || c.transitionId) ? true : clipOk(c)),
+            hint: (c) => (!c.clipId && c.textId ? "Deletes the selected text" : !c.clipId && c.transitionId ? "Removes the selected transition" : ui.hint),
             run: (c) => {
               if (c.clipId) return handler({ clipId: c.clipId });
+              if (c.transitionId) {
+                const tid = c.transitionId;
+                d().apply((p) => setClipTransition(p, tid, undefined));
+                d().setSelection(null);
+                return;
+              }
               if (!c.textId) return;
               const id = c.textId;
               d().apply((p) => removeProjectText(p, id));
@@ -871,6 +879,81 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
         // the person's keyboard.
         edit((p) => upsertProjectText(p, t), "that text is unchanged");
         return t;
+      },
+    );
+
+    // ---- transitions (transition.ts) -------------------------------------
+
+    // addAndSelect is the UI's add: a transition at the clip's cut, then
+    // selected (the inspector shows it). An agent's add doesn't select.
+    const addAndSelect = (clipId: string, type: TransitionType) => {
+      let at = "";
+      edit((p) => {
+        const r = addTransition(p, clipId, type);
+        if (typeof r === "string") throw new Error(r);
+        at = r.clipId;
+        return r.project;
+      }, "that transition is already there");
+      d().setSelection({ kind: "transition", id: at });
+    };
+
+    reg(
+      "editor.addTransition",
+      {
+        description:
+          "Add a transition at a clip's cut, or change the one there: between the clip and the one right before it on its video track (or, when it has none, the one right after). Centred on the cut, so the timeline's length doesn't change; each clip holds its edge frame for the half past its own end. Returns the incoming clip's id (where the transition is stored), its type and length.",
+        input: obj(
+          {
+            clipId: str("A clip on either side of the cut (editor.get)."),
+            type: str("The transition.", { enum: TRANSITIONS.map((t) => t.type) }),
+            duration: num(`Seconds (${MIN_TRANSITION}..${MAX_TRANSITION}; default ${DEFAULT_TRANSITION}, or the current one's), shortened to what fits.`),
+          },
+          ["clipId", "type"],
+        ),
+        ui: {
+          id: "clip.addTransition",
+          label: "Add transition",
+          group: "Edit",
+          icon: ArrowLeftRight,
+          keywords: "dissolve fade dip wipe slide zoom blur cut",
+          scopes: ["clip"],
+          clips: "one",
+          enabled: (c) => {
+            if (!c.clipId) return "Select a clip next to another on its track";
+            const at = cutFor(c.project, c.clipId);
+            return typeof at === "string" ? at : true;
+          },
+          // The palette (and a plain menu click) adds a cross dissolve and
+          // selects it, so the inspector can change its type and length.
+          run: (c) => addAndSelect(c.clipId!, "fade"),
+          choices: (c) =>
+            TRANSITIONS.map((t) => ({ label: t.label, run: () => addAndSelect(c.clipId!, t.type) })),
+        },
+      },
+      (input: { clipId: string; type: string; duration?: number }) => {
+        if (!isTransitionType(input.type)) throw new Error(`unknown transition "${input.type}" (one of ${TRANSITIONS.map((t) => t.type).join(", ")})`);
+        if (input.duration !== undefined && !(Number(input.duration) >= MIN_TRANSITION && Number(input.duration) <= MAX_TRANSITION)) {
+          throw new Error(`duration must be ${MIN_TRANSITION}..${MAX_TRANSITION} seconds`);
+        }
+        clipOr(d().project, input.clipId);
+        const r = addTransition(d().project, String(input.clipId), input.type, input.duration === undefined ? undefined : Number(input.duration));
+        if (typeof r === "string") throw new Error(r);
+        const after = edit(() => r.project, "that transition is already there");
+        const c = findClip(after, r.clipId)!.clip;
+        return { clipId: r.clipId, type: c.transition?.type, label: transitionLabel(c.transition?.type ?? ""), duration: c.transition?.duration };
+      },
+    );
+
+    reg(
+      "editor.removeTransition",
+      {
+        description: "Remove the transition stored on a clip (its incoming one; editor.get shows it as the clip's transition).",
+        input: obj({ clipId: str("The clip whose transition goes (the one after the cut).") }, ["clipId"]),
+      },
+      (input: { clipId: string }) => {
+        clipOr(d().project, input.clipId);
+        edit((p) => setClipTransition(p, String(input.clipId), undefined), `clip "${input.clipId}" has no transition`);
+        return { removed: input.clipId };
       },
     );
 

@@ -1,4 +1,4 @@
-import { clipLength, type Clip, type Track } from "@/trim/project";
+import { clipLength, type Clip, type Project, type Track } from "@/trim/project";
 
 // transition.ts: transitions between adjacent clips on a video track, the
 // preview's side of internal/vid/transitions.go (keep the two in step).
@@ -133,4 +133,106 @@ export function cutFade(trans: Map<number, Transition>, index: number, t: number
   const tout = trans.get(index + 1);
   if (tout && t > tout.start) g *= Math.max(0, Math.min(1, (tout.cut - t) / (tout.cut - tout.start)));
   return g;
+}
+
+// --- Edits ---------------------------------------------------------------
+
+// setClipTransition gives clip clipId this incoming transition (undefined
+// removes it); the same project when nothing changes.
+export function setClipTransition(p: Project, clipId: string, tr: ClipTransition | undefined): Project {
+  let changed = false;
+  const tracks = p.tracks.map((track) => {
+    const i = track.clips.findIndex((c) => c.id === clipId);
+    if (i < 0) return track;
+    const c = track.clips[i];
+    const next = tr ? { type: tr.type, duration: Math.min(Math.max(tr.duration, MIN_TRANSITION), MAX_TRANSITION) } : undefined;
+    if (JSON.stringify(c.transition ?? null) === JSON.stringify(next ?? null)) return track;
+    changed = true;
+    const clips = track.clips.slice();
+    clips[i] = next ? { ...c, transition: next } : (({ transition: _, ...rest }) => rest)(c);
+    return { ...track, clips };
+  });
+  return changed ? { ...p, tracks } : p;
+}
+
+// Cut is a place on a video track where two clips meet (a transition can
+// go there): the incoming clip's index and id, and the time.
+export type Cut = { index: number; clipId: string; t: number };
+
+// trackCuts lists a track's cuts that can take a transition: both clips
+// draw a picture and the clips touch (within 1 ms).
+export function trackCuts(track: Track): Cut[] {
+  if (track.kind !== "video" || track.hidden) return [];
+  const out: Cut[] = [];
+  for (let i = 1; i < track.clips.length; i++) {
+    const prev = track.clips[i - 1];
+    const c = track.clips[i];
+    if (Math.abs(ms(prev.start) + ms(clipLength(prev)) - ms(c.start)) > 1 || !clipShows(prev) || !clipShows(c)) continue;
+    out.push({ index: i, clipId: c.id, t: c.start });
+  }
+  return out;
+}
+
+// maxTransition is the longest transition that fits at cut index i of the
+// track (each half inside its clip next to that clip's other transition).
+export function maxTransition(track: Track, i: number): number {
+  const trans = trackTransitions(track);
+  const prev = track.clips[i - 1];
+  const c = track.clips[i];
+  if (!prev || !c) return 0;
+  const prevIn = trans.get(i - 1);
+  const next = trans.get(i + 1);
+  const roomPrev = clipLength(prev) - (prevIn ? prevIn.end - prevIn.cut : 0);
+  const roomThis = clipLength(c) - (next ? next.cut - next.start : 0);
+  return Math.max(0, Math.min(MAX_TRANSITION, 2 * Math.min(roomPrev, roomThis) - 0.002));
+}
+
+// Library drags: a transition tile being dragged (the timeline shows the
+// cuts it can drop on while one is).
+export const TRANSITION_MIME = "application/x-toru-transition";
+let dragging = false;
+const dragListeners = new Set<() => void>();
+export const transitionDrag = {
+  get: () => dragging,
+  set(v: boolean) {
+    if (v === dragging) return;
+    dragging = v;
+    dragListeners.forEach((l) => l());
+  },
+  subscribe(l: () => void) {
+    dragListeners.add(l);
+    return () => dragListeners.delete(l);
+  },
+};
+
+// cutFor finds where a transition for clip clipId goes: its own incoming
+// cut when it has one that can take a transition, else its outgoing one.
+// Returns the incoming clip's id (where the transition is stored) or why
+// not.
+export function cutFor(p: Project, clipId: string): { clipId: string; index: number; track: Track } | string {
+  for (const track of p.tracks) {
+    const i = track.clips.findIndex((c) => c.id === clipId);
+    if (i < 0) continue;
+    if (track.kind !== "video") return "Transitions go between video or image clips";
+    if (track.locked) return "The track is locked";
+    const cuts = trackCuts(track);
+    const cut = cuts.find((c) => c.index === i) ?? cuts.find((c) => c.index === i + 1);
+    if (!cut) return "Put another clip right next to this one on its track first";
+    return { clipId: cut.clipId, index: cut.index, track };
+  }
+  return "That clip isn't in the project";
+}
+
+// addTransition puts a transition of this type at clip clipId's cut (see
+// cutFor), keeping the length of one already there, else the default
+// (shortened to what fits). The new project and the incoming clip's id, or
+// why not.
+export function addTransition(p: Project, clipId: string, type: TransitionType, duration?: number): { project: Project; clipId: string } | string {
+  const at = cutFor(p, clipId);
+  if (typeof at === "string") return at;
+  const cur = at.track.clips[at.index].transition;
+  const max = maxTransition(at.track, at.index);
+  if (max < MIN_TRANSITION) return "These clips are too short for a transition";
+  const d = Math.min(max, duration ?? cur?.duration ?? DEFAULT_TRANSITION);
+  return { project: setClipTransition(p, at.clipId, { type, duration: d }), clipId: at.clipId };
 }
