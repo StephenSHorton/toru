@@ -12,14 +12,17 @@ import (
 // apart from writing one UTF-8 text file per overlay: drawtext reads the text
 // from textfile= so the user's text never goes through filtergraph escaping.
 //
-// The preview (frontend/src/trim/TextOverlays.tsx) draws the same box: one
-// font, size = a fraction of the output height, lines centred, line height
-// 1.33 (Segoe UI's ascent + descent, which drawtext advances by), the block
+// The preview (frontend/src/trim/TextOverlays.tsx) draws the same box: the
+// text's font (fonts.go; DefaultTextFont when it has none or it isn't
+// installed), size = FontPx output pixels or a fraction of the output height
+// for the older s/m/l sizes, lines centred, line height = the font's
+// Font.LineHeight (1.33 for Segoe UI: the line advance drawtext uses), the block
 // centred on (X, Y). y_align=font makes text_h the line boxes, not the ink,
 // so "gg" and "HH" sit at the same height, as they do in CSS. Keep the two in
 // step.
 
-// DefaultTextFont is the overlay font: Segoe UI Semibold, on every Windows.
+// DefaultTextFont is the overlay font when a text names none: Segoe UI
+// Semibold, on every Windows.
 const DefaultTextFont = `C:\Windows\Fonts\seguisb.ttf`
 
 // textSizes is each size's font size as a fraction of the output height.
@@ -49,7 +52,7 @@ func TextFilter(texts []TextOverlay, w, h int, fontFile, tmpDir string) (filter 
 		}
 	}
 	for i, t := range texts {
-		if _, ok := textSizes[t.Size]; !ok {
+		if _, ok := textSizes[t.Size]; !ok && t.FontPx <= 0 {
 			cleanup()
 			return "", nil, fmt.Errorf("text %d: unknown size %q", i, t.Size)
 		}
@@ -76,12 +79,12 @@ func TextFilter(texts []TextOverlay, w, h int, fontFile, tmpDir string) (filter 
 			return "", nil, fmt.Errorf("text: %w", werr)
 		}
 
-		size := TextFontSize(t.Size, h)
+		size := textPx(t, h)
 		border := max(1, int(math.Round(float64(size)*textBorderRatio)))
 		cx := int(math.Round(clamp01(t.X) * float64(w)))
 		cy := int(math.Round(clamp01(t.Y) * float64(h)))
 		chain = append(chain, "drawtext="+strings.Join([]string{
-			"fontfile=" + filterValue(filepath.ToSlash(fontFile)),
+			"fontfile=" + filterValue(filepath.ToSlash(textFontFile(t.Font, fontFile))),
 			"textfile=" + filterValue(filepath.ToSlash(f.Name())),
 			"expansion=none",
 			fmt.Sprintf("fontsize=%d", size),
@@ -99,6 +102,18 @@ func TextFilter(texts []TextOverlay, w, h int, fontFile, tmpDir string) (filter 
 		return "", nil, nil
 	}
 	return strings.Join(chain, ","), files, nil
+}
+
+// MaxTextFontPx caps a text's font size (TextOverlays.tsx: MAX_FONT_PX).
+const MaxTextFontPx = 1000
+
+// textPx is t's font size in output pixels on an h-tall frame: FontPx when
+// set (capped), else its preset Size.
+func textPx(t TextOverlay, h int) int {
+	if t.FontPx > 0 {
+		return min(t.FontPx, MaxTextFontPx)
+	}
+	return TextFontSize(t.Size, h)
 }
 
 // TextFontSize is the font size in output pixels for size on an h-tall frame.

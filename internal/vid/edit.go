@@ -28,10 +28,12 @@ type TrackLevel struct {
 // TextOverlay is one piece of text drawn over the output.
 type TextOverlay struct {
 	Text    string  `json:"text"`
-	X       float64 `json:"x"`       // centre of the text, 0..1 of output width (after crop)
-	Y       float64 `json:"y"`       // centre, 0..1 of output height
-	Size    string  `json:"size"`    // "s" | "m" | "l" = 4% | 6% | 9% of output height
-	StartMs int     `json:"startMs"` // OUTPUT time
+	X       float64 `json:"x"`                // centre of the text, 0..1 of output width (after crop)
+	Y       float64 `json:"y"`                // centre, 0..1 of output height
+	Size    string  `json:"size"`             // "s" | "m" | "l" = 4% | 6% | 9% of output height; used when FontPx is 0
+	FontPx  int     `json:"fontPx,omitempty"` // font size in output pixels (after crop); 0 = from Size
+	Font    string  `json:"font,omitempty"`   // installed font's name (InstalledFonts); "" or missing = DefaultTextFont
+	StartMs int     `json:"startMs"`          // OUTPUT time
 	EndMs   int     `json:"endMs"`
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/vid"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -24,7 +25,8 @@ var thumbDir = func() string { return filepath.Join(os.TempDir(), "toru", "media
 
 // Middleware serves registered files at /__media/<id>/<name> (Range
 // requests included, so the player can seek) and video thumbnails at
-// /__media/thumb/<id>.jpg. Anything else passes to next. Go-only.
+// /__media/thumb/<id>.jpg, and installed fonts at /__media/font/<name>.
+// Anything else passes to next. Go-only.
 //
 //wails:ignore
 func (s *Service) Middleware() application.Middleware {
@@ -43,6 +45,18 @@ func (s *Service) Middleware() application.Middleware {
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if name, ok := vid.FontNameFromURLPath(r.URL.EscapedPath()); ok {
+		// An installed font for the text preview (vid.Font.URL); only names
+		// in the installed list resolve, so no other file can be asked for.
+		f := vid.FontFile(name)
+		if f == "" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "max-age=3600")
+		http.ServeFile(w, r, f)
 		return
 	}
 	if rest, ok := strings.CutPrefix(r.URL.Path, thumbPrefix); ok {

@@ -113,7 +113,8 @@ Editor (TS, registered by the Edit video window): read: `editor.get`
 from paths, `editor.addTrack`, `editor.insertClip`, `editor.moveClip`,
 `editor.trimClip`, `editor.split`, `editor.removeClip`,
 `editor.rippleDelete`, `editor.closeGap`, `editor.updateClip` (transform,
-speed, audio, chroma, filters), `editor.setText`, `editor.removeText`,
+speed, audio, chroma, filters), `editor.setText` (size in px or s/m/l, font),
+`editor.listFonts`, `editor.removeText`,
 `editor.setCrop`, `editor.undo`, `editor.redo`), time effects
 (`editor.setSpeedCurve` (preset or points, audio follow/mute),
 `editor.freezeFrame`, `editor.setReverse`, `editor.setSlowMotion`), plus `editor.seek`,

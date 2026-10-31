@@ -12,7 +12,10 @@ import type { Rect } from "@/lib/contract";
 
 export type Source = { path: string; url: string; duration: number; width: number; height: number };
 export type Seg = { id: string; source: number; start: number; end: number }; // seconds, source time
-export type Text = { id: string; text: string; x: number; y: number; size: "s" | "m" | "l"; start: number; end: number }; // output time
+// size is the older preset (4/6/9% of the output height), used when fontPx
+// is unset; font is an installed font's name (fonts.ts), "" or unset for the
+// default (Segoe UI Semibold).
+export type Text = { id: string; text: string; x: number; y: number; size: "s" | "m" | "l"; fontPx?: number; font?: string; start: number; end: number }; // output time
 export type Edl = { sources: Source[]; segs: Seg[]; texts: Text[] }; // segs in output order
 
 // Local mirror of internal/vid EditRequest (card #2) until its bindings land;
@@ -33,6 +36,8 @@ export interface TextOverlay {
   x: number;
   y: number;
   size: "s" | "m" | "l";
+  fontPx?: number;
+  font?: string;
   startMs: number;
   endMs: number;
 }
@@ -202,7 +207,16 @@ export function toRequest(
   });
   const texts = edl.texts
     .filter((t) => t.text.trim() && ms(t.end) > ms(t.start))
-    .map((t) => ({ text: t.text, x: t.x, y: t.y, size: t.size, startMs: ms(t.start), endMs: ms(t.end) }));
+    .map((t) => ({
+      text: t.text,
+      x: t.x,
+      y: t.y,
+      size: t.size,
+      ...(t.fontPx ? { fontPx: t.fontPx } : {}),
+      ...(t.font ? { font: t.font } : {}),
+      startMs: ms(t.start),
+      endMs: ms(t.end),
+    }));
   const req: EditRequest = {
     sources: edl.sources.map((s) => s.path),
     segments,
