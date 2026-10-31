@@ -51,6 +51,8 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work
 				args = append(args, "-f", "image2") // first frame as a still, like the preview
 			}
 			args = append(args, "-loop", "1", "-framerate", formatFPS(fps), "-t", msSeconds(ClipLengthMs(c)), "-i", m.Path)
+		} else if c.Hold {
+			args = append(args, holdInputArgs(c, m.Path)...)
 		} else {
 			args = append(args, "-ss", msSeconds(c.In), "-t", msSeconds(c.Out-c.In), "-i", m.Path)
 		}
@@ -71,7 +73,7 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work
 			showVideo := t.Kind == "video" && !t.Hidden && m.Kind != "audio" && clipMaxOpacity(c) > 0
 			audible := !t.Muted && (m.Kind == "audio" || m.HasAudio)
 			var picks []audioPick
-			if audible {
+			if audible && !c.Hold { // a freeze frame is silent
 				picks = clipAudioPicks(c, m)
 			}
 			if !showVideo && len(picks) == 0 {
@@ -165,10 +167,16 @@ func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64, work
 	head := fmt.Sprintf("[%d:v]", in)
 	var pre []string
 	parts := []string{}
-	if m.Kind == "image" {
+	switch {
+	case m.Kind == "image":
 		parts = append(parts, "setpts=PTS-STARTPTS")
-	} else {
-		parts = append(parts, fmt.Sprintf("setpts=(PTS-STARTPTS)/%s", num(clipSpeed(c))))
+	case wantsSmooth(c):
+		// Smooth slow motion is a small graph of its own (time_args.go).
+		sm := fmt.Sprintf("[sm%d]", in)
+		pre = append(pre, clipSmoothGraph(head, sm, c, fps, fmt.Sprintf("sm%d", in))...)
+		head = sm
+	default:
+		parts = append(parts, clipTiming(c)...) // speed, curve or freeze (time_args.go)
 	}
 	parts = append(parts, "fps="+formatFPS(fps))
 	if c.Effects != nil {
@@ -292,6 +300,14 @@ func clipAudioChains(in int, c ClipJSON, picks []audioPick, label string) []stri
 		chains = append(chains, fmt.Sprintf("%samix=inputs=%d:duration=longest:normalize=0%s", mixIn.String(), len(picks), src))
 	}
 	parts := []string{}
+	if cv := clipCurve(c); cv != nil {
+		// A ramp's sound is timed piece by piece (time_args.go); the rest of
+		// the chain then runs at 1x.
+		timed := fmt.Sprintf("[cr%d]", in)
+		chains = append(chains, rampAudioGraph(src, timed, cv, fmt.Sprintf("cr%d", in))...)
+		src = timed
+		c.Speed = 1
+	}
 	if f := ClipAudioFilter(c, float64(ClipLengthMs(c))/1000); f != "" {
 		parts = append(parts, f)
 	}
