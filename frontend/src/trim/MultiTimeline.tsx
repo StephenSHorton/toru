@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import {
   ArrowLeftToLine,
   AudioLines,
+  ClipboardPaste,
   Copy,
   Download,
   Eye,
@@ -33,6 +34,22 @@ import { ClipWave } from "@/trim/ClipWave";
 import { KeyLane } from "@/trim/inspector/KeyLane";
 import type { TabId } from "@/trim/inspector/Inspector";
 import type { Text } from "@/trim/edl";
+import {
+  allClipIds,
+  clipboard,
+  clipRangeOnTrack,
+  clipsInRange,
+  copyClips,
+  duplicateClips,
+  liveIds,
+  moveClips,
+  pasteAttributes,
+  pasteClips,
+  pastedIds,
+  removeClips,
+  rippleDeleteClips,
+  setClipsMuted,
+} from "@/trim/multi";
 import {
   addMedia,
   addTrack,
@@ -86,8 +103,33 @@ import {
 // Keys (ignored while typing): S split (the selected clip's track, or every
 // track), Delete/Backspace delete (leaves a gap), Shift+Delete ripple delete,
 // Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) undo/redo, +/- zoom.
+//
+// Several clips: Ctrl+click adds or removes a clip, Shift+click selects the
+// clips between the selected one and the clicked one on its track,
+// Shift- or Ctrl-drag on empty track space draws a selection box, Ctrl+A
+// selects every clip, Esc clears. Dragging a selected clip moves them all;
+// Delete, Shift+Delete, Duplicate and Mute act on all of them. Ctrl+C / X / V
+// copy, cut and paste clips (at the playhead, on the selected clip's track),
+// Ctrl+Alt+V pastes the copied clip's look and sound onto the selection
+// (trim/multi.ts). Each is one undo step.
 
-export type TimelineSelection = { kind: "clip" | "text"; id: string } | null;
+// A clip selection names its primary clip (`id`: the inspector's, the
+// keyframe lane's) and, with several selected, all of them in `ids`.
+export type TimelineSelection = { kind: "clip"; id: string; ids?: string[] } | { kind: "text"; id: string } | null;
+
+// selectedClipIds lists the selected clips that are still in p.
+export function selectedClipIds(p: Project, s: TimelineSelection): string[] {
+  if (s?.kind !== "clip") return [];
+  return liveIds(p, s.ids?.length ? s.ids : [s.id]);
+}
+
+// selectClips selects ids, with primary (else the last) as the primary clip.
+export function selectClips(ids: readonly string[], primary?: string): TimelineSelection {
+  const list = [...new Set(ids)];
+  if (!list.length) return null;
+  const id = primary && list.includes(primary) ? primary : list[list.length - 1];
+  return list.length > 1 ? { kind: "clip", id, ids: list } : { kind: "clip", id };
+}
 
 export const MEDIA_MIME = "application/x-toru-media";
 
@@ -276,6 +318,9 @@ export function MultiTimeline({
 
   // --- edit commands ---------------------------------------------------------
   const selClip = selection?.kind === "clip" ? findClip(p, selection.id) : undefined;
+  const selIds = selectedClipIds(p, selection);
+  const selSet = new Set(selIds);
+  const multi = selIds.length > 1;
   const doSplit = () => apply((q) => splitAt(q, outTime, selClip?.track.id));
   const doDelete = (ripple: boolean) => {
     if (!selection) return;
@@ -284,9 +329,36 @@ export function MultiTimeline({
       onSelect(null);
       return;
     }
+    if (multi) {
+      apply((q) => (ripple ? rippleDeleteClips(q, selIds) : removeClips(q, selIds)));
+      onSelect(null);
+      return;
+    }
     if (!selClip || selClip.track.locked) return;
     apply((q) => (ripple ? rippleDelete(q, selection.id) : removeClip(q, selection.id)));
     onSelect(null);
+  };
+  // Clipboard: copy, cut, paste at the playhead (on the selected clip's
+  // track) and paste the first copied clip's attributes onto the selection.
+  const doCopy = () => {
+    const cb = copyClips(p, selIds);
+    if (cb) clipboard.set(cb);
+    return !!cb;
+  };
+  const doCut = () => {
+    if (!doCopy()) return;
+    apply((q) => removeClips(q, selIds));
+    onSelect(null);
+  };
+  const doPaste = () => {
+    const next = pasteClips(p, clipboard.get(), outTime, selClip?.track.id);
+    if (next === p) return;
+    apply(() => next);
+    onSelect(selectClips(pastedIds(p, next)));
+  };
+  const doPasteAttributes = () => {
+    const src = clipboard.get()?.items[0]?.clip;
+    if (src && selIds.length) apply((q) => pasteAttributes(q, src, selIds));
   };
   // F: freeze the frame at the playhead, on the selected clip's track, or
   // else the topmost video track with a clip there (one undo step).
@@ -300,7 +372,7 @@ export function MultiTimeline({
       return q;
     });
   const canSplit = splitAt(p, outTime, selClip?.track.id) !== p;
-  const canDelete = selection?.kind === "text" || (!!selClip && !selClip.track.locked);
+  const canDelete = selection?.kind === "text" || multi || (!!selClip && !selClip.track.locked);
 
   // Keyboard. No dependency array: the handler must see the current props.
   useEffect(() => {
@@ -319,6 +391,31 @@ export function MultiTimeline({
         e.preventDefault();
         onRedo?.();
         return;
+      }
+      if (mod && !e.shiftKey) {
+        switch (e.key.toLowerCase()) {
+          case "a":
+            e.preventDefault();
+            onSelect(selectClips(allClipIds(p), selection?.kind === "clip" ? selection.id : undefined));
+            return;
+          case "c":
+            if (selIds.length) {
+              e.preventDefault();
+              doCopy();
+            }
+            return;
+          case "x":
+            if (selIds.length) {
+              e.preventDefault();
+              doCut();
+            }
+            return;
+          case "v":
+            e.preventDefault();
+            if (e.altKey) doPasteAttributes();
+            else doPaste();
+            return;
+        }
       }
       if (mod || e.altKey) return;
       switch (e.key) {
@@ -340,7 +437,8 @@ export function MultiTimeline({
           doFreeze();
           break;
         case "Escape":
-          setMenu(null);
+          if (menu) setMenu(null);
+          else if (selection) onSelect(null);
           break;
         case "+":
         case "=":
@@ -382,28 +480,96 @@ export function MultiTimeline({
     e.preventDefault();
     e.stopPropagation();
     setMenu(null);
-    onSelect({ kind: "clip", id: c.id });
+    // Ctrl+click adds or removes the clip; Shift+click selects the run of
+    // clips from the selected one to this one on the track.
+    if (e.ctrlKey || e.metaKey) {
+      if (selSet.has(c.id)) onSelect(selectClips(selIds.filter((id) => id !== c.id), selection?.kind === "clip" ? selection.id : undefined));
+      else onSelect(selectClips([...selIds, c.id], c.id));
+      return;
+    }
+    if (e.shiftKey && selection?.kind === "clip") {
+      const run = clipRangeOnTrack(p, selection.id, c.id);
+      onSelect(selectClips([...selIds, ...(run.length ? run : [c.id])], c.id));
+      return;
+    }
+    // Pressing a clip of a multi-selection keeps it, so the group drags; a
+    // click that doesn't move then selects just this clip.
+    const group = multi && selSet.has(c.id);
+    if (group) onSelect(selectClips(selIds, c.id));
+    else onSelect({ kind: "clip", id: c.id });
     if (track.locked) return;
+    const ids = group ? selIds : [c.id];
     const x0 = e.clientX;
     const start0 = c.start;
     const len = clipLength(c);
-    const targets = snapTargets(c.id);
+    const targets = group ? snapTargets().filter((t) => !ids.some((id) => { const h = findClip(p, id); return !!h && (t === h.clip.start || t === clipEnd(h.clip)); })) : snapTargets(c.id);
     const key = `move:${c.id}:${++dragSeq}`;
     let moved = false;
-    capture(e, (ev) => {
-      if (!moved && Math.abs(ev.clientX - x0) < DRAG_PX) return;
-      moved = true;
-      const raw = Math.max(0, start0 + (ev.clientX - x0) / pxPerSec);
-      // Snap whichever end is nearer a target.
-      const a = snap(raw, targets, ev.altKey);
-      const b = snap(raw + len, targets, ev.altKey);
-      const useEnd = b.line !== null && (a.line === null || Math.abs(b.t - (raw + len)) < Math.abs(a.t - raw));
-      const s = useEnd ? b.t - len : a.t;
-      setSnapLine(useEnd ? b.line : a.line);
-      const over = rowAt(ev.clientY);
-      const to = over && over.kind === track.kind && !over.locked ? over : track;
-      apply((q) => moveClip(q, c.id, to.id, s), key);
-    });
+    capture(
+      e,
+      (ev) => {
+        if (!moved && Math.abs(ev.clientX - x0) < DRAG_PX) return;
+        moved = true;
+        const raw = Math.max(0, start0 + (ev.clientX - x0) / pxPerSec);
+        // Snap whichever end is nearer a target.
+        const a = snap(raw, targets, ev.altKey);
+        const b = snap(raw + len, targets, ev.altKey);
+        const useEnd = b.line !== null && (a.line === null || Math.abs(b.t - (raw + len)) < Math.abs(a.t - raw));
+        const s = useEnd ? b.t - len : a.t;
+        setSnapLine(useEnd ? b.line : a.line);
+        if (group) {
+          // The group moves in time on its own tracks, together.
+          apply((q) => {
+            const cur = findClip(q, c.id)?.clip.start;
+            return cur === undefined ? q : moveClips(q, ids, s - cur);
+          }, key);
+          return;
+        }
+        const over = rowAt(ev.clientY);
+        const to = over && over.kind === track.kind && !over.locked ? over : track;
+        apply((q) => moveClip(q, c.id, to.id, s), key);
+      },
+      (_ev, ok) => {
+        if (ok && group && !moved) onSelect({ kind: "clip", id: c.id });
+      },
+    );
+  };
+
+  // A selection box: Shift- or Ctrl-drag on empty track space selects the
+  // clips it touches (Ctrl adds them to the selection).
+  // Kept in the timeline content's coordinates (px from its top left).
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const startMarquee = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    setMenu(null);
+    const keep = e.ctrlKey || e.metaKey ? selIds : [];
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    const local = (cx: number, cy: number) => {
+      const r = contentRef.current?.getBoundingClientRect();
+      return r ? { x: cx - r.left, y: cy - r.top } : { x: 0, y: 0 };
+    };
+    const a = local(x0, y0);
+    setBox({ x0: a.x, y0: a.y, x1: a.x, y1: a.y });
+    capture(
+      e,
+      (ev) => {
+        const b = local(ev.clientX, ev.clientY);
+        setBox({ x0: a.x, y0: a.y, x1: b.x, y1: b.y });
+        const top = Math.min(y0, ev.clientY);
+        const bottom = Math.max(y0, ev.clientY);
+        const trackIds = rows
+          .filter((t) => {
+            const r = document.getElementById(rowDomId(t.id))?.getBoundingClientRect();
+            return !!r && r.bottom > top && r.top < bottom;
+          })
+          .map((t) => t.id);
+        onSelect(selectClips([...keep, ...clipsInRange(p, trackIds, timeAt(x0), timeAt(ev.clientX))]));
+      },
+      () => setBox(null),
+    );
   };
 
   const startEdgeDrag = (e: React.PointerEvent, track: Track, c: Clip, edge: "start" | "end") => {
@@ -515,7 +681,8 @@ export function MultiTimeline({
     if (m.kind === "gap") return [{ label: "Close gap", icon: ArrowLeftToLine, onSelect: () => apply((q) => closeGap(q, m.trackId, m.t)) }];
     const hit = findClip(p, m.clipId);
     if (!hit) return [];
-    return clipMenu(p, hit.track, hit.clip, outTime, { apply, onSelect, onOpenInspector, onSaveAudio });
+    const group = multi && selSet.has(m.clipId) ? selIds : undefined;
+    return clipMenu(p, hit.track, hit.clip, outTime, { apply, onSelect, onOpenInspector, onSaveAudio, group });
   };
 
   const ticks = rulerTicks(span, pxPerSec);
@@ -618,7 +785,7 @@ export function MultiTimeline({
           ref={scrollRef}
           className={cn("relative min-w-0 flex-1 overflow-y-hidden", zoom > 1 ? "overflow-x-auto" : "overflow-x-hidden")}
         >
-          <div className="relative" style={{ width: contentW }}>
+          <div ref={contentRef} className="relative" style={{ width: contentW }}>
             {/* ruler */}
             <div className="relative cursor-pointer select-none overflow-hidden border-b border-border/60" style={{ height: RULER_H }} onPointerDown={startScrub}>
               {ticks.map(({ t, major }) => (
@@ -671,7 +838,7 @@ export function MultiTimeline({
                   dropAt?.trackId === track.id && "bg-primary/10",
                 )}
                 style={{ height: ROW_H[track.kind] }}
-                onPointerDown={startScrub}
+                onPointerDown={(e) => (e.shiftKey || e.ctrlKey || e.metaKey ? startMarquee(e) : startScrub(e))}
                 onContextMenu={(e) => {
                   const t = timeAt(e.clientX);
                   if (track.locked || closeGap(p, track.id, t) === p) return;
@@ -690,7 +857,8 @@ export function MultiTimeline({
                     track={track}
                     left={x(c.start)}
                     width={x(clipLength(c))}
-                    selected={selection?.kind === "clip" && selection.id === c.id}
+                    selected={selSet.has(c.id)}
+                    primary={multi && selection?.kind === "clip" && selection.id === c.id}
                     pxPerSec={pxPerSec}
                     scroller={scrollRef}
                     onBody={(e) => startClipDrag(e, track, c)}
@@ -698,7 +866,8 @@ export function MultiTimeline({
                     onMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      onSelect({ kind: "clip", id: c.id });
+                      // Right-clicking a clip of a multi-selection keeps it.
+                      onSelect(multi && selSet.has(c.id) ? selectClips(selIds, c.id) : { kind: "clip", id: c.id });
                       setMenu({ kind: "clip", x: e.clientX, y: e.clientY, trackId: track.id, clipId: c.id });
                     }}
                   />
@@ -724,6 +893,14 @@ export function MultiTimeline({
               </div>
             ))}
 
+            {/* selection box */}
+            {box ? (
+              <div
+                className="pointer-events-none absolute z-50 border border-primary bg-primary/15"
+                style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }}
+                aria-hidden="true"
+              />
+            ) : null}
             {/* snap guide */}
             {snapLine !== null ? (
               <div className="pointer-events-none absolute z-30 w-px bg-yellow-300/90" style={{ left: x(snapLine), top: RULER_H, height: textH + totalRowsH }} />
@@ -737,6 +914,7 @@ export function MultiTimeline({
       </div>
 
       {menu ? <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu)} onClose={closeMenu} label={menu.kind === "clip" ? "Clip" : "Track"} /> : null}
+
     </div>
   );
 }
@@ -819,6 +997,7 @@ function ClipBox({
   left,
   width,
   selected,
+  primary = false,
   pxPerSec,
   scroller,
   onBody,
@@ -831,6 +1010,7 @@ function ClipBox({
   left: number;
   width: number;
   selected: boolean;
+  primary?: boolean; // the inspector's clip, among several selected
   pxPerSec: number;
   scroller: React.RefObject<HTMLDivElement | null>;
   onBody: (e: React.PointerEvent) => void;
@@ -853,6 +1033,7 @@ function ClipBox({
         "absolute inset-y-0.5 touch-none overflow-hidden border-r border-background",
         track.locked ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing",
         selected && "z-10 outline-2 -outline-offset-2 outline-primary",
+        selected && primary && "outline-[3px] bg-primary/10",
         (c.muted || track.muted) && "opacity-60",
       )}
       style={{ left, width: Math.max(2, width), background: `${color}40`, borderTop: `3px solid ${color}` }}
@@ -902,8 +1083,10 @@ function clipMenu(
     onSelect: MultiTimelineProps["onSelect"];
     onOpenInspector?: MultiTimelineProps["onOpenInspector"];
     onSaveAudio?: MultiTimelineProps["onSaveAudio"];
+    group?: string[]; // the selection, when the clip is one of several selected
   },
 ): ContextMenuItem[] {
+  if (h.group) return groupMenu(p, h.group, h);
   const m = mediaById(p, c.media);
   const locked = track.locked;
   const lockedHint = "The track is locked";
@@ -1016,6 +1199,86 @@ function clipMenu(
     },
   );
   return items;
+}
+
+// groupMenu is the clip menu for several selected clips: what applies to
+// all of them at once, each one undo step.
+function groupMenu(p: Project, ids: string[], h: { apply: MultiTimelineProps["apply"]; onSelect: MultiTimelineProps["onSelect"] }): ContextMenuItem[] {
+  const hits = ids.map((id) => findClip(p, id)!).filter(Boolean);
+  const n = hits.length;
+  const allLocked = hits.every((x) => x.track.locked);
+  const anyLocked = hits.some((x) => x.track.locked);
+  const lockedHint = "A clip's track is locked";
+  const allMuted = hits.every((x) => x.clip.muted);
+  const src = clipboard.get()?.items[0]?.clip;
+  return [
+    { label: `Copy ${n} clips`, icon: Copy, shortcut: "Ctrl+C", onSelect: () => clipboard.set(copyClips(p, ids)) },
+    {
+      label: `Cut ${n} clips`,
+      icon: Scissors,
+      shortcut: "Ctrl+X",
+      disabled: anyLocked,
+      hint: anyLocked ? lockedHint : undefined,
+      onSelect: () => {
+        clipboard.set(copyClips(p, ids));
+        h.apply((q) => removeClips(q, ids));
+        h.onSelect(null);
+      },
+    },
+    {
+      label: "Duplicate",
+      icon: Copy,
+      disabled: anyLocked,
+      hint: anyLocked ? lockedHint : "Copies them after the selection",
+      onSelect: () => {
+        const next = duplicateClips(p, ids);
+        if (next === p) return;
+        h.apply(() => next);
+        h.onSelect(selectClips(pastedIds(p, next)));
+      },
+    },
+    {
+      label: "Paste attributes",
+      icon: ClipboardPaste,
+      shortcut: "Ctrl+Alt+V",
+      disabled: !src || allLocked,
+      hint: !src ? "Copy a clip first" : "Its effects, position, opacity and sound settings",
+      onSelect: () => src && h.apply((q) => pasteAttributes(q, src, ids)),
+    },
+    { kind: "separator" },
+    {
+      label: allMuted ? "Unmute" : "Mute",
+      icon: allMuted ? Volume2 : VolumeX,
+      disabled: allLocked,
+      hint: allLocked ? lockedHint : undefined,
+      onSelect: () => h.apply((q) => setClipsMuted(q, ids, !allMuted)),
+    },
+    { kind: "separator" },
+    {
+      label: `Delete ${n} clips`,
+      icon: Trash2,
+      shortcut: "Del",
+      destructive: true,
+      disabled: allLocked,
+      hint: allLocked ? lockedHint : "Leaves gaps",
+      onSelect: () => {
+        h.apply((q) => removeClips(q, ids));
+        h.onSelect(null);
+      },
+    },
+    {
+      label: "Ripple delete",
+      icon: Trash2,
+      shortcut: "Shift+Del",
+      destructive: true,
+      disabled: allLocked,
+      hint: allLocked ? lockedHint : "Pulls the rest of each track left",
+      onSelect: () => {
+        h.apply((q) => rippleDeleteClips(q, ids));
+        h.onSelect(null);
+      },
+    },
+  ];
 }
 
 const rowDomId = (trackId: string) => `mt-row-${trackId}`;

@@ -180,6 +180,17 @@ export function copyClips(p: Project, ids: readonly string[]): Clipboard | null 
   };
 }
 
+// clipboard is the editor's clip clipboard: one per window, so a copy can be
+// pasted into another project opened in the same window. Not the system
+// clipboard (clips aren't text or files).
+let held: Clipboard | null = null;
+export const clipboard = {
+  get: (): Clipboard | null => held,
+  set: (c: Clipboard | null) => {
+    held = c;
+  },
+};
+
 // freshCopy is a clip with new ids (its effects' too) at start.
 function freshCopy(c: Clip, start: number): Clip {
   const copy: Clip = { ...structuredClone(c), id: newId("clip"), start };

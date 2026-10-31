@@ -18,7 +18,7 @@ import { Inspector, tabsFor, useClipTarget, type TabId } from "@/trim/inspector/
 import { LibraryColumn, useLibrary, type LibraryId } from "@/trim/library/Library";
 import { migrateProject } from "@/trim/migrate";
 import { MediaBin, toMedia, useMediaBin } from "@/trim/MediaBin";
-import { MultiTimeline, type TimelineSelection } from "@/trim/MultiTimeline";
+import { MultiTimeline, selectedClipIds, type TimelineSelection } from "@/trim/MultiTimeline";
 import { PlayerHandles } from "@/trim/PlayerHandles";
 import {
   addMedia,
@@ -267,6 +267,7 @@ export default function EditVideo() {
   useEditorAgentCommands({ project, apply, undo, redo, canUndo, canRedo, pb, bin, compositor, setSelection, firstPath });
 
   const selectedClip = selection?.kind === "clip" ? selection.id : null;
+  const selectedClips = selectedClipIds(project, selection);
   const ready = !loading && !loadErr && project.media.length > 0;
 
   // The Effects and Filters libraries edit the selected clip, when it's one
@@ -425,7 +426,7 @@ export default function EditVideo() {
           </div>
         </div>
 
-        <Inspector project={project} clipId={selectedClip} apply={apply} playhead={pb.time} onSeek={pb.seek} picking={picking} onPickingChange={setPicking} tabRequest={tabRequest} onOpenLibrary={openLibrary} className="frost w-80 shrink-0" />
+        <Inspector project={project} clipId={selectedClip} clipIds={selectedClips} apply={apply} playhead={pb.time} onSeek={pb.seek} picking={picking} onPickingChange={setPicking} tabRequest={tabRequest} onOpenLibrary={openLibrary} className="frost w-80 shrink-0" />
       </div>
 
       <div className="frost m-2 p-2">

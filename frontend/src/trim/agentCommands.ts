@@ -7,6 +7,7 @@ import { registerTimeCommands } from "@/trim/agentCommandsTime";
 import type { CompositorHandle } from "@/trim/compositor/Compositor";
 import { registerFxCommands } from "@/trim/agentCommandsFx";
 import { CANVAS_PRESETS, MAX_CANVAS, MIN_CANVAS, normCanvas, placeClip, setCanvas, type ClipPlace, type Placement } from "@/trim/canvas";
+import { registerMultiCommands } from "@/trim/agentCommandsMulti";
 import { newId, type Text } from "@/trim/edl";
 import { checkFont, DEFAULT_FONT_LABEL, fontInfo, loadFonts } from "@/trim/fonts";
 import type { MediaBinState } from "@/trim/MediaBin";
@@ -782,6 +783,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
 
     registerTimeCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, clipOr, obj, lockedNote, selectClip: (id) => void selectClip(id) });
     registerFxCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, clipOr, obj, lockedNote, selectClip: (id) => void selectClip(id) });
+    registerMultiCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, obj, setSelection: (s) => d().setSelection(s) });
 
     return () => offs.forEach((off) => off());
   }, []);
