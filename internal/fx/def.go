@@ -61,6 +61,13 @@ type Parity struct {
 	Mean   float64 `json:"mean,omitempty"`
 	P99    float64 `json:"p99,omitempty"`
 	Reason string  `json:"reason,omitempty"`
+	// Border is how far (pixels of a 1080-line frame) the effect reads past
+	// a pixel, so the check skips that much of the frame's edge, where the
+	// two sides treat outside pixels differently; 0 = the default for its
+	// kind. T is the clip-local time (s) generated cases are drawn at, for
+	// effects that only show inside a time window; 0 = the clip's start.
+	Border float64 `json:"border,omitempty"`
+	T      float64 `json:"t,omitempty"`
 }
 
 // Animate is how a param is keyframed in the export: "cmd" (sendcmd),
