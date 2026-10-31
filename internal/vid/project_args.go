@@ -44,6 +44,8 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string) []st
 				args = append(args, "-f", "image2") // first frame as a still, like the preview
 			}
 			args = append(args, "-loop", "1", "-framerate", formatFPS(fps), "-t", msSeconds(ClipLengthMs(c)), "-i", m.Path)
+		} else if c.Hold {
+			args = append(args, holdInputArgs(c, m.Path)...)
 		} else {
 			args = append(args, "-ss", msSeconds(c.In), "-t", msSeconds(c.Out-c.In), "-i", m.Path)
 		}
@@ -64,7 +66,7 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string) []st
 			showVideo := t.Kind == "video" && !t.Hidden && m.Kind != "audio" && clipOpacity(c) > 0
 			audible := !t.Muted && (m.Kind == "audio" || m.HasAudio)
 			var picks []audioPick
-			if audible {
+			if audible && !c.Hold { // a freeze frame is silent
 				picks = clipAudioPicks(c, m)
 			}
 			if !showVideo && len(picks) == 0 {
@@ -126,11 +128,17 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string) []st
 // canvas.
 func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64) (string, int, int) {
 	tr := clipTransform(c)
+	head := fmt.Sprintf("[%d:v]", in)
 	parts := []string{}
-	if m.Kind == "image" {
+	switch {
+	case m.Kind == "image":
 		parts = append(parts, "setpts=PTS-STARTPTS")
-	} else {
-		parts = append(parts, fmt.Sprintf("setpts=(PTS-STARTPTS)/%s", num(clipSpeed(c))))
+	case wantsSmooth(c):
+		// Smooth slow motion is a small graph of its own (time_args.go).
+		sm := fmt.Sprintf("[sm%d]", in)
+		head = strings.Join(clipSmoothGraph(head, sm, c, fps, fmt.Sprintf("sm%d", in)), ";") + ";" + sm
+	default:
+		parts = append(parts, clipTiming(c)...) // speed, curve or freeze (time_args.go)
 	}
 	parts = append(parts, "fps="+formatFPS(fps))
 	if f := ClipVideoFilter(c, m.Height); f != "" {
@@ -146,7 +154,7 @@ func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64) (str
 	parts = append(parts, fmt.Sprintf("setpts=PTS+%s/TB", msSeconds(c.Start)))
 	x := int(math.Round(tr.X*float64(w) - float64(cw)/2))
 	y := int(math.Round(tr.Y*float64(h) - float64(ch)/2))
-	return fmt.Sprintf("[%d:v]", in) + strings.Join(parts, ","), x, y
+	return head + strings.Join(parts, ","), x, y
 }
 
 // ClipSize is a clip's size on the canvas: scale 1 fits the whole picture
@@ -223,6 +231,14 @@ func clipAudioChains(in int, c ClipJSON, picks []audioPick, label string) []stri
 		chains = append(chains, fmt.Sprintf("%samix=inputs=%d:duration=longest:normalize=0%s", mixIn.String(), len(picks), src))
 	}
 	parts := []string{}
+	if cv := clipCurve(c); cv != nil {
+		// A ramp's sound is timed piece by piece (time_args.go); the rest of
+		// the chain then runs at 1x.
+		timed := fmt.Sprintf("[cr%d]", in)
+		chains = append(chains, rampAudioGraph(src, timed, cv, fmt.Sprintf("cr%d", in))...)
+		src = timed
+		c.Speed = 1
+	}
 	if f := ClipAudioFilter(c, float64(ClipLengthMs(c))/1000); f != "" {
 		parts = append(parts, f)
 	}
