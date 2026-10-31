@@ -109,6 +109,34 @@ func (r *replayRetry) stable() {
 	r.failures, r.onSource, r.backoff = 0, 0, replayFirstBackoff
 }
 
+// captureStopReason picks why a run stopped from its ffmpeg stderr: the
+// capture filter's own failure ("AcquireNextFrame failed: 887a0026", "DDA
+// ReleaseFrame failed!") when it logged one. ffmpeg's last lines are only
+// the generic "Terminating thread with return code ..." and the filter's
+// "EOF timestamp not reliable" that follow it. The "[Parsed_ddagrab_0 @
+// 0x...] " tag is dropped, and DXGI's access-lost code is named.
+func captureStopReason(stderr string) string {
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		l := strings.TrimSpace(lines[i])
+		if !strings.Contains(l, "ddagrab") && !strings.Contains(l, "gfxcapture") {
+			continue
+		}
+		if _, msg, ok := strings.Cut(l, "] "); ok && strings.HasPrefix(l, "[") {
+			l = strings.TrimSpace(msg)
+		}
+		if !strings.Contains(strings.ToLower(l), "failed") {
+			continue
+		}
+		l = strings.TrimSuffix(l, "!")
+		if strings.Contains(strings.ToLower(l), "887a0026") {
+			l += ", the screen was taken over by a fullscreen app or a display change"
+		}
+		return l
+	}
+	return lastLine(stderr)
+}
+
 var (
 	gfxcaptureMu    sync.Mutex
 	gfxcaptureProbe = map[string]bool{}

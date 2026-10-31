@@ -462,7 +462,7 @@ func (b *ReplayBuffer) supervise(bin, enc string, screen ScreenInfo, ddaIdx int,
 				stopping = true
 				break watch
 			case <-rec.done:
-				pause = failed(time.Since(started), lastLine(rec.stderr.String()))
+				pause = failed(time.Since(started), captureStopReason(rec.stderr.String()))
 				break watch
 			case <-tick.C:
 				ticks++

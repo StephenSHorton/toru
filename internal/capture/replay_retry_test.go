@@ -97,3 +97,23 @@ func TestHasFilter(t *testing.T) {
 		t.Fatal("matched an unlisted filter")
 	}
 }
+
+func TestCaptureStopReason(t *testing.T) {
+	tail := "[Parsed_ddagrab_0 @ 000001f0c2a1b2c0] DDA ReleaseFrame failed!\n" +
+		"[fc#0 @ 000002454d2c5c80] Error while filtering: Generic error in an external library\n" +
+		"[fc#0 @ 000002454d2c5c80] Terminating thread with return code -542398533 (Generic error in an external library)\n"
+	if got := captureStopReason(tail); got != "DDA ReleaseFrame failed" {
+		t.Fatalf("got %q", got)
+	}
+	// What ffmpeg 9.0.2 logs when a display mode change takes the output.
+	lost := "[null @ 1] Application provided invalid, non monotonically increasing dts\n" +
+		"[Parsed_ddagrab_0 @ 0000014325c63fc0] AcquireNextFrame failed: 887a0026\n" +
+		"[Parsed_ddagrab_0 @ 0000014325c63fc0] EOF timestamp not reliable\n" +
+		"[fc#0 @ 0000014325b90f40] Terminating thread with return code -542398533 (Generic error in an external library)\n"
+	if got := captureStopReason(lost); got != "AcquireNextFrame failed: 887a0026, the screen was taken over by a fullscreen app or a display change" {
+		t.Fatalf("access lost: got %q", got)
+	}
+	if got := captureStopReason("[x @ 1] something else\n"); got != "[x @ 1] something else" {
+		t.Fatalf("no capture line: got %q", got)
+	}
+}
