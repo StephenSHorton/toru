@@ -367,6 +367,16 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         const waiting = stepped(a) ? s.uploaded < 0 && s.el.readyState < 2 : s.el.readyState < 2 || s.starting;
         if (!audioOnly && playing && waiting) starving = true;
       }
+      // Reverse proxies render ahead for every reversed clip, not only the
+      // ones near the playhead (a store lookup until one is due).
+      for (const track of p.tracks) {
+        if (track.kind !== "video") continue;
+        for (const c of track.clips) {
+          if (!c.reversed) continue;
+          const m = p.media.find((x) => x.id === c.media);
+          if (m) reverseUrl(c, m, now);
+        }
+      }
       // Load what's about to start, parked at its first frame.
       if (playing) {
         for (const track of p.tracks) {
