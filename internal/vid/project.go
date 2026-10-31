@@ -160,8 +160,15 @@ type ProjectExport struct {
 const defaultCanvasFPS = 30
 
 // ClipLengthMs is a clip's length on the timeline: its source range over
-// its speed.
+// its speed, its speed curve's length (speed.go), or a freeze frame's
+// Out-In.
 func ClipLengthMs(c ClipJSON) int {
+	if c.Hold {
+		return c.Out - c.In
+	}
+	if cv := clipCurve(c); cv != nil {
+		return int(math.Round(cv.outLength() * 1000))
+	}
 	return int(math.Round(float64(c.Out-c.In) / clipSpeed(c)))
 }
 

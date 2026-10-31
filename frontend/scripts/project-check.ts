@@ -10,6 +10,7 @@ import path from "node:path";
 import { colorMatrix, LOOK_MATRICES, normFilters } from "../src/trim/fx/lut";
 import { historyApply, historyInit, historyUndo, type Edl } from "../src/trim/edl";
 import { valueAt } from "../src/trim/fx/keyframes";
+import { clipAudible, outLength, presetCurve } from "../src/trim/speed";
 import { migrateClipEffects, migrateProject } from "../src/trim/migrate";
 import {
   addMedia,
@@ -59,6 +60,7 @@ function check(name: string, ok: boolean, detail?: unknown) {
   }
 }
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps;
+const FIT_ROT = { x: 0.5, y: 0.5, scale: 1, opacity: 1 };
 const spans = (p: Project, trackId: string) =>
   p.tracks.find((t) => t.id === trackId)!.clips.map((c) => [c.media, +c.start.toFixed(3), +clipEnd(c).toFixed(3)]);
 function noOverlaps(p: Project): boolean {
@@ -388,6 +390,77 @@ check("history: undo the whole drag", near(findClip(h.present, cam)!.clip.start,
   const edge = freezeFrame(base, vt, 0.02, 1);
   check("freeze: near the start freezes at the start", near(trackById(edge, vt)!.clips.find((c) => c.hold)!.start, 0) && noOverlaps(edge), spans(edge, vt));
   check("freeze: no overlaps", noOverlaps(fz));
+}
+
+// --- v3: speed curves and reverse (speed.ts)
+{
+  const base = newProject(G); // game 0..60
+  const vt = videoTracks(base)[0].id;
+  const id = trackById(base, vt)!.clips[0].id;
+  // Cut it to 10..20 first so there's source on both sides.
+  let q = trimClip(trimClip(base, id, "start", 10), id, "end", 20);
+  const curve = presetCurve("bullet", 10);
+  q = updateClip(q, id, { speedCurve: curve });
+  let c = findClip(q, id)!.clip;
+  check("curve: length is the curve's", near(clipLength(c), outLength(curve)) && clipLength(c) > 20, clipLength(c));
+  // clipsAt and timelineTimeAt are inverses.
+  let worst = 0;
+  for (let t = c.start; t < clipEnd(c) - 0.01; t += 0.37) {
+    const a = clipsAt(q, t).find((x) => x.clip.id === id)!;
+    worst = Math.max(worst, Math.abs(timelineTimeAt(c, a.srcT) - t));
+  }
+  check("curve: clipsAt / timelineTimeAt round trip", worst < 1e-6, worst);
+  check("curve: rate is the curve's speed", near(clipsAt(q, c.start + 0.01)!.find((x) => x.clip.id === id)!.rate, 1, 0.01) && clipsAt(q, c.start + clipLength(c) / 2)!.find((x) => x.clip.id === id)!.rate < 0.2);
+  // Split: the halves add up and the cut point maps to the same frame.
+  const tSplit = c.start + clipLength(c) * 0.4;
+  const srcAtSplit = clipsAt(q, tSplit).find((x) => x.clip.id === id)!.srcT;
+  const sp = splitAt(q, tSplit, vt);
+  const [l, r] = trackById(sp, vt)!.clips;
+  check("curve: split halves keep the length", near(clipLength(l) + clipLength(r), clipLength(c), 1e-6) && near(r.start, tSplit) && near(r.in, srcAtSplit, 1e-6), [clipLength(l), clipLength(r), clipLength(c)]);
+  check("curve: split right half starts slow", clipsAt(sp, tSplit + 1e-3).find((x) => x.clip.id === r.id)!.rate < 0.5);
+  // Trims: the content under the rest of the clip stays put.
+  const tr = trimClip(q, id, "start", c.start + 1);
+  const tc = findClip(tr, id)!.clip;
+  const probe = c.start + clipLength(c) * 0.6;
+  check(
+    "curve: start trim keeps later frames in place",
+    near(clipsAt(tr, probe).find((x) => x.clip.id === id)!.srcT, clipsAt(q, probe).find((x) => x.clip.id === id)!.srcT, 1e-6) && near(clipEnd(tc), clipEnd(c), 1e-6),
+  );
+  const te = trimClip(q, id, "end", clipEnd(c) + 5);
+  check("curve: end trim extends at the end speed", near(clipEnd(findClip(te, id)!.clip), clipEnd(c) + 5, 1e-6));
+  // A curve that would run into the next clip is refused.
+  const crowd = insertClip(addMedia(q, W), vt, "cam", clipEnd(c) + 0.5);
+  check("curve: next clip is there", trackById(crowd, vt)!.clips.length === 2);
+  const slower = { ...curve, points: curve.points.map((pt) => ({ ...pt, v: pt.v / 2 })) };
+  check("curve: slower curve that overlaps is refused", updateClip(crowd, id, { speedCurve: slower }) === crowd);
+  // Audio rule: silent where the bullet is at 0.1x, heard at 1x.
+  check("curve: audio follows within 0.25..4x", clipAudible(c, 0.05) && !clipAudible(c, 5));
+  // Freeze inside a ramp holds the frame under the playhead.
+  const fzT = c.start + clipLength(c) * 0.3;
+  const fz = freezeFrame(q, vt, fzT, 1);
+  const hold = trackById(fz, vt)!.clips.find((x) => x.hold)!;
+  check("curve: freeze holds the frame shown there", near(hold.in, clipsAt(q, fzT).find((x) => x.clip.id === id)!.srcT, 1e-6) && !hold.speedCurve);
+  // Clearing the curve.
+  c = findClip(updateClip(q, id, { speedCurve: undefined }), id)!.clip;
+  check("curve: cleared", !c.speedCurve && near(clipLength(c), 10));
+
+  // Reverse: the source runs backwards from out.
+  const rv = updateClip(trimClip(trimClip(base, id, "start", 10), id, "end", 20), id, { reversed: true });
+  const rc = findClip(rv, id)!.clip;
+  check("reverse: first frame is out, last is in", near(clipsAt(rv, rc.start)[0].srcT, 20) && near(clipsAt(rv, clipEnd(rc) - 0.5)[0].srcT, 10.5));
+  check("reverse: timelineTimeAt inverse", near(timelineTimeAt(rc, 15), rc.start + 5));
+  const rs = splitAt(rv, rc.start + 3, vt);
+  const [rl, rr] = trackById(rs, vt)!.clips;
+  check("reverse: split keeps direction", rl.reversed && rr.reversed && near(rl.in, 17) && near(rl.out, 20) && near(rr.in, 10) && near(rr.out, 17), [rl.in, rl.out, rr.in, rr.out]);
+  const rt = trimClip(rv, id, "start", rc.start + 2);
+  const rtc = findClip(rt, id)!.clip;
+  check("reverse: start trim cuts the end of the source", near(rtc.out, 18) && near(rtc.in, 10));
+  const rte = trimClip(rv, id, "end", clipEnd(rc) + 50);
+  check("reverse: end trim stops at source 0", near(findClip(rte, id)!.clip.in, 0), findClip(rte, id)!.clip.in);
+
+  // rotation survives updateClip (C6).
+  const ro = updateClip(base, id, { transform: { ...FIT_ROT, rotation: 400 } });
+  check("rotation kept and clamped", findClip(ro, id)!.clip.transform.rotation === 360);
 }
 
 console.log(`${passed} passed, ${failed} failed`);
