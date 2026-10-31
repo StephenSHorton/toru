@@ -20,11 +20,14 @@ import (
 // split copy of its input and is blended back (blend=all_opacity).
 
 // Step is one piece of an effect: a colour function (Color non-nil, fused
-// into the run's LUT) or ffmpeg filters (Filters, each "name=args", in
-// order, wanting gbrap input when RGB is set, else any format).
+// into the run's LUT), ffmpeg filters (Filters, each "name=args", in
+// order), or a small graph of its own (Graph: statements from label in to
+// label out, naming any labels it needs in between with label). Filters
+// and Graph want gbrap input when RGB is set, else any format.
 type Step struct {
 	Color   ColorFn
 	Filters []string
+	Graph   func(in, out string, label func() string) []string
 	RGB     bool
 }
 
@@ -94,20 +97,23 @@ func StackGraph(effects []Effect, ctx Ctx, work, id, in, out string) ([]string, 
 		for _, t := range steps[i:j] {
 			span = append(span, t.step)
 		}
-		chain, err := chainOf(span, work)
-		if err != nil {
-			return nil, err
-		}
 		next := label()
 		if steps[i].group == "" {
-			stmts = append(stmts, cur+chain+next)
+			body, err := spanGraph(span, work, cur, next, label)
+			if err != nil {
+				return nil, err
+			}
+			stmts = append(stmts, body...)
 		} else {
 			// The group's input, kept as straight-alpha gbrap for the blend.
 			a, b, done := label(), label(), label()
-			stmts = append(stmts,
-				cur+"format=gbrap,split"+a+b,
-				b+chain+",format=gbrap"+done,
-				a+done+"blend=all_mode=normal:all_opacity="+num(steps[i].amt)+next)
+			body, err := spanGraph(span, work, b, done, label, "format=gbrap")
+			if err != nil {
+				return nil, err
+			}
+			stmts = append(stmts, cur+"format=gbrap,split"+a+b)
+			stmts = append(stmts, body...)
+			stmts = append(stmts, a+done+"blend=all_mode=normal:all_opacity="+num(steps[i].amt)+next)
 		}
 		cur = next
 		i = j
@@ -117,10 +123,20 @@ func StackGraph(effects []Effect, ctx Ctx, work, id, in, out string) ([]string, 
 	return stmts, nil
 }
 
-// chainOf is one linear chain for steps: colour runs as lut3d, filters as
-// they are, format=gbrap once before the first step that needs RGB.
-func chainOf(steps []Step, work string) (string, error) {
-	var parts []string
+// spanGraph is the statements that take label in through steps to label
+// out: linear chains (colour runs as lut3d, filters as they are,
+// format=gbrap once before the first step that needs RGB), broken around
+// graph steps, with tail's filters at the very end.
+func spanGraph(steps []Step, work, in, out string, label func() string, tail ...string) ([]string, error) {
+	var stmts, parts []string
+	cur := in
+	flush := func(to string) {
+		if len(parts) == 0 {
+			parts = []string{"null"}
+		}
+		stmts = append(stmts, cur+strings.Join(parts, ",")+to)
+		parts, cur = nil, to
+	}
 	rgb := false
 	toRGB := func() {
 		if !rgb {
@@ -138,7 +154,7 @@ func chainOf(steps []Step, work string) (string, error) {
 			}
 			path, err := writeLut(fns, work)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			toRGB()
 			parts = append(parts, "lut3d=file="+filterValue(filepath.ToSlash(path))+":interp=trilinear")
@@ -148,10 +164,21 @@ func chainOf(steps []Step, work string) (string, error) {
 		if steps[i].RGB {
 			toRGB()
 		}
-		parts = append(parts, steps[i].Filters...)
+		if g := steps[i].Graph; g != nil {
+			if len(parts) > 0 {
+				flush(label())
+			}
+			next := label()
+			stmts = append(stmts, g(cur, next, label)...)
+			cur = next
+		} else {
+			parts = append(parts, steps[i].Filters...)
+		}
 		i++
 	}
-	return strings.Join(parts, ","), nil
+	parts = append(parts, tail...)
+	flush(out)
+	return stmts, nil
 }
 
 // writeLut writes a run's LUT as a .cube in work, named by its content (so

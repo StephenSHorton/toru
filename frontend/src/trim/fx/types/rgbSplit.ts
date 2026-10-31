@@ -1,4 +1,4 @@
-import type { ShaderModule } from "@/trim/fx/shader";
+import type { ShaderModule, Step } from "@/trim/fx/shader";
 
 // rgbSplit: ffmpeg rgbashift. Red moves by whole pixels one way and blue the
 // other, green and alpha stay; taps past the edge repeat the edge pixel
@@ -26,12 +26,18 @@ void main() {
   o = c;
 }`;
 
+// rgbShiftSteps is the pass moving red by (dx, dy) whole pixels and blue
+// the other way (glitch uses it too).
+export function rgbShiftSteps(dx: number, dy: number): Step[] {
+  if (!dx && !dy) return [];
+  return [{ kind: "pass", id: "rgbSplit", frag: FRAG, uniforms: { u_shift: [dx, dy] } }];
+}
+
 const rgbSplit: ShaderModule = {
   type: "rgbSplit",
   steps(p, ctx) {
     const [dx, dy] = rgbSplitShift(p.amount as number, p.angle as number, ctx.h);
-    if (!dx && !dy) return [];
-    return [{ kind: "pass", id: "rgbSplit", frag: FRAG, uniforms: { u_shift: [dx, dy] } }];
+    return rgbShiftSteps(dx, dy);
   },
 };
 export default rgbSplit;
