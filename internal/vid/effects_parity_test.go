@@ -2,30 +2,60 @@ package vid
 
 import (
 	"encoding/json"
+	"fmt"
+	"hash/fnv"
+	"image"
+	"image/draw"
+	"image/png"
+	"math"
+	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	effectfx "github.com/StephenSHorton/toru/internal/fx"
+	"github.com/StephenSHorton/toru/internal/fx/fxtest"
 )
 
 // ParityCase is one effects case for the preview/export parity check
 // (frontend/scripts/effects-parity.ts): the clip's effects and the ffmpeg
-// chain ClipVideoFilter builds for them on a ParityH-tall frame.
+// chain the export builds for them on a ParityH-tall frame.
 type parityCase struct {
 	Name   string      `json:"name"`
 	Chroma *ChromaJSON `json:"chroma,omitempty"`
 	// Filters as the frontend's Filters (lower-case keys).
 	Filters FiltersJSON `json:"filters"`
 	Filter  string      `json:"filter"`
-	// v3 cases: the effect stack (the frontend's EffectInstance shape) and
-	// the filtergraph StackGraph builds for it, from [0:v] to [fxout].
+	// v3 cases: the effect stack (EffectJSON, as saved: keyframe times in
+	// ms) and the filtergraph StackGraph builds for it, from [0:v] to
+	// [fxout] (empty when the stack changes nothing).
 	Effects []EffectJSON `json:"effects,omitempty"`
 	Graph   string       `json:"graph,omitempty"`
+	// T is the clip-local time in seconds the frame is drawn at: the preview
+	// resolves keyframes and draws at T, the script gives the export's frame
+	// that timestamp, so a keyed case's sendcmd/enable graph plays to it.
+	// Generated cases take it from the def's parity.t.
+	T float64 `json:"t,omitempty"`
+	// Limits come from the defs' parity blocks (the loosest in the stack);
+	// Border is how many pixels at the frame's edge the comparison skips,
+	// where neighbourhood effects treat the border differently (a hand-set
+	// Border is a minimum; the defs' reach can raise it).
+	Limits *effectfx.Parity `json:"limits,omitempty"`
+	Border int              `json:"border"`
 }
 
-const parityH = 180
+// Keyed cases are built as the export animates them (C3c: sendcmd files,
+// enable windows) at parityFPS for parityFrames frames, and drawn at a frame
+// time. 25 fps keeps every frame time a whole number of ms, which the
+// script's 1 ms input timebase holds exactly.
+const (
+	parityH      = 180
+	parityFPS    = 25
+	parityFrames = 51
+)
 
 func parityCases() []parityCase {
 	dc := DefaultChroma
@@ -50,38 +80,241 @@ func parityCases() []parityCase {
 		Filters: FiltersJSON{Brightness: -0.1, Contrast: 1.2, Saturation: 0.6, Look: "warm", Blur: 3}})
 	for i := range cases {
 		cases[i].Filter = ClipVideoFilter(ClipJSON{Chroma: cases[i].Chroma, Filters: cases[i].Filters}, parityH)
+		cases[i].Border = 2 + int(math.Ceil(cases[i].Filters.Blur*parityH/1080))
 	}
 	return cases
 }
 
-// parityV3Cases are v3 effect stacks: the colour LUT (lut3d), sharpen (cas),
-// box blur, green screen and a group below full intensity (split/blend).
-func parityV3Cases(work string) ([]parityCase, error) {
+func fxOf(typ string, params map[string]any) EffectJSON {
+	return EffectJSON{ID: typ, Type: typ, Enabled: true, Params: params}
+}
+
+// parityV3Cases are hand-picked v3 stacks that mix effects: the colour LUT
+// (lut3d) over several effects, sharpen (cas), green screen under a look,
+// and a group below full intensity (split/blend).
+func parityV3Cases() []parityCase {
 	half := 0.5
-	fx := func(typ string, params map[string]any) EffectJSON {
-		return EffectJSON{ID: typ, Type: typ, Enabled: true, Params: params}
-	}
 	grouped := func(e EffectJSON, amount *float64) EffectJSON {
 		e.Group, e.Amount = "g", amount
 		return e
 	}
-	cases := []parityCase{
-		{Name: "v3 adjust: exposure, warm, vibrance", Effects: []EffectJSON{fx("adjust", map[string]any{"exposure": 0.6, "temperature": 4200.0, "vibrance": 0.5})}},
-		{Name: "v3 adjust: tone + levels + fade", Effects: []EffectJSON{fx("adjust", map[string]any{"shadows": 0.8, "highlights": -0.6, "whites": 0.5, "blacks": -0.4, "fade": 0.5, "tint": -0.4})}},
-		{Name: "v3 look sepia, then adjust", Effects: []EffectJSON{fx("look", map[string]any{"look": "sepia", "saturation": 1.6, "amount": 0.7}), fx("adjust", map[string]any{"contrast": 1.3, "brightness": -0.05})}},
-		{Name: "v3 green screen + cool look", Effects: []EffectJSON{fx("chromaKey", map[string]any{}), fx("look", map[string]any{"look": "cool"})}},
-		{Name: "v3 sharpen", Effects: []EffectJSON{fx("adjust", map[string]any{"sharpen": 0.8})}},
-		{Name: "v3 blur 6", Effects: []EffectJSON{fx("blur", map[string]any{"amount": 6.0})}},
-		{Name: "v3 group at 50%", Effects: []EffectJSON{grouped(fx("look", map[string]any{"look": "bw"}), &half), grouped(fx("adjust", map[string]any{"contrast": 1.5}), &half)}},
+	return []parityCase{
+		{Name: "v3 adjust: exposure, warm, vibrance", Effects: []EffectJSON{fxOf("adjust", map[string]any{"exposure": 0.6, "temperature": 4200.0, "vibrance": 0.5})}},
+		{Name: "v3 adjust: tone + levels + fade", Effects: []EffectJSON{fxOf("adjust", map[string]any{"shadows": 0.8, "highlights": -0.6, "whites": 0.5, "blacks": -0.4, "fade": 0.5, "tint": -0.4})}},
+		{Name: "v3 look sepia, then adjust", Effects: []EffectJSON{fxOf("look", map[string]any{"look": "sepia", "saturation": 1.6, "amount": 0.7}), fxOf("adjust", map[string]any{"contrast": 1.3, "brightness": -0.05})}},
+		{Name: "v3 green screen + cool look", Effects: []EffectJSON{fxOf("chromaKey", map[string]any{}), fxOf("look", map[string]any{"look": "cool"})}},
+		{Name: "v3 sharpen", Effects: []EffectJSON{fxOf("adjust", map[string]any{"sharpen": 0.8})}},
+		{Name: "v3 group at 50%", Effects: []EffectJSON{grouped(fxOf("look", map[string]any{"look": "bw"}), &half), grouped(fxOf("adjust", map[string]any{"contrast": 1.5}), &half)}},
 	}
-	for i := range cases {
-		stmts, err := effectfx.StackGraph(stackOf(ClipJSON{Effects: cases[i].Effects}), effectfx.Ctx{W: 320, H: parityH}, work, "p", "[0:v]", "[fxout]")
-		if err != nil {
-			return nil, err
+}
+
+// registryCases are generated from every registered definition, so a new
+// effect is covered the moment its JSON lands: its defaults; each number at
+// its min and at its max; each other enum option; a flipped boolean; a point
+// at both corners; two seeded random parameter sets; a random set at half
+// intensity; and random keyframes on every animatable param, resolved at a
+// random time (keyedCase). The randomness is seeded by the type's name, so a
+// def's cases don't change when another def is added.
+func registryCases() []parityCase {
+	var out []parityCase
+	for _, d := range effectfx.Defs() {
+		h := fnv.New64a()
+		h.Write([]byte(d.Type))
+		r := rand.New(rand.NewSource(int64(h.Sum64())))
+		add := func(name string, params map[string]any) {
+			out = append(out, parityCase{Name: d.Type + " " + name, Effects: []EffectJSON{fxOf(d.Type, pinRandom(d, params))}, T: d.Parity.T})
 		}
-		cases[i].Graph = strings.Join(stmts, ";")
+		add("default", map[string]any{})
+		def := d.Resolve(nil)
+		for _, p := range d.Params {
+			switch p.Type {
+			case "number":
+				for _, v := range []float64{*p.Min, *p.Max} {
+					if v != def[p.ID] {
+						add(fmt.Sprintf("%s=%s", p.ID, caseNum(v)), map[string]any{p.ID: v})
+					}
+				}
+			case "enum":
+				for _, o := range p.Options {
+					if o.ID != def[p.ID] {
+						add(p.ID+"="+o.ID, map[string]any{p.ID: o.ID})
+					}
+				}
+			case "boolean":
+				add(fmt.Sprintf("%s=%v", p.ID, !def[p.ID].(bool)), map[string]any{p.ID: !def[p.ID].(bool)})
+			case "point":
+				add(p.ID+"=0,0", map[string]any{p.ID: [2]float64{0, 0}})
+				add(p.ID+"=1,1", map[string]any{p.ID: [2]float64{1, 1}})
+			}
+		}
+		for i := range 2 {
+			add(fmt.Sprintf("random %d", i), randomParams(d, r))
+		}
+		if len(d.Parity.Random) > 0 {
+			// The defaults with their randomness on: compared by statistics.
+			out = append(out, parityCase{Name: d.Type + " default, random on", Effects: []EffectJSON{fxOf(d.Type, map[string]any{})}, T: d.Parity.T})
+		}
+		if d.Amount != "none" {
+			half := 0.5
+			e := fxOf(d.Type, pinRandom(d, randomParams(d, r)))
+			e.Amount = &half
+			out = append(out, parityCase{Name: d.Type + " random at 50%", Effects: []EffectJSON{e}, T: d.Parity.T})
+		}
+		if c, ok := keyedCase(d, r); ok {
+			out = append(out, c)
+		}
 	}
-	return cases, nil
+	return out
+}
+
+// randomParams is a value for every param, uniform over its range (numbers),
+// options, both booleans, any colour, the unit square (points). Files keep
+// their default.
+// pinRandom sets the def's parity.random params (output that is random on
+// both sides, like glitch's noise) to 0, so the case compares pixel for
+// pixel. A one-param case keeps its own value (noise=1 is then compared by
+// statistics, limitsOf).
+func pinRandom(d effectfx.Def, params map[string]any) map[string]any {
+	if len(d.Parity.Random) == 0 {
+		return params
+	}
+	out := map[string]any{}
+	for k, v := range params {
+		out[k] = v
+	}
+	for _, id := range d.Parity.Random {
+		if _, set := params[id]; !set || len(params) > 1 {
+			out[id] = 0.0
+		}
+	}
+	return out
+}
+
+func randomParams(d effectfx.Def, r *rand.Rand) map[string]any {
+	out := map[string]any{}
+	for _, p := range d.Params {
+		if v, ok := randomValue(p, r); ok {
+			out[p.ID] = v
+		}
+	}
+	return out
+}
+
+func randomValue(p effectfx.ParamDef, r *rand.Rand) (any, bool) {
+	switch p.Type {
+	case "number":
+		return *p.Min + (*p.Max-*p.Min)*r.Float64(), true
+	case "enum":
+		return p.Options[r.Intn(len(p.Options))].ID, true
+	case "boolean":
+		return r.Intn(2) == 1, true
+	case "color":
+		return fmt.Sprintf("#%06x", r.Intn(1<<24)), true
+	case "point":
+		return [2]float64{r.Float64(), r.Float64()}, true
+	}
+	return nil, false
+}
+
+// keyedCase keys every animatable param of d (three keys over 0..2 s with
+// random values and eases) and picks a random frame inside them. The export
+// side is the animated graph the export builds (finishV3: sendcmd files and
+// enable windows at parityFPS), played to that frame's time; the preview
+// resolves the same keys with resolveStack(effects, t). That holds the
+// keyed export path, the two valueAt twins and the effect to the same
+// pixels.
+func keyedCase(d effectfx.Def, r *rand.Rand) (parityCase, bool) {
+	eases := []string{"linear", "in", "out", "inOut", "hold"}
+	e := fxOf(d.Type, pinRandom(d, randomParams(d, r)))
+	e.Keys = map[string][]KeyframeJSON{}
+	tMs := effectfx.FrameMs(3+r.Intn(parityFrames-6), parityFPS)
+	for _, p := range d.Params {
+		if p.Animate == "" {
+			continue
+		}
+		var keys []KeyframeJSON
+		for _, t := range []int{0, 1000, 2000} {
+			v, ok := randomValue(p, r)
+			if !ok {
+				break
+			}
+			keys = append(keys, KeyframeJSON{T: t, V: v, Ease: eases[r.Intn(len(eases))]})
+		}
+		if len(keys) > 0 {
+			e.Keys[p.ID] = keys
+		}
+	}
+	if len(e.Keys) == 0 {
+		return parityCase{}, false
+	}
+	return parityCase{Name: fmt.Sprintf("%s keyed at %.2f s", d.Type, tMs/1000), Effects: []EffectJSON{e}, T: tMs / 1000}, true
+}
+
+// finishV3 builds each v3 case's graph (animated, as the export builds a
+// keyed clip, when the stack has keys; its sendcmd files go into work) and
+// its limits and border from the defs.
+func finishV3(cases []parityCase, work string) error {
+	for i := range cases {
+		c := &cases[i]
+		stack := c.Effects
+		ctx := effectfx.Ctx{W: 320, H: parityH}
+		for _, e := range stack {
+			if len(e.Keys) > 0 {
+				ctx.FPS, ctx.Frames = parityFPS, parityFrames
+			}
+		}
+		stmts, err := effectfx.StackGraph(stackOf(ClipJSON{Effects: stack}), ctx, work, "p", "[0:v]", "[fxout]")
+		if err != nil {
+			return fmt.Errorf("%s: %w", c.Name, err)
+		}
+		c.Graph = strings.Join(stmts, ";")
+		var border int
+		c.Limits, border = limitsOf(stack)
+		c.Border = max(c.Border, border)
+	}
+	return nil
+}
+
+// limitsOf is the loosest parity limit in a stack ("none" beats "stats"
+// beats "pixels"; then the largest mean and p99) and the border to skip: 2
+// pixels, plus the widest reach in the stack: a def's parity.border, else
+// 20 px of a 1080-line frame for neighbourhood and geometry effects. An
+// effect with one of its parity.random params on is compared by statistics
+// (its mean/p99 limits then bound Δmean/Δstd).
+func limitsOf(stack []EffectJSON) (*effectfx.Parity, int) {
+	rank := map[string]int{"pixels": 0, "stats": 1, "none": 2}
+	var lim *effectfx.Parity
+	border := 2
+	for _, e := range stack {
+		d, ok := effectfx.Lookup(e.Type)
+		if !ok {
+			continue
+		}
+		reach := d.Parity.Border
+		if reach == 0 && d.Kind != "pixel" {
+			reach = 20
+		}
+		border = max(border, 2+int(math.Ceil(reach*parityH/1080)))
+		p := d.Parity
+		p.Random = nil
+		res := d.Resolve(e.Params)
+		for _, id := range d.Parity.Random {
+			if v, ok := res[id].(float64); ok && v != 0 && p.Mode == "pixels" {
+				p.Mode = "stats"
+			}
+		}
+		switch {
+		case lim == nil || rank[p.Mode] > rank[lim.Mode]:
+			lim = &p
+		case p.Mode == lim.Mode:
+			lim.Mean, lim.P99 = math.Max(lim.Mean, p.Mean), math.Max(lim.P99, p.P99)
+		}
+	}
+	return lim, border
+}
+
+func caseNum(v float64) string {
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.3f", v), "0"), ".")
 }
 
 // TestWriteEffectsParityCases writes the parity cases to
@@ -93,8 +326,8 @@ func TestWriteEffectsParityCases(t *testing.T) {
 	if dir == "" {
 		t.Skip("TORU_FX_PARITY_DIR not set (run frontend/scripts/effects-parity.ts)")
 	}
-	v3, err := parityV3Cases(dir)
-	if err != nil {
+	v3 := append(parityV3Cases(), registryCases()...)
+	if err := finishV3(v3, dir); err != nil {
 		t.Fatal(err)
 	}
 	b, err := json.MarshalIndent(map[string]any{"height": parityH, "cases": append(parityCases(), v3...)}, "", "  ")
@@ -104,4 +337,180 @@ func TestWriteEffectsParityCases(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "cases.json"), b, 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestRegistryCasesCoverEveryDef keeps the generator honest: every def gets
+// cases, every case builds, and an animatable def gets a keyed case.
+func TestRegistryCasesCoverEveryDef(t *testing.T) {
+	cases := registryCases()
+	if err := finishV3(cases, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range effectfx.Defs() {
+		n, keyed := 0, false
+		for _, c := range cases {
+			if c.Effects[0].Type == d.Type {
+				n++
+				keyed = keyed || c.Effects[0].Keys != nil
+			}
+		}
+		animates := false
+		for _, p := range d.Params {
+			animates = animates || p.Animate != ""
+		}
+		if n < 4 || keyed != animates {
+			t.Errorf("%s: %d cases, keyed %v (animatable %v)", d.Type, n, keyed, animates)
+		}
+	}
+}
+
+// migrationCases are 12 v2 clips covering each v2→v3 migration rule
+// (docs/video-editor-v3.md, "Migration v2 → v3"): nothing set, the green
+// screen alone, contrast/brightness alone, saturation with and without a
+// look (it moves into the look), contrast/brightness after a look, blur
+// alone, and mixes of everything. migration-golden.ts renders them through
+// the v2 export chain into testdata/migration (the reference PNGs) and
+// records the editor's migrated stacks next to them.
+func migrationCases() []parityCase {
+	dc := DefaultChroma
+	f := func(b, c, s float64, look string, blur float64) FiltersJSON {
+		return FiltersJSON{Brightness: b, Contrast: c, Saturation: s, Look: look, Blur: blur}
+	}
+	cases := []parityCase{
+		{Name: "nothing set", Filters: f(0, 1, 1, "none", 0)},
+		{Name: "green screen", Chroma: &dc, Filters: f(0, 1, 1, "none", 0)},
+		{Name: "green screen, hard edge", Chroma: &ChromaJSON{Color: "#00ff00", Similarity: 0.2}, Filters: f(0, 1, 1, "none", 0)},
+		{Name: "brightness + contrast", Filters: f(0.15, 1.4, 1, "none", 0)},
+		{Name: "saturation alone", Filters: f(0, 1, 0.3, "none", 0)},
+		{Name: "sepia", Filters: f(0, 1, 1, "sepia", 0)},
+		{Name: "vintage + saturation", Filters: f(0, 1, 1.6, "vintage", 0)},
+		{Name: "warm, then contrast + brightness", Filters: f(-0.1, 1.3, 1, "warm", 0)},
+		{Name: "blur alone", Filters: f(0, 1, 1, "none", 4)},
+		{Name: "green screen + cool + blur", Chroma: &dc, Filters: f(0, 1, 1, "cool", 2)},
+		{Name: "bw, no saturation, low contrast", Filters: f(0, 0.7, 0, "bw", 0)},
+		{Name: "everything", Chroma: &dc, Filters: f(-0.1, 1.2, 0.6, "warm", 3)},
+	}
+	for i := range cases {
+		cases[i].Filter = ClipVideoFilter(ClipJSON{Chroma: cases[i].Chroma, Filters: cases[i].Filters}, parityH)
+		cases[i].Border = 2 + int(math.Ceil(cases[i].Filters.Blur*parityH/1080))
+	}
+	return cases
+}
+
+// TestWriteMigrationCases writes migrationCases to
+// $TORU_MIGRATION_DIR/cases.json for migration-golden.ts --write. Skipped
+// unless the variable is set.
+func TestWriteMigrationCases(t *testing.T) {
+	dir := os.Getenv("TORU_MIGRATION_DIR")
+	if dir == "" {
+		t.Skip("TORU_MIGRATION_DIR not set (run frontend/scripts/migration-golden.ts --write)")
+	}
+	b, err := json.MarshalIndent(map[string]any{"height": parityH, "cases": migrationCases()}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cases.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// migrationGolden is testdata/migration/golden.json: per case the v2 clip,
+// the stack the editor migrates it to, and the reference PNG the v2 export
+// chain drew from src.png.
+type migrationGolden struct {
+	Height int `json:"height"`
+	Cases  []struct {
+		Name    string       `json:"name"`
+		Effects []EffectJSON `json:"effects"`
+		PNG     string       `json:"png"`
+		Border  int          `json:"border"`
+	} `json:"cases"`
+}
+
+// TestMigrationGoldenExport renders each migrated stack through the v3
+// export (StackGraph) with the pinned ffmpeg and holds it to the v2
+// reference PNG, with v2's limits (mean ≤ 1, p99 ≤ 6). migration-golden.ts
+// does the same for the preview. Skipped without the pinned ffmpeg.
+func TestMigrationGoldenExport(t *testing.T) {
+	ff := fxtest.PinnedFFmpeg(t)
+	b, err := os.ReadFile("testdata/migration/golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var g migrationGolden
+	if err := json.Unmarshal(b, &g); err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Cases) != len(migrationCases()) {
+		t.Fatalf("golden.json has %d cases, migrationCases %d: run migration-golden.ts --write", len(g.Cases), len(migrationCases()))
+	}
+	work := t.TempDir()
+	src, err := filepath.Abs("testdata/migration/src.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range g.Cases {
+		want := readPNG(t, filepath.Join("testdata/migration", c.PNG))
+		w, h := want.Bounds().Dx(), want.Bounds().Dy()
+		stmts, err := effectfx.StackGraph(stackOf(ClipJSON{Effects: c.Effects}), effectfx.Ctx{W: w, H: h}, work, "m", "[0:v]", "[fxout]")
+		if err != nil {
+			t.Fatalf("%s: %v", c.Name, err)
+		}
+		graph := "[0:v]null[fxout]"
+		if stmts != nil {
+			graph = strings.Join(stmts, ";")
+		}
+		out, err := exec.Command(ff, "-v", "error", "-i", src, "-filter_complex", graph+";[fxout]format=rgba[o]", "-map", "[o]",
+			"-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-").Output()
+		if err != nil {
+			t.Fatalf("%s: %v\ngraph: %s", c.Name, err, graph)
+		}
+		mean, p99 := frameDiff(want.Pix, out, w, h, c.Border)
+		if mean > 1 || p99 > 6 {
+			t.Errorf("%s: export of the migrated stack differs from v2: mean %.2f, p99 %.1f (limits 1, 6)", c.Name, mean, p99)
+		}
+	}
+}
+
+func readPNG(t *testing.T, path string) *image.NRGBA {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	img, err := png.Decode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := image.NewNRGBA(img.Bounds())
+	draw.Draw(out, out.Bounds(), img, img.Bounds().Min, draw.Src)
+	return out
+}
+
+// frameDiff is the parity script's pixel comparison (fx-edge.ts compare):
+// colour premultiplied by alpha, plus alpha, in 0..255 levels, skipping
+// border pixels at the edge; it returns the mean and p99 of the differences.
+func frameDiff(a, b []byte, w, h, border int) (mean, p99 float64) {
+	var diffs []float64
+	at := func(buf []byte, o, k int) float64 {
+		if k == 3 {
+			return float64(buf[o+3])
+		}
+		return float64(buf[o+k]) * float64(buf[o+3]) / 255
+	}
+	for y := border; y < h-border; y++ {
+		for x := border; x < w-border; x++ {
+			o := (y*w + x) * 4
+			for k := range 4 {
+				diffs = append(diffs, math.Abs(at(a, o, k)-at(b, o, k)))
+			}
+		}
+	}
+	sort.Float64s(diffs)
+	sum := 0.0
+	for _, d := range diffs {
+		sum += d
+	}
+	return sum / float64(len(diffs)), diffs[len(diffs)*99/100]
 }

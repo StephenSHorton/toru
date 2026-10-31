@@ -17,6 +17,6 @@
       "options": [ { "id": "linear", "label": "Linear" }, { "id": "in", "label": "Ease in" }, { "id": "out", "label": "Ease out" }, { "id": "inOut", "label": "Ease in/out" } ] }
   ],
   "export": { "filters": ["scale", "crop"] },
-  "parity": { "mode": "pixels", "mean": 1, "p99": 6 },
+  "parity": { "mode": "pixels", "mean": 1, "p99": 6, "t": 0.15 },
   "amount": "blend"
 }
