@@ -38,6 +38,8 @@ func TestV3EffectsExportInFFmpeg(t *testing.T) {
 		{{Type: "sharpen", Params: map[string]any{}}},
 		{{Type: "chromaKey", Params: map[string]any{}}, {Type: "zoom", Params: map[string]any{}}, {Type: "gaussianBlur", Params: map[string]any{}}},
 		{{Type: "glitch", Params: map[string]any{"density": 0.8}}},
+		{{Type: "adjust", Params: map[string]any{}, Keys: map[string][]KeyframeJSON{"exposure": {{T: 0, V: -1.0, Ease: "inOut"}, {T: 1000, V: 1.0}}, "sharpen": {{T: 200, V: 0.0}, {T: 900, V: 1.0}}}},
+			{Type: "chromaKey", Params: map[string]any{}, Keys: map[string][]KeyframeJSON{"similarity": {{T: 0, V: 0.1}, {T: 1500, V: 0.5}}}}},
 		{{Type: "glitch", Params: map[string]any{"seed": 41.0, "slices": 6.0}, Group: "g", Amount: &half}, {Type: "zoom", Params: map[string]any{}, Group: "g", Amount: &half}},
 	}
 	p := ProjectJSON{
@@ -59,13 +61,8 @@ func TestV3EffectsExportInFFmpeg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	i := slices.Index(args, "-filter_complex")
-	if i < 0 {
-		t.Fatalf("no -filter_complex in %q", args)
-	}
-	t.Logf("filter_complex: %d bytes for %d clips", len(args[i+1]), len(stacks))
 	if out, err := exec.Command(ff, append([]string{"-v", "error"}, args...)...).CombinedOutput(); err != nil {
-		t.Fatalf("export: %v\n%s\ngraph: %s", err, out, args[i+1])
+		t.Fatalf("export: %v\n%s\nargs: %q", err, out, args)
 	}
 
 	// Twice the clips: past maxInlineGraph, so the graph goes in a file.

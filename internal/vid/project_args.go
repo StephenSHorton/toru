@@ -175,7 +175,7 @@ func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64, work
 		// v3: the effect stack (internal/fx), as its own graph between the
 		// timing and the scale.
 		fxIn, fxOut := fmt.Sprintf("[fx%din]", layer), fmt.Sprintf("[fx%dout]", layer)
-		stmts, err := effectfx.StackGraph(stackOf(c), effectfx.Ctx{W: m.Width, H: m.Height}, work, fmt.Sprintf("fx%d", layer), fxIn, fxOut)
+		stmts, err := effectfx.StackGraph(stackOf(c), effectfx.Ctx{W: m.Width, H: m.Height, FPS: fps, Frames: effectfx.Frames(float64(ClipLengthMs(c)), fps)}, work, fmt.Sprintf("fx%d", layer), fxIn, fxOut)
 		if err != nil {
 			return nil, "", "", "", err
 		}
@@ -204,7 +204,16 @@ func stackOf(c ClipJSON) []effectfx.Effect {
 		if e.Amount != nil {
 			amount = *e.Amount
 		}
-		out = append(out, effectfx.Effect{Type: e.Type, Enabled: e.Enabled, Params: e.Params, Group: e.Group, Amount: amount})
+		var keys map[string][]effectfx.Key
+		for id, ks := range e.Keys {
+			if keys == nil {
+				keys = map[string][]effectfx.Key{}
+			}
+			for _, k := range ks {
+				keys[id] = append(keys[id], effectfx.Key{T: float64(k.T), V: k.V, Ease: k.Ease})
+			}
+		}
+		out = append(out, effectfx.Effect{Type: e.Type, Enabled: e.Enabled, Params: e.Params, Group: e.Group, Amount: amount, Keys: keys})
 	}
 	return out
 }

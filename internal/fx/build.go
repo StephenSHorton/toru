@@ -29,11 +29,25 @@ type Step struct {
 	Filters []string
 	Graph   func(in, out string, label func() string) []string
 	RGB     bool
+
+	// A keyframed colour step's function and params key per frame
+	// (keyed.go); nil for a static one.
+	ColorFrames []ColorFn
+	ColorKeys   []string
 }
 
 // Ctx is what a builder may depend on besides params: the frame size the
-// effects run at (the clip's source size, as the preview).
-type Ctx struct{ W, H int }
+// effects run at (the clip's source size, as the preview). FPS and Frames
+// are the clip's output rate and length in frames, for keyframes (FPS 0:
+// keyframes are ignored and params are their static values). Live is set
+// when the params change over time: the builder must then return the same
+// steps whatever the values (no leaving a filter out at zero).
+type Ctx struct {
+	W, H   int
+	FPS    float64
+	Frames int
+	Live   bool
+}
 
 // Builder turns resolved params (Def.Resolve) into steps; none when the
 // effect changes nothing.
@@ -50,7 +64,8 @@ type Effect struct {
 	Enabled bool
 	Params  map[string]any
 	Group   string
-	Amount  float64 // 0..1; 1 = full
+	Amount  float64          // 0..1; 1 = full
+	Keys    map[string][]Key // per param, T in clip-local ms
 }
 
 // StackGraph is the filtergraph statements that take label in through the
@@ -64,6 +79,7 @@ func StackGraph(effects []Effect, ctx Ctx, work, id, in, out string) ([]string, 
 		amt   float64
 	}
 	var steps []tagged
+	var cmds []Command
 	for i, e := range effects {
 		d, ok := Lookup(e.Type)
 		b := builders[e.Type]
@@ -77,7 +93,16 @@ func StackGraph(effects []Effect, ctx Ctx, work, id, in, out string) ([]string, 
 				g = "fx" + strconv.Itoa(i)
 			}
 		}
-		for _, s := range b(d.Resolve(e.Params), ctx) {
+		built := b(d.Resolve(e.Params), ctx)
+		if _, keyed := keyedParams(d, e); keyed && ctx.FPS > 0 && ctx.Frames > 1 {
+			var c []Command
+			var err error
+			if built, c, err = keyedSteps(d, e, b, ctx, fmt.Sprintf("%s_%d", strings.Trim(id, "[]"), i)); err != nil {
+				return nil, err
+			}
+			cmds = append(cmds, c...)
+		}
+		for _, s := range built {
 			steps = append(steps, tagged{s, g, math.Min(1, e.Amount)})
 		}
 	}
@@ -88,6 +113,15 @@ func StackGraph(effects []Effect, ctx Ctx, work, id, in, out string) ([]string, 
 	n := 0
 	label := func() string { n++; return fmt.Sprintf("[%s_%d]", id, n) }
 	cur := in
+	if len(cmds) > 0 {
+		send, err := SendcmdFilter(cmds, ctx.FPS, work)
+		if err != nil {
+			return nil, err
+		}
+		next := label()
+		stmts = append(stmts, cur+send+next)
+		cur = next
+	}
 	for i := 0; i < len(steps); {
 		j := i + 1
 		for j < len(steps) && steps[j].group == steps[i].group {
@@ -99,7 +133,7 @@ func StackGraph(effects []Effect, ctx Ctx, work, id, in, out string) ([]string, 
 		}
 		next := label()
 		if steps[i].group == "" {
-			body, err := spanGraph(span, work, cur, next, label)
+			body, err := spanGraph(span, work, ctx.FPS, cur, next, label)
 			if err != nil {
 				return nil, err
 			}
@@ -107,7 +141,7 @@ func StackGraph(effects []Effect, ctx Ctx, work, id, in, out string) ([]string, 
 		} else {
 			// The group's input, kept as straight-alpha gbrap for the blend.
 			a, b, done := label(), label(), label()
-			body, err := spanGraph(span, work, b, done, label, "format=gbrap")
+			body, err := spanGraph(span, work, ctx.FPS, b, done, label, "format=gbrap")
 			if err != nil {
 				return nil, err
 			}
@@ -127,7 +161,7 @@ func StackGraph(effects []Effect, ctx Ctx, work, id, in, out string) ([]string, 
 // out: linear chains (colour runs as lut3d, filters as they are,
 // format=gbrap once before the first step that needs RGB), broken around
 // graph steps, with tail's filters at the very end.
-func spanGraph(steps []Step, work, in, out string, label func() string, tail ...string) ([]string, error) {
+func spanGraph(steps []Step, work string, fps float64, in, out string, label func() string, tail ...string) ([]string, error) {
 	var stmts, parts []string
 	cur := in
 	flush := func(to string) {
@@ -147,17 +181,15 @@ func spanGraph(steps []Step, work, in, out string, label func() string, tail ...
 	for i := 0; i < len(steps); {
 		if steps[i].Color != nil {
 			j := i
-			var fns []ColorFn
 			for j < len(steps) && steps[j].Color != nil {
-				fns = append(fns, steps[j].Color)
 				j++
 			}
-			path, err := writeLut(fns, work)
+			luts, err := colorRun(steps[i:j], work, fps)
 			if err != nil {
 				return nil, err
 			}
 			toRGB()
-			parts = append(parts, "lut3d=file="+filterValue(filepath.ToSlash(path))+":interp=trilinear")
+			parts = append(parts, luts...)
 			i = j
 			continue
 		}
@@ -179,6 +211,70 @@ func spanGraph(steps []Step, work, in, out string, label func() string, tail ...
 	parts = append(parts, tail...)
 	flush(out)
 	return stmts, nil
+}
+
+// colorRun is the lut3d filters for a run of colour steps: one LUT, or for
+// a keyframed run one per distinct frame, each enabled over its frames
+// (half-open windows between frame midpoints).
+func colorRun(run []Step, work string, fps float64) ([]string, error) {
+	lut := func(fns []ColorFn, enable string) (string, error) {
+		path, err := writeLut(fns, work)
+		if err != nil {
+			return "", err
+		}
+		return "lut3d=file=" + filterValue(filepath.ToSlash(path)) + ":interp=trilinear" + enable, nil
+	}
+	frames := 0
+	for _, s := range run {
+		frames = max(frames, len(s.ColorFrames))
+	}
+	if frames == 0 {
+		fns := make([]ColorFn, len(run))
+		for k, s := range run {
+			fns[k] = s.Color
+		}
+		f, err := lut(fns, "")
+		return []string{f}, err
+	}
+	keys := make([]string, frames)
+	for n := range keys {
+		var b strings.Builder
+		for _, s := range run {
+			if len(s.ColorKeys) > n {
+				b.WriteString(s.ColorKeys[n])
+			}
+			b.WriteByte('|')
+		}
+		keys[n] = b.String()
+	}
+	runs := lutWindows(keys)
+	var out []string
+	for k, r := range runs {
+		fns := make([]ColorFn, len(run))
+		for x, s := range run {
+			fns[x] = s.Color
+			if len(s.ColorFrames) > r.sample {
+				fns[x] = s.ColorFrames[r.sample]
+			}
+		}
+		var cond []string
+		if k > 0 {
+			cond = append(cond, "gte(t,"+num((float64(r.first)-0.5)/fps)+")")
+		}
+		if k < len(runs)-1 {
+			cond = append(cond, "lt(t,"+num((float64(r.last)+0.5)/fps)+")")
+		}
+		enable := ""
+		if len(cond) > 0 {
+			enable = ":enable=" + quoted(strings.Join(cond, "*"))
+		}
+		f, err := lut(fns, enable)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, nil
 }
 
 // writeLut writes a run's LUT as a .cube in work, named by its content (so
@@ -220,4 +316,20 @@ func escapeChars(s, special string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// orIdentity is fn, or the colour function that changes nothing.
+func orIdentity(fn ColorFn) ColorFn {
+	if fn != nil {
+		return fn
+	}
+	return func(c RGB) RGB { return c }
+}
+
+// onOff is a timeline enable value.
+func onOff(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }

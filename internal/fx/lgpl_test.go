@@ -42,6 +42,7 @@ func filtersIn(graph string) []string {
 	var out []string
 	for _, part := range strings.FieldsFunc(graph, func(r rune) bool { return r == ',' || r == ';' }) {
 		name, _, _ := strings.Cut(strings.TrimSpace(part), "=")
+		name, _, _ = strings.Cut(name, "@") // name@instance
 		if name != "" && !strings.Contains(name, "/") && !strings.Contains(name, ":") {
 			out = append(out, name)
 		}
