@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/httprange"
 	"github.com/StephenSHorton/toru/internal/vid"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -83,6 +84,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	httprange.Cap(r) // a chunk per request, not the rest of the file
 	http.ServeContent(w, r, filepath.Base(m.Path), fi.ModTime(), f)
 }
 
