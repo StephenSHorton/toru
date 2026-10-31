@@ -11,7 +11,7 @@ import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
 import { useEditorAgentCommands } from "@/trim/agentCommands";
 import { newId } from "@/trim/edl";
 import { ExportDialog } from "@/trim/ExportDialog";
-import { Inspector } from "@/trim/Inspector";
+import { Inspector } from "@/trim/inspector/Inspector";
 import { MediaBin, toMedia, useMediaBin } from "@/trim/MediaBin";
 import { MultiTimeline, type TimelineSelection } from "@/trim/MultiTimeline";
 import { PlayerHandles } from "@/trim/PlayerHandles";
@@ -323,7 +323,7 @@ export default function EditVideo() {
           </div>
         </div>
 
-        <Inspector project={project} clipId={selectedClip} apply={apply} picking={picking} onPickingChange={setPicking} className="frost w-72 shrink-0" />
+        <Inspector project={project} clipId={selectedClip} apply={apply} playhead={pb.time} onSeek={pb.seek} picking={picking} onPickingChange={setPicking} className="frost w-80 shrink-0" />
       </div>
 
       <div className="frost m-2 p-2">
