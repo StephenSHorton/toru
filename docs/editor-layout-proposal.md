@@ -7,6 +7,10 @@ at 1600×900 into `docs/editor-layout/*.png`.
 Blake: *"there are still a ton of features that we need to add too, but I
 don't want it to feel like clutter, and make it easy to navigate."*
 
+**Decision (Blake, 2026-10-31): Option B**, the library rail + contextual
+inspector, with right-click menus and the Ctrl+K palette. Build order: "If
+B is picked" at the end.
+
 ## Where we are
 
 ![Today](editor-layout/now.png)
