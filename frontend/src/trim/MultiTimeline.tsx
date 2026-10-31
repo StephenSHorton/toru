@@ -1,22 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  ArrowLeftToLine,
-  AudioLines,
-  ClipboardPaste,
-  Copy,
-  Download,
+  type LucideIcon,
   Eye,
   EyeOff,
   Film,
-  Gauge,
   Image as ImageIcon,
   Lock,
   Music,
-  PanelRight,
   Plus,
-  Rewind,
   Scissors,
-  Snowflake,
   Trash2,
   Type,
   Unlock,
@@ -27,53 +19,33 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
+import { actionCtx, actionForKey, labelOf, menuFor, registerAction, runAction, useActions, whyNot } from "@/trim/actions";
 import { cn } from "@/lib/utils";
 import { greenScreen } from "@/trim/fx/ops";
 import { clipEffects } from "@/trim/fx/stack";
 import { ClipWave } from "@/trim/ClipWave";
 import { KeyLane } from "@/trim/inspector/KeyLane";
-import type { TabId } from "@/trim/inspector/Inspector";
 import type { Text } from "@/trim/edl";
 import {
-  allClipIds,
-  clipboard,
   clipRangeOnTrack,
   clipsInRange,
-  copyClips,
-  duplicateClips,
   liveIds,
   moveClips,
-  pasteAttributes,
-  pasteClips,
-  pastedIds,
-  removeClips,
-  rippleDeleteClips,
-  setClipsMuted,
 } from "@/trim/multi";
 import {
   addMedia,
   addTrack,
-  canExtractAudio,
   canHold,
   clipEnd,
   clipLength,
-  closeGap,
-  duplicateClip,
-  extractAudio,
   findClip,
-  freezeFrame,
   insertClip,
   mediaById,
   moveClip,
   projectDuration,
-  removeClip,
-  removeProjectText,
   removeTrack,
-  rippleDelete,
   setTrackFlags,
-  splitAt,
   trimClip,
-  updateClip,
   upsertProjectText,
   type Clip,
   type Media,
@@ -95,14 +67,14 @@ import {
 // empty part of a track to seek. Drag a clip to move it in time or onto
 // another track of the same kind, drag its edges to trim it, drag a text bar
 // to move it or its ends to retime it. Drags snap to the playhead and clip
-// edges (hold Alt to not snap). Right-click a clip for its menu (split,
-// duplicate, speed, freeze, reverse, extract audio, mute, delete...), a gap
-// for Close gap. Drop media
+// edges (hold Alt to not snap). Right-click a clip, an empty
+// part of a track or a track header for its menu (from the editor's action
+// registry, trim/actions.ts). Drop media
 // from the bin (application/x-toru-media = media id) onto a track.
 // Ctrl+wheel zooms around the pointer.
-// Keys (ignored while typing): S split (the selected clip's track, or every
-// track), Delete/Backspace delete (leaves a gap), Shift+Delete ripple delete,
-// Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) undo/redo, +/- zoom.
+// Keys are the registry's (trim/CommandPalette.tsx dispatches them): S
+// split, Delete, Shift+Delete ripple delete, F freeze, Ctrl+Z / Ctrl+Shift+Z
+// undo/redo, +/- zoom (registered here).
 //
 // Several clips: Ctrl+click adds or removes a clip, Shift+click selects the
 // clips between the selected one and the clicked one on its track,
@@ -111,7 +83,7 @@ import {
 // Delete, Shift+Delete, Duplicate and Mute act on all of them. Ctrl+C / X / V
 // copy, cut and paste clips (at the playhead, on the selected clip's track),
 // Ctrl+Alt+V pastes the copied clip's look and sound onto the selection
-// (trim/multi.ts). Each is one undo step.
+// (trim/multi.ts, agentCommandsMulti.ts). Each is one undo step.
 
 // A clip selection names its primary clip (`id`: the inspector's, the
 // keyframe lane's) and, with several selected, all of them in `ids`.
@@ -148,15 +120,10 @@ export interface MultiTimelineProps {
   canRedo?: boolean;
   onAddText?: () => void;
   onEditText?: (id: string) => void; // double-click a text bar
-  keyboard?: boolean; // default true; false when a dialog owns the keys
-  // The clip menu's "Open in inspector" / "Speed..." (tab) and "Save audio as
-  // file..."; the items are left out without them.
-  onOpenInspector?: (clipId: string, tab?: TabId) => void;
-  onSaveAudio?: (clipId: string) => void;
   className?: string;
 }
 
-type MenuState = { x: number; y: number; trackId: string } & ({ kind: "gap"; t: number } | { kind: "clip"; clipId: string });
+type MenuState = { x: number; y: number; trackId: string } & ({ kind: "gap"; t: number } | { kind: "clip"; clipId: string } | { kind: "track" });
 
 const HEADER_W = 172;
 const RULER_H = 20;
@@ -184,9 +151,6 @@ export function MultiTimeline({
   canRedo,
   onAddText,
   onEditText,
-  keyboard = true,
-  onOpenInspector,
-  onSaveAudio,
   className,
 }: MultiTimelineProps) {
   const dur = projectDuration(p);
@@ -317,141 +281,20 @@ export function MultiTimeline({
   };
 
   // --- edit commands ---------------------------------------------------------
-  const selClip = selection?.kind === "clip" ? findClip(p, selection.id) : undefined;
   const selIds = selectedClipIds(p, selection);
   const selSet = new Set(selIds);
   const multi = selIds.length > 1;
-  const doSplit = () => apply((q) => splitAt(q, outTime, selClip?.track.id));
-  const doDelete = (ripple: boolean) => {
-    if (!selection) return;
-    if (selection.kind === "text") {
-      apply((q) => removeProjectText(q, selection.id));
-      onSelect(null);
-      return;
-    }
-    if (multi) {
-      apply((q) => (ripple ? rippleDeleteClips(q, selIds) : removeClips(q, selIds)));
-      onSelect(null);
-      return;
-    }
-    if (!selClip || selClip.track.locked) return;
-    apply((q) => (ripple ? rippleDelete(q, selection.id) : removeClip(q, selection.id)));
-    onSelect(null);
-  };
-  // Clipboard: copy, cut, paste at the playhead (on the selected clip's
-  // track) and paste the first copied clip's attributes onto the selection.
-  const doCopy = () => {
-    const cb = copyClips(p, selIds);
-    if (cb) clipboard.set(cb);
-    return !!cb;
-  };
-  const doCut = () => {
-    if (!doCopy()) return;
-    apply((q) => removeClips(q, selIds));
-    onSelect(null);
-  };
-  const doPaste = () => {
-    const next = pasteClips(p, clipboard.get(), outTime, selClip?.track.id);
-    if (next === p) return;
-    apply(() => next);
-    onSelect(selectClips(pastedIds(p, next)));
-  };
-  const doPasteAttributes = () => {
-    const src = clipboard.get()?.items[0]?.clip;
-    if (src && selIds.length) apply((q) => pasteAttributes(q, src, selIds));
-  };
-  // F: freeze the frame at the playhead, on the selected clip's track, or
-  // else the topmost video track with a clip there (one undo step).
-  const doFreeze = () =>
-    apply((q) => {
-      const order = selClip ? [selClip.track] : q.tracks.filter((t) => t.kind === "video").reverse();
-      for (const t of order) {
-        const n = freezeFrame(q, t.id, outTime);
-        if (n !== q) return n;
-      }
-      return q;
-    });
-  const canSplit = splitAt(p, outTime, selClip?.track.id) !== p;
-  const canDelete = selection?.kind === "text" || multi || (!!selClip && !selClip.track.locked);
 
-  // Keyboard. No dependency array: the handler must see the current props.
+  // Zoom keys, through the editor's action registry like every shortcut
+  // (the other edit keys are agent-command actions: agentCommands.ts).
   useEffect(() => {
-    if (!keyboard) return;
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-      const mod = e.ctrlKey || e.metaKey;
-      if (mod && (e.key === "z" || e.key === "Z")) {
-        e.preventDefault();
-        if (e.shiftKey) onRedo?.();
-        else onUndo?.();
-        return;
-      }
-      if (mod && (e.key === "y" || e.key === "Y")) {
-        e.preventDefault();
-        onRedo?.();
-        return;
-      }
-      if (mod && !e.shiftKey) {
-        switch (e.key.toLowerCase()) {
-          case "a":
-            e.preventDefault();
-            onSelect(selectClips(allClipIds(p), selection?.kind === "clip" ? selection.id : undefined));
-            return;
-          case "c":
-            if (selIds.length) {
-              e.preventDefault();
-              doCopy();
-            }
-            return;
-          case "x":
-            if (selIds.length) {
-              e.preventDefault();
-              doCut();
-            }
-            return;
-          case "v":
-            e.preventDefault();
-            if (e.altKey) doPasteAttributes();
-            else doPaste();
-            return;
-        }
-      }
-      if (mod || e.altKey) return;
-      switch (e.key) {
-        case "s":
-        case "S":
-          e.preventDefault();
-          doSplit();
-          break;
-        case "Delete":
-        case "Backspace":
-          if (selection) {
-            e.preventDefault();
-            doDelete(e.shiftKey);
-          }
-          break;
-        case "f":
-        case "F":
-          e.preventDefault();
-          doFreeze();
-          break;
-        case "Escape":
-          if (menu) setMenu(null);
-          else if (selection) onSelect(null);
-          break;
-        case "+":
-        case "=":
-          zoomTo(zoomVal.current * 1.5);
-          break;
-        case "-":
-          zoomTo(zoomVal.current / 1.5);
-          break;
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+    const offs = [
+      registerAction({ id: "view.zoomIn", label: "Zoom in", group: "View", icon: ZoomIn, shortcut: "+", keys: ["+", "="], order: 30, keywords: "timeline closer", exec: () => zoomRef.current(zoomVal.current * 1.5) }),
+      registerAction({ id: "view.zoomOut", label: "Zoom out", group: "View", icon: ZoomOut, shortcut: "-", order: 31, keywords: "timeline further", exec: () => zoomRef.current(zoomVal.current / 1.5) }),
+      registerAction({ id: "view.zoomFit", label: "Zoom to fit", group: "View", order: 32, keywords: "timeline whole all", exec: () => zoomRef.current(MIN_ZOOM) }),
+    ];
+    return () => offs.forEach((off) => off());
+  }, []);
 
   // --- drags -----------------------------------------------------------------
   // Pointer-captured on the element they start on, computed from the values
@@ -677,13 +520,11 @@ export function MultiTimeline({
 
   // --- right-click menus -------------------------------------------------------
   const closeMenu = useCallback(() => setMenu(null), []);
-  const menuItems = (m: MenuState): ContextMenuItem[] => {
-    if (m.kind === "gap") return [{ label: "Close gap", icon: ArrowLeftToLine, onSelect: () => apply((q) => closeGap(q, m.trackId, m.t)) }];
-    const hit = findClip(p, m.clipId);
-    if (!hit) return [];
-    const group = multi && selSet.has(m.clipId) ? selIds : undefined;
-    return clipMenu(p, hit.track, hit.clip, outTime, { apply, onSelect, onOpenInspector, onSaveAudio, group });
-  };
+  // Every item comes from the action registry (actions.ts), so the
+  // palette and the menus list the same actions.
+  const menuItems = (m: MenuState): ContextMenuItem[] =>
+    m.kind === "clip" ? menuFor("clip", { clipId: m.clipId, trackId: m.trackId }) : m.kind === "gap" ? menuFor("gap", { trackId: m.trackId, t: m.t }) : menuFor("track", { trackId: m.trackId });
+  const MENU_LABEL = { clip: "Clip", gap: "Track", track: "Track" } as const;
 
   const ticks = rulerTicks(span, pxPerSec);
   const totalRowsH = rows.reduce((h, t) => h + ROW_H[t.kind], 0);
@@ -693,18 +534,8 @@ export function MultiTimeline({
       {/* toolbar, grouped: Clip · Insert · History · (time) · Zoom */}
       <div className="flex items-center gap-1" role="toolbar" aria-label="Timeline tools">
         <ToolGroup label="Clip">
-          <Button size="sm" variant="ghost" disabled={!canSplit} onClick={doSplit} title="Split at the playhead (S)">
-            <Scissors /> Split
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!canDelete}
-            onClick={() => doDelete(false)}
-            title="Delete, leaving a gap (Delete). Shift+Delete closes the gap."
-          >
-            <Trash2 /> Delete
-          </Button>
+          <ActionButton combo="S" icon={Scissors} text="Split" />
+          <ActionButton combo="Del" icon={Trash2} text="Delete" />
         </ToolGroup>
         {onAddText ? (
           <ToolGroup label="Insert">
@@ -715,16 +546,8 @@ export function MultiTimeline({
         ) : null}
         {onUndo || onRedo ? (
           <ToolGroup label="History">
-            {onUndo ? (
-              <Button size="sm" variant="ghost" disabled={!canUndo} onClick={onUndo} title="Undo (Ctrl+Z)">
-                Undo
-              </Button>
-            ) : null}
-            {onRedo ? (
-              <Button size="sm" variant="ghost" disabled={!canRedo} onClick={onRedo} title="Redo (Ctrl+Shift+Z)">
-                Redo
-              </Button>
-            ) : null}
+            {onUndo ? <ActionButton combo="Ctrl+Z" text="Undo" enabled={canUndo} /> : null}
+            {onRedo ? <ActionButton combo="Ctrl+Shift+Z" text="Redo" enabled={canRedo} /> : null}
           </ToolGroup>
         ) : null}
         <span className="ml-2 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
@@ -768,6 +591,10 @@ export function MultiTimeline({
               canDelete={t.kind === "audio" || video.length > 1}
               onFlags={(f) => apply((q) => setTrackFlags(q, t.id, f))}
               onDelete={() => apply((q) => removeTrack(q, t.id))}
+              onMenu={(e) => {
+                e.preventDefault();
+                setMenu({ kind: "track", x: e.clientX, y: e.clientY, trackId: t.id });
+              }}
             />
           ))}
           <div className="flex gap-1 p-1">
@@ -840,10 +667,8 @@ export function MultiTimeline({
                 style={{ height: ROW_H[track.kind] }}
                 onPointerDown={(e) => (e.shiftKey || e.ctrlKey || e.metaKey ? startMarquee(e) : startScrub(e))}
                 onContextMenu={(e) => {
-                  const t = timeAt(e.clientX);
-                  if (track.locked || closeGap(p, track.id, t) === p) return;
                   e.preventDefault();
-                  setMenu({ kind: "gap", x: e.clientX, y: e.clientY, trackId: track.id, t });
+                  setMenu({ kind: "gap", x: e.clientX, y: e.clientY, trackId: track.id, t: timeAt(e.clientX) });
                 }}
                 onDragOver={(e) => onRowDragOver(e, track)}
                 onDragLeave={() => setDropAt((d) => (d?.trackId === track.id ? null : d))}
@@ -913,8 +738,7 @@ export function MultiTimeline({
         </div>
       </div>
 
-      {menu ? <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu)} onClose={closeMenu} label={menu.kind === "clip" ? "Clip" : "Track"} /> : null}
-
+      {menu ? <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu)} onClose={closeMenu} label={MENU_LABEL[menu.kind]} /> : null}
     </div>
   );
 }
@@ -926,6 +750,7 @@ function TrackHeader({
   canDelete,
   onFlags,
   onDelete,
+  onMenu,
 }: {
   track: Track;
   label: string;
@@ -933,10 +758,11 @@ function TrackHeader({
   canDelete: boolean;
   onFlags: (f: Partial<Pick<Track, "muted" | "hidden" | "locked">>) => void;
   onDelete: () => void;
+  onMenu: (e: React.MouseEvent) => void;
 }) {
   const btn = "size-6 shrink-0 [&_svg]:size-3.5";
   return (
-    <div className="flex items-center gap-0.5 border-b border-border/40 px-1.5" style={{ height }} data-track-header={track.id}>
+    <div className="flex items-center gap-0.5 border-b border-border/40 px-1.5" style={{ height }} data-track-header={track.id} onContextMenu={onMenu}>
       <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={label}>
         {label}
       </span>
@@ -1071,216 +897,6 @@ function ClipBox({
   );
 }
 
-// clipMenu is a clip's right-click menu. Each action is one undo step; an
-// item that can't apply here is disabled, with why as its tooltip.
-function clipMenu(
-  p: Project,
-  track: Track,
-  c: Clip,
-  playhead: number,
-  h: {
-    apply: MultiTimelineProps["apply"];
-    onSelect: MultiTimelineProps["onSelect"];
-    onOpenInspector?: MultiTimelineProps["onOpenInspector"];
-    onSaveAudio?: MultiTimelineProps["onSaveAudio"];
-    group?: string[]; // the selection, when the clip is one of several selected
-  },
-): ContextMenuItem[] {
-  if (h.group) return groupMenu(p, h.group, h);
-  const m = mediaById(p, c.media);
-  const locked = track.locked;
-  const lockedHint = "The track is locked";
-  const isImage = m?.kind === "image";
-  const hasSound = !!m && !c.hold && (m.kind === "audio" || (m.kind === "video" && m.hasAudio));
-  const under = playhead >= c.start - 1e-6 && playhead < clipEnd(c) - 1e-6;
-  const canSplit = !locked && under && findClip(splitAt(p, playhead, track.id), c.id)?.clip !== c;
-  const canFreeze = !locked && under && freezeFrame(p, track.id, playhead) !== p;
-  const extractHint = locked
-    ? lockedHint
-    : track.kind === "audio" || m?.kind === "audio"
-      ? "This clip is already audio"
-      : c.hold
-        ? "A freeze frame has no sound"
-        : !m?.hasAudio
-          ? "This clip has no sound"
-          : c.muted
-            ? "The clip is muted: unmute it first"
-            : "Move the sound to its own audio track";
-  const items: ContextMenuItem[] = [
-    {
-      label: "Split at playhead",
-      icon: Scissors,
-      shortcut: "S",
-      disabled: !canSplit,
-      hint: locked ? lockedHint : !canSplit ? "Move the playhead inside the clip" : undefined,
-      onSelect: () => h.apply((q) => splitAt(q, playhead, track.id)),
-    },
-    { label: "Duplicate", icon: Copy, disabled: locked, hint: locked ? lockedHint : undefined, onSelect: () => h.apply((q) => duplicateClip(q, c.id)) },
-    { kind: "separator" },
-  ];
-  if (h.onOpenInspector) {
-    items.push({
-      label: "Speed…",
-      icon: Gauge,
-      disabled: isImage,
-      hint: isImage ? "An image has no speed" : undefined,
-      onSelect: () => h.onOpenInspector?.(c.id, "speed"),
-    });
-  }
-  items.push(
-    {
-      label: "Freeze frame",
-      icon: Snowflake,
-      shortcut: "F",
-      disabled: !canFreeze,
-      hint: locked ? lockedHint : !canFreeze ? "Move the playhead over a video clip" : undefined,
-      onSelect: () => h.apply((q) => freezeFrame(q, track.id, playhead)),
-    },
-    {
-      label: c.reversed ? "Play forwards" : "Reverse",
-      icon: Rewind,
-      disabled: locked || isImage || !!c.hold,
-      hint: locked ? lockedHint : isImage || c.hold ? "A still has no direction" : undefined,
-      onSelect: () => h.apply((q) => updateClip(q, c.id, { reversed: !c.reversed })),
-    },
-    { kind: "separator" },
-    {
-      label: "Extract audio",
-      icon: AudioLines,
-      disabled: !canExtractAudio(p, c.id),
-      hint: extractHint,
-      onSelect: () => h.apply((q) => extractAudio(q, c.id)),
-    },
-  );
-  if (h.onSaveAudio) {
-    items.push({
-      label: "Save audio as file…",
-      icon: Download,
-      disabled: !hasSound,
-      hint: hasSound ? "M4A or WAV" : "This clip has no sound",
-      onSelect: () => h.onSaveAudio?.(c.id),
-    });
-  }
-  items.push(
-    {
-      label: c.muted ? "Unmute" : "Mute",
-      icon: c.muted ? Volume2 : VolumeX,
-      disabled: locked || !hasSound,
-      hint: locked ? lockedHint : !hasSound ? "This clip has no sound" : undefined,
-      onSelect: () => h.apply((q) => updateClip(q, c.id, { muted: !c.muted })),
-    },
-    { kind: "separator" },
-  );
-  if (h.onOpenInspector) items.push({ label: "Open in inspector", icon: PanelRight, onSelect: () => h.onOpenInspector?.(c.id) });
-  items.push(
-    {
-      label: "Delete",
-      icon: Trash2,
-      shortcut: "Del",
-      destructive: true,
-      disabled: locked,
-      hint: locked ? lockedHint : "Leaves a gap",
-      onSelect: () => {
-        h.apply((q) => removeClip(q, c.id));
-        h.onSelect(null);
-      },
-    },
-    {
-      label: "Ripple delete",
-      icon: Trash2,
-      shortcut: "Shift+Del",
-      destructive: true,
-      disabled: locked,
-      hint: locked ? lockedHint : "Pulls the rest of the track left",
-      onSelect: () => {
-        h.apply((q) => rippleDelete(q, c.id));
-        h.onSelect(null);
-      },
-    },
-  );
-  return items;
-}
-
-// groupMenu is the clip menu for several selected clips: what applies to
-// all of them at once, each one undo step.
-function groupMenu(p: Project, ids: string[], h: { apply: MultiTimelineProps["apply"]; onSelect: MultiTimelineProps["onSelect"] }): ContextMenuItem[] {
-  const hits = ids.map((id) => findClip(p, id)!).filter(Boolean);
-  const n = hits.length;
-  const allLocked = hits.every((x) => x.track.locked);
-  const anyLocked = hits.some((x) => x.track.locked);
-  const lockedHint = "A clip's track is locked";
-  const allMuted = hits.every((x) => x.clip.muted);
-  const src = clipboard.get()?.items[0]?.clip;
-  return [
-    { label: `Copy ${n} clips`, icon: Copy, shortcut: "Ctrl+C", onSelect: () => clipboard.set(copyClips(p, ids)) },
-    {
-      label: `Cut ${n} clips`,
-      icon: Scissors,
-      shortcut: "Ctrl+X",
-      disabled: anyLocked,
-      hint: anyLocked ? lockedHint : undefined,
-      onSelect: () => {
-        clipboard.set(copyClips(p, ids));
-        h.apply((q) => removeClips(q, ids));
-        h.onSelect(null);
-      },
-    },
-    {
-      label: "Duplicate",
-      icon: Copy,
-      disabled: anyLocked,
-      hint: anyLocked ? lockedHint : "Copies them after the selection",
-      onSelect: () => {
-        const next = duplicateClips(p, ids);
-        if (next === p) return;
-        h.apply(() => next);
-        h.onSelect(selectClips(pastedIds(p, next)));
-      },
-    },
-    {
-      label: "Paste attributes",
-      icon: ClipboardPaste,
-      shortcut: "Ctrl+Alt+V",
-      disabled: !src || allLocked,
-      hint: !src ? "Copy a clip first" : "Its effects, position, opacity and sound settings",
-      onSelect: () => src && h.apply((q) => pasteAttributes(q, src, ids)),
-    },
-    { kind: "separator" },
-    {
-      label: allMuted ? "Unmute" : "Mute",
-      icon: allMuted ? Volume2 : VolumeX,
-      disabled: allLocked,
-      hint: allLocked ? lockedHint : undefined,
-      onSelect: () => h.apply((q) => setClipsMuted(q, ids, !allMuted)),
-    },
-    { kind: "separator" },
-    {
-      label: `Delete ${n} clips`,
-      icon: Trash2,
-      shortcut: "Del",
-      destructive: true,
-      disabled: allLocked,
-      hint: allLocked ? lockedHint : "Leaves gaps",
-      onSelect: () => {
-        h.apply((q) => removeClips(q, ids));
-        h.onSelect(null);
-      },
-    },
-    {
-      label: "Ripple delete",
-      icon: Trash2,
-      shortcut: "Shift+Del",
-      destructive: true,
-      disabled: allLocked,
-      hint: allLocked ? lockedHint : "Pulls the rest of each track left",
-      onSelect: () => {
-        h.apply((q) => rippleDeleteClips(q, ids));
-        h.onSelect(null);
-      },
-    },
-  ];
-}
-
 const rowDomId = (trackId: string) => `mt-row-${trackId}`;
 
 // Ruler ticks: a "nice" major step that leaves ~90px between labels, with
@@ -1314,6 +930,33 @@ function fmtTime(s: number): string {
 
 function baseName(p: string): string {
   return p.replace(/\\/g, "/").split("/").pop() ?? p;
+}
+
+// ActionButton is a toolbar button for the action on combo's key (the
+// registry's, as the keyboard would run it): Delete is "Delete N clips"
+// with several selected, a text's delete with a text selected. enabled
+// re-renders it when the window's state changes (undo/redo).
+function ActionButton({ combo, icon: Icon, text }: { combo: string; icon?: LucideIcon; text: string; enabled?: boolean }) {
+  const list = useActions();
+  const c = actionCtx("key");
+  const a = c ? actionForKey(list, combo, c) : undefined;
+  const why = a && c ? whyNot(a, c) : "Not ready";
+  const label = a && c ? labelOf(a, c) : text;
+  const hint = a && c ? a.hint?.(c) : undefined;
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={why !== undefined}
+      onClick={() => {
+        const now = actionCtx("key");
+        if (a && now) runAction(a, now);
+      }}
+      title={`${label} (${a?.shortcut ?? combo})${why ? `: ${why}` : hint ? `. ${hint}` : ""}`}
+    >
+      {Icon ? <Icon /> : null} {text}
+    </Button>
+  );
 }
 
 // ToolGroup is one labelled group of the timeline toolbar, with a divider
