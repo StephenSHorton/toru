@@ -86,9 +86,12 @@ export function reverseUrl(clip: Clip, media: Media, now = performance.now()): s
 
 // useReverseState is a reversed clip's proxy state for the UI ("Preparing
 // reverse… 40%"), or undefined when it isn't reversed.
+// PENDING is one shared object: a selector that returned a new { pct: 0 }
+// each call would re-render forever.
+const PENDING: ReverseState = { pct: 0 };
 export function useReverseState(clip: Clip | undefined, media: Media | undefined): ReverseState | undefined {
   const id = clip && media ? reverseRange(clip, media)?.id : undefined;
-  return useReverse((s) => (id ? (s.byRange[id] ?? { pct: 0 }) : undefined));
+  return useReverse((s) => (id ? (s.byRange[id] ?? PENDING) : undefined));
 }
 
 // forgetReverse drops every ready proxy URL (after Settings cleared the
