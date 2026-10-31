@@ -61,12 +61,19 @@ type ReplayService struct {
 	runningCfg capture.ReplayConfig
 	watchStop  chan struct{}
 	protect    protectCache
+
+	// Capture trouble (guarded by mu; see capture_health.go).
+	health    captureHealth
+	onTrouble func()
 }
 
 // NewService loads the persisted settings. Nothing runs until Init.
 func NewService() *ReplayService {
 	s := &ReplayService{buf: capture.NewReplayBuffer(), settings: loadSettings()}
-	s.buf.SetOnStatus(func(st capture.ReplayStatus) { emit(EventStatus, st) })
+	s.buf.SetOnStatus(func(st capture.ReplayStatus) {
+		emit(EventStatus, st)
+		s.watchCapture(st)
+	})
 	s.buf.SetProtect(s.isProtected)
 	return s
 }

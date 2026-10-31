@@ -205,6 +205,14 @@ type ReplayStatus struct {
 	BufferedSec int    `json:"bufferedSec"` // seconds currently available to save
 	Error       string `json:"error"`       // last failure, "" when healthy
 	DiskBytes   int64  `json:"diskBytes"`   // Persist: bytes of segments on disk
+	// Source is the capture method in use (ReplaySourceDDA or
+	// ReplaySourceWGC, the backup when desktop duplication keeps failing).
+	Source string `json:"source"`
+	// Failures counts capture runs in a row that stopped soon after starting
+	// (or never started). Error stays set until a run has lasted
+	// replayStableRun, so the UI shows the trouble instead of flickering
+	// between healthy and failed.
+	Failures int `json:"failures"`
 }
 
 // ReplayBuffer owns the replay ffmpeg and its segment directory. Zero value is
@@ -324,9 +332,9 @@ func (b *ReplayBuffer) Start(cfg ReplayConfig) error {
 	b.done = make(chan struct{})
 	stop, done := b.stop, b.done
 	b.mu.Unlock()
-	b.setStatus(func(s *ReplayStatus) { *s = ReplayStatus{Running: true, Encoder: enc} })
+	b.setStatus(func(s *ReplayStatus) { *s = ReplayStatus{Running: true, Encoder: enc, Source: ReplaySourceDDA} })
 
-	go b.supervise(bin, enc, ddaIdx, cfg, stop, done)
+	go b.supervise(bin, enc, screen, ddaIdx, cfg, stop, done)
 	return nil
 }
 
@@ -357,11 +365,42 @@ func (b *ReplayBuffer) Running() bool {
 }
 
 // supervise runs ffmpeg until stop closes, restarting it when it dies or when
-// Discord's process changes (the audio graph targets a specific PID).
-func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, stop, done chan struct{}) {
+// Discord's process changes (the audio graph targets a specific PID). How
+// soon it retries, and with which capture source, is replayRetry's call.
+func (b *ReplayBuffer) supervise(bin, enc string, screen ScreenInfo, ddaIdx int, cfg ReplayConfig, stop, done chan struct{}) {
 	defer close(done)
-	backoff := time.Second
+	retry := newReplayRetry(gfxcaptureAvailable(bin))
 	watchDiscord := cfg.Audio.Desktop || cfg.Audio.Discord
+	// wait pauses before the next run; false means stop closed.
+	wait := func(d time.Duration) bool {
+		select {
+		case <-stop:
+			return false
+		case <-time.After(d):
+			return true
+		}
+	}
+	// failed records a run that ended by itself after lived and shows why.
+	failed := func(lived time.Duration, why string) time.Duration {
+		d, switched := retry.failed(lived)
+		msg := "Screen capture stopped (" + why + "). "
+		switch {
+		case switched && retry.source == ReplaySourceWGC:
+			msg += "Trying the backup capture method."
+		case switched:
+			msg += "Trying desktop duplication again."
+		case d < time.Second:
+			msg += "Restarting."
+		default:
+			msg += fmt.Sprintf("Retrying in %d s.", int(d.Round(time.Second)/time.Second))
+		}
+		b.setStatus(func(s *ReplayStatus) {
+			s.Recording = false
+			s.Error = msg
+			s.Failures = retry.failures
+		})
+		return d
+	}
 	for {
 		// Out of free space: stay stopped (re-checking every 10s) instead of
 		// filling the user's drive.
@@ -370,10 +409,8 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 			if !b.isDiskFull() {
 				break
 			}
-			select {
-			case <-stop:
+			if !wait(10 * time.Second) {
 				return
-			case <-time.After(10 * time.Second):
 			}
 		}
 
@@ -392,24 +429,32 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 		}
 		sources, tracks := openReplayAudio(cfg.Audio, discordPID)
 
-		rec, zeroCopy, err := b.spawnReplay(bin, enc, ddaIdx, cfg, run, tracks)
+		video := replayVideo{Source: retry.source, DDAIdx: ddaIdx}
+		if video.Source == ReplaySourceWGC {
+			video.HMonitor = monitorHandle(screen)
+		}
+		started := time.Now()
+		rec, zeroCopy, err := b.spawnReplay(bin, enc, video, cfg, run, tracks)
 		if err != nil {
 			stopAudioSources(sources)
-			b.setStatus(func(s *ReplayStatus) { s.Recording = false; s.Error = err.Error() })
-			select {
-			case <-stop:
+			if !wait(failed(0, lastLine(err.Error()))) {
 				return
-			case <-time.After(backoff):
 			}
-			backoff = min(backoff*2, 10*time.Second)
 			continue
 		}
-		backoff = time.Second
-		b.setStatus(func(s *ReplayStatus) { s.Recording = true; s.ZeroCopy = zeroCopy; s.Error = "" })
+		b.setStatus(func(s *ReplayStatus) {
+			s.Recording = true
+			s.ZeroCopy = zeroCopy
+			s.Source = video.Source
+			if retry.failures == 0 {
+				s.Error = ""
+			}
+		})
 
 		tick := time.NewTicker(replaySegmentSec * time.Second)
 		ticks := 0
 		stopping := false
+		pause := replayRestartDelay
 	watch:
 		for {
 			select {
@@ -417,11 +462,15 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 				stopping = true
 				break watch
 			case <-rec.done:
-				tail := rec.stderr.String()
-				b.setStatus(func(s *ReplayStatus) { s.Recording = false; s.Error = "capture stopped: " + lastLine(tail) })
+				pause = failed(time.Since(started), captureStopReason(rec.stderr.String()))
 				break watch
 			case <-tick.C:
 				ticks++
+				if retry.failures > 0 && time.Since(started) >= replayStableRun {
+					// Recovered: this run has lasted, so the trouble is over.
+					retry.stable()
+					b.setStatus(func(s *ReplayStatus) { s.Error = ""; s.Failures = 0 })
+				}
 				if !cfg.Persist || ticks%5 == 1 { // persistent dirs are big: prune every 10s
 					b.prune(cfg)
 					if cfg.Persist && b.isDiskFull() {
@@ -442,13 +491,8 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 			<-rec.done
 		}
 		stopAudioSources(sources)
-		if stopping {
+		if stopping || !wait(pause) {
 			return
-		}
-		select {
-		case <-stop:
-			return
-		case <-time.After(500 * time.Millisecond):
 		}
 	}
 }
@@ -457,11 +501,11 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 // eligible) and the hwdownload graph second. ddagrab occasionally fails its
 // first duplication right after another one closed, so each graph gets a
 // second attempt.
-func (b *ReplayBuffer) spawnReplay(bin, enc string, ddaIdx int, cfg ReplayConfig, run int, audio []replayAudioSrc) (*recording, bool, error) {
+func (b *ReplayBuffer) spawnReplay(bin, enc string, video replayVideo, cfg ReplayConfig, run int, audio []replayAudioSrc) (*recording, bool, error) {
 	pattern := filepath.Join(cfg.Dir, fmt.Sprintf("r%04d-%%08d%s", run, replaySegmentExt(cfg.Codec)))
 	var errs []error
 	for _, zeroCopy := range replayGraphCandidates(cfg, enc) {
-		args := BuildReplayArgs(ddaIdx, cfg, enc, zeroCopy, pattern, audio)
+		args := BuildReplayArgs(video, cfg, enc, zeroCopy, pattern, audio)
 		if cfg.Persist {
 			// Per-segment start/end times, so the timeline knows exactly where
 			// each segment sits. The output pattern must stay the last arg.
@@ -514,12 +558,12 @@ func replayGraphCandidates(cfg ReplayConfig, enc string) []bool {
 	return []bool{false}
 }
 
-// BuildReplayArgs builds the segmenting ffmpeg args: the ddagrab video graph
-// plus the audio graph for audio (see replayAudioArgs). The output pattern is
-// the last arg. Kept pure for golden tests.
-func BuildReplayArgs(ddaIdx int, cfg ReplayConfig, enc string, zeroCopy bool, pattern string, audio []replayAudioSrc) []string {
-	graph := fmt.Sprintf("ddagrab=output_idx=%d:framerate=%d:draw_mouse=%s",
-		ddaIdx, cfg.FPS, boolToInt(cfg.IncludeCursor))
+// BuildReplayArgs builds the segmenting ffmpeg args: the video graph for
+// video (ddagrab, or gfxcapture as the backup) plus the audio graph for audio
+// (see replayAudioArgs). The output pattern is the last arg. Kept pure for
+// golden tests.
+func BuildReplayArgs(video replayVideo, cfg ReplayConfig, enc string, zeroCopy bool, pattern string, audio []replayAudioSrc) []string {
+	graph := replayVideoSource(video, cfg)
 	if !zeroCopy {
 		graph += ",hwdownload,format=bgra"
 		if cfg.Height > 0 {

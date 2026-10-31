@@ -1313,6 +1313,7 @@ function RecorderLine({
         <span>
           Recording {recorder.game ? recorder.game : "your screen"}
           {status?.encoder ? ` · ${status.encoder}${status.zeroCopy ? " (GPU zero-copy)" : ""}` : ""}
+          {status?.source === "wgc" ? " · backup capture" : ""}
           {recorder.mode === "manual" && recordKey ? ` · press ${recordKey} to stop` : ""}
         </span>
       </div>
@@ -1359,6 +1360,7 @@ function StatusLine({
         Buffering · {formatClock(status.bufferedSec)} of {formatClock(keep)} ready ·{" "}
         {status.encoder}
         {status.zeroCopy ? " (GPU zero-copy)" : ""}
+        {status.source === "wgc" ? " · backup capture" : ""}
       </span>
     </div>
   );

@@ -50,6 +50,13 @@ var notGames = map[string]bool{
 	"photos.exe": true, "microsoft.photos.exe": true, "zoom.exe": true, "ms-teams.exe": true,
 }
 
+// gameExes are engine executables that are games wherever they're installed
+// and windowed or not; their window title names the game. Lower-case.
+// spring.exe is the Recoil (Spring) engine: Beyond All Reason installs it
+// under %LOCALAPPDATA%\Programs\Beyond-All-Reason\data\engine\, not in a
+// game library, and titles its window "Beyond All Reason (Spring 2026.07.04)".
+var gameExes = map[string]bool{"spring.exe": true}
+
 // launcherFolders are library sub-folders that hold launchers, not games.
 var launcherFolders = map[string]bool{
 	"launcher": true, "riot client": true, "directxredist": true,
@@ -67,10 +74,10 @@ func gameFolderFor(app foregroundApp) string {
 	if name, ok := libraryGameName(app.ExePath); ok {
 		return name
 	}
-	if !app.Fullscreen {
+	if !app.Fullscreen && !gameExes[exe] {
 		return ""
 	}
-	for _, candidate := range []string{cleanDescription(app.Description), app.Title, exeDisplayName(app.ExePath)} {
+	for _, candidate := range []string{cleanDescription(app.Description), cleanTitle(app.Title), exeDisplayName(app.ExePath)} {
 		if name := sanitizeFolder(candidate); name != "" {
 			return name
 		}
@@ -111,6 +118,21 @@ func cleanDescription(d string) string {
 		}
 	}
 	return strings.TrimSpace(d)
+}
+
+// cleanTitle drops a trailing "(…)" that holds a version, so one game keeps
+// one folder across updates: "Beyond All Reason (Spring 2026.07.04)" becomes
+// "Beyond All Reason".
+func cleanTitle(t string) string {
+	t = strings.TrimSpace(t)
+	if !strings.HasSuffix(t, ")") {
+		return t
+	}
+	i := strings.LastIndex(t, " (")
+	if i <= 0 || !strings.ContainsAny(t[i:], "0123456789") {
+		return t
+	}
+	return strings.TrimSpace(t[:i])
 }
 
 // exeDisplayName turns "FortniteClient-Win64-Shipping.exe" into "FortniteClient".

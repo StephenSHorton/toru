@@ -321,6 +321,20 @@ export class ReplayStatus {
      */
     "diskBytes": number;
 
+    /**
+     * Source is the capture method in use (ReplaySourceDDA or
+     * ReplaySourceWGC, the backup when desktop duplication keeps failing).
+     */
+    "source": string;
+
+    /**
+     * Failures counts capture runs in a row that stopped soon after starting
+     * (or never started). Error stays set until a run has lasted
+     * replayStableRun, so the UI shows the trouble instead of flickering
+     * between healthy and failed.
+     */
+    "failures": number;
+
     /** Creates a new ReplayStatus instance. */
     constructor($$source: Partial<ReplayStatus> = {}) {
         if (!("running" in $$source)) {
@@ -343,6 +357,12 @@ export class ReplayStatus {
         }
         if (!("diskBytes" in $$source)) {
             this["diskBytes"] = 0;
+        }
+        if (!("source" in $$source)) {
+            this["source"] = "";
+        }
+        if (!("failures" in $$source)) {
+            this["failures"] = 0;
         }
 
         Object.assign(this, $$source);

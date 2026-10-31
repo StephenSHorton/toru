@@ -13,7 +13,7 @@ import (
 
 func TestReplayArgsZeroCopyNative(t *testing.T) {
 	cfg := ReplayConfig{FPS: 60, BitrateKbps: 20000, Codec: ReplayCodecH264, IncludeCursor: true}
-	args := BuildReplayArgs(1, cfg, "h264_nvenc", true, `C:\seg\r0001-%08d.ts`, nil)
+	args := BuildReplayArgs(replayVideo{DDAIdx: 1}, cfg, "h264_nvenc", true, `C:\seg\r0001-%08d.ts`, nil)
 	got := joined(args)
 
 	for _, want := range []string{
@@ -37,7 +37,7 @@ func TestReplayArgsZeroCopyNative(t *testing.T) {
 
 func TestReplayArgsDownscaleAndAV1(t *testing.T) {
 	cfg := ReplayConfig{FPS: 30, Height: 1080, BitrateKbps: 8000, Codec: ReplayCodecAV1}
-	got := joined(BuildReplayArgs(0, cfg, "av1_qsv", false, "seg-%08d.mkv", nil))
+	got := joined(BuildReplayArgs(replayVideo{}, cfg, "av1_qsv", false, "seg-%08d.mkv", nil))
 	for _, want := range []string{
 		"ddagrab=output_idx=0:framerate=30:draw_mouse=0,hwdownload,format=bgra,scale=-2:1080:flags=bilinear,format=nv12",
 		"-g 60",
@@ -68,7 +68,7 @@ func TestReplayAudioMixIsAAC(t *testing.T) {
 		Audio: ReplayAudio{Desktop: true, MicDevice: "Mic (USB)", MicVolume: 150}}
 	srcs := replayAudioSources(cfg.Audio)
 	srcs[0].in = &AudioInput{PipePath: `\\.\pipe\a`, SampleFmt: "f32le", SampleRate: 48000, Channels: 2}
-	args := BuildReplayArgs(0, cfg, "h264_nvenc", true, "seg-%08d.ts", srcs)
+	args := BuildReplayArgs(replayVideo{}, cfg, "h264_nvenc", true, "seg-%08d.ts", srcs)
 	got := joined(args)
 	for _, want := range []string{
 		"-y -f f32le -ar 48000 -ac 2 -i \\\\.\\pipe\\a -f dshow -i audio=Mic (USB) -filter_complex ddagrab=",
@@ -113,7 +113,7 @@ func TestReplayAudioSeparateTracks(t *testing.T) {
 	}
 
 	cfg := ReplayConfig{FPS: 60, BitrateKbps: 20000, Codec: ReplayCodecH264, Audio: a}
-	if got := joined(BuildReplayArgs(0, cfg, "h264_nvenc", true, "seg-%08d.ts", srcs)); !strings.Contains(got, "-c:a aac -b:a 256k") {
+	if got := joined(BuildReplayArgs(replayVideo{}, cfg, "h264_nvenc", true, "seg-%08d.ts", srcs)); !strings.Contains(got, "-c:a aac -b:a 256k") {
 		t.Errorf("audio bitrate not applied:\n%s", got)
 	}
 }

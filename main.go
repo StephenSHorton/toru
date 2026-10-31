@@ -426,6 +426,9 @@ func main() {
 		armRecordingKeys(st)
 		tray.rebuildMenu()
 	})
+	// Screen capture failing (and recovering) shows in the tray menu.
+	// (A closure: tray is assigned below, so a method value would bind nil.)
+	replaySvc.SetOnCaptureTrouble(func() { tray.rebuildMenu() })
 	// An update becoming ready adds "Restart to update" to the top of the tray menu.
 	updateSvc.SetOnChange(func(update.Status) {
 		if tray != nil {
