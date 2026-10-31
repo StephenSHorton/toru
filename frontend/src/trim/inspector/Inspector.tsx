@@ -162,7 +162,7 @@ export function Inspector({ project, clipId, apply, playhead, onSeek, picking, o
         })}
       </div>
 
-      <fieldset disabled={track.locked} className="min-h-0 flex-1 overflow-y-auto" role="tabpanel">
+      <fieldset disabled={track.locked} className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden" role="tabpanel">
         {shown === "video" ? <VideoTab {...props} /> : null}
         {shown === "adjust" ? <AdjustTab {...props} /> : null}
         {shown === "filters" ? <FiltersTab {...props} /> : null}

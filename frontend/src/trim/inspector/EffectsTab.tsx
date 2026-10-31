@@ -45,11 +45,16 @@ const CATEGORIES: { id: EffectCategory; label: string }[] = [
 // The effect a copy put aside, for Paste on any clip.
 let copied: EffectInstance | null = null;
 
-// showcase is the params a browser tile previews with: a param whose default
-// does nothing (at its minimum) shows at 40% of its range instead.
+// showcase is the params a browser tile previews with (and a new effect
+// starts with, so adding one shows at once): a param whose default
+// does nothing (a number at its minimum, an enum at "none") shows at 40% of
+// its range, or its first real option, instead.
 function showcase(def: EffectDef): Record<string, ParamValue> {
   const out: Record<string, ParamValue> = {};
-  for (const p of def.params) if (p.type === "number" && p.default === p.min) out[p.id] = p.min + (p.max - p.min) * 0.4;
+  for (const p of def.params) {
+    if (p.type === "number" && p.default === p.min) out[p.id] = p.min + (p.max - p.min) * 0.4;
+    if (p.type === "enum" && p.default === "none" && p.options.length > 1) out[p.id] = p.options.find((o) => o.id !== "none")!.id;
+  }
   return out;
 }
 
@@ -114,7 +119,7 @@ export function EffectsTab(props: TabProps) {
               key={d.type}
               type="button"
               className="group flex flex-col gap-1 text-left text-muted-foreground outline-none hover:text-foreground"
-              onClick={() => edit((p) => addEffect(p, c.id, newEffect(d.type)), `fx.add.${d.type}`)}
+              onClick={() => edit((p) => addEffect(p, c.id, newEffect(d.type, showcase(d))), `fx.add.${d.type}`)}
               title={`Add ${d.name} on top of this clip's effects`}
             >
               <div className="relative border border-border group-hover:border-foreground/40 group-focus-visible:border-ring">
