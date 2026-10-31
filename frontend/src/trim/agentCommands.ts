@@ -670,17 +670,17 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
       "editor.export",
       {
         description:
-          "Export the edit to a file and return its path once it's written. Simple: preset original (the canvas), 1080p, 720p, discord (fits 10MB; may become .webm) or custom (height + kbps). Full control: options (format mp4 / hevc / webm / gif / m4a, size, fit, fps, quality or kbps, encoder, audio, range, gif settings; see editor.exportFormats for what this PC can make). path defaults to <first file>-edited.<ext> next to the first file; an existing file is never overwritten.",
+          "Export the edit to a file and return its path once it's written. Simple: preset original (the canvas), 1080p, 720p, discord (fits 10MB; may become .webm) or custom (height + kbps). Full control: options (format mp4 / hevc / webm / gif / m4a / wav, size, fit, fps, quality or kbps, encoder, audio, range, gif settings; see editor.exportFormats for what this PC can make). path defaults to <first file>-edited.<ext> next to the first file; an existing file is never overwritten.",
         input: obj({
           preset: str("Output preset (with options: only discord changes anything, fitting the result to 10MB).", { enum: ["original", "1080p", "720p", "discord", "custom"] }),
-          path: str("Absolute output path; its extension must match the format (.mp4 for mp4/hevc, .webm, .gif, .m4a)."),
+          path: str("Absolute output path; its extension must match the format (.mp4 for mp4/hevc, .webm, .gif, .m4a, .wav)."),
           height: num("custom preset only: output height (even)."),
           kbps: num("custom preset only: video bitrate."),
           options: {
             type: "object",
             description: "Export settings. Zero/absent fields keep the defaults.",
             properties: {
-              format: str("mp4 (H.264), hevc (H.265 in .mp4), webm (VP9), gif, or m4a (audio only).", { enum: ["mp4", "hevc", "webm", "gif", "m4a"] }),
+              format: str("mp4 (H.264), hevc (H.265 in .mp4), webm (VP9), gif, m4a (audio only, AAC) or wav (audio only, PCM).", { enum: ["mp4", "hevc", "webm", "gif", "m4a", "wav"] }),
               width: num("Output width (even; needs height). 0 = keep."),
               height: num("Output height (even). Height alone keeps the aspect."),
               fit: str("How another aspect fits width x height: fit (black bars) or fill (cropped).", { enum: ["fit", "fill"] }),
@@ -716,7 +716,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
         if (!["original", "1080p", "720p", "discord", "custom"].includes(preset)) throw new Error(`unknown preset "${preset}"`);
         const options = input.options;
         const ext = options ? EXPORT_EXT[options.format] : ".mp4";
-        if (options && !ext) throw new Error(`unknown format "${options.format}" (mp4, hevc, webm, gif or m4a)`);
+        if (options && !ext) throw new Error(`unknown format "${options.format}" (mp4, hevc, webm, gif, m4a or wav)`);
         const out = input.path?.trim() || editedPath(firstPath, ext);
         if (!out) throw new Error("path is required (the edit has no file to name it after)");
         if (await exists(out)) throw new Error(`${out} already exists: pick another path`);
@@ -743,7 +743,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
   }, []);
 }
 
-const EXPORT_EXT: Record<string, string> = { mp4: ".mp4", hevc: ".mp4", webm: ".webm", gif: ".gif", m4a: ".m4a" };
+const EXPORT_EXT: Record<string, string> = { mp4: ".mp4", hevc: ".mp4", webm: ".webm", gif: ".gif", m4a: ".m4a", wav: ".wav" };
 
 // editedPath is <dir>\<name>-edited<ext> for the first file ("" without one).
 function editedPath(first: string, ext = ".mp4"): string {
