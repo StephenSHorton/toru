@@ -28,6 +28,11 @@ import * as $models from "./models.js";
  * 
  * It runs as a fire-and-forget goroutine on startup. All errors are logged and
  * swallowed — a failed or offline update check must never block startup.
+ * 
+ * First it tidies up after the last update: it removes toru.exe.old files the
+ * installer left beside the exe, and if the last silent install failed it
+ * shows that error and waits a full checkEvery before trying again (Check for
+ * Updates retries at once).
  */
 export function AutoUpdate(): $CancellablePromise<void> {
     return $Call.ByID(23314439);
