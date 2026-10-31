@@ -5,6 +5,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	effectfx "github.com/StephenSHorton/toru/internal/fx"
 )
 
 // effects.go turns a v2 clip's effects (docs/video-editor-v2.md, Effects) into
@@ -149,6 +151,10 @@ func ClipAudioFilter(c ClipJSON, segLen float64) string {
 	switch v := clampF(c.Volume, 0, 2); {
 	case c.Muted:
 		parts = append(parts, "volume=0")
+	case len(c.Anim["volume"]) > 0:
+		// v3 volume keyframes (clip-local time, before the fades, 0..2 as
+		// the preview's clipGain).
+		parts = append(parts, "volume='clip("+effectfx.KeysExpr(animKeys(c, "volume"), v, "t")+",0,2)':eval=frame")
 	case v != 1:
 		parts = append(parts, "volume="+num(v))
 	}
