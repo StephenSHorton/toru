@@ -15,6 +15,8 @@ What it covers:
 | `ui`   | (the open edit) | every inspector tab selects; screenshots |
 | `v17`  | the test source split in three; a real recording (newest in `Videos/Toru Replays`, or `TORU_REAL`), only opened; the source on a 9:16 frame with fill (`editor.setCanvas`) | library rail tabs open their panels; Ctrl+K palette finds Split and Escape closes it; clip and player right-click menus; select two clips, copy, paste (+2 clips), undo; waveforms drawn and not flat on both files; 9:16 preview vs export frames and a 1080x1920 export |
 
+| `trans` | the source cut at 2 s and 4 s, a 1 s cross dissolve on the first cut and a 0.8 s wipe left on the second (`editor.addTransition`) | the length stays 6 s; preview vs export frames before, through and after both; the dissolve's middle is a mix, neither red nor green |
+
 `v17`'s rail/palette/menu checks also run in the dry run (`--url`). Its
 autosaves of the real recording are removed afterwards; projects that
 existed before the run are never touched.
