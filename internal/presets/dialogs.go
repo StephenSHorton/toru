@@ -82,5 +82,6 @@ func (s *Service) PickExport(id string) (string, error) {
 	if err != nil || path == "" {
 		return "", nil
 	}
-	return s.Export(id, path)
+	// The dialog already asked about replacing an existing file.
+	return s.export(id, path, true)
 }

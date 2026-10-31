@@ -361,6 +361,12 @@ func (s *Service) Import(path string) (Preset, error) {
 // when missing). An existing file is never overwritten. Returns the path
 // written.
 func (s *Service) Export(id, path string) (string, error) {
+	return s.export(id, path, false)
+}
+
+// export writes the .torufx; overwrite is for a path the person already
+// confirmed in the Save dialog.
+func (s *Service) export(id, path string, overwrite bool) (string, error) {
 	p, err := s.Get(id)
 	if err != nil {
 		return "", err
@@ -372,7 +378,7 @@ func (s *Service) Export(id, path string) (string, error) {
 	if !strings.EqualFold(filepath.Ext(path), ".torufx") {
 		path += ".torufx"
 	}
-	if _, err := os.Stat(path); err == nil {
+	if _, err := os.Stat(path); err == nil && !overwrite {
 		return "", fmt.Errorf("%s already exists", path)
 	}
 	p.Builtin = false
@@ -436,6 +442,7 @@ func lutOf(id string, c *fx.Cube) Lut {
 var (
 	lutNameJunk  = regexp.MustCompile(`[^A-Za-z0-9 _.()+-]+`)
 	lutNameStart = regexp.MustCompile(`^[A-Za-z0-9]`)
+	lutDots      = regexp.MustCompile(`\.{2,}`)
 )
 
 // ImportLut checks a .cube file and copies it into the LUT folder. A file
@@ -469,7 +476,7 @@ func (s *Service) ImportLut(path string) (Lut, error) {
 	}
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	base = strings.Trim(strings.Join(strings.Fields(lutNameJunk.ReplaceAllString(base, " ")), " "), " .")
-	base = strings.ReplaceAll(base, "..", ".")
+	base = lutDots.ReplaceAllString(base, ".")
 	if r := []rune(base); len(r) > 80 {
 		base = strings.TrimSpace(string(r[:80]))
 	}

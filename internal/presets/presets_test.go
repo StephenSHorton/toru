@@ -178,6 +178,13 @@ func TestLuts(t *testing.T) {
 	if _, err := s.ReadLut("../presets/x.cube"); err == nil {
 		t.Error("read outside the folder")
 	}
+	dots := filepath.Join(src, "my...lut.cube")
+	_ = os.WriteFile(dots, []byte(cube(2, "")), 0o644)
+	if d, err := s.ImportLut(dots); err != nil || d.ID != "my.lut.cube" {
+		t.Errorf("dots = %+v, %v", d, err)
+	} else if _, err := s.ReadLut(d.ID); err != nil {
+		t.Errorf("read dots: %v", err)
+	}
 	bad := filepath.Join(src, "bad.cube")
 	_ = os.WriteFile(bad, []byte("LUT_1D_SIZE 2\n0 0 0\n1 1 1\n"), 0o644)
 	if _, err := s.ImportLut(bad); err == nil || !strings.Contains(err.Error(), "1D") {
@@ -189,7 +196,7 @@ func TestLuts(t *testing.T) {
 	if err := s.DeleteLut(l.ID); err != nil {
 		t.Fatal(err)
 	}
-	if list, _ := s.ListLuts(); len(list) != 1 {
+	if list, _ := s.ListLuts(); len(list) != 2 {
 		t.Errorf("after delete = %+v", list)
 	}
 }
