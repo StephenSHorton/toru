@@ -14,6 +14,7 @@ export {
     EditRequest,
     EffectJSON,
     FiltersJSON,
+    Font,
     KeyframeJSON,
     MediaInfo,
     MediaJSON,

@@ -282,6 +282,10 @@ check("export: blank text dropped, long text clipped", req.project.texts.length 
 check("export: custom keeps height/kbps", req.height === 720 && req.kbps === 6000 && req.outPath === "C:/out.mp4");
 check("export: other presets drop height", toExportRequest(ex, { preset: "1080p", height: 720 }).height === undefined);
 check("export: doesn't change the project", findClip(ex, cam)!.clip.start === 10);
+const fx = toExportRequest(upsertProjectText(ex, { id: "c", text: "Hi", x: 0.5, y: 0.5, size: "m", fontPx: 140, font: "Arial Bold", start: 1, end: 2 }), { preset: "original" });
+const ft = fx.project.texts.find((t) => t.id === "c");
+check("export: text font and px size carry over", ft?.fontPx === 140 && ft.font === "Arial Bold" && ft.size === "m", ft);
+check("export: older texts stay preset-only", fx.project.texts.find((t) => t.id === "b")!.fontPx === undefined);
 
 // history over a Project
 let h = historyInit(p);

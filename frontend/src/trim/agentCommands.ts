@@ -6,9 +6,11 @@ import { ProjectExport } from "../../bindings/github.com/StephenSHorton/toru/int
 import { registerTimeCommands } from "@/trim/agentCommandsTime";
 import type { CompositorHandle } from "@/trim/compositor/Compositor";
 import { registerFxCommands } from "@/trim/agentCommandsFx";
-import { newId } from "@/trim/edl";
+import { newId, type Text } from "@/trim/edl";
+import { checkFont, DEFAULT_FONT_LABEL, fontInfo, loadFonts } from "@/trim/fonts";
 import type { MediaBinState } from "@/trim/MediaBin";
 import type { TimelineSelection } from "@/trim/MultiTimeline";
+import { MAX_FONT_PX, MIN_FONT_PX, textFontSize } from "@/trim/TextOverlays";
 import {
   addMedia,
   addTrack,
@@ -169,7 +171,8 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
           canvas: p.canvas,
           media: p.media.map(({ id, path, kind, duration, width, height, fps, hasAudio, tracks }) => ({ id, path, kind, duration, width, height, fps, hasAudio, audioTracks: tracks })),
           tracks: p.tracks.map((t) => ({ ...t, clips: t.clips.map((c) => ({ ...c, end: clipEnd(c) })) })),
-          texts: p.texts,
+          // fontPx is filled in for older texts that only have a preset size.
+          texts: p.texts.map((t) => ({ ...t, fontPx: textFontSize(t, p.crop?.h ?? p.canvas.height), font: t.font ?? "" })),
           crop: p.crop,
         };
       },
@@ -453,32 +456,74 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
     // ---- texts and crop -----------------------------------------------------
 
     reg(
+      "editor.listFonts",
+      {
+        description: "The installed fonts a text can use (editor.setText font): each one's name and family. Pass refresh true after installing a font.",
+        input: obj({ query: str("Only fonts whose name or family contains this (any case)."), refresh: { type: "boolean", description: "Re-read the installed fonts." } }),
+      },
+      async (input: { query?: string; refresh?: boolean }) => {
+        const all = await loadFonts(!!input.refresh);
+        const q = (input.query ?? "").trim().toLowerCase();
+        const list = q ? all.filter((f) => f.name.toLowerCase().includes(q) || f.family.toLowerCase().includes(q)) : all;
+        return { default: DEFAULT_FONT_LABEL, count: list.length, fonts: list.map((f) => ({ name: f.name, family: f.family })) };
+      },
+    );
+
+    reg(
       "editor.setText",
       {
-        description: "Add a text overlay (no id) or change one (id). White text with a dark outline, sizes s/m/l, centred at x, y (0..1 of the frame), shown from start to end seconds. Returns its id.",
+        description:
+          "Add a text overlay (no id) or change one (id). White text with a dark outline, centred at x, y (0..1 of the frame), shown from start to end seconds. size is pixels of the output frame (after crop) or a preset s/m/l (4/6/9% of its height); font is an installed font's name (editor.listFonts), \"\" for the default. Returns the text.",
         input: obj({
           id: str("A text's id to change it."),
           text: str("The words."),
           x: num("0..1"),
           y: num("0..1"),
-          size: str("Size.", { enum: ["s", "m", "l"] }),
+          size: {
+            description: `Font size: output pixels (${MIN_FONT_PX}..${MAX_FONT_PX}) or a preset.`,
+            oneOf: [{ type: "number" }, { type: "string", enum: ["s", "m", "l"] }],
+          },
+          font: str(`An installed font's name from editor.listFonts; "" for the default (${DEFAULT_FONT_LABEL}).`),
           start: num("Seconds."),
           end: num("Seconds."),
         }),
       },
-      (input: { id?: string; text?: string; x?: number; y?: number; size?: "s" | "m" | "l"; start?: number; end?: number }) => {
+      async (input: { id?: string; text?: string; x?: number; y?: number; size?: number | string; font?: string; start?: number; end?: number }) => {
         const p0 = d().project;
         const old = input.id ? p0.texts.find((t) => t.id === input.id) : undefined;
         if (input.id && !old) throw new Error(`no text "${input.id}"`);
         const dur = projectDuration(p0);
         const now = d().pb.clock.now();
         const start = time(input.start, "start", old?.start ?? Math.min(now, Math.max(0, dur - 0.5)));
-        const t = {
+        let size = old?.size ?? "m";
+        let fontPx = old?.fontPx;
+        if (typeof input.size === "string") {
+          if (input.size !== "s" && input.size !== "m" && input.size !== "l") throw new Error('size must be pixels or "s", "m" or "l"');
+          size = input.size;
+          fontPx = undefined;
+        } else if (input.size !== undefined) {
+          const n = Math.round(Number(input.size));
+          if (!Number.isFinite(n) || n < MIN_FONT_PX || n > MAX_FONT_PX) throw new Error(`size must be ${MIN_FONT_PX}..${MAX_FONT_PX} pixels`);
+          fontPx = n;
+        }
+        let font = old?.font;
+        if (input.font !== undefined) {
+          font = String(input.font).trim() || undefined;
+          if (font) {
+            await loadFonts();
+            if (!fontInfo(font)) throw new Error(`no installed font "${font}" (see editor.listFonts)`);
+            const why = await checkFont(font);
+            if (why) throw new Error(why);
+          }
+        }
+        const t: Text = {
           id: old?.id ?? newId("txt"),
           text: input.text ?? old?.text ?? "",
           x: input.x ?? old?.x ?? 0.5,
           y: input.y ?? old?.y ?? 0.85,
-          size: input.size ?? old?.size ?? "m",
+          size,
+          ...(fontPx ? { fontPx } : {}),
+          ...(font ? { font } : {}),
           start,
           end: time(input.end, "end", old?.end ?? Math.min(Math.max(dur, start + 0.5), start + 3)),
         };

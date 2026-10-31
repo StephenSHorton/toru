@@ -27,6 +27,14 @@ export function CancelExport(): $CancellablePromise<void> {
 }
 
 /**
+ * CheckFont is "" when the export can draw text in the installed font
+ * called name, else why not. JS: VideoService.CheckFont.
+ */
+export function CheckFont(name: string): $CancellablePromise<string> {
+    return $Call.ByID(761686996, name);
+}
+
+/**
  * ClearReverseCache deletes every cached reverse proxy (not one that's
  * rendering). Reversed clips render again when next shown or exported.
  */
@@ -85,12 +93,23 @@ export function GenerateThumbnails(videoPath: string, count: number): $Cancellab
 }
 
 /**
+ * ListFonts is the installed fonts for the text font picker, sorted by name;
+ * refresh re-reads them (after the user installs a font). JS:
+ * VideoService.ListFonts.
+ */
+export function ListFonts(refresh: boolean): $CancellablePromise<$models.Font[]> {
+    return $Call.ByID(524641567, refresh).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
  * ListProjects lists the saved projects, most recently changed first.
  * Unreadable files are skipped.
  */
 export function ListProjects(): $CancellablePromise<$models.ProjectSummary[]> {
     return $Call.ByID(2237467917).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType4($result);
     });
 }
 
@@ -126,7 +145,7 @@ export function PreviewTrack(path: string, index: number): $CancellablePromise<s
  */
 export function ProbeMedia(path: string): $CancellablePromise<$models.MediaInfo> {
     return $Call.ByID(1125538325, path).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType5($result);
     });
 }
 
@@ -201,6 +220,8 @@ export function Trim(req: capture$0.TrimRequest): $CancellablePromise<string> {
 
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = $models.ProjectSummary.createFrom;
+const $$createType1 = $models.Font.createFrom;
 const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = $models.MediaInfo.createFrom;
+const $$createType3 = $models.ProjectSummary.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = $models.MediaInfo.createFrom;

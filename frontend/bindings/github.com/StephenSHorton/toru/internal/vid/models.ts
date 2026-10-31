@@ -485,6 +485,96 @@ export class FiltersJSON {
 }
 
 /**
+ * Font is one installed font face, with the vertical metrics the preview
+ * needs to put its lines where drawtext does (font units).
+ * 
+ * drawtext advances lines by the hhea line height and puts each baseline
+ * the hhea ascender (rounded up to a pixel) below the line's top. The
+ * browser on Windows puts it half the leading plus its own ascent below,
+ * using the OS/2 win ascent/descent, or the typo ones when the font sets
+ * USE_TYPO_METRICS, each rounded to a pixel. Most fonts agree; some
+ * (Consolas, Calibri, Palatino, Gabriola) differ by up to a third of an em.
+ * fonts.ts's baselineShift closes the gap; checked against real exports of
+ * every installed font: 0.4px mean error at 100px.
+ */
+export class Font {
+    /**
+     * full face name; what a text stores
+     */
+    "name": string;
+
+    /**
+     * for grouping and search
+     */
+    "family": string;
+
+    /**
+     * the file, served to the preview
+     */
+    "url": string;
+
+    /**
+     * LineHeight is the hhea line advance over the em size: the CSS
+     * line-height that matches drawtext's line spacing.
+     */
+    "lineHeight": number;
+    "unitsPerEm": number;
+
+    /**
+     * hhea ascender: drawtext's
+     */
+    "ascent": number;
+
+    /**
+     * the browser's ascent
+     */
+    "cssAscent": number;
+
+    /**
+     * the browser's descent, positive
+     */
+    "cssDescent": number;
+
+    /** Creates a new Font instance. */
+    constructor($$source: Partial<Font> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("family" in $$source)) {
+            this["family"] = "";
+        }
+        if (!("url" in $$source)) {
+            this["url"] = "";
+        }
+        if (!("lineHeight" in $$source)) {
+            this["lineHeight"] = 0;
+        }
+        if (!("unitsPerEm" in $$source)) {
+            this["unitsPerEm"] = 0;
+        }
+        if (!("ascent" in $$source)) {
+            this["ascent"] = 0;
+        }
+        if (!("cssAscent" in $$source)) {
+            this["cssAscent"] = 0;
+        }
+        if (!("cssDescent" in $$source)) {
+            this["cssDescent"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Font instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Font {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Font($$parsedSource as Partial<Font>);
+    }
+}
+
+/**
  * KeyframeJSON is one keyframe: T in ms from the clip's start on the
  * timeline, the value there, and the ease to the next keyframe ("linear",
  * "in", "out", "inOut", "hold").
@@ -962,6 +1052,17 @@ export class TextJSON {
     "x": number;
     "y": number;
     "size": string;
+
+    /**
+     * FontPx is the size in output pixels; 0 in projects from before it
+     * existed, which use Size.
+     */
+    "fontPx"?: number;
+
+    /**
+     * installed font's name; "" = DefaultTextFont
+     */
+    "font"?: string;
     "start": number;
     "end": number;
 
@@ -1018,9 +1119,19 @@ export class TextOverlay {
     "y": number;
 
     /**
-     * "s" | "m" | "l" = 4% | 6% | 9% of output height
+     * "s" | "m" | "l" = 4% | 6% | 9% of output height; used when FontPx is 0
      */
     "size": string;
+
+    /**
+     * font size in output pixels (after crop); 0 = from Size
+     */
+    "fontPx"?: number;
+
+    /**
+     * installed font's name (InstalledFonts); "" or missing = DefaultTextFont
+     */
+    "font"?: string;
 
     /**
      * OUTPUT time
