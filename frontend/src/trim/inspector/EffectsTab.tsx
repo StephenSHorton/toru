@@ -20,19 +20,22 @@ import {
 import { defOf, defs } from "@/trim/fx/registry";
 import { clipEffects } from "@/trim/fx/stack";
 import { newId } from "@/trim/edl";
-import type { EffectInstance, ParamValue } from "@/trim/project";
+import type { EffectInstance, Media, ParamValue } from "@/trim/project";
 import { usePresets } from "@/trim/fx/presets";
 import { Menu, NumberRow, ParamControl, Section } from "@/trim/inspector/controls";
 import type { TabProps } from "@/trim/inspector/Inspector";
 import { Thumb } from "@/trim/inspector/Thumb";
 
-// EffectsTab: the effect browser (search, categories, a live thumbnail of
-// the clip's frame through each effect; click adds it on top of the stack)
-// and the clip's stack as cards, top = last applied. A card has a drag
-// handle to reorder, an on/off switch, reset, a menu (move, duplicate, copy,
-// paste, delete) and the effect's params, generated from its definition.
-// Effects applied together from a saved filter show as one group card with
-// an intensity. The pinned Adjust lives in its own tab.
+// EffectBrowser is the Effects library (the rail on the left, layout B):
+// search, categories, a live thumbnail of the clip's frame through each
+// effect; click adds it on top of the selected clip's stack.
+//
+// EffectsTab, in the inspector, is the clip's stack as cards, top = last
+// applied. A card has a drag handle to reorder, an on/off switch, reset, a
+// menu (move, duplicate, copy, paste, delete) and the effect's params,
+// generated from its definition. Effects applied together from a saved
+// filter show as one group card with an intensity. The pinned Adjust lives
+// in its own tab.
 
 const CATEGORIES: { id: EffectCategory; label: string }[] = [
   { id: "blur", label: "Blur" },
@@ -64,17 +67,69 @@ function showcase(def: EffectDef): Record<string, ParamValue> {
   return out;
 }
 
-export function EffectsTab(props: TabProps) {
-  const { clip: c, media, srcT, edit } = props;
+// EffectBrowser adds to target, the selected visual clip (undefined: the
+// tiles show, greyed, with why). preview is the media the thumbnails draw
+// when there's no target.
+export function EffectBrowser({ target, preview, note }: { target?: TabProps; preview?: Media; note: string }) {
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState<EffectCategory | "all">("all");
-  const [, bumpClipboard] = useState(0);
-  const frame = useClipFrame(media, srcT);
+  const frame = useClipFrame(target?.media ?? preview, target?.srcT ?? 1);
 
   const browsable = useMemo(() => defs.filter((d) => !d.hidden), []);
   const cats = CATEGORIES.filter((x) => browsable.some((d) => d.category === x.id));
   const q = query.trim().toLowerCase();
   const shown = browsable.filter((d) => (cat === "all" || d.category === cat) && (!q || d.name.toLowerCase().includes(q) || d.category.includes(q)));
+
+  return (
+    <Section title="Add an effect">
+      <div className="flex h-7 items-center gap-1.5 border border-border bg-background px-2 focus-within:ring-1 focus-within:ring-ring">
+        <Search className="size-3.5 shrink-0 text-muted-foreground" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search effects"
+          className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+          aria-label="Search effects"
+        />
+      </div>
+      {cats.length > 1 ? (
+        <div className="flex flex-wrap gap-1">
+          {[{ id: "all" as const, label: "All" }, ...cats].map((x) => (
+            <Button key={x.id} size="sm" variant={cat === x.id ? "secondary" : "ghost"} className="h-6 px-2 text-[11px]" onClick={() => setCat(x.id)} aria-pressed={cat === x.id}>
+              {x.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+      {!target ? <div className="text-[11px] text-muted-foreground">{note}</div> : null}
+      <fieldset disabled={!target || target.track.locked} className="grid min-w-0 grid-cols-3 gap-1.5 disabled:opacity-50">
+        {shown.map((d) => (
+          <button
+            key={d.type}
+            type="button"
+            className="group flex min-w-0 flex-col gap-1 text-left text-muted-foreground outline-none enabled:hover:text-foreground"
+            onClick={() => target?.edit((p) => addEffect(p, target.clip.id, newEffect(d.type, showcase(d))), `fx.add.${d.type}`)}
+            title={target ? `Add ${d.name} on top of this clip's effects` : d.name}
+          >
+            <div className="relative border border-border group-enabled:group-hover:border-foreground/40 group-focus-visible:border-ring">
+              <Thumb frame={frame} stack={[{ id: `thumb-${d.type}`, type: d.type, enabled: true, params: showcase(d) }]} t={THUMB_T[d.type] ?? 0} />
+              <span className="absolute bottom-0.5 right-0.5 hidden size-4 place-items-center bg-primary text-primary-foreground group-enabled:group-hover:grid">
+                <Plus className="size-3" />
+              </span>
+            </div>
+            <span className="truncate text-[11px]">{d.name}</span>
+          </button>
+        ))}
+        {!shown.length ? <div className="col-span-3 py-2 text-[11px] text-muted-foreground">No effects match “{query}”.</div> : null}
+      </fieldset>
+    </Section>
+  );
+}
+
+export function EffectsTab(props: TabProps) {
+  const { clip: c, edit, onOpenLibrary } = props;
+  const [, bumpClipboard] = useState(0);
 
   const fx = clipEffects(c);
   const pinned = pinnedAdjust(fx);
@@ -98,60 +153,24 @@ export function EffectsTab(props: TabProps) {
 
   return (
     <>
-      <Section title="Add an effect">
-        <div className="flex h-7 items-center gap-1.5 border border-border bg-background px-2 focus-within:ring-1 focus-within:ring-ring">
-          <Search className="size-3.5 shrink-0 text-muted-foreground" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search effects"
-            className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-            aria-label="Search effects"
-          />
-        </div>
-        {cats.length > 1 ? (
-          <div className="flex flex-wrap gap-1">
-            {[{ id: "all" as const, label: "All" }, ...cats].map((x) => (
-              <Button key={x.id} size="sm" variant={cat === x.id ? "secondary" : "ghost"} className="h-6 px-2 text-[11px]" onClick={() => setCat(x.id)} aria-pressed={cat === x.id}>
-                {x.label}
-              </Button>
-            ))}
-          </div>
-        ) : null}
-        <div className="grid grid-cols-3 gap-1.5">
-          {shown.map((d) => (
-            <button
-              key={d.type}
-              type="button"
-              className="group flex flex-col gap-1 text-left text-muted-foreground outline-none hover:text-foreground"
-              onClick={() => edit((p) => addEffect(p, c.id, newEffect(d.type, showcase(d))), `fx.add.${d.type}`)}
-              title={`Add ${d.name} on top of this clip's effects`}
-            >
-              <div className="relative border border-border group-hover:border-foreground/40 group-focus-visible:border-ring">
-                <Thumb frame={frame} stack={[{ id: `thumb-${d.type}`, type: d.type, enabled: true, params: showcase(d) }]} t={THUMB_T[d.type] ?? 0} />
-                <span className="absolute bottom-0.5 right-0.5 hidden size-4 place-items-center bg-primary text-primary-foreground group-hover:grid">
-                  <Plus className="size-3" />
-                </span>
-              </div>
-              <span className="truncate text-[11px]">{d.name}</span>
-            </button>
-          ))}
-          {!shown.length ? <div className="col-span-3 py-2 text-[11px] text-muted-foreground">No effects match “{query}”.</div> : null}
-        </div>
-      </Section>
-
       <Section
         title={`This clip (${cards.length})`}
         action={
-          copied ? (
-            <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[11px]" onClick={paste} title={`Paste ${defOf(copied.type)?.name ?? "effect"}`}>
-              Paste
-            </Button>
-          ) : null
+          <div className="flex items-center gap-0.5">
+            {copied ? (
+              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[11px]" onClick={paste} title={`Paste ${defOf(copied.type)?.name ?? "effect"}`}>
+                Paste
+              </Button>
+            ) : null}
+            {onOpenLibrary ? (
+              <Button size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px]" onClick={() => onOpenLibrary("effects")} title="Open the Effects library on the left">
+                <Plus className="size-3" /> Add
+              </Button>
+            ) : null}
+          </div>
         }
       >
-        {!cards.length ? <div className="text-[11px] text-muted-foreground">No effects yet. Pick one above to add it.</div> : null}
+        {!cards.length ? <div className="text-[11px] text-muted-foreground">No effects yet.</div> : null}
         <div className="flex flex-col gap-1.5" onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setDrag((d) => (d ? { ...d, over: -1 } : d))}>
           {cards.map((card, ci) => {
             const top = card.items[0];

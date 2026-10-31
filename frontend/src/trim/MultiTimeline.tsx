@@ -522,40 +522,48 @@ export function MultiTimeline({
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      {/* toolbar */}
-      <div className="flex items-center gap-1">
-        <Button size="sm" variant="ghost" disabled={!canSplit} onClick={doSplit} title="Split at the playhead (S)">
-          <Scissors /> Split
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!canDelete}
-          onClick={() => doDelete(false)}
-          title="Delete, leaving a gap (Delete). Shift+Delete closes the gap."
-        >
-          <Trash2 /> Delete
-        </Button>
+      {/* toolbar, grouped: Clip · Insert · History · (time) · Zoom */}
+      <div className="flex items-center gap-1" role="toolbar" aria-label="Timeline tools">
+        <ToolGroup label="Clip">
+          <Button size="sm" variant="ghost" disabled={!canSplit} onClick={doSplit} title="Split at the playhead (S)">
+            <Scissors /> Split
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!canDelete}
+            onClick={() => doDelete(false)}
+            title="Delete, leaving a gap (Delete). Shift+Delete closes the gap."
+          >
+            <Trash2 /> Delete
+          </Button>
+        </ToolGroup>
         {onAddText ? (
-          <Button size="sm" variant="ghost" onClick={onAddText} title="Add text at the playhead">
-            <Type /> Text
-          </Button>
+          <ToolGroup label="Insert">
+            <Button size="sm" variant="ghost" onClick={onAddText} title="Add text at the playhead">
+              <Type /> Text
+            </Button>
+          </ToolGroup>
         ) : null}
-        {onUndo || onRedo ? <div className="mx-1 h-5 w-px bg-border" /> : null}
-        {onUndo ? (
-          <Button size="sm" variant="ghost" disabled={!canUndo} onClick={onUndo} title="Undo (Ctrl+Z)">
-            Undo
-          </Button>
-        ) : null}
-        {onRedo ? (
-          <Button size="sm" variant="ghost" disabled={!canRedo} onClick={onRedo} title="Redo (Ctrl+Shift+Z)">
-            Redo
-          </Button>
+        {onUndo || onRedo ? (
+          <ToolGroup label="History">
+            {onUndo ? (
+              <Button size="sm" variant="ghost" disabled={!canUndo} onClick={onUndo} title="Undo (Ctrl+Z)">
+                Undo
+              </Button>
+            ) : null}
+            {onRedo ? (
+              <Button size="sm" variant="ghost" disabled={!canRedo} onClick={onRedo} title="Redo (Ctrl+Shift+Z)">
+                Redo
+              </Button>
+            ) : null}
+          </ToolGroup>
         ) : null}
         <span className="ml-2 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
           {fmtTime(outTime)} / {fmtTime(dur)}
         </span>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1" role="group" aria-label="Zoom">
+          <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Zoom</span>
           <Button size="icon" variant="ghost" disabled={zoom <= MIN_ZOOM} onClick={() => zoomTo(zoomVal.current / 1.5)} title="Zoom out (-)" aria-label="Zoom out">
             <ZoomOut />
           </Button>
@@ -1035,4 +1043,15 @@ function fmtTime(s: number): string {
 
 function baseName(p: string): string {
   return p.replace(/\\/g, "/").split("/").pop() ?? p;
+}
+
+// ToolGroup is one labelled group of the timeline toolbar, with a divider
+// before every group but the first.
+function ToolGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div role="group" aria-label={label} className="flex items-center gap-0.5 border-l border-border pl-2 first:border-l-0 first:pl-0">
+      <span className="mr-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+      {children}
+    </div>
+  );
 }

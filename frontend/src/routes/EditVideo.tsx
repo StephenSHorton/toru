@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Crop, Download, Loader2, Pause, Play, RotateCcw } from "lucide-react";
+import { Crop, Download, Loader2, Pause, Play, RotateCcw, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { MediaService, VideoService } from "@/lib/api";
@@ -11,7 +11,10 @@ import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
 import { useEditorAgentCommands } from "@/trim/agentCommands";
 import { newId } from "@/trim/edl";
 import { ExportDialog } from "@/trim/ExportDialog";
-import { Inspector, type TabId } from "@/trim/inspector/Inspector";
+import { EffectBrowser } from "@/trim/inspector/EffectsTab";
+import { FiltersBrowser } from "@/trim/inspector/FiltersTab";
+import { Inspector, tabsFor, useClipTarget, type TabId } from "@/trim/inspector/Inspector";
+import { LibraryColumn, useLibrary, type LibraryId } from "@/trim/library/Library";
 import { migrateProject } from "@/trim/migrate";
 import { MediaBin, toMedia, useMediaBin } from "@/trim/MediaBin";
 import { MultiTimeline, type TimelineSelection } from "@/trim/MultiTimeline";
@@ -35,10 +38,12 @@ import {
 import { soundExportRequest } from "@/trim/saveAudio";
 import { TextOverlays } from "@/trim/TextOverlays";
 
-// Video editor window, v2 (docs/video-editor-v2.md): the media bin on the
-// left, the player in the middle (the WebGL compositor with text overlays,
-// crop and the move/resize handles laid over it), the clip inspector on the
-// right and the multi-track timeline below. Opened by
+// Video editor window, layout B (docs/editor-layout-proposal.md): the
+// library rail on the left (Media, Text, Effects, Audio, Filters; one panel
+// open at a time), the player in the middle (the WebGL compositor with text
+// overlays, crop and the move/resize handles laid over it), the clip
+// inspector on the right following the selection, and the multi-track
+// timeline below. Opened by
 // WindowsService.OpenEditVideo: ?path= is the first file's absolute path
 // (?vid= its served URL, used only when there's no path, as the dev sample);
 // or by WindowsService.OpenEditProject: ?project= is a saved project's id.
@@ -245,16 +250,66 @@ export default function EditVideo() {
     return () => window.removeEventListener("keydown", onKey);
   }, [pb, cropMode, exportOpen]);
 
+  // The library rail. A file dropped while neither Media nor Audio is open
+  // shows Media, where the import lands.
+  const lib = useLibrary();
+  const importedCount = bin.imported.length;
+  const lastImported = useRef(importedCount);
+  useEffect(() => {
+    if (importedCount > lastImported.current && lib.open !== "media" && lib.open !== "audio") lib.setOpen("media");
+    lastImported.current = importedCount;
+  }, [importedCount, lib]);
+  const openLibrary = useCallback((id: LibraryId) => lib.setOpen(id), [lib]);
+
   // AI agents and scripts can drive every tool here (agent control).
   useEditorAgentCommands({ project, apply, undo, redo, canUndo, canRedo, pb, bin, compositor, setSelection, firstPath });
 
   const selectedClip = selection?.kind === "clip" ? selection.id : null;
   const ready = !loading && !loadErr && project.media.length > 0;
 
+  // The Effects and Filters libraries edit the selected clip, when it's one
+  // they apply to (video or image); with none, their tiles preview the first
+  // video or image.
+  const target = useClipTarget({ project, clipId: selectedClip, apply, playhead: pb.time, onSeek: pb.seek, picking, onPickingChange: setPicking, scope: "lib:" });
+  const visualTarget = target.props && tabsFor(target.props.track, target.props.media).includes("effects") ? target.props : undefined;
+  const previewMedia = project.media.find((m) => m.kind !== "audio");
+  const targetNote = target.props ? "Effects apply to video and image clips. Select one to add to it." : "Select a clip on the timeline or the player to add to it.";
+  const renderLibrary = (id: LibraryId) => {
+    switch (id) {
+      case "media":
+        return <MediaBin bin={bin} onAppend={appendMedia} className="h-full" />;
+      case "audio":
+        return <MediaBin bin={bin} onAppend={appendMedia} only="audio" className="h-full" />;
+      case "text":
+        return (
+          <div className="flex flex-col gap-2 p-3">
+            <Button size="sm" variant="secondary" className="justify-start" disabled={!ready || duration <= 0} onClick={addText} title="Add text at the playhead">
+              <Type /> Add text
+            </Button>
+            <p className="text-[11px] text-muted-foreground">Text is added at the playhead. Click it on the player to type, move or style it.</p>
+          </div>
+        );
+      case "effects":
+        return (
+          <div {...target.gestureHandlers}>
+            <EffectBrowser target={visualTarget} preview={previewMedia} note={targetNote} />
+          </div>
+        );
+      case "filters":
+        return (
+          <div {...target.gestureHandlers}>
+            <FiltersBrowser target={visualTarget} preview={previewMedia} note={targetNote} />
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1 gap-2 p-2 pb-0">
-        <MediaBin bin={bin} onAppend={appendMedia} className="frost w-60 shrink-0" />
+        <LibraryColumn lib={lib} render={renderLibrary} />
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div ref={paneRef} className="relative min-h-0 flex-1">
@@ -366,7 +421,7 @@ export default function EditVideo() {
           </div>
         </div>
 
-        <Inspector project={project} clipId={selectedClip} apply={apply} playhead={pb.time} onSeek={pb.seek} picking={picking} onPickingChange={setPicking} tabRequest={tabRequest} className="frost w-80 shrink-0" />
+        <Inspector project={project} clipId={selectedClip} apply={apply} playhead={pb.time} onSeek={pb.seek} picking={picking} onPickingChange={setPicking} tabRequest={tabRequest} onOpenLibrary={openLibrary} className="frost w-80 shrink-0" />
       </div>
 
       <div className="frost m-2 p-2">

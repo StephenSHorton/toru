@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AudioLines, Film, Gauge, Lock, Palette, SlidersHorizontal, Sparkles } from "lucide-react";
+import { AudioLines, Film, Gauge, Lock, SlidersHorizontal, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { setValue, toggleKey, valueOf, type KeyRef } from "@/trim/fx/ops";
 import { clipEffects } from "@/trim/fx/stack";
@@ -7,15 +7,17 @@ import { clipLength, findClip, mediaById, type Clip, type Media, type Project, t
 import { baseName, fmtSec, type KeyState } from "@/trim/inspector/controls";
 import { VideoTab } from "@/trim/inspector/VideoTab";
 import { AdjustTab } from "@/trim/inspector/AdjustTab";
-import { FiltersTab } from "@/trim/inspector/FiltersTab";
 import { EffectsTab } from "@/trim/inspector/EffectsTab";
 import { SpeedTab } from "@/trim/inspector/SpeedTab";
 import { AudioTab } from "@/trim/inspector/AudioTab";
 
 // Inspector is the v3 editor's right sidebar (docs/video-editor-v3.md,
-// Inspector UX): the selected clip's settings in six tabs, Video, Adjust,
-// Filters, Effects, Speed and Audio, showing only the tabs that apply to
-// the clip (audio clips: Speed and Audio; images: no Speed or Audio).
+// Inspector UX; layout B, docs/editor-layout-proposal.md): the selected
+// clip's settings in five tabs, Video, Adjust, Effects, Speed and Audio,
+// showing only the tabs that apply to the clip (audio clips: Speed and
+// Audio; images: no Speed or Audio). Things you add (effect tiles, filters)
+// live in the library on the left (trim/library), which edits the same
+// selected clip through useClipTarget.
 //
 // Every change goes through `apply` (useProjectHistory) with the ops in
 // fx/ops.ts. A slider drag is one undo step: each press or key on a
@@ -33,15 +35,16 @@ export interface InspectorProps {
   onPickingChange?: (on: boolean) => void;
   // Shows a tab (the clip menu's "Speed…"); a new seq asks again.
   tabRequest?: { tab: TabId; seq: number };
+  // Opens a library on the left (the Effects tab's "Add an effect").
+  onOpenLibrary?: (id: "effects" | "filters") => void;
   className?: string;
 }
 
-export type TabId = "video" | "adjust" | "filters" | "effects" | "speed" | "audio";
+export type TabId = "video" | "adjust" | "effects" | "speed" | "audio";
 
 const TABS: { id: TabId; label: string; icon: typeof Film }[] = [
   { id: "video", label: "Video", icon: Film },
   { id: "adjust", label: "Adjust", icon: SlidersHorizontal },
-  { id: "filters", label: "Filters", icon: Palette },
   { id: "effects", label: "Effects", icon: Sparkles },
   { id: "speed", label: "Speed", icon: Gauge },
   { id: "audio", label: "Audio", icon: AudioLines },
@@ -63,17 +66,75 @@ export interface TabProps {
   value: (ref: KeyRef) => ReturnType<typeof valueOf>;
   picking: boolean;
   onPickingChange?: (on: boolean) => void;
+  onOpenLibrary?: (id: "effects" | "filters") => void;
 }
 
 // tabsFor lists the tabs a clip has.
 export function tabsFor(track: Track, media: Media | undefined): TabId[] {
   if (track.kind === "audio" || media?.kind === "audio") return ["speed", "audio"];
-  if (media?.kind === "image") return ["video", "adjust", "filters", "effects"];
-  return media?.hasAudio === false ? ["video", "adjust", "filters", "effects", "speed"] : ["video", "adjust", "filters", "effects", "speed", "audio"];
+  if (media?.kind === "image") return ["video", "adjust", "effects"];
+  return media?.hasAudio === false ? ["video", "adjust", "effects", "speed"] : ["video", "adjust", "effects", "speed", "audio"];
 }
 
-export function Inspector({ project, clipId, apply, playhead, onSeek, picking, onPickingChange, tabRequest, className }: InspectorProps) {
+export interface ClipTargetArgs {
+  project: Project;
+  clipId: string | null;
+  apply: (fn: (p: Project) => Project, key?: string) => void;
+  playhead: number;
+  onSeek: (t: number) => void;
+  picking?: boolean;
+  onPickingChange?: (on: boolean) => void;
+  onOpenLibrary?: (id: "effects" | "filters") => void;
+  // Keeps one panel's gestures apart from another's in the undo keys.
+  scope?: string;
+}
+
+// useClipTarget is the selected clip as TabProps (undefined when nothing, or
+// a clip that's gone, is selected), plus the handlers that start a new undo
+// gesture: spread them on the element around the controls, so each press or
+// key is its own step and a drag is one.
+export function useClipTarget(a: ClipTargetArgs): {
+  props: TabProps | undefined;
+  gestureHandlers: { onPointerDownCapture: () => void; onKeyDownCapture: () => void };
+} {
   const gesture = useRef(0);
+  const gestureHandlers = {
+    onPointerDownCapture: () => void gesture.current++,
+    onKeyDownCapture: () => void gesture.current++,
+  };
+  const hit = a.clipId ? findClip(a.project, a.clipId) : undefined;
+  if (!hit) return { props: undefined, gestureHandlers };
+  const { clip: c, track } = hit;
+  const media = mediaById(a.project, c.media);
+  const t = Math.max(0, Math.min(clipLength(c), a.playhead - c.start));
+  const edit = (fn: (p: Project) => Project, what: string) => a.apply(fn, `fx:${a.scope ?? ""}${c.id}:${what}:${gesture.current}`);
+  const refName = (ref: KeyRef) => ("anim" in ref ? `anim.${ref.anim}` : `${ref.fx}.${ref.param}`);
+  return {
+    gestureHandlers,
+    props: {
+      project: a.project,
+      clip: c,
+      track,
+      media,
+      t,
+      srcT: c.hold ? c.in : Math.min(c.out, c.in + t * c.speed),
+      edit,
+      keys: (ref) => ({
+        keys: "anim" in ref ? c.anim?.[ref.anim] : clipEffects(c).find((e) => e.id === ref.fx)?.keys?.[ref.param],
+        t,
+        onToggle: () => edit((p) => toggleKey(p, c.id, ref, t), `key.${refName(ref)}`),
+        onJump: (kt) => a.onSeek(c.start + kt),
+      }),
+      set: (ref, v, what) => edit((p) => setValue(p, c.id, ref, v, t), what ?? refName(ref)),
+      value: (ref) => valueOf(c, ref, t),
+      picking: !!a.picking,
+      onPickingChange: a.onPickingChange,
+      onOpenLibrary: a.onOpenLibrary,
+    },
+  };
+}
+
+export function Inspector({ project, clipId, apply, playhead, onSeek, picking, onPickingChange, tabRequest, onOpenLibrary, className }: InspectorProps) {
   const [tab, setTab] = useState<TabId>(() => readTab());
   const asked = tabRequest?.seq ?? 0;
   useEffect(() => {
@@ -81,42 +142,18 @@ export function Inspector({ project, clipId, apply, playhead, onSeek, picking, o
     // Only a new request switches; the tab is the person's after that.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asked]);
-  const hit = clipId ? findClip(project, clipId) : undefined;
-  if (!hit) {
+  const { props, gestureHandlers } = useClipTarget({ project, clipId, apply, playhead, onSeek, picking, onPickingChange, onOpenLibrary });
+  if (!props) {
     return (
       <aside className={cn("flex flex-col gap-2 p-3 text-xs text-muted-foreground", className)}>
         Select a clip on the timeline or the player to edit it.
       </aside>
     );
   }
-  const { clip: c, track } = hit;
-  const media = mediaById(project, c.media);
+  const { clip: c, track, media } = props;
   const len = clipLength(c);
   const tabs = tabsFor(track, media);
   const shown = tabs.includes(tab) ? tab : tabs[0];
-  const t = Math.max(0, Math.min(len, playhead - c.start));
-
-  const edit = (fn: (p: Project) => Project, what: string) => apply(fn, `fx:${c.id}:${what}:${gesture.current}`);
-  const refName = (ref: KeyRef) => ("anim" in ref ? `anim.${ref.anim}` : `${ref.fx}.${ref.param}`);
-  const props: TabProps = {
-    project,
-    clip: c,
-    track,
-    media,
-    t,
-    srcT: c.hold ? c.in : Math.min(c.out, c.in + t * c.speed),
-    edit,
-    keys: (ref) => ({
-      keys: "anim" in ref ? c.anim?.[ref.anim] : clipEffects(c).find((e) => e.id === ref.fx)?.keys?.[ref.param],
-      t,
-      onToggle: () => edit((p) => toggleKey(p, c.id, ref, t), `key.${refName(ref)}`),
-      onJump: (kt) => onSeek(c.start + kt),
-    }),
-    set: (ref, v, what) => edit((p) => setValue(p, c.id, ref, v, t), what ?? refName(ref)),
-    value: (ref) => valueOf(c, ref, t),
-    picking: !!picking,
-    onPickingChange,
-  };
   const choose = (id: TabId) => {
     setTab(id);
     try {
@@ -129,8 +166,7 @@ export function Inspector({ project, clipId, apply, playhead, onSeek, picking, o
   return (
     <aside
       className={cn("flex min-h-0 flex-col text-xs", className)}
-      onPointerDownCapture={() => gesture.current++}
-      onKeyDownCapture={() => gesture.current++}
+      {...gestureHandlers}
       aria-label="Clip settings"
     >
       <div className="border-b border-border/60 px-3 py-2">
@@ -173,7 +209,6 @@ export function Inspector({ project, clipId, apply, playhead, onSeek, picking, o
       <fieldset disabled={track.locked} className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden" role="tabpanel">
         {shown === "video" ? <VideoTab {...props} /> : null}
         {shown === "adjust" ? <AdjustTab {...props} /> : null}
-        {shown === "filters" ? <FiltersTab {...props} /> : null}
         {shown === "effects" ? <EffectsTab {...props} /> : null}
         {shown === "speed" ? <SpeedTab {...props} /> : null}
         {shown === "audio" ? <AudioTab {...props} /> : null}
