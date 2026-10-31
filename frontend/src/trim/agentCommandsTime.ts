@@ -1,5 +1,7 @@
-import type { AgentCommandSpec, AgentHandler } from "@/lib/agent";
-import { clipEnd, DEFAULT_FREEZE, findClip, freezeFrame, mediaById, MAX_CURVE_SPEED, MIN_CURVE_SPEED, updateClip, type BlendFrames, type Clip, type Project, type SpeedCurve, type Track } from "@/trim/project";
+import { Rewind, Snowflake } from "lucide-react";
+import type { AgentHandler } from "@/lib/agent";
+import type { ActionCtx, EditorCommandSpec } from "@/trim/actions";
+import { clipEnd, DEFAULT_FREEZE, findClip, freezeFrame, mediaById, trackById, MAX_CURVE_SPEED, MIN_CURVE_SPEED, updateClip, type BlendFrames, type Clip, type Project, type SpeedCurve, type Track } from "@/trim/project";
 import { isRampPreset, presetCurve, RAMP_PRESETS } from "@/trim/speed";
 
 // The editor's time-effect agent commands (docs/video-editor-v3.md, Time
@@ -10,7 +12,7 @@ import { isRampPreset, presetCurve, RAMP_PRESETS } from "@/trim/speed";
 export interface TimeCommandCtx {
   project: () => Project;
   playhead: () => number;
-  reg: (name: string, spec: AgentCommandSpec, handler: AgentHandler) => void;
+  reg: (name: string, spec: EditorCommandSpec, handler: AgentHandler) => void;
   edit: (fn: (p: Project) => Project, why: string) => Project;
   clipOr: (p: Project, clipId: string) => { track: Track; clip: Clip };
   obj: (props?: Record<string, unknown>, required?: string[]) => Record<string, unknown>;
@@ -34,8 +36,18 @@ const timeOf = (c: Clip) => ({
   blendFrames: c.blendFrames ?? "off",
 });
 
+// freezeTrack is the video track where Freeze frame (F) acts at the
+// playhead: the target clip's track, or the topmost one with a clip there.
+function freezeTrack(c: ActionCtx): Track | undefined {
+  const p = c.project;
+  const own = c.trackId ? trackById(p, c.trackId) : undefined;
+  const order = own ? [own] : p.tracks.filter((t) => t.kind === "video").reverse();
+  return order.find((t) => freezeFrame(p, t.id, c.playhead) !== p);
+}
+
 export function registerTimeCommands(x: TimeCommandCtx) {
   const { reg, edit, clipOr, obj } = x;
+  const hitOf = (c: ActionCtx) => (c.clipId ? findClip(c.project, c.clipId) : undefined);
   const videoOnly = (c: { track: Track }) => {
     if (c.track.kind !== "video") throw new Error("time effects are for clips on video tracks");
   };
@@ -101,6 +113,17 @@ export function registerTimeCommands(x: TimeCommandCtx) {
         },
         ["trackId"],
       ),
+      ui: {
+        id: "clip.freeze",
+        label: "Freeze frame",
+        group: "Time",
+        icon: Snowflake,
+        shortcut: "F",
+        keywords: "still hold pause frame",
+        scopes: ["clip", "viewer"],
+        enabled: (c) => (freezeTrack(c) ? true : hitOf(c)?.track.locked ? "The track is locked" : "Move the playhead over a video clip"),
+        args: (c) => ({ trackId: freezeTrack(c)?.id, t: c.playhead }),
+      },
     },
     (input: { trackId: string; t?: number; seconds?: number }) => {
       const p0 = x.project();
@@ -125,6 +148,22 @@ export function registerTimeCommands(x: TimeCommandCtx) {
       description:
         "Play a clip backwards (or forwards again). The whole clip reverses; split it first to reverse part of one. A speed curve then runs over the reversed footage. The preview prepares a reversed copy in the background the first time.",
       input: obj({ clipId: { type: "string", description: "From editor.get." }, reversed: { type: "boolean", description: "Default true." } }, ["clipId"]),
+      ui: {
+        id: "clip.reverse", clips: "one",
+        label: (c) => (hitOf(c)?.clip.reversed ? "Play forwards" : "Reverse"),
+        group: "Time",
+        icon: Rewind,
+        keywords: "backwards rewind",
+        scopes: ["clip"],
+        enabled: (c) => {
+          const hit = hitOf(c);
+          if (!hit) return "Select a clip first";
+          if (hit.track.locked) return "The track is locked";
+          if (hit.track.kind !== "video" || hit.clip.hold || mediaById(c.project, hit.clip.media)?.kind !== "video") return "A still has no direction";
+          return true;
+        },
+        args: (c) => ({ clipId: c.clipId, reversed: !hitOf(c)?.clip.reversed }),
+      },
     },
     (input: { clipId: string; reversed?: boolean }) => {
       const hit = clipOr(x.project(), input.clipId);

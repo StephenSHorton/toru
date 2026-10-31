@@ -12,6 +12,9 @@ import { useEditorAgentCommands } from "@/trim/agentCommands";
 import { CanvasSettings, GuidesButton, SafeAreaGuides } from "@/trim/CanvasSettings";
 import { newId } from "@/trim/edl";
 import { ExportDialog } from "@/trim/ExportDialog";
+import { ContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
+import { menuFor, typingIn } from "@/trim/actions";
+import { EditorCommands } from "@/trim/CommandPalette";
 import { EffectBrowser } from "@/trim/inspector/EffectsTab";
 import { FiltersBrowser } from "@/trim/inspector/FiltersTab";
 import { Inspector, tabsFor, useClipTarget, type TabId } from "@/trim/inspector/Inspector";
@@ -169,10 +172,12 @@ export default function EditVideo() {
     [apply],
   );
 
-  const addText = useCallback(() => {
+  // addText adds an empty text at the playhead (or at, from a gap's menu)
+  // and opens it for typing.
+  const addText = useCallback((at?: unknown) => {
     if (duration <= 0) return;
     pb.pause();
-    const start = Math.min(pb.clock.now(), Math.max(0, duration - 0.5));
+    const start = Math.min(typeof at === "number" ? at : pb.clock.now(), Math.max(0, duration - 0.5));
     const id = newId("txt");
     apply((p) => upsertProjectText(p, { id, text: "", x: 0.5, y: 0.5, size: "m", start, end: Math.min(duration, start + 3) }));
     setSelection({ kind: "text", id });
@@ -235,22 +240,18 @@ export default function EditVideo() {
     [project, firstPath],
   );
 
-  // Space plays/pauses; Esc leaves crop mode. The timeline has the edit keys.
+  // Esc leaves crop mode. Every other key is an action's shortcut
+  // (EditorCommands: Space play/pause, S split, Ctrl+K...).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
       if (exportOpen) return;
-      if (e.code === "Space") {
-        e.preventDefault();
-        pb.toggle();
-      } else if (e.key === "Escape" && cropMode) {
-        setCropMode(false);
-      }
+      if (e.key === "Escape" && cropMode) setCropMode(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pb, cropMode, exportOpen]);
+  }, [cropMode, exportOpen]);
 
   // The library rail. A file dropped while neither Media nor Audio is open
   // shows Media, where the import lands.
@@ -264,7 +265,42 @@ export default function EditVideo() {
   const openLibrary = useCallback((id: LibraryId) => lib.setOpen(id), [lib]);
 
   // AI agents and scripts can drive every tool here (agent control).
-  useEditorAgentCommands({ project, apply, undo, redo, canUndo, canRedo, pb, bin, compositor, setSelection, firstPath });
+  // The palette, the menus and the shortcuts run the same commands
+  // (trim/actions.ts); ui is how the window does what an agent passes
+  // arguments for.
+  const canExport: true | string = loading || !!loadErr || duration <= 0 ? "Add a clip first" : firstPath ? true : "Export needs a real file (not the dev sample)";
+  useEditorAgentCommands({
+    project,
+    apply,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    pb,
+    bin,
+    compositor,
+    selection,
+    setSelection,
+    firstPath,
+    ui: {
+      saveAudio: (id) => void saveAudio(id),
+      addText,
+      openExport: () => {
+        pb.pause();
+        setExportOpen(true);
+      },
+      canExport,
+      openInspector,
+      cropping: cropMode,
+      toggleCrop: () => {
+        cropGesture.current++;
+        setCropMode((m) => !m);
+      },
+      openLibrary,
+    },
+  });
+  const [viewerMenu, setViewerMenu] = useState<{ x: number; y: number } | null>(null);
+  const closeViewerMenu = useCallback(() => setViewerMenu(null), []);
 
   const selectedClip = selection?.kind === "clip" ? selection.id : null;
   const selectedClips = selectedClipIds(project, selection);
@@ -315,7 +351,16 @@ export default function EditVideo() {
         <LibraryColumn lib={lib} render={renderLibrary} />
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div ref={paneRef} className="relative min-h-0 flex-1">
+          <div
+            ref={paneRef}
+            className="relative min-h-0 flex-1"
+            onContextMenu={(e) => {
+              // Typing in a text: the native menu (paste, spelling).
+              if (typingIn(e.target)) return;
+              e.preventDefault();
+              setViewerMenu({ x: e.clientX, y: e.clientY });
+            }}
+          >
             <Compositor project={project} clock={pb.clock} canvasRef={setCanvas} handle={compositor} className="h-full w-full" />
             {missing.length ? (
               <div className="absolute left-2 top-2 z-30 max-w-[70%] bg-black/75 px-3 py-1.5 text-xs text-amber-300" title={missing.join("\n")}>
@@ -444,11 +489,11 @@ export default function EditVideo() {
           canRedo={canRedo}
           onAddText={addText}
           onEditText={editText}
-          keyboard={!exportOpen}
-          onOpenInspector={openInspector}
-          onSaveAudio={(id) => void saveAudio(id)}
         />
       </div>
+
+      <EditorCommands enabled={!exportOpen} />
+      {viewerMenu ? <ContextMenu x={viewerMenu.x} y={viewerMenu.y} items={viewerItems(selectedClip)} onClose={closeViewerMenu} label="Player" /> : null}
 
       <ExportDialog
         open={exportOpen}
@@ -465,6 +510,13 @@ export default function EditVideo() {
       />
     </div>
   );
+}
+
+// viewerItems is the player's right-click menu (from the action registry),
+// with the selected clip's own menu as a submenu.
+function viewerItems(clipId: string | null): ContextMenuItem[] {
+  const clip = clipId ? menuFor("clip", { clipId }) : [];
+  return menuFor("viewer", undefined, clip.length ? [{ kind: "sub", label: "Selected clip", items: clip }] : []);
 }
 
 // emptyProject is the placeholder until the first file has loaded.

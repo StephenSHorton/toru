@@ -1,6 +1,31 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { Window } from "@wailsio/runtime";
-import { registerAgentCommand, type AgentCommandSpec, type AgentHandler } from "@/lib/agent";
+import {
+  ArrowLeftToLine,
+  AudioLines,
+  Copy,
+  Crop,
+  Crosshair,
+  Download,
+  EyeOff,
+  FileUp,
+  Gauge,
+  Lock,
+  PanelRight,
+  Play,
+  Plus,
+  Redo2,
+  RotateCcw,
+  Scissors,
+  Trash2,
+  Type,
+  Undo2,
+  VolumeX,
+} from "lucide-react";
+import { registerAgentCommand, type AgentHandler } from "@/lib/agent";
+import { commandActions, provideActionState, registerAction, type Action, type ActionCtx, type EditorCommandSpec } from "@/trim/actions";
+import { tabsFor, type TabId } from "@/trim/inspector/Inspector";
+import { LIBRARIES, type LibraryId } from "@/trim/library/Library";
 import { VideoService } from "@/lib/api";
 import { ProjectExport } from "../../bindings/github.com/StephenSHorton/toru/internal/vid/models.js";
 import { registerTimeCommands } from "@/trim/agentCommandsTime";
@@ -61,11 +86,27 @@ export interface EditorAgentDeps {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-  pb: { time: number; playing: boolean; play: () => void; pause: () => void; seek: (t: number) => void; clock: { now(): number } };
+  pb: { time: number; playing: boolean; play: () => void; pause: () => void; toggle?: () => void; seek: (t: number) => void; clock: { now(): number } };
   bin: MediaBinState;
   compositor: MutableRefObject<CompositorHandle | null>;
+  selection: TimelineSelection;
   setSelection: (s: TimelineSelection) => void;
   firstPath: string;
+  // The window's own ways to do what an agent passes arguments for (a dialog
+  // instead of a path, the text editor instead of words); the menu and
+  // palette items that need them are left out without them.
+  ui?: EditorUiDeps;
+}
+
+export interface EditorUiDeps {
+  saveAudio: (clipId: string) => void;
+  addText: (t?: number) => void;
+  openExport: () => void;
+  canExport: true | string; // or why not
+  openInspector: (clipId: string, tab?: TabId) => void;
+  cropping: boolean;
+  toggleCrop: () => void;
+  openLibrary: (id: LibraryId) => void;
 }
 
 // The editor window's commands take an optional window name; Go routes the
@@ -118,7 +159,15 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
   useEffect(() => {
     const d = () => ref.current;
     const offs: (() => void)[] = [];
-    const reg = (name: string, spec: AgentCommandSpec, handler: AgentHandler) => offs.push(registerAgentCommand(name, spec, handler));
+    // reg offers a command to agents and its ui (if any) to the palette, the
+    // menus and the keyboard (trim/actions.ts).
+    const reg = (name: string, spec: EditorCommandSpec, handler: AgentHandler) => {
+      const { ui: _ui, ...agentSpec } = spec;
+      offs.push(registerAgentCommand(name, agentSpec, handler));
+      for (const a of commandActions(name, spec, handler)) offs.push(registerAction(a));
+    };
+    provideActionState(() => ({ project: d().project, playhead: d().pb.clock.now(), playing: d().pb.playing, selection: d().selection }));
+    offs.push(() => provideActionState(null));
 
     // edit applies fn as one undo step and returns the new project. It fails
     // with why when fn changed nothing, so an agent never thinks a no-op
@@ -156,6 +205,34 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
       return after.tracks.flatMap((t) => t.clips.filter((c) => !had.has(c.id)));
     };
     const selectClip = (id?: string) => id && d().setSelection({ kind: "clip", id });
+
+    // ---- how the commands look to the person (menus, palette, keys) --------
+    // Each enabled() says why an item is greyed out; the target comes from
+    // the menu, or from the selection and the playhead (actions.ts).
+    const LOCKED = "The track is locked";
+    const PICK_TRACK = "Right-click a track, or select a clip on it";
+    const hitOf = (c: ActionCtx) => (c.clipId ? findClip(c.project, c.clipId) : undefined);
+    const trackOf = (c: ActionCtx) => (c.trackId ? trackById(c.project, c.trackId) : undefined);
+    const clipOk = (c: ActionCtx): true | string => {
+      const hit = hitOf(c);
+      if (!hit) return "Select a clip first";
+      return hit.track.locked ? LOCKED : true;
+    };
+    const hasSound = (p: Project, clip: Clip) => {
+      const m = mediaById(p, clip.media);
+      return !!m && !clip.hold && (m.kind === "audio" || (m.kind === "video" && m.hasAudio));
+    };
+    const soundOk = (c: ActionCtx): true | string => {
+      const ok = clipOk(c);
+      if (ok !== true) return ok;
+      return hasSound(c.project, hitOf(c)!.clip) ? true : "This clip has no sound";
+    };
+    // gapTrack: the track with a gap at c.t to close (the target's first).
+    const gapTrack = (c: ActionCtx) => {
+      const order = c.trackId ? [trackOf(c)].filter((t) => !!t) : c.project.tracks;
+      return order.find((t) => closeGap(c.project, t.id, c.t) !== c.project);
+    };
+    const noUi = () => !d().ui;
 
     // ---- read -------------------------------------------------------------
 
@@ -238,6 +315,8 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
         description:
           "Add files (video: mp4 mkv mov webm; audio: mp3 wav m4a aac ogg flac; images: png jpg webp gif) to the edit by absolute path. They're used where they are (nothing is copied). With append, each goes to the end of the bottom video track (audio: the first audio track). Returns their media ids.",
         input: obj({ paths: { type: "array", items: { type: "string" }, minItems: 1 }, append: bool("Also put each on the timeline at the end.") }, ["paths"]),
+        // The person picks files instead of passing paths.
+        ui: { id: "media.import", label: "Import media…", group: "Insert", icon: FileUp, keywords: "add files open video audio image", scopes: ["gap"], run: () => d().bin.pick() },
       },
       async (input: { paths: string[]; append?: boolean }) => {
         const paths = Array.isArray(input.paths) ? input.paths.map(String) : [];
@@ -266,7 +345,14 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
 
     reg(
       "editor.addTrack",
-      { description: "Add a video track (drawn on top of the others) or an audio track. Returns its id.", input: obj({ kind: str("Track kind.", { enum: ["video", "audio"] }) }, ["kind"]) },
+      {
+        description: "Add a video track (drawn on top of the others) or an audio track. Returns its id.",
+        input: obj({ kind: str("Track kind.", { enum: ["video", "audio"] }) }, ["kind"]),
+        ui: [
+          { id: "track.addVideo", label: "Add video track", group: "Track", icon: Plus, order: 10, scopes: ["track"], args: () => ({ kind: "video" }) },
+          { id: "track.addAudio", label: "Add audio track", group: "Track", icon: Plus, order: 11, scopes: ["track"], args: () => ({ kind: "audio" }) },
+        ],
+      },
       (input: { kind: "video" | "audio" }) => {
         if (input.kind !== "video" && input.kind !== "audio") throw new Error('kind must be "video" or "audio"');
         const before = d().project;
@@ -278,7 +364,27 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
 
     reg(
       "editor.removeTrack",
-      { description: "Remove a track and every clip on it.", input: obj({ trackId: str("From editor.get.") }, ["trackId"]) },
+      {
+        description: "Remove a track and every clip on it.",
+        input: obj({ trackId: str("From editor.get.") }, ["trackId"]),
+        ui: {
+          id: "track.delete",
+          label: "Delete track",
+          group: "Track",
+          icon: Trash2,
+          order: 20,
+          destructive: true,
+          scopes: ["track"],
+          enabled: (c) => {
+            const t = trackOf(c);
+            if (!t) return PICK_TRACK;
+            if (t.locked) return LOCKED;
+            return removeTrack(c.project, t.id) !== c.project ? true : "The last video track can't be deleted";
+          },
+          hint: () => "Its clips go too",
+          args: (c) => ({ trackId: c.trackId }),
+        },
+      },
       (input: { trackId: string }) => {
         const t = trackOr(d().project, input.trackId);
         edit((p) => removeTrack(p, t.id), "couldn't remove that track" + lockedNote(t.locked) + " (a project keeps at least one track of each kind)");
@@ -291,6 +397,40 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
       {
         description: "Mute (no audio), hide (no picture) or lock (no edits) a track.",
         input: obj({ trackId: str("From editor.get."), muted: bool("No audio."), hidden: bool("No picture."), locked: bool("No edits.") }, ["trackId"]),
+        ui: [
+          {
+            id: "track.mute",
+            label: (c) => (trackOf(c)?.muted ? "Unmute track" : "Mute track"),
+            group: "Track",
+            icon: VolumeX,
+            order: 1,
+            scopes: ["track"],
+            enabled: (c) => (trackOf(c) ? true : PICK_TRACK),
+            args: (c) => ({ trackId: c.trackId, muted: !trackOf(c)?.muted }),
+          },
+          {
+            id: "track.hide",
+            label: (c) => (trackOf(c)?.hidden ? "Show track" : "Hide track"),
+            group: "Track",
+            icon: EyeOff,
+            order: 2,
+            scopes: ["track"],
+            hidden: (c) => trackOf(c)?.kind === "audio",
+            enabled: (c) => (trackOf(c) ? true : PICK_TRACK),
+            args: (c) => ({ trackId: c.trackId, hidden: !trackOf(c)?.hidden }),
+          },
+          {
+            id: "track.lock",
+            label: (c) => (trackOf(c)?.locked ? "Unlock track" : "Lock track"),
+            group: "Track",
+            icon: Lock,
+            order: 3,
+            scopes: ["track"],
+            enabled: (c) => (trackOf(c) ? true : PICK_TRACK),
+            hint: (c) => (trackOf(c)?.locked ? undefined : "No edits until it's unlocked"),
+            args: (c) => ({ trackId: c.trackId, locked: !trackOf(c)?.locked }),
+          },
+        ],
       },
       (input: { trackId: string; muted?: boolean; hidden?: boolean; locked?: boolean }) => {
         const t = trackOr(d().project, input.trackId);
@@ -377,6 +517,27 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
       {
         description: "Cut the clips under time t (default: the playhead) in two, on one track or every track. Returns the new right-hand clips' ids.",
         input: obj({ t: num("Seconds on the timeline."), trackId: str("Only this track.") }),
+        // From a clip's menu, that clip's track; else the selected clip's
+        // track, or every track.
+        ui: {
+          id: "clip.split",
+          label: "Split at playhead",
+          group: "Edit",
+          icon: Scissors,
+          shortcut: "S",
+          keywords: "cut razor",
+          scopes: ["clip", "viewer"],
+          enabled: (c) => {
+            const hit = c.from === "menu" ? hitOf(c) : undefined;
+            if (hit) {
+              if (hit.track.locked) return LOCKED;
+              const under = c.playhead >= hit.clip.start - 1e-6 && c.playhead < clipEnd(hit.clip) - 1e-6;
+              return under && findClip(splitAt(c.project, c.playhead, hit.track.id), hit.clip.id)?.clip !== hit.clip ? true : "Move the playhead inside the clip";
+            }
+            return splitAt(c.project, c.playhead, c.trackId) !== c.project ? true : "Move the playhead over a clip";
+          },
+          args: (c) => ({ t: c.playhead, trackId: c.trackId }),
+        },
       },
       (input: { t?: number; trackId?: string }) => {
         const p0 = d().project;
@@ -389,21 +550,68 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
       },
     );
 
-    for (const [name, op, what] of [
-      ["editor.removeClip", removeClip, "Delete a clip and leave a gap."],
-      ["editor.rippleDelete", rippleDelete, "Delete a clip and pull the later clips on its track left (other tracks don't move)."],
+    // The Delete keys delete a selected text too.
+    for (const [name, op, what, ui] of [
+      ["editor.removeClip", removeClip, "Delete a clip and leave a gap.", { id: "clip.delete", label: "Delete", shortcut: "Del", keys: ["Del", "Backspace"], hint: "Leaves a gap" }],
+      [
+        "editor.rippleDelete",
+        rippleDelete,
+        "Delete a clip and pull the later clips on its track left (other tracks don't move).",
+        { id: "clip.rippleDelete", label: "Ripple delete", shortcut: "Shift+Del", keys: ["Shift+Del", "Shift+Backspace"], hint: "Pulls the rest of the track left" },
+      ],
     ] as const) {
-      reg(name, { description: what, input: obj({ clipId: str("From editor.get.") }, ["clipId"]) }, (input: { clipId: string }) => {
+      const handler = (input: { clipId: string }) => {
         const hit = clipOr(d().project, input.clipId);
         edit((p) => op(p, hit.clip.id), "couldn't delete it" + lockedNote(hit.track.locked));
         d().setSelection(null);
         return { removed: hit.clip.id };
-      });
+      };
+      reg(
+        name,
+        {
+          description: what,
+          input: obj({ clipId: str("From editor.get.") }, ["clipId"]),
+          ui: {
+            ...ui,
+            clips: "one",
+            group: "Clip",
+            icon: Trash2,
+            order: 10,
+            destructive: true,
+            keywords: "remove",
+            scopes: ["clip"],
+            enabled: (c) => (!c.clipId && c.textId ? true : clipOk(c)),
+            hint: (c) => (!c.clipId && c.textId ? "Deletes the selected text" : ui.hint),
+            run: (c) => {
+              if (c.clipId) return handler({ clipId: c.clipId });
+              if (!c.textId) return;
+              const id = c.textId;
+              d().apply((p) => removeProjectText(p, id));
+              d().setSelection(null);
+            },
+          },
+        },
+        handler,
+      );
     }
 
     reg(
       "editor.closeGap",
-      { description: "Remove the empty stretch of a track at time t: the clips after it move left.", input: obj({ trackId: str("From editor.get."), t: num("A time inside the gap.") }, ["trackId", "t"]) },
+      {
+        description: "Remove the empty stretch of a track at time t: the clips after it move left.",
+        input: obj({ trackId: str("From editor.get."), t: num("A time inside the gap.") }, ["trackId", "t"]),
+        ui: {
+          id: "gap.close",
+          label: "Close gap",
+          group: "Edit",
+          icon: ArrowLeftToLine,
+          keywords: "remove space empty",
+          scopes: ["gap"],
+          enabled: (c) => (gapTrack(c) ? true : trackOf(c)?.locked ? LOCKED : c.from === "menu" ? "No clips after this gap" : "Move the playhead into a gap"),
+          hint: () => "The clips after it move left",
+          args: (c) => ({ trackId: gapTrack(c)?.id, t: c.t }),
+        },
+      },
       (input: { trackId: string; t: number }) => {
         const tr = trackOr(d().project, input.trackId);
         edit((p) => closeGap(p, tr.id, time(input.t, "t")), "there's no gap there with clips after it" + lockedNote(tr.locked));
@@ -413,7 +621,11 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
 
     reg(
       "editor.duplicateClip",
-      { description: "Copy a clip (effects, keyframes and all) onto the same track, at the first free spot after it. Returns the copy.", input: obj({ clipId: str("From editor.get.") }, ["clipId"]) },
+      {
+        description: "Copy a clip (effects, keyframes and all) onto the same track, at the first free spot after it. Returns the copy.",
+        input: obj({ clipId: str("From editor.get.") }, ["clipId"]),
+        ui: { id: "clip.duplicate", clips: "one", label: "Duplicate", group: "Edit", icon: Copy, keywords: "copy clone", scopes: ["clip"], enabled: clipOk, args: (c) => ({ clipId: c.clipId }) },
+      },
       (input: { clipId: string }) => {
         const hit = clipOr(d().project, input.clipId);
         const before = d().project;
@@ -430,6 +642,27 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
         description:
           "Extract audio: move a video clip's sound onto its own audio track (the first audio track free at that time, or a new one) as a separate clip with the same range, speed, volume, fades and volume keyframes. The video clip is muted. One undo step. Returns the new audio clip and its track.",
         input: obj({ clipId: str("A video clip with sound (editor.get).") }, ["clipId"]),
+        ui: {
+          id: "clip.extractAudio", clips: "one",
+          label: "Extract audio",
+          group: "Audio",
+          icon: AudioLines,
+          keywords: "separate detach sound",
+          scopes: ["clip"],
+          enabled: (c) => {
+            const hit = hitOf(c);
+            if (!hit) return "Select a clip first";
+            if (canExtractAudio(c.project, hit.clip.id)) return true;
+            const m = mediaById(c.project, hit.clip.media);
+            if (hit.track.locked) return LOCKED;
+            if (hit.track.kind === "audio" || m?.kind === "audio") return "This clip is already audio";
+            if (hit.clip.hold) return "A freeze frame has no sound";
+            if (!m?.hasAudio) return "This clip has no sound";
+            return "The clip is muted: unmute it first";
+          },
+          hint: () => "Move the sound to its own audio track",
+          args: (c) => ({ clipId: c.clipId }),
+        },
       },
       (input: { clipId: string }) => {
         const p0 = d().project;
@@ -462,6 +695,19 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
           "Save a clip's sound as an audio file, exactly as the clip plays it (range, speed, reverse, volume, fades, every audio stream). path must be absolute and end in .m4a (AAC) or .wav (16-bit PCM); an existing file is never overwritten. Returns the path once it's written.",
         input: obj({ clipId: str("A clip with sound (editor.get)."), path: str("Absolute output path ending in .m4a or .wav.") }, ["clipId", "path"]),
         timeoutSec: 10 * 60,
+        // The person picks the file in a Save As dialog.
+        ui: {
+          id: "clip.saveAudio", clips: "one",
+          label: "Save audio as file…",
+          group: "Audio",
+          icon: Download,
+          keywords: "export sound m4a wav",
+          scopes: ["clip"],
+          hidden: noUi,
+          enabled: (c) => (hitOf(c) ? (hasSound(c.project, hitOf(c)!.clip) ? true : "This clip has no sound") : "Select a clip first"),
+          hint: () => "M4A or WAV",
+          run: (c) => d().ui?.saveAudio(c.clipId!),
+        },
       },
       async (input: { clipId: string; path: string }) => {
         const p = d().project;
@@ -498,6 +744,16 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
           },
           ["clipId"],
         ),
+        ui: {
+          id: "clip.mute", clips: "one",
+          label: (c) => (hitOf(c)?.clip.muted ? "Unmute" : "Mute") + (c.from === "menu" ? "" : " clip"),
+          group: "Audio",
+          icon: VolumeX,
+          keywords: "silence sound",
+          scopes: ["clip"],
+          enabled: soundOk,
+          args: (c) => ({ clipId: c.clipId, muted: !hitOf(c)?.clip.muted }),
+        },
       },
       (input: Record<string, unknown> & { clipId: string }) => {
         const hit = clipOr(d().project, input.clipId);
@@ -557,6 +813,18 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
           start: num("Seconds."),
           end: num("Seconds."),
         }),
+        // The person types the words in the text editor.
+        ui: {
+          id: "text.add",
+          label: (c) => (c.from === "menu" && c.t !== c.playhead ? "Add text here" : "Add text"),
+          group: "Insert",
+          icon: Type,
+          keywords: "title caption words overlay",
+          scopes: ["gap", "viewer"],
+          hidden: noUi,
+          enabled: (c) => (projectDuration(c.project) > 0 ? true : "Add a clip first"),
+          run: (c) => d().ui?.addText(c.t),
+        },
       },
       async (input: { id?: string; text?: string; x?: number; y?: number; size?: number | string; font?: string; start?: number; end?: number }) => {
         const p0 = d().project;
@@ -625,6 +893,17 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
             oneOf: [{ type: "null" }, { type: "object", properties: { x: { type: "integer" }, y: { type: "integer" }, w: { type: "integer" }, h: { type: "integer" } }, required: ["x", "y", "w", "h"] }],
           },
         }, ["rect"]),
+        ui: {
+          id: "crop.reset",
+          label: "Reset crop",
+          group: "View",
+          icon: RotateCcw,
+          order: 2,
+          keywords: "full frame uncrop",
+          scopes: ["viewer"],
+          hidden: (c) => !c.project.crop,
+          args: () => ({ rect: null }),
+        },
       },
       (input: { rect: { x: number; y: number; w: number; h: number } | null }) => {
         const { canvas } = d().project;
@@ -685,25 +964,72 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
 
     // ---- history and playback ----------------------------------------------
 
-    reg("editor.undo", { description: "Undo the last change (the person's or an agent's).", input: obj() }, () => {
-      if (!d().canUndo) throw new Error("nothing to undo");
-      d().undo();
-      return { undone: true };
-    });
-    reg("editor.redo", { description: "Redo the last undone change.", input: obj() }, () => {
-      if (!d().canRedo) throw new Error("nothing to redo");
-      d().redo();
-      return { redone: true };
-    });
-    reg("editor.seek", { description: "Move the playhead to t seconds.", input: obj({ t: num("Seconds on the timeline.") }, ["t"]) }, (input: { t: number }) => {
-      const t = Math.min(time(input.t, "t"), projectDuration(d().project));
-      d().pb.seek(t);
-      return { playhead: t };
-    });
-    reg("editor.play", { description: "Play from the playhead.", input: obj() }, () => {
-      d().pb.play();
-      return { playing: true };
-    });
+    reg(
+      "editor.undo",
+      {
+        description: "Undo the last change (the person's or an agent's).",
+        input: obj(),
+        ui: { id: "history.undo", label: "Undo", group: "History", icon: Undo2, shortcut: "Ctrl+Z", enabled: () => d().canUndo || "Nothing to undo" },
+      },
+      () => {
+        if (!d().canUndo) throw new Error("nothing to undo");
+        d().undo();
+        return { undone: true };
+      },
+    );
+    reg(
+      "editor.redo",
+      {
+        description: "Redo the last undone change.",
+        input: obj(),
+        ui: { id: "history.redo", label: "Redo", group: "History", icon: Redo2, shortcut: "Ctrl+Shift+Z", keys: ["Ctrl+Shift+Z", "Ctrl+Y"], enabled: () => d().canRedo || "Nothing to redo" },
+      },
+      () => {
+        if (!d().canRedo) throw new Error("nothing to redo");
+        d().redo();
+        return { redone: true };
+      },
+    );
+    reg(
+      "editor.seek",
+      {
+        description: "Move the playhead to t seconds.",
+        input: obj({ t: num("Seconds on the timeline.") }, ["t"]),
+        ui: [
+          { id: "playback.seekHere", label: "Move playhead here", group: "Playback", icon: Crosshair, scopes: ["gap"], hidden: (c) => c.from !== "menu", args: (c) => ({ t: c.t }) },
+          { id: "playback.start", label: "Go to start", group: "Playback", shortcut: "Home", keywords: "beginning rewind", args: () => ({ t: 0 }) },
+          { id: "playback.end", label: "Go to end", group: "Playback", shortcut: "End", args: (c) => ({ t: projectDuration(c.project) }) },
+        ],
+      },
+      (input: { t: number }) => {
+        const t = Math.min(time(input.t, "t"), projectDuration(d().project));
+        d().pb.seek(t);
+        return { playhead: t };
+      },
+    );
+    reg(
+      "editor.play",
+      {
+        description: "Play from the playhead.",
+        input: obj(),
+        // One item for both: Space plays or pauses.
+        ui: {
+          id: "playback.toggle",
+          label: (c) => (c.playing ? "Pause" : "Play"),
+          group: "Playback",
+          icon: Play,
+          shortcut: "Space",
+          keywords: "pause stop",
+          scopes: ["viewer"],
+          enabled: (c) => (projectDuration(c.project) > 0 ? true : "Add a clip first"),
+          run: () => (d().pb.toggle ? d().pb.toggle!() : d().pb.playing ? d().pb.pause() : d().pb.play()),
+        },
+      },
+      () => {
+        d().pb.play();
+        return { playing: true };
+      },
+    );
     reg("editor.pause", { description: "Pause playback.", input: obj() }, () => {
       d().pb.pause();
       return { playing: false, playhead: d().pb.clock.now() };
@@ -716,6 +1042,18 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
       {
         description:
           "Export the edit to a file and return its path once it's written. Simple: preset original (the canvas), 1080p, 720p, discord (fits 10MB; may become .webm) or custom (height + kbps). Full control: options (format mp4 / hevc / webm / gif / m4a / wav, size, fit, fps, quality or kbps, encoder, audio, range, gif settings; see editor.exportFormats for what this PC can make). path defaults to <first file>-edited.<ext> next to the first file; an existing file is never overwritten.",
+        // The person picks the settings on the export screen.
+        ui: {
+          id: "file.export",
+          label: "Export…",
+          group: "File",
+          icon: Download,
+          keywords: "render save video mp4 gif",
+          scopes: ["viewer"],
+          hidden: noUi,
+          enabled: () => d().ui?.canExport ?? "Export isn't available",
+          run: () => d().ui?.openExport(),
+        },
         input: obj({
           preset: str("Output preset (with options: only discord changes anything, fitting the result to 10MB).", { enum: ["original", "1080p", "720p", "discord", "custom"] }),
           path: str("Absolute output path; its extension must match the format (.mp4 for mp4/hevc, .webm, .gif, .m4a, .wav)."),
@@ -784,6 +1122,56 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
     registerTimeCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, clipOr, obj, lockedNote, selectClip: (id) => void selectClip(id) });
     registerFxCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, clipOr, obj, lockedNote, selectClip: (id) => void selectClip(id) });
     registerMultiCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, obj, setSelection: (s) => d().setSelection(s) });
+
+    // ---- window-only actions (no agent command: an agent sets values directly)
+    const act = (a: Omit<Action, "exec"> & { exec: Action["exec"] }) => offs.push(registerAction(a));
+    const pickClip = (c: ActionCtx) => (hitOf(c) ? true : "Select a clip first");
+    // tabOk: the target clip has that inspector tab (no Speed for an image,
+    // no Adjust for audio...).
+    const tabOk = (tab: TabId, why: string) => (c: ActionCtx) => {
+      const hit = hitOf(c);
+      if (!hit) return "Select a clip first";
+      return tabsFor(hit.track, mediaById(c.project, hit.clip.media)).includes(tab) ? true : why;
+    };
+    act({
+      id: "clip.speed",
+      clips: "one",
+      label: "Speed…",
+      group: "Time",
+      icon: Gauge,
+      keywords: "slow motion fast ramp",
+      scopes: ["clip"],
+      order: -1,
+      hidden: noUi,
+      enabled: tabOk("speed", "An image has no speed"),
+      exec: (c) => d().ui?.openInspector(c.clipId!, "speed"),
+    });
+    act({ id: "clip.inspect", label: "Open in inspector", group: "Clip", icon: PanelRight, keywords: "settings properties", scopes: ["clip"], order: 1, hidden: noUi, enabled: pickClip, exec: (c) => d().ui?.openInspector(c.clipId!) });
+    // Each inspector tab, from the palette.
+    for (const [tab, label, words, why] of [
+      ["video", "Position and size", "transform scale opacity move", "Audio has no picture"],
+      ["adjust", "Adjust colour", "brightness contrast saturation color", "Audio has no picture"],
+      ["effects", "Effects", "blur glow green screen chroma key", "Audio has no picture"],
+      ["audio", "Volume and fades", "audio sound level", "This clip has no sound"],
+    ] as const) {
+      act({ id: `inspector.${tab}`, label: `${label}…`, group: "Clip", icon: PanelRight, keywords: `inspector ${words}`, order: 50, hidden: noUi, enabled: tabOk(tab, why), exec: (c) => d().ui?.openInspector(c.clipId!, tab) });
+    }
+    // Each library on the rail.
+    for (const lib of LIBRARIES.filter((l) => !l.soon)) {
+      act({ id: `library.${lib.id}`, label: `${lib.label} library`, group: "View", icon: lib.icon, order: 20, keywords: `open panel rail ${lib.hint}`, hidden: noUi, exec: () => d().ui?.openLibrary(lib.id) });
+    }
+    act({
+      id: "view.crop",
+      label: () => (d().ui?.cropping ? "Done cropping" : "Crop…"),
+      group: "View",
+      icon: Crop,
+      order: 1,
+      keywords: "cut frame trim picture",
+      scopes: ["viewer"],
+      hidden: noUi,
+      enabled: (c) => (projectDuration(c.project) > 0 ? true : "Add a clip first"),
+      exec: () => d().ui?.toggleCrop(),
+    });
 
     return () => offs.forEach((off) => off());
   }, []);
