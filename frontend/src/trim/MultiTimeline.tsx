@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
 import { actionCtx, actionForKey, labelOf, menuFor, registerAction, runAction, useActions, whyNot } from "@/trim/actions";
 import { cn } from "@/lib/utils";
+import { TransitionHandles } from "@/trim/TransitionHandles";
 import { greenScreen } from "@/trim/fx/ops";
 import { clipEffects } from "@/trim/fx/stack";
 import { ClipWave } from "@/trim/ClipWave";
@@ -87,7 +88,8 @@ import {
 
 // A clip selection names its primary clip (`id`: the inspector's, the
 // keyframe lane's) and, with several selected, all of them in `ids`.
-export type TimelineSelection = { kind: "clip"; id: string; ids?: string[] } | { kind: "text"; id: string } | null;
+// A transition is selected by its incoming clip's id (transition.ts).
+export type TimelineSelection = { kind: "clip"; id: string; ids?: string[] } | { kind: "text"; id: string } | { kind: "transition"; id: string } | null;
 
 // selectedClipIds lists the selected clips that are still in p.
 export function selectedClipIds(p: Project, s: TimelineSelection): string[] {
@@ -665,6 +667,7 @@ export function MultiTimeline({
                   dropAt?.trackId === track.id && "bg-primary/10",
                 )}
                 style={{ height: ROW_H[track.kind] }}
+                data-track-row
                 onPointerDown={(e) => (e.shiftKey || e.ctrlKey || e.metaKey ? startMarquee(e) : startScrub(e))}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -697,6 +700,14 @@ export function MultiTimeline({
                     }}
                   />
                 ))}
+                <TransitionHandles
+                  track={track}
+                  x={x}
+                  pxPerSec={pxPerSec}
+                  selectedId={selection?.kind === "transition" ? selection.id : null}
+                  onSelect={(id) => onSelect({ kind: "transition", id })}
+                  apply={apply}
+                />
                 {track.clips.map((c) =>
                   selection?.kind === "clip" && selection.id === c.id ? (
                     <KeyLane

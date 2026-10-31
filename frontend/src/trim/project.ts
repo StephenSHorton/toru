@@ -2,6 +2,7 @@ import type { AudioTrack, TrackLevel } from "@/lib/api";
 import type { Rect } from "@/lib/contract";
 import { newId, useHistory, type Edl, type Text } from "@/trim/edl";
 import { clipOutLength, fromSource, localOut, localSrc, normCurve, rateAt, retime, toSource } from "@/trim/speed";
+import { trackTransitions, transitionProgress, type ClipTransition, type Transition } from "@/trim/transition";
 
 // The v2 video editor's project (docs/video-editor-v2.md, Data model): media,
 // free-form video and audio tracks of clips, v1 texts and crop. Pure data and
@@ -61,6 +62,7 @@ export type Clip = {
   hold?: boolean; // freeze frame: shows source frame `in` for (out - in) s, silent
   reversed?: boolean; // plays the source range backwards (a reverse proxy)
   blendFrames?: BlendFrames; // slow motion: off (default), mix (tmix) or smooth (minterpolate)
+  transition?: ClipTransition; // with the clip before it on the track (transition.ts)
 };
 
 // --- v3 effects, keyframes and time (frozen contract for the v3 cards) ----
@@ -373,12 +375,12 @@ export function splitAt(p: Project, t: number, trackId?: string): Project {
     let right: Clip;
     if (c.hold) {
       left = fitFades({ ...c, out: c.in + (t - c.start), fadeOut: 0 });
-      right = fitFades({ ...c, id: newId("clip"), start: t, out: c.in + (clipEnd(c) - t), fadeIn: 0 });
+      right = fitFades({ ...c, id: newId("clip"), start: t, out: c.in + (clipEnd(c) - t), fadeIn: 0, transition: undefined });
     } else {
       // Each half keeps its part of the speed curve (and direction).
       const u = localSrc(c, t - c.start);
       left = fitFades({ ...c, ...retime(c, 0, u), fadeOut: 0 });
-      right = fitFades({ ...c, id: newId("clip"), start: t, ...retime(c, u, c.out - c.in), fadeIn: 0 });
+      right = fitFades({ ...c, id: newId("clip"), start: t, ...retime(c, u, c.out - c.in), fadeIn: 0, transition: undefined });
     }
     const clips = track.clips.slice();
     clips.splice(i, 1, left, right);
@@ -648,28 +650,64 @@ export function projectDuration(p: Project): number {
 
 // srcT: the source time to show; rate: how fast the source plays there
 // (speed or the curve's speed; 0 for a freeze frame).
-export type ActiveClip = { track: Track; clip: Clip; media: Media; srcT: number; rate: number };
+// trans: the clip is in a transition's window (transition.ts): "out" for
+// the outgoing clip, "in" for the incoming one, with xfade's progress. A
+// clip outside its own range in the window holds its edge frame (rate 0).
+export type ActiveClip = {
+  track: Track;
+  clip: Clip;
+  media: Media;
+  srcT: number;
+  rate: number;
+  trans?: { tr: Transition; role: "out" | "in"; progress: number };
+};
 
 // clipsAt lists the clips playing at timeline time t: visible video tracks
 // bottom→top, then the audio tracks, each with the source time to show.
 // A clip covers [start, end). Track mute is left to the caller.
 export function clipsAt(p: Project, t: number): ActiveClip[] {
   const out: ActiveClip[] = [];
+  const at = (track: Track, clip: Clip, media: Media, lt: number): ActiveClip => {
+    if (clip.hold) return { track, clip, media, srcT: clip.in, rate: 0 };
+    const u = localSrc(clip, lt);
+    return { track, clip, media, srcT: toSource(clip, u), rate: rateAt(clip, u) };
+  };
   for (const track of p.tracks) {
     if (track.kind === "video" && track.hidden) continue;
-    const clip = track.clips.find((c) => c.start - EPS <= t && t < clipEnd(c) - EPS);
+    const i = track.clips.findIndex((c) => c.start - EPS <= t && t < clipEnd(c) - EPS);
+    const clip = track.clips[i];
     if (!clip) continue;
     const media = mediaById(p, clip.media);
     if (!media) continue;
-    if (clip.hold) {
-      out.push({ track, clip, media, srcT: clip.in, rate: 0 });
+    // In a transition's window both clips show: the one under t plays, the
+    // other holds its edge frame.
+    const trans = track.kind === "video" ? trackTransitions(track) : null;
+    const tin = trans?.get(i);
+    const tout = trans?.get(i + 1);
+    if (tin && t < tin.end) {
+      const prev = track.clips[i - 1];
+      const pm = mediaById(p, prev.media);
+      const progress = transitionProgress(tin, t, p.canvas.fps);
+      if (pm) out.push({ ...at(track, prev, pm, clipLength(prev) - FRAME_EPS), rate: 0, trans: { tr: tin, role: "out", progress } });
+      out.push({ ...at(track, clip, media, t - clip.start), trans: { tr: tin, role: "in", progress } });
       continue;
     }
-    const u = localSrc(clip, t - clip.start);
-    out.push({ track, clip, media, srcT: toSource(clip, u), rate: rateAt(clip, u) });
+    if (tout && t >= tout.start) {
+      const next = track.clips[i + 1];
+      const nm = mediaById(p, next.media);
+      const progress = transitionProgress(tout, t, p.canvas.fps);
+      out.push({ ...at(track, clip, media, t - clip.start), trans: { tr: tout, role: "out", progress } });
+      if (nm) out.push({ ...at(track, next, nm, 0), rate: 0, trans: { tr: tout, role: "in", progress } });
+      continue;
+    }
+    out.push(at(track, clip, media, t - clip.start));
   }
   return out;
 }
+
+// FRAME_EPS keeps an outgoing clip's held frame inside the clip: its last
+// frame, as the export's tpad repeats.
+const FRAME_EPS = 1e-3;
 
 // timelineTimeAt is the timeline time at which clip shows source time srcT
 // (clipsAt's srcT the other way round), kept inside the clip.
@@ -825,6 +863,7 @@ function v3Ms(c: Clip, ms: (s: number) => number): Partial<Clip> {
   if (c.effects) out.effects = c.effects.map((e) => (e.keys ? { ...e, keys: Object.fromEntries(Object.entries(e.keys).map(([p, ks]) => [p, keys(ks)])) } : e));
   if (c.anim) out.anim = Object.fromEntries(Object.entries(c.anim).map(([p, ks]) => [p, keys(ks ?? [])]));
   if (c.speedCurve) out.speedCurve = { ...c.speedCurve, points: c.speedCurve.points.map((pt) => ({ s: ms(pt.s), v: pt.v })) };
+  if (c.transition) out.transition = { ...c.transition, duration: ms(c.transition.duration) };
   return out;
 }
 

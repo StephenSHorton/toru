@@ -440,6 +440,43 @@ export type SpeedCurve = {
   slower than 1×: the ramp's slow segments are split out with `select`,
   interpolated, then concatenated.
 
+### Transitions (C8, card #119)
+
+A transition sits at a cut between two clips that touch on one video
+track. It is stored on the incoming clip (`clip.transition = {type,
+duration}`; seconds in the editor, ms in the export request) and plays
+centred on the cut: a duration d runs from cut − ⌊d/2⌋ to cut + (d − ⌊d/2⌋),
+in whole ms, so the timeline's length doesn't change.
+
+- **No source handles.** Each clip holds its edge frame for the half that
+  runs past its own end: the outgoing clip its last frame, the incoming
+  clip its first (export: `tpad` clone; preview: rate 0 at the edge, with
+  effects and keyframes frozen there too). One rule for every kind of clip
+  (speed curves, reverse, freeze frames, images). Using real handles for
+  plain 1x clips is a follow-up.
+- **Types** are ffmpeg `xfade`'s: fade (Cross dissolve), fadeblack,
+  fadewhite, wipeleft/right/up/down, slideleft/right/up/down, zoomin and
+  hblur (Blur). The export joins the clips' canvas-size `yuva420p` layers
+  with xfade (a run of linked clips chains them; offset = window start −
+  run start) and overlays the run once. The preview
+  (`compositor/transition-gl.ts`) draws both layers into buffers and runs a
+  port of xfade's formulas over them, un-premultiplying first, because xfade
+  mixes straight colour and alpha.
+- **Sound** fades out over the half before the cut and in over the half
+  after (linear, as afade), on top of the clips' own fades.
+- **Doesn't fit → ignored**, never an error. A transition needs the clip
+  right before it on the same visible video track, ending where it starts
+  (within 1 ms), both drawing a picture, and room for each half next to the
+  clip's other transition. `transitionAt` in Go and `trackTransitions` in TS
+  apply the same rule; edits that move clips apart leave the field in place.
+  Split keeps it on the left part only.
+- **What can't match exactly** (`bun run test:transitions` has the limits
+  and their reasons): xfade's dip fills are Y=0 and Y=255 on limited-range
+  planes, below black and above white, and the preview copies that exactly.
+  xfade works per plane on 4:2:0, so the half-size chroma planes take their
+  own whole-pixel offsets in slides and zoom. The preview's blur takes 32
+  samples across xfade's box window.
+
 ## 5. Inspector UX
 
 The inspector is a fixed-width column (as v2) with **six tabs**. The tab bar

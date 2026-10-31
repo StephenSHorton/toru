@@ -12,6 +12,7 @@ import { historyApply, historyInit, historyUndo, type Edl } from "../src/trim/ed
 import { valueAt } from "../src/trim/fx/keyframes";
 import { clipAudible, outLength, presetCurve } from "../src/trim/speed";
 import { migrateClipEffects, migrateProject } from "../src/trim/migrate";
+import { addTransition, cutFade, maxTransition, setClipTransition, trackTransitions, transitionProgress } from "../src/trim/transition";
 import {
   addMedia,
   addTrack,
@@ -465,6 +466,50 @@ check("history: undo the whole drag", near(findClip(h.present, cam)!.clip.start,
   // rotation survives updateClip (C6).
   const ro = updateClip(base, id, { transform: { ...FIT_ROT, rotation: 400 } });
   check("rotation kept and clamped", findClip(ro, id)!.clip.transform.rotation === 360);
+}
+
+// Transitions (transition.ts; the same cases as Go's TestTrackTransitions).
+{
+  const mk = (id: string, start: number, len: number, tr?: { type: string; duration: number }) =>
+    ({ id, media: "m", start, in: 0, out: len, speed: 1, volume: 1, muted: false, fadeIn: 0, fadeOut: 0, transform: { x: 0.5, y: 0.5, scale: 1, opacity: 1 }, filters: { brightness: 0, contrast: 1, saturation: 1, blur: 0, look: "none" }, ...(tr ? { transition: tr } : {}) }) as any;
+  const track = (clips: any[], extra: any = {}) => ({ id: "v", kind: "video", muted: false, hidden: false, locked: false, clips, ...extra }) as any;
+  const fade = (d: number) => ({ type: "fade", duration: d });
+  const durs = (t: any) => JSON.stringify([...trackTransitions(t)].map(([i, x]) => [i, x.duration]));
+  const cases: [string, any, [number, number][]][] = [
+    ["adjacent", track([mk("a", 0, 2), mk("b", 2, 2, fade(1))]), [[1, 1]]],
+    ["first clip has none", track([mk("a", 0, 2, fade(0.5))]), []],
+    ["gap", track([mk("a", 0, 2), mk("b", 2.5, 2, fade(0.5))]), []],
+    ["1 ms off is still a cut", track([mk("a", 0, 2), mk("b", 2.001, 2, fade(0.5))]), [[1, 0.5]]],
+    ["unknown type", track([mk("a", 0, 2), mk("b", 2, 2, { type: "spin", duration: 0.5 })]), []],
+    ["clamped", track([mk("a", 0, 9), mk("b", 9, 9, fade(60))]), [[1, 5]]],
+    ["too long", track([mk("a", 0, 0.4), mk("b", 0.4, 2, fade(1))]), []],
+    ["both sides fit", track([mk("a", 0, 2), mk("b", 2, 1, fade(1)), mk("c", 3, 2, fade(1))]), [[1, 1], [2, 1]]],
+    ["both sides don't", track([mk("a", 0, 2), mk("b", 2, 0.8, fade(1)), mk("c", 2.8, 2, fade(1))]), []],
+    ["audio track", track([mk("a", 0, 2), mk("b", 2, 2, fade(0.5))], { kind: "audio" }), []],
+    ["hidden track", track([mk("a", 0, 2), mk("b", 2, 2, fade(0.5))], { hidden: true }), []],
+  ];
+  for (const [name, t, want] of cases) check(`transition rule: ${name}`, durs(t) === JSON.stringify(want), durs(t));
+  const odd = trackTransitions(track([mk("a", 0, 2), mk("b", 2, 2, fade(0.501))])).get(1)!;
+  check("odd ms: half rounds down", Math.abs(odd.start - 1.75) < 1e-9 && Math.abs(odd.end - 2.251) < 1e-9, odd);
+  const t1 = trackTransitions(track([mk("a", 0, 2), mk("b", 2, 2, fade(1))])).get(1)!;
+  check("progress = xfade's per frame", transitionProgress(t1, 1.5, 30) === 1 && Math.abs(transitionProgress(t1, 2.0, 30) - 0.5) < 1e-9 && transitionProgress(t1, 2.6, 30) === 0);
+  const tm = trackTransitions(track([mk("a", 0, 2), mk("b", 2, 2, fade(1))]));
+  check("audio cut fades", Math.abs(cutFade(tm, 0, 1.75) - 0.5) < 1e-9 && Math.abs(cutFade(tm, 1, 2.25) - 0.5) < 1e-9 && cutFade(tm, 0, 1.0) === 1 && cutFade(tm, 1, 2.6) === 1);
+  check("max length", Math.abs(maxTransition(track([mk("a", 0, 1), mk("b", 1, 3)]), 1) - 1.998) < 1e-9);
+  const proj = { ...stack, tracks: [track([mk("a", 0, 2), mk("b", 2, 2)]), ...stack.tracks.slice(1)] } as any;
+  const added = addTransition(proj, "a", "wipeleft");
+  check("add at the outgoing clip's cut", typeof added !== "string" && added.clipId === "b" && findClip(added.project, "b")!.clip.transition?.duration === 0.5, added);
+  check("no cut: why not", typeof addTransition({ ...proj, tracks: [track([mk("a", 0, 2), mk("b", 3, 2)])] } as any, "a", "fade") === "string");
+  if (typeof added !== "string") {
+    check("remove", findClip(setClipTransition(added.project, "b", undefined), "b")!.clip.transition === undefined);
+    check("unchanged is the same project", setClipTransition(added.project, "b", { type: "wipeleft", duration: 0.5 }) === added.project);
+    const req = toExportRequest(added.project, { preset: "original" });
+    const eb = req.project.tracks[0].clips.find((c: any) => c.id === "b") as any;
+    check("export: transition in ms", eb.transition?.duration === 500 && eb.transition.type === "wipeleft", eb.transition);
+    const sp = splitAt(added.project, 3, added.project.tracks[0].id);
+    const parts = sp.tracks[0].clips.filter((c: any) => c.media === "m");
+    check("split: only the first part keeps the transition", parts.length === 3 && !!parts[1].transition && !parts[2].transition, parts.map((c: any) => c.transition));
+  }
 }
 
 console.log(`${passed} passed, ${failed} failed`);

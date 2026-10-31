@@ -15,12 +15,12 @@ export type LibraryId = "media" | "text" | "effects" | "transitions" | "audio" |
 
 type Entry = { id: LibraryId; label: string; icon: typeof Type; hint: string; soon?: boolean };
 
-// soon: planned (Transitions, Captions); hidden from the rail until built.
+// soon: planned (Captions); hidden from the rail until built.
 export const LIBRARIES: Entry[] = [
   { id: "media", label: "Media", icon: Clapperboard, hint: "Your clips, recordings and imported files" },
   { id: "text", label: "Text", icon: Type, hint: "Add text over the video" },
   { id: "effects", label: "Effects", icon: Sparkles, hint: "Add effects to the selected clip" },
-  { id: "transitions", label: "Transitions", icon: ArrowLeftRight, hint: "Transitions between clips", soon: true },
+  { id: "transitions", label: "Transitions", icon: ArrowLeftRight, hint: "Transitions between clips" },
   { id: "audio", label: "Audio", icon: Music, hint: "Music and sound files" },
   { id: "captions", label: "Captions", icon: Captions, hint: "Captions", soon: true },
   { id: "filters", label: "Filters", icon: Palette, hint: "Looks, LUTs and your saved filters for the selected clip" },

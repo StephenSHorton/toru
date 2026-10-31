@@ -117,7 +117,9 @@ from paths, `editor.addTrack`, `editor.insertClip`, `editor.moveClip`,
 video clip is muted), `editor.saveAudio` (a clip's sound to .m4a or .wav),
 `editor.updateClip` (transform,
 speed, audio, chroma, filters), `editor.setText` (size in px or s/m/l, font),
-`editor.listFonts`, `editor.removeText`,
+`editor.listFonts`, `editor.removeText`, `editor.addTransition` /
+`editor.removeTransition` (at a clip's cut: dissolves, dips, wipes, slides,
+zoom, blur),
 `editor.setCrop`, `editor.undo`, `editor.redo`), several clips at once
 (`editor.selectClips`, `editor.moveClips`, `editor.removeClips` (ripple
 optional), `editor.duplicateClips`, `editor.setClipsMuted`), the clip

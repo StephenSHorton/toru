@@ -1,13 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type Ref } from "react";
 import { VideoService } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { clipsAt, timelineTimeAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
+import { clipLength, clipsAt, timelineTimeAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
+import { TransitionGL } from "@/trim/compositor/transition-gl";
+import { drawLayer, layerProgram } from "@/trim/compositor/layer";
 import { AudioMix, clipGain } from "@/trim/compositor/audio";
 import { reverseUrl } from "@/trim/reverse";
 import { clipAudible, fromSource, toSource } from "@/trim/speed";
 import { FxRenderer } from "@/trim/fx/renderer";
 import { clipStack } from "@/trim/fx/stack";
-import { animAt } from "@/trim/fx/ops";
 import { correctionStep, exactFrame, matrixFix } from "@/trim/colorspace";
 import type { PlaybackClock } from "@/trim/compositor/usePlayback";
 
@@ -178,6 +179,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
     };
     const vao = gl.createVertexArray();
     const effects = new FxRenderer(gl);
+    const transitions = new TransitionGL(gl);
     const mix = new AudioMix();
     const pool = new Map<string, Slot>();
     const stills = new Map<string, Still>();
@@ -436,7 +438,19 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       // A paused frame waiting for its exact decode (colorspace.ts): picks
       // and snapshots wait for it (at most EXACT_WAIT ms).
       let exactPending = false;
+      const fps = p.canvas.fps > 0 ? p.canvas.fps : 30;
+      // An outgoing clip drawn into the transition buffer but no incoming
+      // one yet (its frame isn't loaded): composite it with an empty
+      // incoming layer before anything else draws, so it doesn't vanish.
+      let pending: ActiveClip["trans"] | undefined;
+      const flush = () => {
+        if (!pending) return;
+        transitions.layer(1, W, H);
+        transitions.composite(pending.tr.type, pending.progress, W, H);
+        pending = undefined;
+      };
       for (const a of active) {
+        if (pending && !(a.trans?.role === "in" && a.trans.tr === pending.tr)) flush();
         if (a.track.kind !== "video") continue;
         let tex: WebGLTexture | null = null;
         let w = 0;
@@ -501,9 +515,30 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         // unless the frame was decoded exactly. Images need none.
         const slot = a.media.kind === "image" ? undefined : pool.get(a.clip.id);
         const fix = slot && !slot.exact ? matrixFix(a.media, h) : null;
-        const out = effects.apply(tex, w, h, clipStack(a.clip, t - a.clip.start, rawClips.has(a.clip.id)), t - a.clip.start, fix ? [correctionStep(fix)] : []);
-        drawLayer(gl, prog, vao, loc, out, w, h, a.clip, t - a.clip.start, W, H);
+        // A clip held in a transition's window keeps its edge frame's
+        // effects and placement (the export's tpad repeats that frame).
+        const lt = a.trans ? Math.min(Math.max(t - a.clip.start, 0), clipLength(a.clip) - 1 / fps) : t - a.clip.start;
+        const out = effects.apply(tex, w, h, clipStack(a.clip, lt, rawClips.has(a.clip.id)), lt, fix ? [correctionStep(fix)] : []);
+        if (a.trans) {
+          // Both clips go into their own canvas-size buffer, then the
+          // transition draws them onto the canvas (transition-gl.ts).
+          // An incoming clip whose outgoing one drew nothing this frame:
+          // clear that buffer first (it holds the last frame's picture).
+          if (a.trans.role === "in" && pending?.tr !== a.trans.tr) transitions.layer(0, W, H);
+          transitions.layer(a.trans.role === "out" ? 0 : 1, W, H);
+          drawLayer(gl, prog, vao, loc, out, w, h, a.clip, lt, W, H);
+          if (a.trans.role === "in") {
+            transitions.composite(a.trans.tr.type, a.trans.progress, W, H);
+            pending = undefined;
+          } else {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            pending = a.trans;
+          }
+          continue;
+        }
+        drawLayer(gl, prog, vao, loc, out, w, h, a.clip, lt, W, H);
       }
+      flush();
       // Read picks now, while this frame's pixels are still in the buffer.
       if (picks.length && !exactPending) {
         const px = new Uint8Array(4);
@@ -542,6 +577,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       for (const id of [...pool.keys()]) drop(id);
       for (const s of stills.values()) if (s.tex) gl.deleteTexture(s.tex);
       effects.dispose();
+      transitions.dispose();
       mix.dispose();
       gl.deleteProgram(prog);
       gl.deleteVertexArray(vao);
@@ -559,80 +595,4 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       <canvas ref={setCanvas} width={bw} height={bh} style={{ width: css.w, height: css.h }} className="block bg-black" />
     </div>
   );
-}
-
-// layerProgram draws one textured quad (a clip layer) with an opacity.
-function layerProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vs = `#version 300 es
-uniform vec4 u_rect; // centre x, y and half width, height, canvas pixels (top-left origin)
-uniform vec3 u_view; // canvas width, height; rotation (radians, clockwise)
-out vec2 v_uv;
-void main() {
-  vec2 c = vec2(gl_VertexID & 1, (gl_VertexID >> 1) & 1); // 0,0 1,0 0,1 1,1
-  v_uv = c; // texture row 0 = the frame's top
-  vec2 d = (c * 2.0 - 1.0) * u_rect.zw;
-  float s = sin(u_view.z), k = cos(u_view.z);
-  vec2 px = u_rect.xy + vec2(d.x * k - d.y * s, d.x * s + d.y * k);
-  gl_Position = vec4(px.x / u_view.x * 2.0 - 1.0, 1.0 - px.y / u_view.y * 2.0, 0.0, 1.0);
-}`;
-  const fs = `#version 300 es
-precision mediump float;
-uniform sampler2D u_tex;
-uniform float u_opacity;
-in vec2 v_uv;
-out vec4 o;
-void main() {
-  vec4 c = texture(u_tex, v_uv);
-  o = vec4(c.rgb, c.a * u_opacity);
-}`;
-  const p = gl.createProgram()!;
-  for (const [type, src] of [
-    [gl.VERTEX_SHADER, vs],
-    [gl.FRAGMENT_SHADER, fs],
-  ] as const) {
-    const s = gl.createShader(type)!;
-    gl.shaderSource(s, src);
-    gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(`compositor shader: ${gl.getShaderInfoLog(s)}`);
-    gl.attachShader(p, s);
-  }
-  gl.linkProgram(p);
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(`compositor program: ${gl.getProgramInfoLog(p)}`);
-  return p;
-}
-
-// drawLayer places a w×h frame on the W×H canvas by the clip's transform at
-// clip-local time lt (keyframes applied): scale 1 fits it inside the canvas,
-// centred on (x, y) in 0..1 of the canvas, turned clockwise by rotation°.
-function drawLayer(
-  gl: WebGL2RenderingContext,
-  prog: WebGLProgram,
-  vao: WebGLVertexArrayObject | null,
-  loc: { rect: WebGLUniformLocation | null; view: WebGLUniformLocation | null; tex: WebGLUniformLocation | null; opacity: WebGLUniformLocation | null },
-  tex: WebGLTexture,
-  w: number,
-  h: number,
-  clip: Clip,
-  lt: number,
-  W: number,
-  H: number,
-) {
-  const tr = animAt(clip, lt);
-  if (tr.opacity <= 0 || tr.scale <= 0) return;
-  const fit = Math.min(W / w, H / h) * tr.scale;
-  gl.useProgram(prog);
-  gl.bindVertexArray(vao);
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  // The effects output is NEAREST-sampled; scaling a layer wants LINEAR.
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.uniform1i(loc.tex, 0);
-  gl.uniform4f(loc.rect, tr.x * W, tr.y * H, (w * fit) / 2, (h * fit) / 2);
-  gl.uniform3f(loc.view, W, H, (tr.rotation * Math.PI) / 180);
-  gl.uniform1f(loc.opacity, Math.min(1, tr.opacity));
-  gl.enable(gl.BLEND);
-  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  gl.bindVertexArray(null);
 }
