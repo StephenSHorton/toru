@@ -10,8 +10,9 @@ import { clipOutLength, fromSource, localOut, localSrc, normCurve, rateAt, retim
 //
 // Times are SECONDS, all on the timeline (output time) except a clip's
 // in/out, which are SOURCE time. A clip's timeline length is
-// (out - in) / speed, or its speed curve's length (speed.ts). Clips on one track are sorted by start and never
-// overlap; a clip placed on an occupied spot lands at the nearest free one.
+// (out - in) / speed, or its speed curve's length (speed.ts). Clips on
+// one track are sorted by start and never overlap; a clip placed on an
+// occupied spot lands at the nearest free one.
 // Ops on a locked track (as source or target) do nothing.
 
 export type MediaKind = "video" | "image" | "audio";
@@ -106,7 +107,7 @@ export const MAX_CURVE_SPEED = 10;
 export const DEFAULT_FREEZE = 2; // s, a freeze frame's default length
 
 export type BlendFrames = "off" | "mix" | "smooth";
-// timeline length of a clip = (out - in) / speed
+// timeline length of a clip = (out - in) / speed, or the curve's length
 
 export type TrackKind = "video" | "audio";
 export type Track = {
