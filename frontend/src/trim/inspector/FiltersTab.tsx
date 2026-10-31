@@ -11,12 +11,13 @@ import { applyPreset, instancesOf, presetFromClip, refreshPresets, usePresets, t
 import { defOf, resolveParams } from "@/trim/fx/registry";
 import { clipEffects } from "@/trim/fx/stack";
 import { renderThumb } from "@/trim/fx/thumb";
-import { ParamControl, Section } from "@/trim/inspector/controls";
+import { Section } from "@/trim/inspector/controls";
 import type { TabProps } from "@/trim/inspector/Inspector";
 import { Thumb } from "@/trim/inspector/Thumb";
-import type { EffectInstance } from "@/trim/project";
+import type { EffectInstance, Media } from "@/trim/project";
 
-// FiltersTab: one-click colour for the clip, shown as live thumbnails of its
+// FiltersBrowser is the Filters library (the rail on the left, layout B):
+// one-click colour for the selected clip, shown as live thumbnails of its
 // current frame (docs/video-editor-v3.md, Inspector UX "Filters"):
 //   Looks       the look effect's built-in looks (None removes it)
 //   LUTs        imported .cube files, applied as the clip's lut effect;
@@ -24,7 +25,8 @@ import type { EffectInstance } from "@/trim/project";
 //   My filters  saved filters: click appends one as a group with an
 //               intensity, shift-click replaces the clip's effects; save the
 //               clip's effects as a new one, rename, delete, share as .torufx
-// "All" shows the three sections together.
+// "All" shows the three sections together. An applied look or LUT is tuned
+// in the inspector's Effects tab, like any effect.
 
 type View = "all" | "looks" | "luts" | "mine";
 const VIEW_KEY = "toru.edit.filtersView";
@@ -39,7 +41,10 @@ function readView(): View {
   return "all";
 }
 
-export function FiltersTab(props: TabProps) {
+// FiltersBrowser applies to target, the selected visual clip (undefined: the
+// tiles show, greyed, with why). preview is the media the thumbnails draw
+// when there's no target.
+export function FiltersBrowser({ target, preview, note }: { target?: TabProps; preview?: Media; note: string }) {
   const [view, setView] = useState<View>(readView);
   const pick = (v: View) => {
     setView(v);
@@ -49,9 +54,11 @@ export function FiltersTab(props: TabProps) {
       // not remembered
     }
   };
-  const frame = useClipFrame(props.media, props.srcT);
+  const frame = useClipFrame(target?.media ?? preview, target?.srcT ?? 1);
+  const props: SectionProps = { target, frame };
   return (
-    <>
+    <div className="flex flex-col gap-2 pt-2">
+      <div className="px-3">
       <Segmented
         size="xs"
         value={view}
@@ -64,14 +71,18 @@ export function FiltersTab(props: TabProps) {
           { value: "mine", label: "My filters" },
         ]}
       />
-      {view === "all" || view === "looks" ? <Looks {...props} frame={frame} /> : null}
-      {view === "all" || view === "luts" ? <Luts {...props} frame={frame} /> : null}
-      {view === "all" || view === "mine" ? <MyFilters {...props} frame={frame} /> : null}
-    </>
+      </div>
+      {!target ? <div className="px-3 text-[11px] text-muted-foreground">{note}</div> : null}
+      <fieldset disabled={!target || target.track.locked} className="min-w-0 disabled:opacity-50">
+        {view === "all" || view === "looks" ? <Looks {...props} /> : null}
+        {view === "all" || view === "luts" ? <Luts {...props} /> : null}
+        {view === "all" || view === "mine" ? <MyFilters {...props} /> : null}
+      </fieldset>
+    </div>
   );
 }
 
-type SectionProps = TabProps & { frame: HTMLCanvasElement | null };
+type SectionProps = { target?: TabProps; frame: HTMLCanvasElement | null };
 
 // Tile is a thumbnail button with a caption, a tick when on and optional
 // hover actions.
@@ -161,16 +172,18 @@ const errText = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 // --- Looks -------------------------------------------------------------------
 
-function Looks({ clip: c, edit, keys, set, value, frame }: SectionProps) {
+function Looks({ target, frame }: SectionProps) {
+  const c = target?.clip;
   const def = defOf("look");
   if (!def) return null;
   const lookParam = def.params.find((p) => p.id === "look");
   const options = lookParam?.type === "enum" ? lookParam.options : [];
-  const look = clipEffects(c).find((e) => e.type === "look");
-  const current = look ? (resolveParams(def, look.params).look as string) : "none";
+  const look = c && clipEffects(c).find((e) => e.type === "look");
+  const current = look ? (resolveParams(def, look.params).look as string) : c ? "none" : "";
 
   const pick = (id: string) =>
-    edit((p) => {
+    c &&
+    target?.edit((p) => {
       if (id === "none") return look ? removeEffect(p, c.id, look.id) : p;
       if (look) return setValue(p, c.id, { fx: look.id, param: "look" }, id, 0);
       return addEffect(p, c.id, newEffect("look", { look: id }));
@@ -193,15 +206,6 @@ function Looks({ clip: c, edit, keys, set, value, frame }: SectionProps) {
           ))}
         </div>
       </Section>
-      {look ? (
-        <Section title="Applied look">
-          {def.params
-            .filter((p) => p.id !== "look")
-            .map((p) => (
-              <ParamControl key={p.id} p={p} value={value({ fx: look.id, param: p.id })!} keyframes={keys({ fx: look.id, param: p.id })} onChange={(v) => set({ fx: look.id, param: p.id }, v)} />
-            ))}
-        </Section>
-      ) : null}
     </>
   );
 }
@@ -226,17 +230,19 @@ function useLuts(): [Lut[], () => Promise<void>] {
   return [list, reload];
 }
 
-function Luts({ clip: c, edit, keys, set, value, frame }: SectionProps) {
+function Luts({ target, frame }: SectionProps) {
+  const c = target?.clip;
   const [luts, reload] = useLuts();
   const version = useLutsVersion();
   const [error, setError] = useState("");
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const def = defOf("lut");
   if (!def) return null;
-  const applied = clipEffects(c).find((e) => e.type === "lut");
+  const applied = c && clipEffects(c).find((e) => e.type === "lut");
   const current = applied ? (resolveParams(def, applied.params).lut as string) : "";
 
   const pick = async (id: string) => {
+    if (!c) return;
     setError("");
     if (id) {
       // Load it first, so the preview has it the moment it's applied.
@@ -245,7 +251,7 @@ function Luts({ clip: c, edit, keys, set, value, frame }: SectionProps) {
         return;
       }
     }
-    edit((p) => {
+    target?.edit((p) => {
       if (!id) return applied ? removeEffect(p, c.id, applied.id) : p;
       if (applied) return setValue(p, c.id, { fx: applied.id, param: "lut" }, id, 0);
       return addEffect(p, c.id, newEffect("lut", { lut: id }));
@@ -279,7 +285,7 @@ function Luts({ clip: c, edit, keys, set, value, frame }: SectionProps) {
     <>
       <Section title="LUTs">
         <div className="grid grid-cols-3 gap-1.5">
-          <Tile frame={frame} stack={[]} label="None" on={!current} title="No LUT" onClick={() => void pick("")} />
+          <Tile frame={frame} stack={[]} label="None" on={!!c && !current} title="No LUT" onClick={() => void pick("")} />
           {luts.map((l) =>
             confirmDel === l.id ? (
               <div key={l.id} className="flex flex-col justify-center gap-1 border border-destructive/60 p-1 text-[11px]">
@@ -312,15 +318,6 @@ function Luts({ clip: c, edit, keys, set, value, frame }: SectionProps) {
         {missing ? <div className="text-[11px] text-muted-foreground">This clip's LUT ({current}) isn't imported on this PC, so it's drawn without it.</div> : null}
         <ErrorLine text={error} />
       </Section>
-      {applied ? (
-        <Section title="Applied LUT">
-          {def.params
-            .filter((p) => p.id !== "lut")
-            .map((p) => (
-              <ParamControl key={p.id} p={p} value={value({ fx: applied.id, param: p.id })!} keyframes={keys({ fx: applied.id, param: p.id })} onChange={(v) => set({ fx: applied.id, param: p.id }, v)} />
-            ))}
-        </Section>
-      ) : null}
     </>
   );
 }
@@ -344,21 +341,23 @@ function thumbOf(frame: HTMLCanvasElement | null, stack: EffectInstance[], t: nu
   }
 }
 
-function MyFilters({ clip: c, edit, frame, t }: SectionProps) {
+function MyFilters({ target, frame }: SectionProps) {
+  const c = target?.clip;
   const all = usePresets();
   const version = useLutsVersion();
   const mine = useMemo(() => all.filter((p) => !p.builtin), [all]);
   const [error, setError] = useState("");
   const [naming, setNaming] = useState<null | { id?: string; name: string }>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
-  const canSave = clipEffects(c).some((e) => e.enabled && defOf(e.type));
+  const canSave = !!c && clipEffects(c).some((e) => e.enabled && defOf(e.type));
   // Stable ids, so a tile's thumbnail only re-renders when its preset changes.
   const thumbStacks = useMemo(() => new Map(mine.map((pre) => [pre.id, instancesOf(pre, 1).map((e, i) => ({ ...e, id: `thumb-${pre.id}-${i}` }))])), [mine]);
 
   const apply = (pre: PresetDoc, replace: boolean) => {
+    if (!c) return;
     setError("");
     for (const e of pre.effects) if (e.type === "lut" && typeof e.params?.lut === "string") void loadLut(e.params.lut as string);
-    edit((p) => applyPreset(p, c.id, pre, { replace }), `preset.${pre.id}`);
+    target?.edit((p) => applyPreset(p, c.id, pre, { replace }), `preset.${pre.id}`);
   };
   const save = async () => {
     if (!naming) return;
@@ -369,7 +368,8 @@ function MyFilters({ clip: c, edit, frame, t }: SectionProps) {
       if (naming.id) {
         await PresetService.Rename(naming.id, name);
       } else {
-        const doc = presetFromClip(c, name, thumbOf(frame, clipEffects(c), t));
+        if (!c) return;
+        const doc = presetFromClip(c, name, thumbOf(frame, clipEffects(c), target?.t ?? 0));
         if (!doc) return setError("this clip has no effects to save");
         await PresetService.Save(JSON.stringify(doc));
       }

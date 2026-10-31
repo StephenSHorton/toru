@@ -151,16 +151,23 @@ export function useMediaBin() {
 
 type Tab = "library" | "imported";
 
+// MediaBin is the editor's Media library; with only="audio" it's the Audio
+// library: just the imported sound files (the Library holds no audio). The
+// editor's left column is the Explorer drop target (trim/library), so a drop
+// lands here whichever library is open.
 export function MediaBin({
   bin,
   onAppend,
+  only,
   className,
 }: {
   bin: MediaBinState;
   onAppend?: (m: Media) => void;
+  only?: "audio";
   className?: string;
 }) {
-  const [tab, setTab] = useState<Tab>("library");
+  const [picked, setTab] = useState<Tab>("library");
+  const tab: Tab = only ? "imported" : picked;
   // A drop or an Import switches to the Imported tab to show what came in.
   const importedCount = bin.imported.length;
   const lastCount = useRef(importedCount);
@@ -169,7 +176,8 @@ export function MediaBin({
     lastCount.current = importedCount;
   }, [importedCount]);
 
-  const items = tab === "library" ? bin.library : bin.imported;
+  const all = tab === "library" ? bin.library : bin.imported;
+  const items = useMemo(() => (only && all ? all.filter((i) => i.media.kind === only) : all), [all, only]);
   const groups = useMemo(() => {
     if (!items) return [];
     const order: [BinItem["group"], string][] =
@@ -184,16 +192,9 @@ export function MediaBin({
   }, [items, tab]);
 
   return (
-    <aside
-      // The runtime forwards Explorer drops only onto elements with this.
-      data-file-drop-target
-      className={cn(
-        "flex min-h-0 flex-col border-r bg-card/30",
-        "[&.file-drop-target-active]:bg-primary/10 [&.file-drop-target-active]:outline [&.file-drop-target-active]:outline-2 [&.file-drop-target-active]:-outline-offset-2 [&.file-drop-target-active]:outline-primary",
-        className,
-      )}
-    >
+    <div className={cn("flex min-h-0 flex-col", className)}>
       <div className="flex items-center gap-2 p-2">
+        {only ? null : (
         <Segmented
           size="xs"
           value={tab}
@@ -204,6 +205,7 @@ export function MediaBin({
             { value: "imported", label: importedCount ? `Imported (${importedCount})` : "Imported" },
           ]}
         />
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -234,9 +236,11 @@ export function MediaBin({
         ) : !groups.length ? (
           <div className="flex flex-col items-center gap-2 px-3 py-8 text-center text-xs text-muted-foreground">
             <Import className="size-6 opacity-60" />
-            {tab === "library"
-              ? "No clips, recordings or screenshots yet."
-              : "Drag video, music or images here from File Explorer, or press Import."}
+            {only
+              ? "Drag music or sound files here from File Explorer, or press Import."
+              : tab === "library"
+                ? "No clips, recordings or screenshots yet."
+                : "Drag video, music or images here from File Explorer, or press Import."}
           </div>
         ) : (
           groups.map((g) => (
@@ -251,7 +255,7 @@ export function MediaBin({
           ))
         )}
       </div>
-    </aside>
+    </div>
   );
 }
 
