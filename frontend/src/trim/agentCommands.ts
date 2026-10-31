@@ -936,11 +936,18 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
           throw new Error(`duration must be ${MIN_TRANSITION}..${MAX_TRANSITION} seconds`);
         }
         clipOr(d().project, input.clipId);
-        const r = addTransition(d().project, String(input.clipId), input.type, input.duration === undefined ? undefined : Number(input.duration));
-        if (typeof r === "string") throw new Error(r);
-        const after = edit(() => r.project, "that transition is already there");
-        const c = findClip(after, r.clipId)!.clip;
-        return { clipId: r.clipId, type: c.transition?.type, label: transitionLabel(c.transition?.type ?? ""), duration: c.transition?.duration };
+        const type = input.type;
+        const dur = input.duration === undefined ? undefined : Number(input.duration);
+        // Computed inside edit, so an edit that lands meanwhile isn't lost.
+        let at = "";
+        const after = edit((p) => {
+          const r = addTransition(p, String(input.clipId), type, dur);
+          if (typeof r === "string") throw new Error(r);
+          at = r.clipId;
+          return r.project;
+        }, "that transition is already there");
+        const c = findClip(after, at)!.clip;
+        return { clipId: at, type: c.transition?.type, label: transitionLabel(c.transition?.type ?? ""), duration: c.transition?.duration };
       },
     );
 
