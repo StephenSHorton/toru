@@ -15,7 +15,7 @@ import (
 func round4(f float64) float64 { return math.Round(f*1e4) / 1e4 }
 
 // easeExpr is keyframes.go's ease(kind, x) as an expression of x (an
-// expression already clamped to 0..1).
+// expression already clamped to 0..1). inOut keeps x in register 1.
 func easeExpr(kind, x string) string {
 	switch kind {
 	case "in":
@@ -23,7 +23,7 @@ func easeExpr(kind, x string) string {
 	case "out":
 		return "(1-pow(1-" + x + ",3))"
 	case "inOut":
-		return "if(lt(" + x + ",0.5),4*pow(" + x + ",3),1-pow(2-2*" + x + ",3)/2)"
+		return "(st(1," + x + ");if(lt(ld(1),0.5),4*pow(ld(1),3),1-pow(2-2*ld(1),3)/2))"
 	}
 	return x
 }
