@@ -67,11 +67,12 @@ export class FxRenderer {
   // top) through stack at clip-local time t and returns a w×h texture with
   // the result, same alpha convention and orientation. The texture is the
   // renderer's and the next apply() overwrites it. src itself comes back
-  // when the stack changes nothing.
-  apply(src: WebGLTexture, w: number, h: number, stack: ResolvedEffect[], t = 0): WebGLTexture {
-    if (w <= 0 || h <= 0 || !stack.length) return src;
+  // when the stack changes nothing. pre are steps drawn before the stack
+  // (the source's colour-matrix correction, colorspace.ts).
+  apply(src: WebGLTexture, w: number, h: number, stack: ResolvedEffect[], t = 0, pre: Step[] = []): WebGLTexture {
+    if (w <= 0 || h <= 0 || (!stack.length && !pre.length)) return src;
     const ctx: FxCtx = { w, h, t };
-    const steps: Tagged[] = [];
+    const steps: Tagged[] = pre.map((step) => ({ step }));
     for (const e of stack) {
       const mod = shaders[e.type];
       if (!mod || e.amount <= 0) continue;

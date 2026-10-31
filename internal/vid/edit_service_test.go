@@ -17,7 +17,7 @@ func TestParseProbe(t *testing.T) {
 	// A separate-tracks clip as Toru writes it: mix first and default, then
 	// titled source tracks; plus a stray cover-art video stream.
 	raw := `{"streams":[
-		{"index":0,"codec_type":"video","width":2560,"height":1440,"avg_frame_rate":"144/1","r_frame_rate":"144/1","duration":"12.5"},
+		{"index":0,"codec_type":"video","width":2560,"height":1440,"color_space":"bt470bg","avg_frame_rate":"144/1","r_frame_rate":"144/1","duration":"12.5"},
 		{"index":1,"codec_type":"audio","disposition":{"default":1},"tags":{"title":"All audio","handler_name":"All audio"}},
 		{"index":2,"codec_type":"audio","disposition":{"default":0},"tags":{"handler_name":"Game & desktop"}},
 		{"index":3,"codec_type":"audio","disposition":{"default":0},"tags":{"name":" Microphone ","handler_name":"SoundHandler"}},
@@ -27,7 +27,7 @@ func TestParseProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Width != 2560 || got.Height != 1440 || got.FPS != 144 || got.DurationMs != 12533 || !got.HasAudio {
+	if got.Width != 2560 || got.Height != 1440 || got.FPS != 144 || got.DurationMs != 12533 || !got.HasAudio || got.ColorSpace != "bt470bg" {
 		t.Fatalf("info = %+v", got)
 	}
 	want := []AudioTrack{
@@ -306,5 +306,14 @@ func assertOnly(t *testing.T, dir string, names ...string) {
 	}
 	if strings.Join(got, "|") != strings.Join(names, "|") {
 		t.Fatalf("%s holds %v, want %v", dir, got, names)
+	}
+}
+
+func TestParseProbeUntaggedColorSpace(t *testing.T) {
+	for _, cs := range []string{`"color_space":"unknown",`, ``} {
+		got, err := parseProbe([]byte(`{"streams":[{"index":0,"codec_type":"video",` + cs + `"width":1920,"height":1080,"avg_frame_rate":"60/1"}],"format":{"duration":"1"}}`))
+		if err != nil || got.ColorSpace != "" {
+			t.Fatalf("%q: ColorSpace = %q, err %v (want untagged = \"\")", cs, got.ColorSpace, err)
+		}
 	}
 }

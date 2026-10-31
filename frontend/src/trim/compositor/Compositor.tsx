@@ -8,6 +8,7 @@ import { clipAudible, fromSource, toSource } from "@/trim/speed";
 import { FxRenderer } from "@/trim/fx/renderer";
 import { clipStack } from "@/trim/fx/stack";
 import { animAt } from "@/trim/fx/ops";
+import { correctionStep, exactFrame, matrixFix } from "@/trim/colorspace";
 import type { PlaybackClock } from "@/trim/compositor/usePlayback";
 
 // Compositor is the v2 editor's preview (docs/video-editor-v2.md, Preview
@@ -42,6 +43,9 @@ import type { PlaybackClock } from "@/trim/compositor/usePlayback";
 // Text overlays, crop and the transform handles are DOM layers the window
 // lays over the canvas (canvasRef gives the element to measure).
 
+// How long picks and snapshots wait for a paused frame's exact decode
+// (colorspace.ts) before taking the corrected one.
+const EXACT_WAIT = 1000; // ms
 const MAX_DRIFT = 0.08; // s: past this a playing element re-seeks
 // Small drift is pulled in by running a little fast or slow, in a few fixed
 // steps so an element with sound isn't re-rated every frame: past each
@@ -119,6 +123,12 @@ type Slot = {
   forcedMute: boolean; // muted because the browser blocked play() with sound
   w: number; // size of the frame in tex
   h: number;
+  // colorspace.ts: tex holds the exactly decoded frame (no RGB correction
+  // needed); exactAt is the element time an exact decode was last asked for,
+  // exactFailed whether that one couldn't be done.
+  exact: boolean;
+  exactAt: number;
+  exactFailed: boolean;
 };
 type Still = { img: HTMLImageElement; tex: WebGLTexture | null; ready: boolean };
 
@@ -184,6 +194,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       };
     }
     let wasPlaying = false;
+    let exactSince = 0; // when the latest exact decode was asked for
 
     const texture = () => {
       const t = gl.createTexture()!;
@@ -205,7 +216,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         if (el instanceof HTMLVideoElement) el.playsInline = true;
         el.preservesPitch = true;
         el.src = url;
-        s = { el, url, lastUsed: now, tex: null, uploaded: -1, starting: false, forcedMute: false, w: 0, h: 0 };
+        s = { el, url, lastUsed: now, tex: null, uploaded: -1, starting: false, forcedMute: false, w: 0, h: 0, exact: false, exactAt: -1, exactFailed: false };
         pool.set(key, s);
       }
       s.lastUsed = now;
@@ -422,6 +433,9 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       gl.clear(gl.COLOR_BUFFER_BIT);
       const drift: Record<string, number> = {};
       const rawClips = new Set(picks.map((k) => k.raw).filter(Boolean));
+      // A paused frame waiting for its exact decode (colorspace.ts): picks
+      // and snapshots wait for it (at most EXACT_WAIT ms).
+      let exactPending = false;
       for (const a of active) {
         if (a.track.kind !== "video") continue;
         let tex: WebGLTexture | null = null;
@@ -448,6 +462,33 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
               s.uploaded = v.currentTime;
               s.w = v.videoWidth;
               s.h = v.videoHeight;
+              s.exact = false;
+            }
+            const fix = matrixFix(a.media, v.videoHeight);
+            if (fix && !playing && !s.exact) {
+              if (s.exactAt !== s.uploaded) {
+                // Decode this paused frame exactly; until it lands, the RGB
+                // correction stands in.
+                const slot = s;
+                const at = s.uploaded;
+                slot.exactAt = at;
+                slot.exactFailed = false;
+                exactSince = now;
+                void exactFrame(v, fix.to).then((vf) => {
+                  if (!vf) {
+                    if (slot.exactAt === at) slot.exactFailed = true;
+                    return;
+                  }
+                  if (!disposed && slot.tex && slot.uploaded === at && !clock.playing) {
+                    gl.bindTexture(gl.TEXTURE_2D, slot.tex);
+                    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vf);
+                    slot.exact = true;
+                  } else if (slot.exactAt === at) slot.exactFailed = true;
+                  vf.close();
+                });
+              }
+              if (!s.exactFailed && now - exactSince < EXACT_WAIT) exactPending = true;
             }
           } else if (s.uploaded < 0) continue;
           tex = s.tex;
@@ -456,11 +497,15 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
           drift[a.clip.id] = v.currentTime - a.srcT;
         }
         if (!tex || w <= 0 || h <= 0) continue;
-        const out = effects.apply(tex, w, h, clipStack(a.clip, t - a.clip.start, rawClips.has(a.clip.id)), t - a.clip.start);
+        // The source's colour matrix (colorspace.ts): an RGB correction
+        // unless the frame was decoded exactly. Images need none.
+        const slot = a.media.kind === "image" ? undefined : pool.get(a.clip.id);
+        const fix = slot && !slot.exact ? matrixFix(a.media, h) : null;
+        const out = effects.apply(tex, w, h, clipStack(a.clip, t - a.clip.start, rawClips.has(a.clip.id)), t - a.clip.start, fix ? [correctionStep(fix)] : []);
         drawLayer(gl, prog, vao, loc, out, w, h, a.clip, t - a.clip.start, W, H);
       }
       // Read picks now, while this frame's pixels are still in the buffer.
-      if (picks.length) {
+      if (picks.length && !exactPending) {
         const px = new Uint8Array(4);
         for (const k of picks) {
           const x = Math.max(0, Math.min(W - 1, Math.floor(k.nx * W)));
@@ -470,7 +515,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         }
         picks = [];
       }
-      if (snaps.length) {
+      if (snaps.length && !exactPending) {
         const copy = document.createElement("canvas");
         copy.width = cv.width;
         copy.height = cv.height;

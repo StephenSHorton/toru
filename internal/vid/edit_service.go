@@ -65,7 +65,7 @@ func probeMedia(ctx context.Context, path string) (MediaInfo, error) {
 		return MediaInfo{}, err
 	}
 	cmd := exec.CommandContext(ctx, bin, "-v", "error",
-		"-show_entries", "format=duration:stream=index,codec_type,width,height,avg_frame_rate,r_frame_rate,duration:stream_tags=title,name,handler_name:stream_disposition=default",
+		"-show_entries", "format=duration:stream=index,codec_type,width,height,color_space,avg_frame_rate,r_frame_rate,duration:stream_tags=title,name,handler_name:stream_disposition=default",
 		"-of", "json", path)
 	hideConsole(cmd)
 	out, err := cmd.Output()
@@ -81,6 +81,7 @@ type probeJSON struct {
 		CodecType    string `json:"codec_type"`
 		Width        int    `json:"width"`
 		Height       int    `json:"height"`
+		ColorSpace   string `json:"color_space"`
 		AvgFrameRate string `json:"avg_frame_rate"`
 		RFrameRate   string `json:"r_frame_rate"`
 		Duration     string `json:"duration"`
@@ -118,6 +119,9 @@ func parseProbe(raw []byte) (MediaInfo, error) {
 				continue // first video stream only (skips cover art after it)
 			}
 			info.Width, info.Height = st.Width, st.Height
+			if cs := strings.ToLower(strings.TrimSpace(st.ColorSpace)); cs != "unknown" {
+				info.ColorSpace = cs
+			}
 			info.FPS = parseRate(st.AvgFrameRate)
 			if info.FPS <= 0 {
 				info.FPS = parseRate(st.RFrameRate)
