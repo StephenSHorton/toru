@@ -1,0 +1,15 @@
+{
+  "type": "lut",
+  "version": 1,
+  "name": "LUT",
+  "category": "color",
+  "kind": "pixel",
+  "params": [
+    { "id": "lut", "label": "LUT", "type": "file", "default": "", "accept": [".cube"], "animate": false,
+      "hint": "An imported .cube file (Filters → LUTs → Import LUT…)" },
+    { "id": "amount", "label": "Intensity", "type": "number", "min": 0, "max": 1, "default": 1, "step": 0.01, "display": "percent", "animate": false }
+  ],
+  "export": { "filters": ["lut3d"] },
+  "parity": { "mode": "none", "reason": "Needs an imported .cube file; it samples into the stack's colour LUT, whose parity look and adjust already cover" },
+  "amount": "native"
+}
