@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/httprange"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -268,6 +269,7 @@ func (s *ReplayService) ClipMiddleware() application.Middleware {
 					return
 				}
 				w.Header().Set("Cache-Control", "no-store")
+				httprange.Cap(r) // a chunk per request, not the rest of the file
 				http.ServeFile(w, r, clip)
 				return
 			}
