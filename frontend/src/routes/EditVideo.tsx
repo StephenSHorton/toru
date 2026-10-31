@@ -185,6 +185,20 @@ export default function EditVideo() {
       VideoService.ExportProject(ProjectExport.createFrom(toExportRequest(project, choice))),
     [project],
   );
+  // The preview's current frame, cropped to the output, for the export
+  // screen.
+  const snapshotOut = useCallback(async () => {
+    const shot = await compositor.current?.snapshot().catch(() => null);
+    if (!shot) return null;
+    const c = project.crop;
+    if (!c) return shot;
+    const sx = shot.width / project.canvas.width;
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, Math.round(c.w * sx));
+    out.height = Math.max(1, Math.round(c.h * sx));
+    out.getContext("2d")?.drawImage(shot, c.x * sx, c.y * sx, c.w * sx, c.h * sx, 0, 0, out.width, out.height);
+    return out;
+  }, [project.crop, project.canvas.width]);
   const firstPath = project.media.find((m) => m.kind !== "audio")?.path ?? project.media[0]?.path ?? absPath;
 
   // Space plays/pauses; Esc leaves crop mode. The timeline has the edit keys.
@@ -346,7 +360,19 @@ export default function EditVideo() {
         />
       </div>
 
-      <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} run={runExport} firstSource={firstPath} frameHeight={outH} />
+      <ExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        run={runExport}
+        firstSource={firstPath}
+        projectName={project.name}
+        frameWidth={outW}
+        frameHeight={outH}
+        duration={duration}
+        fps={project.canvas.fps}
+        playhead={exportOpen ? pb.clock.now() : 0}
+        snapshot={snapshotOut}
+      />
     </div>
   );
 }
