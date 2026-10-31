@@ -9,6 +9,7 @@ import gaussianBlurDef from "../../../../internal/fx/defs/gaussianBlur.json";
 import lookDef from "../../../../internal/fx/defs/look.json";
 import rgbSplitDef from "../../../../internal/fx/defs/rgbSplit.json";
 import sharpenDef from "../../../../internal/fx/defs/sharpen.json";
+import zoomDef from "../../../../internal/fx/defs/zoom.json";
 
 // registry.ts loads the effect definitions (internal/fx/defs/*.json, the
 // same files Go embeds in internal/fx/registry.go) and resolves an effect
@@ -18,7 +19,7 @@ import sharpenDef from "../../../../internal/fx/defs/sharpen.json";
 // parity script, which bundles this with Bun, can load them too. A new
 // effect adds its import here and its shader in types/index.ts.
 
-export const defs: EffectDef[] = [adjustDef, blurDef, chromaKeyDef, gaussianBlurDef, lookDef, rgbSplitDef, sharpenDef] as EffectDef[];
+export const defs: EffectDef[] = [adjustDef, blurDef, chromaKeyDef, gaussianBlurDef, lookDef, rgbSplitDef, sharpenDef, zoomDef] as EffectDef[];
 
 const byType = new Map(defs.map((d) => [d.type, d]));
 
