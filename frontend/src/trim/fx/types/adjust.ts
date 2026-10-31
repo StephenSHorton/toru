@@ -34,7 +34,7 @@ const adjust: ShaderModule = {
       out.push({ kind: "color", fn, key: `adjust:${key}` });
     }
     const s = p.sharpen as number;
-    if (s > 0) out.push({ kind: "pass", id: "cas", frag: CAS, uniforms: { u_peak: -1 / (8 - 3 * s) } });
+    if (s > 0) out.push({ kind: "pass", id: "cas", frag: CAS, uniforms: { u_peak: -1 / (16 - 11.99 * s) } });
     return out;
   },
 };
