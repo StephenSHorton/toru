@@ -111,6 +111,17 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work
 	if textFilter != "" {
 		post = append(post, textFilter)
 	}
+	audioOut := "[abase]"
+	if len(audioIn) > 0 {
+		graph = append(graph, fmt.Sprintf("[abase]%samix=inputs=%d:duration=first:normalize=0[aout]", strings.Join(audioIn, ""), len(audioIn)+1))
+		audioOut = "[aout]"
+	}
+	if req.Options != nil {
+		// The export screen's settings (export_options.go) instead of the
+		// preset's size and codecs.
+		return optionsTail(args, graph, videoOut, audioOut, post, total, req, encoder, work)
+	}
+
 	v1 := EditRequest{Preset: req.Preset, Height: req.Height, Kbps: req.Kbps, OutPath: req.OutPath}
 	if target := presetHeight(v1); target > 0 && frameH > target {
 		post = append(post, fmt.Sprintf("scale=-2:%d", target))
@@ -118,12 +129,6 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work
 	if len(post) > 0 {
 		graph = append(graph, videoOut+strings.Join(post, ",")+"[vout]")
 		videoOut = "[vout]"
-	}
-
-	audioOut := "[abase]"
-	if len(audioIn) > 0 {
-		graph = append(graph, fmt.Sprintf("[abase]%samix=inputs=%d:duration=first:normalize=0[aout]", strings.Join(audioIn, ""), len(audioIn)+1))
-		audioOut = "[aout]"
 	}
 
 	fc, err := filterComplexArgs(strings.Join(graph, ";"), work)

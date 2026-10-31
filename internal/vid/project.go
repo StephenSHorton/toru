@@ -161,6 +161,9 @@ type ProjectExport struct {
 	Height  int         `json:"height,omitempty"`
 	Kbps    int         `json:"kbps,omitempty"`
 	OutPath string      `json:"outPath"`
+	// Options are the export screen's settings; nil keeps the preset's
+	// (export_options.go).
+	Options *ExportOptions `json:"options,omitempty"`
 }
 
 // defaultCanvasFPS is used when the canvas has no frame rate (a project
@@ -269,6 +272,14 @@ func (req ProjectExport) Validate() error {
 	}
 	if req.OutPath == "" {
 		return errors.New("export: no output path")
+	}
+	if req.Options != nil {
+		if err := req.Options.validate(ProjectDurationMs(p), req.OutPath); err != nil {
+			return err
+		}
+		if req.Preset == "discord" && (req.Options.Format == FormatGIF || req.Options.Format == FormatM4A) {
+			return fmt.Errorf("export: the Discord fit is for video, not %s", req.Options.Format)
+		}
 	}
 	for _, m := range p.Media {
 		if sameFile(m.Path, req.OutPath) {

@@ -241,6 +241,9 @@ func (s *VideoService) exportProject(ctx context.Context, req ProjectExport, onP
 		}
 	}
 	markUntagged709(ctx, &req.Project)
+	if o := req.Options; o != nil && o.Encoder != "" && !encoderUsable(o.Encoder) {
+		return "", fmt.Errorf("export: the %s encoder doesn't work on this PC", o.Encoder)
+	}
 	// Reversed clips play their reverse proxy (reverse.go), made now if needed.
 	req, err := withReverseProxies(ctx, req)
 	if err != nil {
@@ -267,7 +270,7 @@ func (s *VideoService) exportProject(ctx context.Context, req ProjectExport, onP
 		args, _ := BuildProjectArgs(run, capture.TrimH264Encoder(), textFilter, work)
 		return args
 	}
-	return s.render(ctx, req.OutPath, req.Preset == "discord", build, ProjectDurationMs(req.Project), onProgress)
+	return s.render(ctx, req.OutPath, req.Preset == "discord", build, req.ExportLengthMs(), onProgress)
 }
 
 // untaggedHDLines is where an untagged video counts as BT.709: phone and

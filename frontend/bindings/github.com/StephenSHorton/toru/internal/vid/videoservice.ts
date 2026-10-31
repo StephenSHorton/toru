@@ -61,6 +61,16 @@ export function Export(req: $models.EditRequest): $CancellablePromise<string> {
 }
 
 /**
+ * ExportCapabilities probes the encoders (each probe is cached for the
+ * session).
+ */
+export function ExportCapabilities(): $CancellablePromise<$models.ExportCapabilities> {
+    return $Call.ByID(1338335119).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
  * ExportForDiscord re-encodes videoPath to fit Discord's 10MB free-tier cap
  * using two-pass VP9 targeting ~9MB, with the bitrate computed from the
  * clip's real duration. Sources already under the target are returned as-is
@@ -68,6 +78,17 @@ export function Export(req: $models.EditRequest): $CancellablePromise<string> {
  */
 export function ExportForDiscord(videoPath: string): $CancellablePromise<string> {
     return $Call.ByID(4223502624, videoPath);
+}
+
+/**
+ * ExportPath joins dir, name and the format's extension into a path that
+ * isn't taken yet: "name.mp4", else "name (2).mp4", "name (3).mp4", ...
+ * Characters Windows refuses in a file name are replaced with "-". taken
+ * says whether that name was in use (so the screen can say it picked
+ * another).
+ */
+export function ExportPath(dir: string, name: string, format: string): $CancellablePromise<[string, boolean]> {
+    return $Call.ByID(3424489382, dir, name, format);
 }
 
 /**
@@ -88,7 +109,7 @@ export function ExportProject(req: $models.ProjectExport): $CancellablePromise<s
  */
 export function GenerateThumbnails(videoPath: string, count: number): $CancellablePromise<string[]> {
     return $Call.ByID(2651258301, videoPath, count).then(($result: any) => {
-        return $$createType0($result);
+        return $$createType1($result);
     });
 }
 
@@ -99,7 +120,7 @@ export function GenerateThumbnails(videoPath: string, count: number): $Cancellab
  */
 export function ListFonts(refresh: boolean): $CancellablePromise<$models.Font[]> {
     return $Call.ByID(524641567, refresh).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -109,7 +130,7 @@ export function ListFonts(refresh: boolean): $CancellablePromise<$models.Font[]>
  */
 export function ListProjects(): $CancellablePromise<$models.ProjectSummary[]> {
     return $Call.ByID(2237467917).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -118,6 +139,14 @@ export function ListProjects(): $CancellablePromise<$models.ProjectSummary[]> {
  */
 export function LoadProject(id: string): $CancellablePromise<string> {
     return $Call.ByID(764500508, id);
+}
+
+/**
+ * PickExportFolder shows a folder picker starting at start (the export
+ * screen's current folder). It returns "" when cancelled.
+ */
+export function PickExportFolder(start: string): $CancellablePromise<string> {
+    return $Call.ByID(2220063004, start);
 }
 
 /**
@@ -145,7 +174,7 @@ export function PreviewTrack(path: string, index: number): $CancellablePromise<s
  */
 export function ProbeMedia(path: string): $CancellablePromise<$models.MediaInfo> {
     return $Call.ByID(1125538325, path).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -219,9 +248,10 @@ export function Trim(req: capture$0.TrimRequest): $CancellablePromise<string> {
 }
 
 // Private type creation functions
-const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = $models.Font.createFrom;
-const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = $models.ProjectSummary.createFrom;
-const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = $models.MediaInfo.createFrom;
+const $$createType0 = $models.ExportCapabilities.createFrom;
+const $$createType1 = $Create.Array($Create.Any);
+const $$createType2 = $models.Font.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $models.ProjectSummary.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = $models.MediaInfo.createFrom;
