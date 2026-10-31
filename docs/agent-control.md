@@ -112,7 +112,10 @@ Editor (TS, registered by the Edit video window): read: `editor.get`
 `editor.media`; edit: one command per project op (`editor.addMedia`
 from paths, `editor.addTrack`, `editor.insertClip`, `editor.moveClip`,
 `editor.trimClip`, `editor.split`, `editor.removeClip`,
-`editor.rippleDelete`, `editor.closeGap`, `editor.updateClip` (transform,
+`editor.rippleDelete`, `editor.closeGap`, `editor.duplicateClip`,
+`editor.extractAudio` (a video clip's sound onto its own audio track; the
+video clip is muted), `editor.saveAudio` (a clip's sound to .m4a or .wav),
+`editor.updateClip` (transform,
 speed, audio, chroma, filters), `editor.setText` (size in px or s/m/l, font),
 `editor.listFonts`, `editor.removeText`,
 `editor.setCrop`, `editor.undo`, `editor.redo`), time effects

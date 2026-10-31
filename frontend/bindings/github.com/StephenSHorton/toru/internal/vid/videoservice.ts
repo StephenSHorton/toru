@@ -142,6 +142,16 @@ export function LoadProject(id: string): $CancellablePromise<string> {
 }
 
 /**
+ * PickAudioExportPath shows the Save As dialog for a clip's sound (Save
+ * audio as file), suggesting <name>-audio.m4a in sourcePath's folder, with
+ * M4A and WAV to choose from. It returns the chosen path, ending in .m4a or
+ * .wav (anything else gets .m4a added), or "" when cancelled.
+ */
+export function PickAudioExportPath(sourcePath: string): $CancellablePromise<string> {
+    return $Call.ByID(3986123329, sourcePath);
+}
+
+/**
  * PickExportFolder shows a folder picker starting at start (the export
  * screen's current folder). It returns "" when cancelled.
  */

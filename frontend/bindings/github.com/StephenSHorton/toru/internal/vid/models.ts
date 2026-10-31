@@ -442,7 +442,7 @@ export class EffectJSON {
 /**
  * ExportCapabilities is what this PC's ffmpeg can export: the usable video
  * encoders per format (best first). A format with no encoder is missing
- * from Encoders; gif and m4a need none.
+ * from Encoders; gif, m4a and wav need none.
  */
 export class ExportCapabilities {
     "formats": string[];
@@ -486,8 +486,9 @@ export class ExportCapabilities {
 export class ExportOptions {
     /**
      * Format is the output: "mp4" (H.264 + AAC), "hevc" (H.265 + AAC in
-     * MP4), "webm" (VP9 + Opus), "gif" (no audio) or "m4a" (audio only,
-     * AAC). OutPath's extension must match it.
+     * MP4), "webm" (VP9 + Opus), "gif" (no audio), "m4a" (audio only,
+     * AAC) or "wav" (audio only, 16-bit PCM). OutPath's extension must
+     * match it.
      */
     "format": string;
 

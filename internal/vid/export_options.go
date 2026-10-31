@@ -19,8 +19,9 @@ import (
 // on top (render re-encodes the result to fit 10 MB).
 type ExportOptions struct {
 	// Format is the output: "mp4" (H.264 + AAC), "hevc" (H.265 + AAC in
-	// MP4), "webm" (VP9 + Opus), "gif" (no audio) or "m4a" (audio only,
-	// AAC). OutPath's extension must match it.
+	// MP4), "webm" (VP9 + Opus), "gif" (no audio), "m4a" (audio only,
+	// AAC) or "wav" (audio only, 16-bit PCM). OutPath's extension must
+	// match it.
 	Format string `json:"format"`
 	// Width x Height is the output frame (even numbers); 0 x 0 keeps the
 	// canvas (or crop). Width 0 with a height scales to that height and
@@ -71,9 +72,10 @@ const (
 	FormatWebM = "webm"
 	FormatGIF  = "gif"
 	FormatM4A  = "m4a"
+	FormatWAV  = "wav"
 )
 
-var formatExt = map[string]string{FormatMP4: ".mp4", FormatHEVC: ".mp4", FormatWebM: ".webm", FormatGIF: ".gif", FormatM4A: ".m4a"}
+var formatExt = map[string]string{FormatMP4: ".mp4", FormatHEVC: ".mp4", FormatWebM: ".webm", FormatGIF: ".gif", FormatM4A: ".m4a", FormatWAV: ".wav"}
 
 // Encoder candidates per format, best first: the software encoder when the
 // ffmpeg build has it, then the GPU's, then Windows' own.
@@ -87,7 +89,7 @@ var gifDithers = []string{"sierra2_4a", "floyd_steinberg", "bayer", "none"}
 
 // ExportCapabilities is what this PC's ffmpeg can export: the usable video
 // encoders per format (best first). A format with no encoder is missing
-// from Encoders; gif and m4a need none.
+// from Encoders; gif, m4a and wav need none.
 type ExportCapabilities struct {
 	Formats  []string            `json:"formats"`
 	Encoders map[string][]string `json:"encoders"`
@@ -115,7 +117,7 @@ func exportCapabilities() ExportCapabilities {
 			c.Formats = append(c.Formats, f)
 		}
 	}
-	c.Formats = append(c.Formats, FormatGIF, FormatM4A)
+	c.Formats = append(c.Formats, FormatGIF, FormatM4A, FormatWAV)
 	return c
 }
 
@@ -124,7 +126,7 @@ func exportCapabilities() ExportCapabilities {
 func (o ExportOptions) validate(totalMs int, outPath string) error {
 	ext, ok := formatExt[o.Format]
 	if !ok {
-		return fmt.Errorf("export: unknown format %q (mp4, hevc, webm, gif or m4a)", o.Format)
+		return fmt.Errorf("export: unknown format %q (mp4, hevc, webm, gif, m4a or wav)", o.Format)
 	}
 	if !strings.EqualFold(filepath.Ext(outPath), ext) {
 		return fmt.Errorf("export: a %s export needs a %s file name", o.Format, ext)
@@ -159,7 +161,7 @@ func (o ExportOptions) validate(totalMs int, outPath string) error {
 	if o.SampleRate != 0 && o.SampleRate != 44100 && o.SampleRate != 48000 {
 		return fmt.Errorf("export: sample rate %d (44100 or 48000)", o.SampleRate)
 	}
-	if o.Format == FormatM4A && o.NoAudio {
+	if o.audioOnly() && o.NoAudio {
 		return errors.New("export: an audio-only export needs its audio")
 	}
 	in, out := o.rangeMs(totalMs)
@@ -267,6 +269,9 @@ func (o ExportOptions) videoCodecArgs(enc string) []string {
 	return append(args, "-pix_fmt", "yuv420p")
 }
 
+// audioOnly says whether the format has no picture (m4a, wav).
+func (o ExportOptions) audioOnly() bool { return o.Format == FormatM4A || o.Format == FormatWAV }
+
 func (o ExportOptions) audioCodecArgs() []string {
 	kbps := o.AudioKbps
 	if kbps == 0 {
@@ -275,6 +280,9 @@ func (o ExportOptions) audioCodecArgs() []string {
 	rate := o.SampleRate
 	if rate == 0 || o.Format == FormatWebM {
 		rate = 48000 // Opus runs at 48 kHz
+	}
+	if o.Format == FormatWAV {
+		return []string{"-c:a", "pcm_s16le", "-ar", strconv.Itoa(rate)}
 	}
 	codec := "aac"
 	if o.Format == FormatWebM {
@@ -321,7 +329,7 @@ func optionsTail(args, graph []string, videoOut, audioOut string, post []string,
 
 	var maps, codec []string
 	switch o.Format {
-	case FormatM4A:
+	case FormatM4A, FormatWAV:
 		if len(trimA) > 0 {
 			graph = append(graph, audioOut+strings.Join(trimA, ",")+"[aexp]")
 			audioOut = "[aexp]"
@@ -435,7 +443,7 @@ func exportPath(dir, name, format string) (string, bool, error) {
 		return "", false, errors.New("export: choose a folder")
 	}
 	name = strings.TrimSpace(name)
-	if e := filepath.Ext(name); e != "" && slices.Contains([]string{".mp4", ".webm", ".gif", ".m4a"}, strings.ToLower(e)) {
+	if e := filepath.Ext(name); e != "" && slices.Contains([]string{".mp4", ".webm", ".gif", ".m4a", ".wav"}, strings.ToLower(e)) {
 		name = strings.TrimSuffix(name, e)
 	}
 	name = strings.Map(func(r rune) rune {

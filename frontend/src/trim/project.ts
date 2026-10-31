@@ -459,6 +459,103 @@ export function closeGap(p: Project, trackId: string, t: number): Project {
   return withTrack(p, { ...track, clips });
 }
 
+// canExtractAudio says whether a clip has sound to detach: a video clip
+// with audio on a video track, not a freeze frame, not already muted.
+export function canExtractAudio(p: Project, clipId: string): boolean {
+  const hit = findClip(p, clipId);
+  if (!hit || hit.track.locked || hit.track.kind !== "video") return false;
+  const m = mediaById(p, hit.clip.media);
+  return !!m && m.kind === "video" && m.hasAudio && !hit.clip.hold && !hit.clip.muted;
+}
+
+// extractAudio detaches a video clip's sound onto an audio track (Extract
+// audio): soundOf(clip), on the first unlocked audio track that is free
+// there, or a new one. The video clip goes silent. Returns the same project when
+// the clip has nothing to extract (canExtractAudio).
+export function extractAudio(p: Project, clipId: string): Project {
+  if (!canExtractAudio(p, clipId)) return p;
+  const { clip: c } = findClip(p, clipId)!;
+  const len = clipLength(c);
+  const free = (t: Track) => !t.locked && t.clips.every((x) => clipEnd(x) <= c.start + EPS || x.start >= c.start + len - EPS);
+  let q = p;
+  let to = audioTracks(q).find(free);
+  if (!to) {
+    q = addTrack(q, "audio");
+    to = audioTracks(q).at(-1)!;
+  }
+  const audio = soundOf(c);
+  q = withTrack(q, { ...to, clips: sorted([...to.clips, audio]) });
+  // The video clip keeps its picture and goes silent; its volume keys
+  // moved with the sound.
+  const hit = findClip(q, clipId)!;
+  const silent: Clip = { ...hit.clip, muted: true };
+  if (silent.anim?.volume) {
+    const rest = { ...silent.anim };
+    delete rest.volume;
+    if (Object.keys(rest).length) silent.anim = rest;
+    else delete silent.anim;
+  }
+  const clips = hit.track.clips.slice();
+  clips[hit.index] = silent;
+  return withTrack(q, { ...hit.track, clips });
+}
+
+// soundOf is a clip's sound as a clip of its own (new id) for an audio
+// track: the same media, place and range, the clip's timing (speed, curve,
+// reverse), volume, fades, stream levels and volume keyframes, unmuted.
+export function soundOf(c: Clip): Clip {
+  const audio: Clip = {
+    id: newId("clip"),
+    media: c.media,
+    start: c.start,
+    in: c.in,
+    out: c.out,
+    speed: c.speed,
+    volume: c.volume,
+    muted: false,
+    fadeIn: c.fadeIn,
+    fadeOut: c.fadeOut,
+    transform: { ...FIT },
+    filters: { ...DEFAULT_FILTERS },
+  };
+  if (c.levels) audio.levels = c.levels.map((l) => ({ ...l }));
+  if (c.speedCurve) audio.speedCurve = structuredClone(c.speedCurve);
+  if (c.reversed) audio.reversed = true;
+  if (c.anim?.volume?.length) audio.anim = { volume: c.anim.volume.map((k) => ({ ...k })) };
+  return audio;
+}
+
+// soundProject is a project holding only a clip's sound, at 0 on an audio
+// track (and an empty video track), for "Save audio as file": exported as
+// m4a or wav it gives exactly what the clip plays, every audio stream mixed
+// as the clip mixes them. Null when the clip has no sound.
+export function soundProject(p: Project, clipId: string): Project | null {
+  const hit = findClip(p, clipId);
+  const m = hit && mediaById(p, hit.clip.media);
+  if (!hit || !m || hit.clip.hold || !(m.kind === "audio" || (m.kind === "video" && m.hasAudio))) return null;
+  const clip = { ...soundOf(hit.clip), start: 0 };
+  return {
+    ...p,
+    media: [m],
+    tracks: [newTrack("video"), { ...newTrack("audio"), clips: [clip] }],
+    texts: [],
+    crop: null,
+  };
+}
+
+// duplicateClip puts a copy of a clip (new ids, its effects' too) on the
+// same track at the nearest free spot after it.
+export function duplicateClip(p: Project, clipId: string): Project {
+  const hit = findClip(p, clipId);
+  if (!hit || hit.track.locked) return p;
+  const c = hit.clip;
+  const copy: Clip = { ...structuredClone(c), id: newId("clip") };
+  if (copy.effects) copy.effects = copy.effects.map((e) => ({ ...e, id: newId("fx") }));
+  copy.start = nearestFree(hit.track.clips, clipLength(c), clipEnd(c));
+  if (!Number.isFinite(copy.start)) return p;
+  return withTrack(p, { ...hit.track, clips: sorted([...hit.track.clips, copy]) });
+}
+
 export type ClipPatch = Partial<Omit<Clip, "id" | "media" | "start" | "in" | "out">>;
 
 // updateClip changes a clip's settings, each clamped to its range. A speed
@@ -667,7 +764,7 @@ export interface ProjectExport {
 // settings. Zero / absent fields take the Go defaults.
 export type ExportFormat = "mp4" | "hevc" | "webm" | "gif" | "m4a";
 export interface ExportSettings {
-  format: ExportFormat;
+  format: ExportFormat | "wav"; // wav: audio only, PCM (Save audio as file)
   width?: number;
   height?: number;
   fit?: "fit" | "fill";

@@ -101,6 +101,27 @@ func TestEditedName(t *testing.T) {
 	}
 }
 
+func TestAudioName(t *testing.T) {
+	for in, want := range map[string]string{
+		`D:\rec\clip.mp4`: "clip-audio.m4a",
+		"":                "audio.m4a",
+	} {
+		if got := audioName(in); got != want {
+			t.Errorf("audioName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[string]string{
+		`D:\a\x.wav`: `D:\a\x.wav`,
+		`D:\a\x.M4A`: `D:\a\x.M4A`,
+		`D:\a\x`:     `D:\a\x.m4a`,
+		`D:\a\x.mp3`: `D:\a\x.mp3.m4a`,
+	} {
+		if got := audioPath(in); got != want {
+			t.Errorf("audioPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestPartPath(t *testing.T) {
 	out := filepath.Join("C:", "clips", "a-edited.mp4")
 	p := partPath(out)
