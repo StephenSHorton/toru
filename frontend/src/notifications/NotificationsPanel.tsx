@@ -58,14 +58,14 @@ export function NotificationsPanel({ onOpenRecording }: { onOpenRecording: () =>
   };
 
   // The replay settings are re-read before the write so a change made
-  // elsewhere meanwhile (the tray's Game recording item) isn't undone.
+  // elsewhere meanwhile (the tray's Replay & recording item) isn't undone.
   const toggleRecordingNotices = async (next: boolean) => {
     setRecordingNotices(next);
     try {
       const s = await ReplayService.GetSettings();
       s.recordingNotices = next;
       // Settings are saved even when recording can't start; that error
-      // belongs to the Game recording tab.
+      // belongs to the Replay & recording tab.
       await ReplayService.SetSettings(s).catch(() => {});
     } catch {
       setRecordingNotices(!next);
@@ -97,7 +97,7 @@ export function NotificationsPanel({ onOpenRecording }: { onOpenRecording: () =>
           <span className="text-sm font-medium">Play sounds</span>
           <span className="text-xs text-muted-foreground">
             Exclusive-fullscreen games hide the cards, so the sound is what gets through. The clip save sound has
-            its own switch under Game recording → Saving clips and plays at this volume either way
+            its own switch under Replay & recording → Saving clips and plays at this volume either way
           </span>
         </div>
         <Switch
@@ -158,7 +158,7 @@ export function NotificationsPanel({ onOpenRecording }: { onOpenRecording: () =>
       <div className="flex flex-col gap-3 border-t border-border pt-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex flex-col">
-            <span className="text-sm font-medium">Game recording</span>
+            <span className="text-sm font-medium">Replay & recording</span>
             <span className="text-xs text-muted-foreground">
               When instant replay, background recording or Hotkey recording starts (including at Windows startup),
               when a Game session is saved, and when you add a marker
@@ -168,13 +168,13 @@ export function NotificationsPanel({ onOpenRecording }: { onOpenRecording: () =>
             checked={recordingNotices ?? true}
             disabled={recordingNotices === null || !opts.enabled}
             onCheckedChange={(v) => void toggleRecordingNotices(v)}
-            aria-label="Notify about game recording"
+            aria-label="Notify about replay & recording"
           />
         </div>
         <span className="text-xs text-muted-foreground">
           Clip saved messages and their sound are under{" "}
           <button type="button" className="text-foreground underline underline-offset-2" onClick={onOpenRecording}>
-            Game recording → Saving clips
+            Replay & recording → Saving clips
           </button>
           . The auto clicker's stop notice is under Auto Clicker → Safety.
         </span>

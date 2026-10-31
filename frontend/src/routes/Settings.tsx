@@ -1036,7 +1036,7 @@ function EmptySessions() {
       <div>
         <p className="font-medium">No game sessions yet</p>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">
-          In Settings → Game recording, choose Background recording to keep your whole play
+          In Settings → Replay & recording, choose Background recording to keep your whole play
           sessions, or Hotkey recording to start and stop one with a hotkey.
         </p>
       </div>
@@ -1647,7 +1647,7 @@ function SettingsPage() {
 
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "general", label: "General" },
-    { id: "recording", label: "Game recording" },
+    { id: "recording", label: "Replay & recording" },
     { id: "notifications", label: "Notifications" },
     { id: "shortcuts", label: "Shortcuts" },
     { id: "about", label: "About" },

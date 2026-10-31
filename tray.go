@@ -217,7 +217,7 @@ func (t *trayController) addReplayItems(menu *application.Menu) {
 	st := t.replay.GetSettings()
 	if st.Enabled && t.replay.CaptureTrouble() != "" {
 		// The buffer keeps retrying; this says so where a gamer looks.
-		menu.Add("Game recording: capture keeps stopping, retrying").SetEnabled(false)
+		menu.Add(menuText("Replay & recording: capture keeps stopping, retrying")).SetEnabled(false)
 	}
 	if st.Enabled && st.Mode == replay.ModeManual {
 		label := "Start recording"
@@ -247,7 +247,7 @@ func (t *trayController) addReplayItems(menu *application.Menu) {
 			go func() { _, _ = t.replay.SaveReplay() }()
 		})
 	}
-	menu.AddCheckbox("Game recording", st.Enabled).OnClick(func(*application.Context) {
+	menu.AddCheckbox(menuText("Replay & recording"), st.Enabled).OnClick(func(*application.Context) {
 		next := t.replay.GetSettings()
 		next.Enabled = !next.Enabled
 		go func() { _, _ = t.replay.SetSettings(next) }() // SetOnChange rebuilds the menu
@@ -317,4 +317,13 @@ func (t *trayController) addClickerItems(menu *application.Menu) {
 			t.openClicker()
 		}
 	})
+}
+
+// menuText escapes "&" for a Windows menu label, where a lone "&" marks the
+// next letter as the item's access key instead of showing.
+func menuText(s string) string {
+	if runtime.GOOS != "windows" {
+		return s
+	}
+	return strings.ReplaceAll(s, "&", "&&")
 }
