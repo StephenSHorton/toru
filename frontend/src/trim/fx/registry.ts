@@ -9,6 +9,7 @@ import flashDef from "../../../../internal/fx/defs/flash.json";
 import gaussianBlurDef from "../../../../internal/fx/defs/gaussianBlur.json";
 import lookDef from "../../../../internal/fx/defs/look.json";
 import rgbSplitDef from "../../../../internal/fx/defs/rgbSplit.json";
+import shakeDef from "../../../../internal/fx/defs/shake.json";
 import sharpenDef from "../../../../internal/fx/defs/sharpen.json";
 import zoomDef from "../../../../internal/fx/defs/zoom.json";
 
@@ -20,7 +21,7 @@ import zoomDef from "../../../../internal/fx/defs/zoom.json";
 // parity script, which bundles this with Bun, can load them too. A new
 // effect adds its import here and its shader in types/index.ts.
 
-export const defs: EffectDef[] = [adjustDef, blurDef, chromaKeyDef, flashDef, gaussianBlurDef, lookDef, rgbSplitDef, sharpenDef, zoomDef] as EffectDef[];
+export const defs: EffectDef[] = [adjustDef, blurDef, chromaKeyDef, flashDef, gaussianBlurDef, lookDef, rgbSplitDef, shakeDef, sharpenDef, zoomDef] as EffectDef[];
 
 const byType = new Map(defs.map((d) => [d.type, d]));
 
