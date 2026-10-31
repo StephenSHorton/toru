@@ -64,6 +64,10 @@ type Status struct {
 	// a local detail the JS side has no use for, so it is not exported.
 	InstallerPath string `json:"-"`
 	Error         string `json:"error"` // set while Phase is error
+	// InstallFailed is set with an error that came from the installer (the
+	// last silent install couldn't replace toru.exe), not from the check or
+	// the download.
+	InstallFailed bool `json:"installFailed"`
 }
 
 // UpdateInfo describes an available update (returned to the frontend).
@@ -162,15 +166,32 @@ const checkEvery = 30 * time.Minute
 //
 // It runs as a fire-and-forget goroutine on startup. All errors are logged and
 // swallowed — a failed or offline update check must never block startup.
+//
+// First it tidies up after the last update: it removes toru.exe.old files the
+// installer left beside the exe, and if the last silent install failed it
+// shows that error and waits a full checkEvery before trying again (Check for
+// Updates retries at once).
 func (s *UpdateService) AutoUpdate() {
-	autoUpdate(checkEvery, nil, s.CheckAndDownload)
+	if exe, err := os.Executable(); err == nil {
+		removeOldExes(exe)
+	}
+	failed := s.reportInstallFailure()
+	autoUpdate(checkEvery, nil, failed, s.CheckAndDownload)
 }
 
 // autoUpdate is AutoUpdate's loop with the interval, a stop channel and the
-// check itself passed in, so tests can run it without the network.
-func autoUpdate(every time.Duration, stop <-chan struct{}, check func() (Status, error)) {
+// check itself passed in, so tests can run it without the network. With
+// waitFirst it waits one interval before the first check.
+func autoUpdate(every time.Duration, stop <-chan struct{}, waitFirst bool, check func() (Status, error)) {
 	t := time.NewTicker(every)
 	defer t.Stop()
+	if waitFirst {
+		select {
+		case <-t.C:
+		case <-stop:
+			return
+		}
+	}
 	for {
 		st, err := check()
 		if err != nil {
@@ -395,8 +416,9 @@ func (s *UpdateService) fetchChecksum(ctx context.Context, url, name string) (st
 	return "", fmt.Errorf("no checksum for %s", name)
 }
 
-// downloadVerified downloads the installer into the temp update folder and
-// verifies its SHA256 (if known). It returns the installer path.
+// downloadVerified downloads the installer into a new directory of the temp
+// update folder (install.go, updateDir) and verifies its SHA256 (if known).
+// It returns the installer path.
 func (s *UpdateService) downloadVerified(info UpdateInfo) (string, error) {
 	if info.AssetName == "" || info.AssetURL == "" {
 		return "", errors.New("update has no installer asset")
@@ -404,11 +426,16 @@ func (s *UpdateService) downloadVerified(info UpdateInfo) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	dir := filepath.Join(os.TempDir(), "toru-update")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	root := updateDir()
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		return "", err
 	}
-	dst := filepath.Join(dir, info.AssetName)
+	cleanDownloads(root)
+	dir, err := os.MkdirTemp(root, "v"+info.Version+"-")
+	if err != nil {
+		return "", fmt.Errorf("make a folder for the installer: %w", err)
+	}
+	dst := filepath.Join(dir, filepath.Base(info.AssetName))
 	if err := s.download(ctx, info.AssetURL, dst); err != nil {
 		return "", err
 	}
@@ -441,7 +468,7 @@ func (s *UpdateService) download(ctx context.Context, url, dst string) (err erro
 	}
 	f, err := os.Create(dst)
 	if err != nil {
-		return err
+		return fmt.Errorf("save the installer: %w", err)
 	}
 	defer func() {
 		if cerr := f.Close(); cerr != nil && err == nil {

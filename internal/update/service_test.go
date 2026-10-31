@@ -181,7 +181,7 @@ func TestAutoUpdateKeepsChecking(t *testing.T) {
 	}
 	done := make(chan struct{})
 	go func() {
-		autoUpdate(time.Millisecond, nil, check)
+		autoUpdate(time.Millisecond, nil, false, check)
 		close(done)
 	}()
 	select {
@@ -198,7 +198,7 @@ func TestAutoUpdateStops(t *testing.T) {
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		autoUpdate(time.Hour, stop, func() (Status, error) { return Status{Phase: PhaseIdle}, nil })
+		autoUpdate(time.Hour, stop, false, func() (Status, error) { return Status{Phase: PhaseIdle}, nil })
 		close(done)
 	}()
 	close(stop)

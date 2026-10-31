@@ -29,6 +29,13 @@ export class Status {
      */
     "error": string;
 
+    /**
+     * InstallFailed is set with an error that came from the installer (the
+     * last silent install couldn't replace toru.exe), not from the check or
+     * the download.
+     */
+    "installFailed": boolean;
+
     /** Creates a new Status instance. */
     constructor($$source: Partial<Status> = {}) {
         if (!("phase" in $$source)) {
@@ -42,6 +49,9 @@ export class Status {
         }
         if (!("error" in $$source)) {
             this["error"] = "";
+        }
+        if (!("installFailed" in $$source)) {
+            this["installFailed"] = false;
         }
 
         Object.assign(this, $$source);

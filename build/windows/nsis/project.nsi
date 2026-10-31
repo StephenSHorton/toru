@@ -68,6 +68,14 @@ Unicode true
 !define TORU_LAN_EXE "toru-lan.exe"
 !define TORU_LAN_SERVICE "ToruLan" # internal/lan/api ServiceName
 !define TORU_LAN_SERVICE_KEY "SYSTEM\CurrentControlSet\Services\${TORU_LAN_SERVICE}"
+## AUTO-UPDATE: the running app's single-instance mutex, as Wails v3 names it
+## ("wails-app-" + SingleInstanceOptions.UniqueID + "-sim", main.go; checked by
+## internal/update's TestInstallerMutexName), and the file a failed silent
+## update leaves for the next Toru start (internal/update installFailedFile).
+!ifndef TORU_INSTANCE_MUTEX # overridable so an installer test never waits on the real Toru
+    !define TORU_INSTANCE_MUTEX "wails-app-com.stephenshorton.toru-sim"
+!endif
+!define TORU_INSTALL_FAILED_FILE "install-failed.txt"
 ####
 ## Include the wails tools
 ####
@@ -129,6 +137,7 @@ ShowInstDetails show # This will always show the installation details.
 # present). Gates the Desktop-shortcut creation so an update never resurrects a
 # shortcut the user deleted. Set inside the install Section before files land.
 Var FreshInstall
+Var ToruMovedAside # the path the old toru.exe was moved to, or "" (auto-update)
 
 Function .onInit
    !insertmacro wails.checkArchitecture
@@ -139,24 +148,56 @@ Section
 
     !insertmacro wails.webview2runtime
 
+    # Detect FRESH install vs UPDATE *before* laying down files (and before the
+    # update below may move the old exe aside): if toru.exe is already present,
+    # this is an update/reinstall. On an update we must NOT recreate the
+    # Desktop shortcut (the user may have deleted it on purpose).
+    StrCpy $FreshInstall "1"
+    ${If} ${FileExists} "$INSTDIR\${PRODUCT_EXECUTABLE}"
+        StrCpy $FreshInstall "0"
+    ${EndIf}
+
     # AUTO-UPDATE: a SILENT install is launched by the running Toru, which then
-    # quits to release its lock on toru.exe. Wait for that exit so wails.files
-    # can overwrite the exe AND so the old instance's single-instance mutex is
-    # freed before we relaunch below. A normal interactive install is never
-    # locked, so this falls straight through.
+    # quits. Two things can hold toru.exe:
+    #   - the Toru app itself, until it has exited. We must wait for it, so
+    #     its single-instance mutex is freed before we relaunch below (a
+    #     relaunch while it is still shutting down hands off to the dying
+    #     instance and exits);
+    #   - "toru.exe mcp" / "toru.exe ctl" processes: every Claude Code session
+    #     keeps one "toru.exe mcp" running, and they never quit for an update.
+    #     Killing them would cut those sessions off (Claude doesn't restart a
+    #     stdio server that exits); left running, they redial the new Toru and
+    #     re-read its tools on their own.
+    # So: wait (up to 60 s) for the app's mutex to go away -- only the app
+    # creates it, mcp/ctl exit before the app is built. Then, if toru.exe is
+    # still locked after a short grace, only mcp/ctl hold it: move it aside
+    # (Windows lets a running exe be renamed; they keep running from
+    # toru.exe.old) and install the new one. Toru deletes the .old files at
+    # its next start once nothing runs them.
     #
-    # The probe opens the exe for writing (append, no truncation), which is the
-    # same thing File will do. It must NOT be a rename: Windows lets a running
-    # executable be renamed, so a rename probe passed while the old Toru was
-    # still shutting down, File then failed (silent mode ignores that), the
-    # uninstaller was written for a binary we never replaced, and the relaunch
-    # handed off to the dying instance and exited. Result: a stale Toru that
-    # re-ran the update on every launch and "closed every time it opened".
+    # Rename is only safe AFTER the mutex wait. Used as the "has the app
+    # exited" probe, it passed while the old Toru was still shutting down,
+    # and the relaunch handed off to the dying instance.
     #
-    # Shutdown can take a few seconds (background recording stops ffmpeg), so
-    # allow up to 60 s. If the exe is still locked after that, abort and change
-    # nothing: the running Toru retries the update at its next start.
+    # On failure, the reason goes to $TEMP\toru-update\install-failed.txt,
+    # which the running-again Toru shows in Settings > About
+    # (internal/update, installFailedFile).
     ${If} ${Silent}
+        StrCpy $0 0
+        toru_wait_app:
+            System::Call 'kernel32::OpenMutex(i 0x00100000, i 0, t "${TORU_INSTANCE_MUTEX}") p .r1'
+            StrCmp $1 0 toru_app_gone
+            System::Call 'kernel32::CloseHandle(p r1)'
+            IntOp $0 $0 + 1
+            IntCmp $0 300 toru_app_stuck 0 toru_app_stuck
+            Sleep 200
+            Goto toru_wait_app
+        toru_app_stuck:
+            StrCpy $R9 "Toru didn't exit within 60 seconds"
+            Goto toru_gave_up
+        toru_app_gone:
+
+        # The app is gone; its exe image can take a moment to be released.
         StrCpy $0 0
         toru_wait_unlock:
             IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 toru_unlocked
@@ -167,26 +208,62 @@ Section
             Goto toru_unlocked
             toru_still_locked:
             IntOp $0 $0 + 1
-            IntCmp $0 300 toru_gave_up 0 toru_gave_up
+            IntCmp $0 15 toru_move_aside 0 toru_move_aside
             Sleep 200
             Goto toru_wait_unlock
-        toru_gave_up:
-            SetErrorLevel 3
-            Abort "toru.exe is still in use; update skipped"
-        toru_unlocked:
-    ${EndIf}
 
-    # Detect FRESH install vs UPDATE *before* laying down files: if toru.exe is
-    # already present, this is an update/reinstall. On an update we must NOT
-    # recreate the Desktop shortcut (the user may have deleted it on purpose).
-    StrCpy $FreshInstall "1"
-    ${If} ${FileExists} "$INSTDIR\${PRODUCT_EXECUTABLE}"
-        StrCpy $FreshInstall "0"
+        # Still locked: mcp/ctl processes. Use toru.exe.old, or .old.1 ...
+        # .old.9 when an older one is itself still running.
+        toru_move_aside:
+            StrCpy $3 0
+            toru_pick_old:
+                StrCpy $2 "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
+                StrCmp $3 0 +2
+                StrCpy $2 "$INSTDIR\${PRODUCT_EXECUTABLE}.old.$3"
+                Delete "$2"
+                IfFileExists "$2" 0 toru_rename
+                IntOp $3 $3 + 1
+                IntCmp $3 10 toru_no_slot 0 toru_no_slot
+                Goto toru_pick_old
+            toru_no_slot:
+                StrCpy $R9 "toru.exe is in use and couldn't be moved aside (toru.exe.old to .old.9 are all in use)"
+                Goto toru_gave_up
+            toru_rename:
+                ClearErrors
+                Rename "$INSTDIR\${PRODUCT_EXECUTABLE}" "$2"
+                IfErrors 0 toru_moved
+                StrCpy $R9 "toru.exe is in use by another program and couldn't be moved aside"
+                Goto toru_gave_up
+            toru_moved:
+                StrCpy $ToruMovedAside "$2"
+                DetailPrint "toru.exe was in use (toru.exe mcp); moved it to $2"
+                Goto toru_unlocked
+
+        toru_gave_up:
+            CreateDirectory "$TEMP\toru-update"
+            ClearErrors
+            FileOpen $1 "$TEMP\toru-update\${TORU_INSTALL_FAILED_FILE}" w
+            ${IfNot} ${Errors}
+                FileWrite $1 "${INFO_PRODUCTVERSION}$\t$R9$\r$\n"
+                FileClose $1
+            ${EndIf}
+            SetErrorLevel 3
+            Abort "$R9; update skipped"
+        toru_unlocked:
     ${EndIf}
 
     SetOutPath $INSTDIR
 
     !insertmacro wails.files
+
+    # The old exe was moved aside but the new one didn't land: put it back,
+    # so the install is never left without a toru.exe.
+    ${If} $ToruMovedAside != ""
+    ${AndIfNot} ${FileExists} "$INSTDIR\${PRODUCT_EXECUTABLE}"
+        Rename "$ToruMovedAside" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+        StrCpy $R9 "the new toru.exe couldn't be written"
+        Goto toru_gave_up
+    ${EndIf}
 
     File "/oname=THIRD_PARTY_NOTICES.txt" "${ARG_THIRD_PARTY_NOTICES}"
 

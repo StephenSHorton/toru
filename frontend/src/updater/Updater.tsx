@@ -73,9 +73,14 @@ export function Updater() {
           {status.phase === "error" && (
             // fail() keeps the version once the check has found one, so a set
             // version means the download/verify step failed, not the check.
+            // installFailed: the last silent install couldn't replace the app.
             <span className="flex items-center gap-1 text-destructive" title={status.error}>
               <AlertTriangle className="size-3.5" aria-hidden="true" />{" "}
-              {status.version ? `Download of ${target} failed` : "Check failed"}
+              {status.installFailed
+                ? `Update to ${target} didn't install`
+                : status.version
+                  ? `Download of ${target} failed`
+                  : "Check failed"}
             </span>
           )}
         </>
