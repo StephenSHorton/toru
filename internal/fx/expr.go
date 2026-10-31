@@ -31,3 +31,32 @@ func easeExpr(kind, x string) string {
 // quoted wraps an expression for a filter option, so its commas and colons
 // stay inside it.
 func quoted(e string) string { return "'" + strings.ReplaceAll(e, "'", "") + "'" }
+
+// minstdM is the Park–Miller "minimal standard" generator's modulus. Its
+// products stay under 2^53, so JS numbers and Go float64s step it exactly
+// alike.
+const minstdM = 2147483647
+
+// seeded is n numbers in 0..1 from seed (types/shake.ts seeded).
+func seeded(seed float64, n int) []float64 {
+	s := math.Mod(math.Abs(math.Trunc(seed)), minstdM-1) + 1
+	out := make([]float64, n)
+	for i := range out {
+		s = math.Mod(s*48271, minstdM)
+		out[i] = s / minstdM
+	}
+	return out
+}
+
+// wobble is a smooth, seeded -1..1 motion at f Hz: two sines, the second
+// 1.7 times as fast, with phases from ph (types/shake.ts wobbleAt). terms
+// gives its angular speeds and phases as written into expressions.
+type wobble struct{ w1, p1, w2, p2 float64 }
+
+func newWobble(f, ph1, ph2 float64) wobble {
+	return wobble{2 * math.Pi * f, 2 * math.Pi * ph1, 2 * math.Pi * f * 1.7, 2 * math.Pi * ph2}
+}
+
+func (w wobble) expr() string {
+	return "(0.6*sin(" + num(w.w1) + "*t+" + num(w.p1) + ")+0.4*sin(" + num(w.w2) + "*t+" + num(w.p2) + "))"
+}
