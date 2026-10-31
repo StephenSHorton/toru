@@ -42,6 +42,11 @@ const CATEGORIES: { id: EffectCategory; label: string }[] = [
   { id: "key", label: "Key" },
 ];
 
+// THUMB_T is when a browser tile draws a time-based effect: inside its
+// default window (zoom is fully in at 0.3–1.3 s, a flash is strongest just
+// after 0). Others draw at 0.
+const THUMB_T: Record<string, number> = { zoom: 0.8, flash: 0.03 };
+
 // The effect a copy put aside, for Paste on any clip.
 let copied: EffectInstance | null = null;
 
@@ -123,7 +128,7 @@ export function EffectsTab(props: TabProps) {
               title={`Add ${d.name} on top of this clip's effects`}
             >
               <div className="relative border border-border group-hover:border-foreground/40 group-focus-visible:border-ring">
-                <Thumb frame={frame} stack={[{ id: `thumb-${d.type}`, type: d.type, enabled: true, params: showcase(d) }]} />
+                <Thumb frame={frame} stack={[{ id: `thumb-${d.type}`, type: d.type, enabled: true, params: showcase(d) }]} t={THUMB_T[d.type] ?? 0} />
                 <span className="absolute bottom-0.5 right-0.5 hidden size-4 place-items-center bg-primary text-primary-foreground group-hover:grid">
                   <Plus className="size-3" />
                 </span>
