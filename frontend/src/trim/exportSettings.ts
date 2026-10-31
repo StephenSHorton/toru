@@ -83,7 +83,9 @@ export const isVideo = (f: ExportFormat) => f === "mp4" || f === "hevc" || f ===
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
 // outputSize is the frame the export writes for a frameW x frameH timeline
-// (crop applied). Height presets never scale up; a custom size is exact.
+// (crop applied). A resolution preset (1080p...) sets the short side, so a
+// vertical or square frame keeps its shape (1080p of 9:16 is 1080x1920);
+// presets never scale up; a custom size is exact.
 export function outputSize(s: ExportState, frameW: number, frameH: number): { w: number; h: number } {
   if (s.format === "m4a") return { w: 0, h: 0 };
   if (s.format === "gif") {
@@ -93,8 +95,9 @@ export function outputSize(s: ExportState, frameW: number, frameH: number): { w:
   if (s.discord || s.size === "original") return { w: even(frameW), h: even(frameH) };
   if (s.size === "custom") return { w: even(s.width), h: even(s.height) };
   const target = Number(s.size);
-  if (frameH <= target) return { w: even(frameW), h: even(frameH) };
-  return { w: even((frameW * target) / frameH), h: target };
+  const short = Math.min(frameW, frameH);
+  if (short <= target) return { w: even(frameW), h: even(frameH) };
+  return frameH <= frameW ? { w: even((frameW * target) / frameH), h: target } : { w: target, h: even((frameH * target) / frameW) };
 }
 
 // toOptions is the Go ExportOptions for the state, the range in seconds

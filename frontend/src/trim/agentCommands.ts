@@ -6,6 +6,7 @@ import { ProjectExport } from "../../bindings/github.com/StephenSHorton/toru/int
 import { registerTimeCommands } from "@/trim/agentCommandsTime";
 import type { CompositorHandle } from "@/trim/compositor/Compositor";
 import { registerFxCommands } from "@/trim/agentCommandsFx";
+import { CANVAS_PRESETS, MAX_CANVAS, MIN_CANVAS, normCanvas, placeClip, setCanvas, type ClipPlace, type Placement } from "@/trim/canvas";
 import { newId, type Text } from "@/trim/edl";
 import { checkFont, DEFAULT_FONT_LABEL, fontInfo, loadFonts } from "@/trim/fonts";
 import type { MediaBinState } from "@/trim/MediaBin";
@@ -635,6 +636,49 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
         }
         edit((p) => setCrop(p, r), r ? "that's already the crop" : "there's no crop");
         return { crop: r };
+      },
+    );
+
+    reg(
+      "editor.setCanvas",
+      {
+        description:
+          "Change the project frame: a preset (16:9, 9:16, 1:1, 4:5) or width/height, and/or fps. When the shape changes, place says what happens to the clips that fill the frame (every clip on the bottom video track, and centred full-size clips above it): fill covers the new frame (cropping), fit fits inside it, keep leaves transforms alone. Default fill. A crop is removed when the size changes. One undo step.",
+        input: obj({
+          preset: { type: "string", enum: CANVAS_PRESETS.map((p) => p.id), description: "A preset frame (sets width and height)." },
+          width: { type: "integer", description: `Frame width in px (even, ${MIN_CANVAS}..${MAX_CANVAS}).` },
+          height: { type: "integer", description: `Frame height in px (even, ${MIN_CANVAS}..${MAX_CANVAS}).` },
+          fps: num("Frame rate."),
+          place: { type: "string", enum: ["fill", "fit", "keep"], description: "How to place full-frame clips when the shape changes (default fill)." },
+        }),
+      },
+      (input: { preset?: string; width?: number; height?: number; fps?: number; place?: Placement }) => {
+        const cur = d().project.canvas;
+        const pr = input.preset !== undefined ? CANVAS_PRESETS.find((p) => p.id === input.preset) : undefined;
+        if (input.preset !== undefined && !pr) throw new Error(`no preset "${input.preset}" (${CANVAS_PRESETS.map((p) => p.id).join(", ")})`);
+        const place = input.place ?? "fill";
+        if (!["fill", "fit", "keep"].includes(place)) throw new Error(`place must be fill, fit or keep`);
+        const next = normCanvas({
+          width: pr?.width ?? (input.width !== undefined ? Number(input.width) : cur.width),
+          height: pr?.height ?? (input.height !== undefined ? Number(input.height) : cur.height),
+          fps: input.fps !== undefined ? Number(input.fps) : cur.fps,
+        });
+        const out = edit((p) => setCanvas(p, next, place), "that's already the frame");
+        return { canvas: out.canvas, crop: out.crop ?? null };
+      },
+    );
+
+    reg(
+      "editor.placeClip",
+      {
+        description: "Place a video or image clip on the frame: fill (cover it, centred, cropping), fit (whole picture inside, centred) or reset (the default transform, dropping transform keyframes). One undo step.",
+        input: obj({ clipId: str("From editor.get."), mode: { type: "string", enum: ["fill", "fit", "reset"] } }, ["clipId", "mode"]),
+      },
+      (input: { clipId: string; mode: ClipPlace }) => {
+        if (!["fill", "fit", "reset"].includes(input.mode)) throw new Error("mode must be fill, fit or reset");
+        const out = edit((p) => placeClip(p, String(input.clipId), input.mode), `clip "${input.clipId}" is already placed that way (or isn't a picture)`);
+        const c = out.tracks.flatMap((t) => t.clips).find((x) => x.id === input.clipId);
+        return { clipId: input.clipId, transform: c?.transform };
       },
     );
 
