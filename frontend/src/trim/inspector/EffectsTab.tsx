@@ -21,6 +21,7 @@ import { defOf, defs } from "@/trim/fx/registry";
 import { clipEffects } from "@/trim/fx/stack";
 import { newId } from "@/trim/edl";
 import type { EffectInstance, ParamValue } from "@/trim/project";
+import { usePresets } from "@/trim/fx/presets";
 import { Menu, NumberRow, ParamControl, Section } from "@/trim/inspector/controls";
 import type { TabProps } from "@/trim/inspector/Inspector";
 import { Thumb } from "@/trim/inspector/Thumb";
@@ -280,12 +281,15 @@ function EffectCard({
 }
 
 function GroupCard({ clip: c, items, group, edit }: TabProps & { items: EffectInstance[]; group: string }) {
+  const presets = usePresets();
   const amount = items[0].amount ?? 1;
   const on = items.some((e) => e.enabled);
   return (
     <div className={cn("border border-border bg-background/40", !on && "opacity-60")}>
       <div className="flex items-center gap-1 px-2 py-1">
-        <span className="min-w-0 flex-1 truncate font-medium">{items.map((e) => defOf(e.type)?.name ?? e.type).join(" + ")}</span>
+        <span className="min-w-0 flex-1 truncate font-medium" title={items.map((e) => defOf(e.type)?.name ?? e.type).join(" + ")}>
+          {presets.find((x) => x.id === group)?.name ?? items.map((e) => defOf(e.type)?.name ?? e.type).join(" + ")}
+        </span>
         <Switch
           checked={on}
           onCheckedChange={(v) =>

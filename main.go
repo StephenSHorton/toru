@@ -29,6 +29,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/inputtag"
 	"github.com/StephenSHorton/toru/internal/media"
 	"github.com/StephenSHorton/toru/internal/overlay"
+	"github.com/StephenSHorton/toru/internal/presets"
 	"github.com/StephenSHorton/toru/internal/replay"
 	"github.com/StephenSHorton/toru/internal/share"
 	"github.com/StephenSHorton/toru/internal/shot"
@@ -145,6 +146,7 @@ func main() {
 	shotSvc := shot.New()
 	vidSvc := vid.New()
 	mediaSvc := media.New()
+	presetSvc := presets.NewService()
 	// Agent control: one registry of commands for AI agents and scripts,
 	// served over a per-user named pipe while the setting is on.
 	agentReg := agentctl.NewRegistry()
@@ -216,6 +218,7 @@ func main() {
 			application.NewService(shotSvc),
 			application.NewService(vidSvc),
 			application.NewService(mediaSvc),
+			application.NewService(presetSvc),
 			application.NewService(agentSvc),
 			application.NewService(windowsSvc),
 			application.NewService(updateSvc),
@@ -298,6 +301,10 @@ func main() {
 		projects: vidSvc, newProject: windowsSvc.OpenNewEditProject, openPage: windowsSvc.OpenVideoEditor,
 		openProject: windowsSvc.OpenEditProject,
 		emit:        func(name string, data any) { app.Event.Emit(name, data) },
+	})
+	registerPresetAgentCommands(agentReg, presetAgentDeps{ // agent_commands_presets.go
+		presets: presetSvc,
+		emit:    func(name string, data any) { app.Event.Emit(name, data) },
 	})
 	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in
