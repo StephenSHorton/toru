@@ -8,9 +8,6 @@ func init() {
 		if fn := AdjustFn(p); fn != nil {
 			out = append(out, Step{Color: fn})
 		}
-		if s := pnum(p, "sharpen"); s > 0 {
-			out = append(out, Step{Filters: []string{"cas=strength=" + num(s) + ":planes=7"}, RGB: true})
-		}
-		return out
+		return append(out, casStep(pnum(p, "sharpen"))...)
 	})
 }
