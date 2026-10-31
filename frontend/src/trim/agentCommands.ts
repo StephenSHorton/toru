@@ -40,7 +40,11 @@ import {
   type ClipPatch,
   type Media,
   type Project,
+  canExtractAudio,
+  duplicateClip,
+  extractAudio,
 } from "@/trim/project";
+import { soundExportRequest } from "@/trim/saveAudio";
 
 // The video editor's agent commands (docs/agent-control.md, "Editor"): every
 // tool of the Edit video window, for AI agents and scripts. Each edit goes
@@ -406,6 +410,69 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
     );
 
     reg(
+      "editor.duplicateClip",
+      { description: "Copy a clip (effects, keyframes and all) onto the same track, at the first free spot after it. Returns the copy.", input: obj({ clipId: str("From editor.get.") }, ["clipId"]) },
+      (input: { clipId: string }) => {
+        const hit = clipOr(d().project, input.clipId);
+        const before = d().project;
+        const after = edit((p) => duplicateClip(p, hit.clip.id), "couldn't duplicate it" + lockedNote(hit.track.locked));
+        const copy = newClips(before, after)[0];
+        selectClip(copy?.id);
+        return { clip: copy };
+      },
+    );
+
+    reg(
+      "editor.extractAudio",
+      {
+        description:
+          "Extract audio: move a video clip's sound onto its own audio track (the first audio track free at that time, or a new one) as a separate clip with the same range, speed, volume, fades and volume keyframes. The video clip is muted. One undo step. Returns the new audio clip and its track.",
+        input: obj({ clipId: str("A video clip with sound (editor.get).") }, ["clipId"]),
+      },
+      (input: { clipId: string }) => {
+        const p0 = d().project;
+        const hit = clipOr(p0, input.clipId);
+        if (!canExtractAudio(p0, hit.clip.id)) {
+          const m = mediaById(p0, hit.clip.media);
+          const why =
+            hit.track.kind === "audio" || m?.kind !== "video"
+              ? "it isn't a video clip"
+              : hit.clip.hold
+                ? "a freeze frame has no sound"
+                : !m.hasAudio
+                  ? "its file has no sound"
+                  : hit.clip.muted
+                    ? "the clip is muted (unmute it with editor.updateClip first)"
+                    : "the track is locked (unlock it with editor.setTrackFlags)";
+          throw new Error(`can't extract the audio: ${why}`);
+        }
+        const after = edit((p) => extractAudio(p, hit.clip.id), "couldn't extract the audio");
+        const audio = newClips(p0, after)[0];
+        const track = after.tracks.find((t) => t.clips.some((c) => c.id === audio?.id));
+        return { audio, trackId: track?.id, video: hit.clip.id };
+      },
+    );
+
+    reg(
+      "editor.saveAudio",
+      {
+        description:
+          "Save a clip's sound as an audio file, exactly as the clip plays it (range, speed, reverse, volume, fades, every audio stream). path must be absolute and end in .m4a (AAC) or .wav (16-bit PCM); an existing file is never overwritten. Returns the path once it's written.",
+        input: obj({ clipId: str("A clip with sound (editor.get)."), path: str("Absolute output path ending in .m4a or .wav.") }, ["clipId", "path"]),
+        timeoutSec: 10 * 60,
+      },
+      async (input: { clipId: string; path: string }) => {
+        const p = d().project;
+        const hit = clipOr(p, input.clipId);
+        const out = String(input.path ?? "").trim();
+        if (!/\.(m4a|wav)$/i.test(out)) throw new Error("path must end in .m4a or .wav");
+        if (await exists(out)) throw new Error(`${out} already exists: pick another path`);
+        const written = await VideoService.ExportProject(ProjectExport.createFrom(soundExportRequest(p, hit.clip.id, out)));
+        return { path: written };
+      },
+    );
+
+    reg(
       "editor.updateClip",
       {
         description:
@@ -603,17 +670,17 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
       "editor.export",
       {
         description:
-          "Export the edit to a file and return its path once it's written. Simple: preset original (the canvas), 1080p, 720p, discord (fits 10MB; may become .webm) or custom (height + kbps). Full control: options (format mp4 / hevc / webm / gif / m4a, size, fit, fps, quality or kbps, encoder, audio, range, gif settings; see editor.exportFormats for what this PC can make). path defaults to <first file>-edited.<ext> next to the first file; an existing file is never overwritten.",
+          "Export the edit to a file and return its path once it's written. Simple: preset original (the canvas), 1080p, 720p, discord (fits 10MB; may become .webm) or custom (height + kbps). Full control: options (format mp4 / hevc / webm / gif / m4a / wav, size, fit, fps, quality or kbps, encoder, audio, range, gif settings; see editor.exportFormats for what this PC can make). path defaults to <first file>-edited.<ext> next to the first file; an existing file is never overwritten.",
         input: obj({
           preset: str("Output preset (with options: only discord changes anything, fitting the result to 10MB).", { enum: ["original", "1080p", "720p", "discord", "custom"] }),
-          path: str("Absolute output path; its extension must match the format (.mp4 for mp4/hevc, .webm, .gif, .m4a)."),
+          path: str("Absolute output path; its extension must match the format (.mp4 for mp4/hevc, .webm, .gif, .m4a, .wav)."),
           height: num("custom preset only: output height (even)."),
           kbps: num("custom preset only: video bitrate."),
           options: {
             type: "object",
             description: "Export settings. Zero/absent fields keep the defaults.",
             properties: {
-              format: str("mp4 (H.264), hevc (H.265 in .mp4), webm (VP9), gif, or m4a (audio only).", { enum: ["mp4", "hevc", "webm", "gif", "m4a"] }),
+              format: str("mp4 (H.264), hevc (H.265 in .mp4), webm (VP9), gif, m4a (audio only, AAC) or wav (audio only, PCM).", { enum: ["mp4", "hevc", "webm", "gif", "m4a", "wav"] }),
               width: num("Output width (even; needs height). 0 = keep."),
               height: num("Output height (even). Height alone keeps the aspect."),
               fit: str("How another aspect fits width x height: fit (black bars) or fill (cropped).", { enum: ["fit", "fill"] }),
@@ -649,7 +716,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
         if (!["original", "1080p", "720p", "discord", "custom"].includes(preset)) throw new Error(`unknown preset "${preset}"`);
         const options = input.options;
         const ext = options ? EXPORT_EXT[options.format] : ".mp4";
-        if (options && !ext) throw new Error(`unknown format "${options.format}" (mp4, hevc, webm, gif or m4a)`);
+        if (options && !ext) throw new Error(`unknown format "${options.format}" (mp4, hevc, webm, gif, m4a or wav)`);
         const out = input.path?.trim() || editedPath(firstPath, ext);
         if (!out) throw new Error("path is required (the edit has no file to name it after)");
         if (await exists(out)) throw new Error(`${out} already exists: pick another path`);
@@ -676,7 +743,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
   }, []);
 }
 
-const EXPORT_EXT: Record<string, string> = { mp4: ".mp4", hevc: ".mp4", webm: ".webm", gif: ".gif", m4a: ".m4a" };
+const EXPORT_EXT: Record<string, string> = { mp4: ".mp4", hevc: ".mp4", webm: ".webm", gif: ".gif", m4a: ".m4a", wav: ".wav" };
 
 // editedPath is <dir>\<name>-edited<ext> for the first file ("" without one).
 function editedPath(first: string, ext = ".mp4"): string {

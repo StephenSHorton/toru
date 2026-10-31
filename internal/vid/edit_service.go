@@ -487,6 +487,51 @@ func (s *VideoService) PickExportPath(sourcePath string) (string, error) {
 	return chosen, nil
 }
 
+// PickAudioExportPath shows the Save As dialog for a clip's sound (Save
+// audio as file), suggesting <name>-audio.m4a in sourcePath's folder, with
+// M4A and WAV to choose from. It returns the chosen path, ending in .m4a or
+// .wav (anything else gets .m4a added), or "" when cancelled.
+func (s *VideoService) PickAudioExportPath(sourcePath string) (string, error) {
+	app := application.Get()
+	if app == nil {
+		return "", errors.New("save as: no running application")
+	}
+	dlg := app.Dialog.SaveFile().
+		SetFilename(audioName(sourcePath)).
+		AddFilter("M4A Audio", "*.m4a").
+		AddFilter("WAV Audio", "*.wav")
+	if dir := filepath.Dir(sourcePath); sourcePath != "" && dir != "" {
+		dlg.SetDirectory(dir)
+	}
+	if cur := app.Window.Current(); cur != nil {
+		dlg.AttachToWindow(cur)
+	}
+	chosen, err := dlg.PromptForSingleSelection()
+	if err != nil || chosen == "" {
+		return "", nil // cancelled (the dialog reports cancel as an error)
+	}
+	return audioPath(chosen), nil
+}
+
+// audioName is the Save As suggestion for the sound of src.
+func audioName(src string) string {
+	base := filepath.Base(src)
+	name := strings.TrimSuffix(base, filepath.Ext(base))
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		return "audio.m4a"
+	}
+	return name + "-audio.m4a"
+}
+
+// audioPath makes a chosen path end in .m4a or .wav.
+func audioPath(p string) string {
+	switch strings.ToLower(filepath.Ext(p)) {
+	case ".m4a", ".wav":
+		return p
+	}
+	return p + ".m4a"
+}
+
 // editedName is the Save As suggestion for an export of src.
 func editedName(src string) string {
 	base := filepath.Base(src)

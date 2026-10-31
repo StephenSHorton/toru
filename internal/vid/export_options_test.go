@@ -30,6 +30,7 @@ func TestExportOptionsValidate(t *testing.T) {
 		{ExportOptions{Format: FormatWebM, Kbps: 4000, NoAudio: true}, `C:\out\a.webm`},
 		{ExportOptions{Format: FormatGIF, RangeIn: 1000, RangeOut: 3000, GIF: GIFOptions{FPS: 12, Width: 320, Loop: -1, Dither: "bayer", Colors: 64}}, `C:\out\a.gif`},
 		{ExportOptions{Format: FormatM4A, AudioKbps: 256, SampleRate: 44100}, `C:\out\a.m4a`},
+		{ExportOptions{Format: FormatWAV, SampleRate: 44100}, `C:\out\a.wav`},
 		{ExportOptions{Format: FormatMP4, Height: 720}, `C:\out\a.mp4`},
 	}
 	for _, c := range ok {
@@ -52,6 +53,8 @@ func TestExportOptionsValidate(t *testing.T) {
 		{ExportOptions{Format: FormatMP4, Encoder: "libvpx-vp9"}, `C:\out\a.mp4`, "can't make mp4"},
 		{ExportOptions{Format: FormatMP4, SampleRate: 22050}, `C:\out\a.mp4`, "sample rate"},
 		{ExportOptions{Format: FormatM4A, NoAudio: true}, `C:\out\a.m4a`, "needs its audio"},
+		{ExportOptions{Format: FormatWAV, NoAudio: true}, `C:\out\a.wav`, "needs its audio"},
+		{ExportOptions{Format: FormatWAV}, `C:\out\a.m4a`, "needs a .wav"},
 		{ExportOptions{Format: FormatMP4, RangeIn: 3000, RangeOut: 2000}, `C:\out\a.mp4`, "range"},
 		{ExportOptions{Format: FormatMP4, RangeOut: 999999}, `C:\out\a.mp4`, "range"},
 		{ExportOptions{Format: FormatGIF, GIF: GIFOptions{Colors: 300}}, `C:\out\a.gif`, "colours"},
@@ -255,6 +258,31 @@ func TestExportOptionsInFFmpeg(t *testing.T) {
 		t.Errorf("m4a: %s at %s Hz", kinds(a), a.Streams[0].SampleRate)
 	}
 	near("m4a length", dur(a), 1.5, 0.1)
+
+	w := run("audio-wav", ExportOptions{Format: FormatWAV, SampleRate: 44100, RangeIn: 500})
+	if kinds(w) != "audio:pcm_s16le" || w.Streams[0].SampleRate != "44100" {
+		t.Errorf("wav: %s at %s Hz", kinds(w), w.Streams[0].SampleRate)
+	}
+	near("wav length", dur(w), 2.5, 0.05)
+
+	// Save audio as file: the clip's sound alone, on an audio track under an
+	// empty video track (the editor's soundProject), at 2x.
+	full := project
+	project = ProjectJSON{
+		Version: 3,
+		Canvas:  full.Canvas,
+		Media:   full.Media,
+		Tracks: []TrackJSON{{ID: "v", Kind: "video"}, {ID: "a", Kind: "audio", Clips: []ClipJSON{{ID: "s", Media: "m", In: 0, Out: 3000, Speed: 2, Volume: 1,
+			Transform: TransformJSON{X: 0.5, Y: 0.5, Scale: 1, Opacity: 1}}}}},
+	}
+	for _, f := range []string{FormatM4A, FormatWAV} {
+		p := run("sound-"+f, ExportOptions{Format: f})
+		want := map[string]string{FormatM4A: "audio:aac", FormatWAV: "audio:pcm_s16le"}[f]
+		if kinds(p) != want {
+			t.Errorf("sound %s: %s, want %s", f, kinds(p), want)
+		}
+		near("sound "+f+" length", dur(p), 1.5, 0.1)
+	}
 }
 
 func TestExportPath(t *testing.T) {

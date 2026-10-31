@@ -1,13 +1,21 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  ArrowLeftToLine,
+  AudioLines,
+  Copy,
+  Download,
   Eye,
   EyeOff,
   Film,
+  Gauge,
   Image as ImageIcon,
   Lock,
   Music,
+  PanelRight,
   Plus,
+  Rewind,
   Scissors,
+  Snowflake,
   Trash2,
   Type,
   Unlock,
@@ -17,18 +25,23 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { greenScreen } from "@/trim/fx/ops";
 import { clipEffects } from "@/trim/fx/stack";
 import { KeyLane } from "@/trim/inspector/KeyLane";
+import type { TabId } from "@/trim/inspector/Inspector";
 import type { Text } from "@/trim/edl";
 import {
   addMedia,
   addTrack,
+  canExtractAudio,
   canHold,
   clipEnd,
   clipLength,
   closeGap,
+  duplicateClip,
+  extractAudio,
   findClip,
   freezeFrame,
   insertClip,
@@ -42,6 +55,7 @@ import {
   setTrackFlags,
   splitAt,
   trimClip,
+  updateClip,
   upsertProjectText,
   type Clip,
   type Media,
@@ -63,7 +77,9 @@ import {
 // empty part of a track to seek. Drag a clip to move it in time or onto
 // another track of the same kind, drag its edges to trim it, drag a text bar
 // to move it or its ends to retime it. Drags snap to the playhead and clip
-// edges (hold Alt to not snap). Right-click a gap for Close gap. Drop media
+// edges (hold Alt to not snap). Right-click a clip for its menu (split,
+// duplicate, speed, freeze, reverse, extract audio, mute, delete...), a gap
+// for Close gap. Drop media
 // from the bin (application/x-toru-media = media id) onto a track.
 // Ctrl+wheel zooms around the pointer.
 // Keys (ignored while typing): S split (the selected clip's track, or every
@@ -90,8 +106,14 @@ export interface MultiTimelineProps {
   onAddText?: () => void;
   onEditText?: (id: string) => void; // double-click a text bar
   keyboard?: boolean; // default true; false when a dialog owns the keys
+  // The clip menu's "Open in inspector" / "Speed..." (tab) and "Save audio as
+  // file..."; the items are left out without them.
+  onOpenInspector?: (clipId: string, tab?: TabId) => void;
+  onSaveAudio?: (clipId: string) => void;
   className?: string;
 }
+
+type MenuState = { x: number; y: number; trackId: string } & ({ kind: "gap"; t: number } | { kind: "clip"; clipId: string });
 
 const HEADER_W = 172;
 const RULER_H = 20;
@@ -120,6 +142,8 @@ export function MultiTimeline({
   onAddText,
   onEditText,
   keyboard = true,
+  onOpenInspector,
+  onSaveAudio,
   className,
 }: MultiTimelineProps) {
   const dur = projectDuration(p);
@@ -130,7 +154,7 @@ export function MultiTimeline({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [viewW, setViewW] = useState(0);
-  const [menu, setMenu] = useState<{ x: number; y: number; trackId: string; t: number } | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
   const [dropAt, setDropAt] = useState<{ trackId: string; t: number } | null>(null);
   const [snapLine, setSnapLine] = useState<number | null>(null);
 
@@ -484,13 +508,14 @@ export function MultiTimeline({
     });
   };
 
-  // Close the menu on any outside press.
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    window.addEventListener("pointerdown", close);
-    return () => window.removeEventListener("pointerdown", close);
-  }, [menu]);
+  // --- right-click menus -------------------------------------------------------
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const menuItems = (m: MenuState): ContextMenuItem[] => {
+    if (m.kind === "gap") return [{ label: "Close gap", icon: ArrowLeftToLine, onSelect: () => apply((q) => closeGap(q, m.trackId, m.t)) }];
+    const hit = findClip(p, m.clipId);
+    if (!hit) return [];
+    return clipMenu(p, hit.track, hit.clip, outTime, { apply, onSelect, onOpenInspector, onSaveAudio });
+  };
 
   const ticks = rulerTicks(span, pxPerSec);
   const totalRowsH = rows.reduce((h, t) => h + ROW_H[t.kind], 0);
@@ -642,7 +667,7 @@ export function MultiTimeline({
                   const t = timeAt(e.clientX);
                   if (track.locked || closeGap(p, track.id, t) === p) return;
                   e.preventDefault();
-                  setMenu({ x: e.clientX, y: e.clientY, trackId: track.id, t });
+                  setMenu({ kind: "gap", x: e.clientX, y: e.clientY, trackId: track.id, t });
                 }}
                 onDragOver={(e) => onRowDragOver(e, track)}
                 onDragLeave={() => setDropAt((d) => (d?.trackId === track.id ? null : d))}
@@ -659,6 +684,12 @@ export function MultiTimeline({
                     selected={selection?.kind === "clip" && selection.id === c.id}
                     onBody={(e) => startClipDrag(e, track, c)}
                     onEdge={(e, edge) => startEdgeDrag(e, track, c, edge)}
+                    onMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onSelect({ kind: "clip", id: c.id });
+                      setMenu({ kind: "clip", x: e.clientX, y: e.clientY, trackId: track.id, clipId: c.id });
+                    }}
                   />
                 ))}
                 {track.clips.map((c) =>
@@ -694,24 +725,7 @@ export function MultiTimeline({
         </div>
       </div>
 
-      {menu ? (
-        <div
-          className="fixed z-50 border border-border bg-popover py-1 text-xs text-popover-foreground shadow-lg"
-          style={{ left: menu.x, top: menu.y }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            className="block w-full px-3 py-1.5 text-left hover:bg-accent"
-            onClick={() => {
-              apply((q) => closeGap(q, menu.trackId, menu.t));
-              setMenu(null);
-            }}
-          >
-            Close gap
-          </button>
-        </div>
-      ) : null}
+      {menu ? <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu)} onClose={closeMenu} label={menu.kind === "clip" ? "Clip" : "Track"} /> : null}
     </div>
   );
 }
@@ -796,6 +810,7 @@ function ClipBox({
   selected,
   onBody,
   onEdge,
+  onMenu,
 }: {
   clip: Clip;
   media: Media | undefined;
@@ -805,6 +820,7 @@ function ClipBox({
   selected: boolean;
   onBody: (e: React.PointerEvent) => void;
   onEdge: (e: React.PointerEvent, edge: "start" | "end") => void;
+  onMenu: (e: React.MouseEvent) => void;
 }) {
   const kind = track.kind === "audio" ? "audio" : (media?.kind ?? "video");
   const color = KIND_COLOR[kind];
@@ -827,6 +843,7 @@ function ClipBox({
       style={{ left, width: Math.max(2, width), background: `${color}40`, borderTop: `3px solid ${color}` }}
       title={`${name} · ${fmtTime(c.start)} – ${fmtTime(c.start + len)} (${fmtTime(len)})${c.speed !== 1 ? ` · ${c.speed}x` : ""}. Drag to move, drag the edges to trim.`}
       onPointerDown={onBody}
+      onContextMenu={onMenu}
     >
       {fadeInW > 1 ? (
         <div className="pointer-events-none absolute inset-y-0 left-0 bg-[linear-gradient(to_bottom_right,rgb(0_0_0/0.45)_50%,transparent_50%)]" style={{ width: fadeInW }} />
@@ -855,6 +872,134 @@ function ClipBox({
       ) : null}
     </div>
   );
+}
+
+// clipMenu is a clip's right-click menu. Each action is one undo step; an
+// item that can't apply here is disabled, with why as its tooltip.
+function clipMenu(
+  p: Project,
+  track: Track,
+  c: Clip,
+  playhead: number,
+  h: {
+    apply: MultiTimelineProps["apply"];
+    onSelect: MultiTimelineProps["onSelect"];
+    onOpenInspector?: MultiTimelineProps["onOpenInspector"];
+    onSaveAudio?: MultiTimelineProps["onSaveAudio"];
+  },
+): ContextMenuItem[] {
+  const m = mediaById(p, c.media);
+  const locked = track.locked;
+  const lockedHint = "The track is locked";
+  const isImage = m?.kind === "image";
+  const hasSound = !!m && !c.hold && (m.kind === "audio" || (m.kind === "video" && m.hasAudio));
+  const under = playhead >= c.start - 1e-6 && playhead < clipEnd(c) - 1e-6;
+  const canSplit = !locked && under && findClip(splitAt(p, playhead, track.id), c.id)?.clip !== c;
+  const canFreeze = !locked && under && freezeFrame(p, track.id, playhead) !== p;
+  const extractHint = locked
+    ? lockedHint
+    : track.kind === "audio" || m?.kind === "audio"
+      ? "This clip is already audio"
+      : c.hold
+        ? "A freeze frame has no sound"
+        : !m?.hasAudio
+          ? "This clip has no sound"
+          : c.muted
+            ? "The clip is muted: unmute it first"
+            : "Move the sound to its own audio track";
+  const items: ContextMenuItem[] = [
+    {
+      label: "Split at playhead",
+      icon: Scissors,
+      shortcut: "S",
+      disabled: !canSplit,
+      hint: locked ? lockedHint : !canSplit ? "Move the playhead inside the clip" : undefined,
+      onSelect: () => h.apply((q) => splitAt(q, playhead, track.id)),
+    },
+    { label: "Duplicate", icon: Copy, disabled: locked, hint: locked ? lockedHint : undefined, onSelect: () => h.apply((q) => duplicateClip(q, c.id)) },
+    { kind: "separator" },
+  ];
+  if (h.onOpenInspector) {
+    items.push({
+      label: "Speed…",
+      icon: Gauge,
+      disabled: isImage,
+      hint: isImage ? "An image has no speed" : undefined,
+      onSelect: () => h.onOpenInspector?.(c.id, "speed"),
+    });
+  }
+  items.push(
+    {
+      label: "Freeze frame",
+      icon: Snowflake,
+      shortcut: "F",
+      disabled: !canFreeze,
+      hint: locked ? lockedHint : !canFreeze ? "Move the playhead over a video clip" : undefined,
+      onSelect: () => h.apply((q) => freezeFrame(q, track.id, playhead)),
+    },
+    {
+      label: c.reversed ? "Play forwards" : "Reverse",
+      icon: Rewind,
+      disabled: locked || isImage || !!c.hold,
+      hint: locked ? lockedHint : isImage || c.hold ? "A still has no direction" : undefined,
+      onSelect: () => h.apply((q) => updateClip(q, c.id, { reversed: !c.reversed })),
+    },
+    { kind: "separator" },
+    {
+      label: "Extract audio",
+      icon: AudioLines,
+      disabled: !canExtractAudio(p, c.id),
+      hint: extractHint,
+      onSelect: () => h.apply((q) => extractAudio(q, c.id)),
+    },
+  );
+  if (h.onSaveAudio) {
+    items.push({
+      label: "Save audio as file…",
+      icon: Download,
+      disabled: !hasSound,
+      hint: hasSound ? "M4A or WAV" : "This clip has no sound",
+      onSelect: () => h.onSaveAudio?.(c.id),
+    });
+  }
+  items.push(
+    {
+      label: c.muted ? "Unmute" : "Mute",
+      icon: c.muted ? Volume2 : VolumeX,
+      disabled: locked || !hasSound,
+      hint: locked ? lockedHint : !hasSound ? "This clip has no sound" : undefined,
+      onSelect: () => h.apply((q) => updateClip(q, c.id, { muted: !c.muted })),
+    },
+    { kind: "separator" },
+  );
+  if (h.onOpenInspector) items.push({ label: "Open in inspector", icon: PanelRight, onSelect: () => h.onOpenInspector?.(c.id) });
+  items.push(
+    {
+      label: "Delete",
+      icon: Trash2,
+      shortcut: "Del",
+      destructive: true,
+      disabled: locked,
+      hint: locked ? lockedHint : "Leaves a gap",
+      onSelect: () => {
+        h.apply((q) => removeClip(q, c.id));
+        h.onSelect(null);
+      },
+    },
+    {
+      label: "Ripple delete",
+      icon: Trash2,
+      shortcut: "Shift+Del",
+      destructive: true,
+      disabled: locked,
+      hint: locked ? lockedHint : "Pulls the rest of the track left",
+      onSelect: () => {
+        h.apply((q) => rippleDelete(q, c.id));
+        h.onSelect(null);
+      },
+    },
+  );
+  return items;
 }
 
 const rowDomId = (trackId: string) => `mt-row-${trackId}`;

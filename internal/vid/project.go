@@ -277,7 +277,7 @@ func (req ProjectExport) Validate() error {
 		if err := req.Options.validate(ProjectDurationMs(p), req.OutPath); err != nil {
 			return err
 		}
-		if req.Preset == "discord" && (req.Options.Format == FormatGIF || req.Options.Format == FormatM4A) {
+		if req.Preset == "discord" && (req.Options.Format == FormatGIF || req.Options.audioOnly()) {
 			return fmt.Errorf("export: the Discord fit is for video, not %s", req.Options.Format)
 		}
 	}

@@ -11,7 +11,7 @@ import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
 import { useEditorAgentCommands } from "@/trim/agentCommands";
 import { newId } from "@/trim/edl";
 import { ExportDialog } from "@/trim/ExportDialog";
-import { Inspector } from "@/trim/inspector/Inspector";
+import { Inspector, type TabId } from "@/trim/inspector/Inspector";
 import { migrateProject } from "@/trim/migrate";
 import { MediaBin, toMedia, useMediaBin } from "@/trim/MediaBin";
 import { MultiTimeline, type TimelineSelection } from "@/trim/MultiTimeline";
@@ -20,6 +20,8 @@ import {
   addMedia,
   appendClip,
   DEFAULT_CANVAS,
+  findClip,
+  mediaById,
   newProject,
   projectDuration,
   removeProjectText,
@@ -30,6 +32,7 @@ import {
   type Media,
   type Project,
 } from "@/trim/project";
+import { soundExportRequest } from "@/trim/saveAudio";
 import { TextOverlays } from "@/trim/TextOverlays";
 
 // Video editor window, v2 (docs/video-editor-v2.md): the media bin on the
@@ -201,6 +204,30 @@ export default function EditVideo() {
   }, [project.crop, project.canvas.width]);
   const firstPath = project.media.find((m) => m.kind !== "audio")?.path ?? project.media[0]?.path ?? absPath;
 
+  // The clip menu's "Open in inspector" / "Speed…" and "Save audio as file…".
+  const [tabRequest, setTabRequest] = useState<{ tab: TabId; seq: number }>();
+  const openInspector = useCallback((clipId: string, tab?: TabId) => {
+    setSelection({ kind: "clip", id: clipId });
+    if (tab) setTabRequest((r) => ({ tab, seq: (r?.seq ?? 0) + 1 }));
+  }, []);
+  const [audioNote, setAudioNote] = useState("");
+  const saveAudio = useCallback(
+    async (clipId: string) => {
+      const hit = findClip(project, clipId);
+      const src = (hit && mediaById(project, hit.clip.media)?.path) || firstPath;
+      const out = await VideoService.PickAudioExportPath(src).catch(() => "");
+      if (!out) return;
+      setAudioNote("Saving audio…");
+      try {
+        await VideoService.ExportProject(ProjectExport.createFrom(soundExportRequest(project, clipId, out)));
+        setAudioNote(`Saved ${baseName(out)}`);
+      } catch (err) {
+        setAudioNote(`Couldn't save the audio: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+    [project, firstPath],
+  );
+
   // Space plays/pauses; Esc leaves crop mode. The timeline has the edit keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -302,6 +329,7 @@ export default function EditVideo() {
             <span className="text-[11px] text-muted-foreground">
               {cw}×{ch} · {Math.round(project.canvas.fps * 100) / 100} fps
               {saveNote ? <span className={cn("ml-2", saveNote.startsWith("Couldn") && "text-destructive")}>· {saveNote}</span> : null}
+              {audioNote ? <span className={cn("ml-2", audioNote.startsWith("Couldn") && "text-destructive")}>· {audioNote}</span> : null}
             </span>
             <div className="ml-auto flex items-center gap-1">
               <Button
@@ -338,7 +366,7 @@ export default function EditVideo() {
           </div>
         </div>
 
-        <Inspector project={project} clipId={selectedClip} apply={apply} playhead={pb.time} onSeek={pb.seek} picking={picking} onPickingChange={setPicking} className="frost w-80 shrink-0" />
+        <Inspector project={project} clipId={selectedClip} apply={apply} playhead={pb.time} onSeek={pb.seek} picking={picking} onPickingChange={setPicking} tabRequest={tabRequest} className="frost w-80 shrink-0" />
       </div>
 
       <div className="frost m-2 p-2">
@@ -357,6 +385,8 @@ export default function EditVideo() {
           onAddText={addText}
           onEditText={editText}
           keyboard={!exportOpen}
+          onOpenInspector={openInspector}
+          onSaveAudio={(id) => void saveAudio(id)}
         />
       </div>
 

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AudioLines, Film, Gauge, Lock, Palette, SlidersHorizontal, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { setValue, toggleKey, valueOf, type KeyRef } from "@/trim/fx/ops";
@@ -31,6 +31,8 @@ export interface InspectorProps {
   onSeek: (t: number) => void;
   picking?: boolean; // the eyedropper is waiting for a click on the player
   onPickingChange?: (on: boolean) => void;
+  // Shows a tab (the clip menu's "Speed…"); a new seq asks again.
+  tabRequest?: { tab: TabId; seq: number };
   className?: string;
 }
 
@@ -70,9 +72,15 @@ export function tabsFor(track: Track, media: Media | undefined): TabId[] {
   return media?.hasAudio === false ? ["video", "adjust", "filters", "effects", "speed"] : ["video", "adjust", "filters", "effects", "speed", "audio"];
 }
 
-export function Inspector({ project, clipId, apply, playhead, onSeek, picking, onPickingChange, className }: InspectorProps) {
+export function Inspector({ project, clipId, apply, playhead, onSeek, picking, onPickingChange, tabRequest, className }: InspectorProps) {
   const gesture = useRef(0);
   const [tab, setTab] = useState<TabId>(() => readTab());
+  const asked = tabRequest?.seq ?? 0;
+  useEffect(() => {
+    if (tabRequest) setTab(tabRequest.tab);
+    // Only a new request switches; the tab is the person's after that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked]);
   const hit = clipId ? findClip(project, clipId) : undefined;
   if (!hit) {
     return (
