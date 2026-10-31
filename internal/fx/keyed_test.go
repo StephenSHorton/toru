@@ -81,11 +81,14 @@ func TestKeyedMatchesStatic(t *testing.T) {
 	const fps, frames = 30, 31
 	ramp := func(a, b any) []Key { return []Key{{T: 100, V: a, Ease: "inOut"}, {T: 800, V: b}} }
 	cases := map[string][]Effect{
-		"adjust exposure + sharpen": {{Type: "adjust", Params: map[string]any{"contrast": 1.2}, Keys: map[string][]Key{"exposure": ramp(-1.0, 1.5), "sharpen": ramp(0.0, 1.0)}}},
-		"look amount":               {{Type: "look", Params: map[string]any{"look": "sepia"}, Keys: map[string][]Key{"amount": ramp(0.0, 1.0)}}},
-		"gaussian blur sigma":       {{Type: "gaussianBlur", Keys: map[string][]Key{"sigma": ramp(0.0, 12.0)}}},
-		"green screen similarity":   {{Type: "chromaKey", Keys: map[string][]Key{"similarity": ramp(0.05, 0.6), "color": ramp("#00ff00", "#3cc850")}}},
-		"rgb split":                 {{Type: "rgbSplit", Keys: map[string][]Key{"amount": ramp(0.0, 40.0), "angle": ramp(0.0, 200.0)}}},
+		"adjust exposure + sharpen":  {{Type: "adjust", Params: map[string]any{"contrast": 1.2}, Keys: map[string][]Key{"exposure": ramp(-1.0, 1.5), "sharpen": ramp(0.0, 1.0)}}},
+		"look amount":                {{Type: "look", Params: map[string]any{"look": "sepia"}, Keys: map[string][]Key{"amount": ramp(0.0, 1.0)}}},
+		"gaussian blur sigma":        {{Type: "gaussianBlur", Keys: map[string][]Key{"sigma": ramp(0.0, 12.0)}}},
+		"green screen similarity":    {{Type: "chromaKey", Keys: map[string][]Key{"similarity": ramp(0.05, 0.6), "color": ramp("#00ff00", "#3cc850")}}},
+		"rgb split":                  {{Type: "rgbSplit", Keys: map[string][]Key{"amount": ramp(0.0, 40.0), "angle": ramp(0.0, 200.0)}}},
+		"adjust, only sharpen keyed": {{Type: "adjust", Keys: map[string][]Key{"sharpen": ramp(0.0, 1.0)}}},
+		"keyed in a 50% group": {{Type: "adjust", Group: "g", Amount: 0.5, Keys: map[string][]Key{"exposure": ramp(-1.0, 1.0)}},
+			{Type: "chromaKey", Group: "g", Amount: 0.5, Keys: map[string][]Key{"similarity": ramp(0.05, 0.6)}}},
 	}
 	render := func(fx []Effect, ctx Ctx, n int) []byte {
 		t.Helper()
@@ -106,7 +109,10 @@ func TestKeyedMatchesStatic(t *testing.T) {
 	}
 	for name, fx := range cases {
 		for k := range fx {
-			fx[k].Enabled, fx[k].Amount = true, 1
+			fx[k].Enabled = true
+			if fx[k].Amount == 0 {
+				fx[k].Amount = 1
+			}
 		}
 		keyed := Ctx{W: 320, H: 180, FPS: fps, Frames: frames}
 		for _, n := range []int{0, 3, 9, 14, 20, 24, 30} {
@@ -115,7 +121,7 @@ func TestKeyedMatchesStatic(t *testing.T) {
 			for k, e := range fx {
 				d, _ := Lookup(e.Type)
 				at, _ := keyedParams(d, e)
-				static[k] = Effect{Type: e.Type, Enabled: true, Amount: 1, Params: at(n, fps)}
+				static[k] = Effect{Type: e.Type, Enabled: true, Amount: e.Amount, Group: e.Group, Params: at(n, fps)}
 			}
 			if want := render(static, Ctx{W: 320, H: 180}, n); !bytes.Equal(got, want) {
 				diff := 0
