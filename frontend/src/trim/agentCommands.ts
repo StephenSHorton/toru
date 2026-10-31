@@ -4,12 +4,14 @@ import {
   ArrowLeftRight,
   ArrowLeftToLine,
   AudioLines,
+  Bold,
   Copy,
   Crop,
   Crosshair,
   Download,
   EyeOff,
   FileUp,
+  Italic,
   Gauge,
   Lock,
   PanelRight,
@@ -831,17 +833,38 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
           },
         }),
         // The person types the words in the text editor.
-        ui: {
-          id: "text.add",
-          label: (c) => (c.from === "menu" && c.t !== c.playhead ? "Add text here" : "Add text"),
-          group: "Insert",
-          icon: Type,
-          keywords: "title caption words overlay",
-          scopes: ["gap", "viewer"],
-          hidden: noUi,
-          enabled: (c) => (projectDuration(c.project) > 0 ? true : "Add a clip first"),
-          run: (c) => d().ui?.addText(c.t),
-        },
+        ui: [
+          {
+            id: "text.add",
+            label: (c) => (c.from === "menu" && c.t !== c.playhead ? "Add text here" : "Add text"),
+            group: "Insert",
+            icon: Type,
+            keywords: "title caption words overlay",
+            scopes: ["gap", "viewer"],
+            hidden: noUi,
+            enabled: (c) => (projectDuration(c.project) > 0 ? true : "Add a clip first"),
+            run: (c) => d().ui?.addText(c.t),
+          },
+          // Style toggles for the selected text (the Text inspector has the rest).
+          ...(
+            [
+              ["bold", "Bold", Bold, "Ctrl+B"],
+              ["italic", "Italic", Italic, "Ctrl+I"],
+            ] as const
+          ).map(([k, label, icon, shortcut]) => {
+            const on = (c: ActionCtx) => !!c.project.texts.find((t) => t.id === c.textId)?.style?.[k];
+            return {
+              id: `text.${k}`,
+              label: (c: ActionCtx) => (on(c) ? `${label} off` : label),
+              group: "Edit" as const,
+              icon,
+              shortcut,
+              keywords: "text style font",
+              hidden: (c: ActionCtx) => !c.textId,
+              args: (c: ActionCtx) => ({ id: c.textId, style: { [k]: !on(c) } }),
+            };
+          }),
+        ],
       },
       async (input: {
         id?: string;
