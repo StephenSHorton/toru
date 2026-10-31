@@ -17,6 +17,7 @@
     "test:migration": "bun scripts/migration-golden.ts",
     "test:fx-presets": "bun scripts/fx-presets-check.ts",
     "test:clip-menu": "bun scripts/clip-menu-check.ts",
+    "test:canvas": "bun scripts/canvas-check.ts",
     "test:waveform": "bun scripts/waveform-check.ts",
     "test:colorspace": "bun scripts/colorspace-check.ts"
   },

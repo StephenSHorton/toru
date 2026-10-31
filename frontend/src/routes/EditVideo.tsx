@@ -9,6 +9,7 @@ import { Compositor, type CompositorHandle } from "@/trim/compositor/Compositor"
 import { usePlayback } from "@/trim/compositor/usePlayback";
 import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
 import { useEditorAgentCommands } from "@/trim/agentCommands";
+import { CanvasSettings, GuidesButton, SafeAreaGuides } from "@/trim/CanvasSettings";
 import { newId } from "@/trim/edl";
 import { ExportDialog } from "@/trim/ExportDialog";
 import { EffectBrowser } from "@/trim/inspector/EffectsTab";
@@ -144,6 +145,7 @@ export default function EditVideo() {
   const compositor = useRef<CompositorHandle | null>(null);
   const canvasBox = useElementBox(canvas, paneRef);
 
+  const [guides, setGuides] = useState(false);
   const cw = project.canvas.width;
   const ch = project.canvas.height;
   const crop = project.crop;
@@ -356,6 +358,7 @@ export default function EditVideo() {
               />
             ) : null}
             {ready && !cropMode && crop ? <CropMask box={canvasBox} cropBox={outBox} /> : null}
+            {ready && guides && !cropMode ? <SafeAreaGuides box={outBox} frameW={outW} frameH={outH} /> : null}
             {ready && !cropMode && !picking ? (
               <TextOverlays
                 texts={project.texts}
@@ -381,12 +384,13 @@ export default function EditVideo() {
             <span className={cn("whitespace-nowrap text-xs tabular-nums text-muted-foreground", duration <= 0 && "invisible")}>
               {fmtTime(pb.time)} / {fmtTime(duration)}
             </span>
+            <CanvasSettings project={project} apply={apply} disabled={!ready} />
             <span className="text-[11px] text-muted-foreground">
-              {cw}×{ch} · {Math.round(project.canvas.fps * 100) / 100} fps
               {saveNote ? <span className={cn("ml-2", saveNote.startsWith("Couldn") && "text-destructive")}>· {saveNote}</span> : null}
               {audioNote ? <span className={cn("ml-2", audioNote.startsWith("Couldn") && "text-destructive")}>· {audioNote}</span> : null}
             </span>
             <div className="ml-auto flex items-center gap-1">
+              <GuidesButton on={guides} onChange={setGuides} />
               <Button
                 size="sm"
                 variant={cropMode ? "default" : crop ? "secondary" : "ghost"}

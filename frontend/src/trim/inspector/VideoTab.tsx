@@ -1,8 +1,10 @@
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { placeClip, type ClipPlace } from "@/trim/canvas";
 import { defOf, resolveParams } from "@/trim/fx/registry";
-import { greenScreen, resetEffect, setGreenScreen, setKeys } from "@/trim/fx/ops";
+import { greenScreen, resetEffect, setGreenScreen } from "@/trim/fx/ops";
 import { clipEffects } from "@/trim/fx/stack";
-import { FIT, updateClip, type AnimTarget, type Project } from "@/trim/project";
+import type { AnimTarget, Project } from "@/trim/project";
 import { NumberRow, ParamControl, ResetButton, Section } from "@/trim/inspector/controls";
 import type { TabProps } from "@/trim/inspector/Inspector";
 
@@ -18,6 +20,11 @@ const TRANSFORM: { target: AnimTarget; label: string; min: number; max: number; 
   { target: "opacity", label: "Opacity", min: 0, max: 1, step: 0.01, scale: 100, unit: "%", def: 1 },
 ];
 
+const PLACES: { mode: ClipPlace; label: string; title: string }[] = [
+  { mode: "fill", label: "Fill frame", title: "Cover the whole frame, centred, cropping what sticks out" },
+  { mode: "fit", label: "Fit frame", title: "Show the whole picture inside the frame, centred" },
+];
+
 export function VideoTab(props: TabProps) {
   const { clip: c, edit, keys, set, value, picking, onPickingChange } = props;
   const fx = clipEffects(c);
@@ -25,15 +32,18 @@ export function VideoTab(props: TabProps) {
   const keyDef = key && defOf(key.type);
   const keyParams = key && keyDef ? resolveParams(keyDef, key.params) : undefined;
 
-  const fit = (p: Project) => {
-    let q = p;
-    for (const tr of TRANSFORM) q = setKeys(q, c.id, { anim: tr.target }, undefined);
-    return updateClip(q, c.id, { transform: { ...FIT } });
-  };
+  const place = (mode: ClipPlace) => edit((p: Project) => placeClip(p, c.id, mode), `place.${mode}`);
 
   return (
     <>
-      <Section title="Transform" action={<ResetButton onClick={() => edit(fit, "fit")} label="Fit" title="Fit to the canvas, centred, fully opaque (drops transform keyframes)" />}>
+      <Section title="Transform" action={<ResetButton onClick={() => place("reset")} label="Reset" title="Back to the default: fitted, centred, upright, fully opaque (drops transform keyframes)" />}>
+        <div className="flex gap-1" role="group" aria-label="Place on the frame">
+          {PLACES.map((p) => (
+            <Button key={p.mode} size="sm" variant="outline" className="h-7 flex-1 text-[11px]" onClick={() => place(p.mode)} title={p.title}>
+              {p.label}
+            </Button>
+          ))}
+        </div>
         {TRANSFORM.map((tr) => (
           <NumberRow
             key={tr.target}
