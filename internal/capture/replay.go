@@ -161,9 +161,25 @@ func replayTrackTitles(a ReplayAudio) []string {
 	return titles
 }
 
+// ReplayAllDisplays as ReplayConfig.MonitorID captures every monitor, laid out
+// as on the virtual desktop, into one frame.
+const ReplayAllDisplays = -2
+
+// replayMaxWidthH264 is the widest frame H.264 (and AV1 on some GPUs) hardware
+// encoders take; HEVC goes to 8192. Only All displays can exceed it.
+const replayMaxWidthH264 = 4096
+
+// replaySource is one ddagrab input: its DXGI output and where it sits in the
+// captured frame (offset from the top-left of every captured monitor).
+type replaySource struct {
+	DDAIdx int
+	X, Y   int
+	W, H   int
+}
+
 // ReplayConfig is everything the buffer needs to run.
 type ReplayConfig struct {
-	MonitorID     int    // ScreenInfo.ID; <0 or unknown = primary monitor
+	MonitorID     int    // ScreenInfo.ID; ReplayAllDisplays = every monitor; other <0 or unknown = primary
 	FPS           int    // capture + encode framerate
 	Height        int    // output height in px; 0 (or >= native) = native, zero-copy
 	BitrateKbps   int    // constant video bitrate
@@ -301,13 +317,22 @@ func (b *ReplayBuffer) Start(cfg ReplayConfig) error {
 		b.setStatus(func(s *ReplayStatus) { *s = ReplayStatus{Error: err.Error()} })
 		return err
 	}
-	screen, ddaIdx, err := replayScreen(enumScreens(), cfg.MonitorID)
+	srcs, frameW, frameH, err := replaySources(enumScreens(), cfg.MonitorID)
 	if err != nil {
 		b.setStatus(func(s *ReplayStatus) { *s = ReplayStatus{Error: err.Error()} })
 		return err
 	}
-	if cfg.Height >= screen.H {
+	if cfg.Height >= frameH {
 		cfg.Height = 0 // never upscale; native is also the zero-copy path
+	}
+	if frameW > replayMaxWidthH264 && cfg.Codec != ReplayCodecHEVC {
+		// Too wide for H.264/AV1 hardware encoders: HEVC takes it, or else
+		// scale the frame down until it fits.
+		if hevc, herr := replayEncoderFor(ReplayCodecHEVC); herr == nil {
+			cfg.Codec, enc = ReplayCodecHEVC, hevc
+		} else if h := fitHeight(frameW, frameH, replayMaxWidthH264); cfg.Height == 0 || cfg.Height > h {
+			cfg.Height = h
+		}
 	}
 	if cfg.Persist {
 		if err := os.MkdirAll(cfg.Dir, 0o755); err != nil {
@@ -326,7 +351,7 @@ func (b *ReplayBuffer) Start(cfg ReplayConfig) error {
 	b.mu.Unlock()
 	b.setStatus(func(s *ReplayStatus) { *s = ReplayStatus{Running: true, Encoder: enc} })
 
-	go b.supervise(bin, enc, ddaIdx, cfg, stop, done)
+	go b.supervise(bin, enc, srcs, cfg, stop, done)
 	return nil
 }
 
@@ -358,7 +383,7 @@ func (b *ReplayBuffer) Running() bool {
 
 // supervise runs ffmpeg until stop closes, restarting it when it dies or when
 // Discord's process changes (the audio graph targets a specific PID).
-func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, stop, done chan struct{}) {
+func (b *ReplayBuffer) supervise(bin, enc string, srcs []replaySource, cfg ReplayConfig, stop, done chan struct{}) {
 	defer close(done)
 	backoff := time.Second
 	watchDiscord := cfg.Audio.Desktop || cfg.Audio.Discord
@@ -392,7 +417,7 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 		}
 		sources, tracks := openReplayAudio(cfg.Audio, discordPID)
 
-		rec, zeroCopy, err := b.spawnReplay(bin, enc, ddaIdx, cfg, run, tracks)
+		rec, zeroCopy, err := b.spawnReplay(bin, enc, srcs, cfg, run, tracks)
 		if err != nil {
 			stopAudioSources(sources)
 			b.setStatus(func(s *ReplayStatus) { s.Recording = false; s.Error = err.Error() })
@@ -457,11 +482,11 @@ func (b *ReplayBuffer) supervise(bin, enc string, ddaIdx int, cfg ReplayConfig, 
 // eligible) and the hwdownload graph second. ddagrab occasionally fails its
 // first duplication right after another one closed, so each graph gets a
 // second attempt.
-func (b *ReplayBuffer) spawnReplay(bin, enc string, ddaIdx int, cfg ReplayConfig, run int, audio []replayAudioSrc) (*recording, bool, error) {
+func (b *ReplayBuffer) spawnReplay(bin, enc string, srcs []replaySource, cfg ReplayConfig, run int, audio []replayAudioSrc) (*recording, bool, error) {
 	pattern := filepath.Join(cfg.Dir, fmt.Sprintf("r%04d-%%08d%s", run, replaySegmentExt(cfg.Codec)))
 	var errs []error
-	for _, zeroCopy := range replayGraphCandidates(cfg, enc) {
-		args := BuildReplayArgs(ddaIdx, cfg, enc, zeroCopy, pattern, audio)
+	for _, zeroCopy := range replayGraphCandidates(cfg, enc, len(srcs)) {
+		args := BuildReplayArgs(srcs, cfg, enc, zeroCopy, pattern, audio)
 		if cfg.Persist {
 			// Per-segment start/end times, so the timeline knows exactly where
 			// each segment sits. The output pattern must stay the last arg.
@@ -505,10 +530,11 @@ func spawnReplayFFmpeg(bin string, args []string) (*recording, error) {
 }
 
 // replayGraphCandidates returns the video graphs to try: zero-copy first when
-// the output is native and the encoder takes D3D11 frames, then the
-// hwdownload (CPU) graph.
-func replayGraphCandidates(cfg ReplayConfig, enc string) []bool {
-	if cfg.Height == 0 && (strings.HasSuffix(enc, "_nvenc") || strings.HasSuffix(enc, "_amf")) {
+// the output is native, from one monitor, and the encoder takes D3D11 frames,
+// then the hwdownload (CPU) graph. Several monitors are always combined in
+// system memory: no D3D11 filter can stack them.
+func replayGraphCandidates(cfg ReplayConfig, enc string, sources int) []bool {
+	if sources == 1 && cfg.Height == 0 && (strings.HasSuffix(enc, "_nvenc") || strings.HasSuffix(enc, "_amf")) {
 		return []bool{true, false}
 	}
 	return []bool{false}
@@ -517,11 +543,29 @@ func replayGraphCandidates(cfg ReplayConfig, enc string) []bool {
 // BuildReplayArgs builds the segmenting ffmpeg args: the ddagrab video graph
 // plus the audio graph for audio (see replayAudioArgs). The output pattern is
 // the last arg. Kept pure for golden tests.
-func BuildReplayArgs(ddaIdx int, cfg ReplayConfig, enc string, zeroCopy bool, pattern string, audio []replayAudioSrc) []string {
-	graph := fmt.Sprintf("ddagrab=output_idx=%d:framerate=%d:draw_mouse=%s",
-		ddaIdx, cfg.FPS, boolToInt(cfg.IncludeCursor))
+func BuildReplayArgs(srcs []replaySource, cfg ReplayConfig, enc string, zeroCopy bool, pattern string, audio []replayAudioSrc) []string {
+	var graph string
+	if len(srcs) == 1 {
+		graph = fmt.Sprintf("ddagrab=output_idx=%d:framerate=%d:draw_mouse=%s",
+			srcs[0].DDAIdx, cfg.FPS, boolToInt(cfg.IncludeCursor))
+	} else {
+		// One ddagrab per monitor, each downloaded, then placed as on the
+		// desktop; gaps (monitors of different sizes) are black.
+		var ins, layout []string
+		for i, s := range srcs {
+			graph += fmt.Sprintf("ddagrab=output_idx=%d:framerate=%d:draw_mouse=%s,hwdownload,format=bgra[s%d];",
+				s.DDAIdx, cfg.FPS, boolToInt(cfg.IncludeCursor), i)
+			ins = append(ins, fmt.Sprintf("[s%d]", i))
+			layout = append(layout, fmt.Sprintf("%d_%d", s.X, s.Y))
+		}
+		graph += fmt.Sprintf("%sxstack=inputs=%d:layout=%s:fill=black",
+			strings.Join(ins, ""), len(srcs), strings.Join(layout, "|"))
+		zeroCopy = false
+	}
 	if !zeroCopy {
-		graph += ",hwdownload,format=bgra"
+		if len(srcs) == 1 {
+			graph += ",hwdownload,format=bgra"
+		}
 		if cfg.Height > 0 {
 			graph += fmt.Sprintf(",scale=-2:%d:flags=bilinear", cfg.Height)
 		}
@@ -658,6 +702,42 @@ func ReplayEncoderAvailable(codec string) bool {
 	return err == nil
 }
 
+// replaySources resolves what to capture: the one monitor replayScreen picks,
+// or with ReplayAllDisplays every monitor, offset from their shared top-left.
+// It also returns the captured frame's size.
+func replaySources(screens []ScreenInfo, id int) ([]replaySource, int, int, error) {
+	if id != ReplayAllDisplays || len(screens) < 2 {
+		screen, idx, err := replayScreen(screens, id)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		return []replaySource{{DDAIdx: idx, W: screen.W, H: screen.H}}, screen.W, screen.H, nil
+	}
+	minX, minY, maxX, maxY := screens[0].X, screens[0].Y, screens[0].X, screens[0].Y
+	for _, s := range screens {
+		minX, minY = min(minX, s.X), min(minY, s.Y)
+		maxX, maxY = max(maxX, s.X+s.W), max(maxY, s.Y+s.H)
+	}
+	srcs := make([]replaySource, 0, len(screens))
+	for _, s := range screens {
+		idx, ok := replayDDAIndex(s)
+		if !ok {
+			return nil, 0, 0, fmt.Errorf("replay: can't map monitor %d to a GPU output", s.ID)
+		}
+		srcs = append(srcs, replaySource{DDAIdx: idx, X: s.X - minX, Y: s.Y - minY, W: s.W, H: s.H})
+	}
+	return srcs, maxX - minX, maxY - minY, nil
+}
+
+// replayDDAIndex maps a monitor to its ddagrab output (a var for tests).
+var replayDDAIndex = DDAOutputIndex
+
+// fitHeight is the even output height that scales a w×h frame to at most
+// maxW wide.
+func fitHeight(w, h, maxW int) int {
+	return (h * maxW / w) &^ 1
+}
+
 // replayScreen resolves the monitor to capture and its ddagrab output index.
 func replayScreen(screens []ScreenInfo, id int) (ScreenInfo, int, error) {
 	var pick *ScreenInfo
@@ -681,7 +761,7 @@ func replayScreen(screens []ScreenInfo, id int) (ScreenInfo, int, error) {
 	if pick == nil {
 		return ScreenInfo{}, 0, fmt.Errorf("replay: no monitors found")
 	}
-	idx, ok := DDAOutputIndex(*pick)
+	idx, ok := replayDDAIndex(*pick)
 	if !ok {
 		return ScreenInfo{}, 0, fmt.Errorf("replay: can't map monitor %d to a GPU output", pick.ID)
 	}

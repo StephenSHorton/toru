@@ -59,6 +59,8 @@ const DISK_OPTIONS = [10, 25, 50, 100, 200, 500];
 function formatGB(bytes: number): string {
   return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
 }
+// monitorId for capturing every monitor in one frame (capture.ReplayAllDisplays).
+const ALL_DISPLAYS = -2;
 const FPS_OPTIONS = [30, 60, 120, 144];
 const RESOLUTIONS: { value: number; label: string }[] = [
   { value: 0, label: "Native (recommended)" },
@@ -437,7 +439,9 @@ export function ReplayPanel() {
   const session = settings.mode !== "replay";
   const saveKey = saveShortcut ? comboText(saveShortcut) : "";
   const monitorLabel =
-    settings.monitorId < 0
+    settings.monitorId === ALL_DISPLAYS
+      ? "All displays"
+      : settings.monitorId < 0
       ? "Primary display"
       : (monitors.find((m) => m.id === settings.monitorId)?.label.split(" · ")[0] ?? "Display");
   // Background/manual recording has its own quality, separate from instant replay.
@@ -840,6 +844,11 @@ export function ReplayPanel() {
               <option value={-1} className={optionClass}>
                 Primary display
               </option>
+              {monitors.length > 1 ? (
+                <option value={ALL_DISPLAYS} className={optionClass}>
+                  All displays
+                </option>
+              ) : null}
               {monitors.map((m) => (
                 <option key={m.id} value={m.id} className={optionClass}>
                   {m.label}

@@ -53,7 +53,7 @@ type Settings struct {
 	RecordingNotices bool `json:"recordingNotices"`
 
 	DurationSec   int    `json:"durationSec"`   // clip length the hotkey saves (= the window kept)
-	MonitorID     int    `json:"monitorId"`     // capture.ScreenInfo.ID; -1 = primary
+	MonitorID     int    `json:"monitorId"`     // capture.ScreenInfo.ID; -1 = primary, -2 = all displays
 	FPS           int    `json:"fps"`           // 30 | 60 | 120 | 144
 	Height        int    `json:"height"`        // 0 = native (zero-copy) | 2160 | 1440 | 1080 | 720
 	BitrateMbps   int    `json:"bitrateMbps"`   // constant video bitrate

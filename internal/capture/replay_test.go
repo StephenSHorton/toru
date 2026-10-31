@@ -13,7 +13,7 @@ import (
 
 func TestReplayArgsZeroCopyNative(t *testing.T) {
 	cfg := ReplayConfig{FPS: 60, BitrateKbps: 20000, Codec: ReplayCodecH264, IncludeCursor: true}
-	args := BuildReplayArgs(1, cfg, "h264_nvenc", true, `C:\seg\r0001-%08d.ts`, nil)
+	args := BuildReplayArgs(oneSource(1), cfg, "h264_nvenc", true, `C:\seg\r0001-%08d.ts`, nil)
 	got := joined(args)
 
 	for _, want := range []string{
@@ -37,7 +37,7 @@ func TestReplayArgsZeroCopyNative(t *testing.T) {
 
 func TestReplayArgsDownscaleAndAV1(t *testing.T) {
 	cfg := ReplayConfig{FPS: 30, Height: 1080, BitrateKbps: 8000, Codec: ReplayCodecAV1}
-	got := joined(BuildReplayArgs(0, cfg, "av1_qsv", false, "seg-%08d.mkv", nil))
+	got := joined(BuildReplayArgs(oneSource(0), cfg, "av1_qsv", false, "seg-%08d.mkv", nil))
 	for _, want := range []string{
 		"ddagrab=output_idx=0:framerate=30:draw_mouse=0,hwdownload,format=bgra,scale=-2:1080:flags=bilinear,format=nv12",
 		"-g 60",
@@ -52,13 +52,13 @@ func TestReplayArgsDownscaleAndAV1(t *testing.T) {
 func TestReplayGraphCandidates(t *testing.T) {
 	native := ReplayConfig{}
 	scaled := ReplayConfig{Height: 1080}
-	if c := replayGraphCandidates(native, "hevc_nvenc"); len(c) != 2 || !c[0] {
+	if c := replayGraphCandidates(native, "hevc_nvenc", 1); len(c) != 2 || !c[0] {
 		t.Errorf("native NVENC should try zero-copy first, got %v", c)
 	}
-	if c := replayGraphCandidates(native, "h264_qsv"); len(c) != 1 || c[0] {
+	if c := replayGraphCandidates(native, "h264_qsv", 1); len(c) != 1 || c[0] {
 		t.Errorf("QSV can't take D3D11 frames from ddagrab, got %v", c)
 	}
-	if c := replayGraphCandidates(scaled, "h264_nvenc"); len(c) != 1 || c[0] {
+	if c := replayGraphCandidates(scaled, "h264_nvenc", 1); len(c) != 1 || c[0] {
 		t.Errorf("downscale needs the CPU graph, got %v", c)
 	}
 }
@@ -68,7 +68,7 @@ func TestReplayAudioMixIsAAC(t *testing.T) {
 		Audio: ReplayAudio{Desktop: true, MicDevice: "Mic (USB)", MicVolume: 150}}
 	srcs := replayAudioSources(cfg.Audio)
 	srcs[0].in = &AudioInput{PipePath: `\\.\pipe\a`, SampleFmt: "f32le", SampleRate: 48000, Channels: 2}
-	args := BuildReplayArgs(0, cfg, "h264_nvenc", true, "seg-%08d.ts", srcs)
+	args := BuildReplayArgs(oneSource(0), cfg, "h264_nvenc", true, "seg-%08d.ts", srcs)
 	got := joined(args)
 	for _, want := range []string{
 		"-y -f f32le -ar 48000 -ac 2 -i \\\\.\\pipe\\a -f dshow -i audio=Mic (USB) -filter_complex ddagrab=",
@@ -113,7 +113,7 @@ func TestReplayAudioSeparateTracks(t *testing.T) {
 	}
 
 	cfg := ReplayConfig{FPS: 60, BitrateKbps: 20000, Codec: ReplayCodecH264, Audio: a}
-	if got := joined(BuildReplayArgs(0, cfg, "h264_nvenc", true, "seg-%08d.ts", srcs)); !strings.Contains(got, "-c:a aac -b:a 256k") {
+	if got := joined(BuildReplayArgs(oneSource(0), cfg, "h264_nvenc", true, "seg-%08d.ts", srcs)); !strings.Contains(got, "-c:a aac -b:a 256k") {
 		t.Errorf("audio bitrate not applied:\n%s", got)
 	}
 }
@@ -263,5 +263,47 @@ func TestStitchReplay(t *testing.T) {
 	}
 	if got := strings.TrimSpace(strings.ReplaceAll(string(out), "\r", "")); got != "1,1,All audio\n2,0,Microphone" {
 		t.Errorf("audio tracks = %q", got)
+	}
+}
+
+func oneSource(idx int) []replaySource { return []replaySource{{DDAIdx: idx}} }
+
+func TestReplayArgsAllDisplays(t *testing.T) {
+	cfg := ReplayConfig{FPS: 60, BitrateKbps: 40000, Codec: ReplayCodecHEVC, IncludeCursor: true}
+	srcs := []replaySource{{DDAIdx: 0, X: 1920, Y: 0, W: 3440, H: 1440}, {DDAIdx: 1, X: 0, Y: 0, W: 1920, H: 1080}}
+	got := joined(BuildReplayArgs(srcs, cfg, "hevc_nvenc", true, "seg-%08d.ts", nil))
+	want := "-filter_complex ddagrab=output_idx=0:framerate=60:draw_mouse=1,hwdownload,format=bgra[s0];" +
+		"ddagrab=output_idx=1:framerate=60:draw_mouse=1,hwdownload,format=bgra[s1];" +
+		"[s0][s1]xstack=inputs=2:layout=1920_0|0_0:fill=black -c:v hevc_nvenc"
+	if !strings.Contains(got, want) {
+		t.Errorf("args missing %q\n%s", want, got)
+	}
+	if c := replayGraphCandidates(cfg, "hevc_nvenc", 2); len(c) != 1 || c[0] {
+		t.Errorf("several monitors can't be zero-copy, got %v", c)
+	}
+}
+
+func TestReplaySourcesAllDisplays(t *testing.T) {
+	old := replayDDAIndex
+	defer func() { replayDDAIndex = old }()
+	replayDDAIndex = func(s ScreenInfo) (int, bool) { return s.ID, true }
+
+	screens := []ScreenInfo{
+		{ID: 0, X: 0, Y: 0, W: 3440, H: 1440, IsPrimary: true},
+		{ID: 1, X: -1920, Y: 0, W: 1920, H: 1080},
+	}
+	srcs, w, h, err := replaySources(screens, ReplayAllDisplays)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w != 5360 || h != 1440 || len(srcs) != 2 || srcs[0].X != 1920 || srcs[1].X != 0 {
+		t.Errorf("got %dx%d %+v", w, h, srcs)
+	}
+	srcs, w, _, err = replaySources(screens, -1)
+	if err != nil || len(srcs) != 1 || w != 3440 {
+		t.Errorf("primary: got %d sources, w=%d, err=%v", len(srcs), w, err)
+	}
+	if got := fitHeight(5360, 1440, replayMaxWidthH264); got != 1100 {
+		t.Errorf("fitHeight = %d, want 1100", got)
 	}
 }
