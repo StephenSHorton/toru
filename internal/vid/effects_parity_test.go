@@ -36,7 +36,7 @@ type parityCase struct {
 	Graph   string       `json:"graph,omitempty"`
 	// T is the clip-local time in seconds the frame is drawn at: the preview
 	// resolves keyframes and draws at T, the script gives the export's frame
-	// that timestamp (keyframes themselves the Go side resolves, keyedCase).
+	// that timestamp, so a keyed case's sendcmd/enable graph plays to it.
 	// Generated cases take it from the def's parity.t.
 	T float64 `json:"t,omitempty"`
 	// Limits come from the defs' parity blocks (the loosest in the stack);
@@ -45,12 +45,17 @@ type parityCase struct {
 	// Border is a minimum; the defs' reach can raise it).
 	Limits *effectfx.Parity `json:"limits,omitempty"`
 	Border int              `json:"border"`
-	// resolved is a keyed case's stack with its keys resolved at T, which
-	// the export side builds.
-	resolved []EffectJSON
 }
 
-const parityH = 180
+// Keyed cases are built as the export animates them (C3c: sendcmd files,
+// enable windows) at parityFPS for parityFrames frames, and drawn at a frame
+// time. 25 fps keeps every frame time a whole number of ms, which the
+// script's 1 ms input timebase holds exactly.
+const (
+	parityH      = 180
+	parityFPS    = 25
+	parityFrames = 51
+)
 
 func parityCases() []parityCase {
 	dc := DefaultChroma
@@ -117,7 +122,7 @@ func registryCases() []parityCase {
 		h.Write([]byte(d.Type))
 		r := rand.New(rand.NewSource(int64(h.Sum64())))
 		add := func(name string, params map[string]any) {
-			out = append(out, parityCase{Name: d.Type + " " + name, Effects: []EffectJSON{fxOf(d.Type, params)}, T: d.Parity.T})
+			out = append(out, parityCase{Name: d.Type + " " + name, Effects: []EffectJSON{fxOf(d.Type, pinRandom(d, params))}, T: d.Parity.T})
 		}
 		add("default", map[string]any{})
 		def := d.Resolve(nil)
@@ -145,9 +150,13 @@ func registryCases() []parityCase {
 		for i := range 2 {
 			add(fmt.Sprintf("random %d", i), randomParams(d, r))
 		}
+		if len(d.Parity.Random) > 0 {
+			// The defaults with their randomness on: compared by statistics.
+			out = append(out, parityCase{Name: d.Type + " default, random on", Effects: []EffectJSON{fxOf(d.Type, map[string]any{})}, T: d.Parity.T})
+		}
 		if d.Amount != "none" {
 			half := 0.5
-			e := fxOf(d.Type, randomParams(d, r))
+			e := fxOf(d.Type, pinRandom(d, randomParams(d, r)))
 			e.Amount = &half
 			out = append(out, parityCase{Name: d.Type + " random at 50%", Effects: []EffectJSON{e}, T: d.Parity.T})
 		}
@@ -161,6 +170,26 @@ func registryCases() []parityCase {
 // randomParams is a value for every param, uniform over its range (numbers),
 // options, both booleans, any colour, the unit square (points). Files keep
 // their default.
+// pinRandom sets the def's parity.random params (output that is random on
+// both sides, like glitch's noise) to 0, so the case compares pixel for
+// pixel. A one-param case keeps its own value (noise=1 is then compared by
+// statistics, limitsOf).
+func pinRandom(d effectfx.Def, params map[string]any) map[string]any {
+	if len(d.Parity.Random) == 0 {
+		return params
+	}
+	out := map[string]any{}
+	for k, v := range params {
+		out[k] = v
+	}
+	for _, id := range d.Parity.Random {
+		if _, set := params[id]; !set || len(params) > 1 {
+			out[id] = 0.0
+		}
+	}
+	return out
+}
+
 func randomParams(d effectfx.Def, r *rand.Rand) map[string]any {
 	out := map[string]any{}
 	for _, p := range d.Params {
@@ -188,63 +217,53 @@ func randomValue(p effectfx.ParamDef, r *rand.Rand) (any, bool) {
 }
 
 // keyedCase keys every animatable param of d (three keys over 0..2 s with
-// random values and eases) and picks a random time inside them. The export
-// side resolves the keys at that time with effectfx.ValueAt (the Go twin of
-// keyframes.ts) and builds the static graph; the preview resolves the same
-// keys with resolveStack(effects, t). That holds the two valueAt twins and
-// the effect to the same pixels. When the export animates params itself
-// (sendcmd/expr, C3c), this case should render the frame at t from the
-// animated graph instead.
+// random values and eases) and picks a random frame inside them. The export
+// side is the animated graph the export builds (finishV3: sendcmd files and
+// enable windows at parityFPS), played to that frame's time; the preview
+// resolves the same keys with resolveStack(effects, t). That holds the
+// keyed export path, the two valueAt twins and the effect to the same
+// pixels.
 func keyedCase(d effectfx.Def, r *rand.Rand) (parityCase, bool) {
 	eases := []string{"linear", "in", "out", "inOut", "hold"}
-	e := fxOf(d.Type, randomParams(d, r))
+	e := fxOf(d.Type, pinRandom(d, randomParams(d, r)))
 	e.Keys = map[string][]KeyframeJSON{}
-	tMs := 100 + r.Float64()*1800
-	at := map[string]any{}
-	for k, v := range e.Params {
-		at[k] = v
-	}
+	tMs := effectfx.FrameMs(3+r.Intn(parityFrames-6), parityFPS)
 	for _, p := range d.Params {
 		if p.Animate == "" {
 			continue
 		}
 		var keys []KeyframeJSON
-		var fkeys []effectfx.Key
 		for _, t := range []int{0, 1000, 2000} {
 			v, ok := randomValue(p, r)
 			if !ok {
 				break
 			}
-			ease := eases[r.Intn(len(eases))]
-			keys = append(keys, KeyframeJSON{T: t, V: v, Ease: ease})
-			fkeys = append(fkeys, effectfx.Key{T: float64(t), V: v, Ease: ease})
+			keys = append(keys, KeyframeJSON{T: t, V: v, Ease: eases[r.Intn(len(eases))]})
 		}
-		if len(keys) == 0 {
-			continue
-		}
-		e.Keys[p.ID] = keys
-		if v, ok := p.Clamp(effectfx.ValueAt(fkeys, tMs, d.Resolve(e.Params)[p.ID])); ok {
-			at[p.ID] = v
+		if len(keys) > 0 {
+			e.Keys[p.ID] = keys
 		}
 	}
 	if len(e.Keys) == 0 {
 		return parityCase{}, false
 	}
-	c := parityCase{Name: fmt.Sprintf("%s keyed at %.3f s", d.Type, tMs/1000), Effects: []EffectJSON{e}, T: tMs / 1000}
-	c.resolved = []EffectJSON{fxOf(d.Type, at)}
-	return c, true
+	return parityCase{Name: fmt.Sprintf("%s keyed at %.2f s", d.Type, tMs/1000), Effects: []EffectJSON{e}, T: tMs / 1000}, true
 }
 
-// finishV3 builds each v3 case's graph (from its keyframe-resolved stack,
-// when it has one) and its limits and border from the defs.
+// finishV3 builds each v3 case's graph (animated, as the export builds a
+// keyed clip, when the stack has keys; its sendcmd files go into work) and
+// its limits and border from the defs.
 func finishV3(cases []parityCase, work string) error {
 	for i := range cases {
 		c := &cases[i]
 		stack := c.Effects
-		if c.resolved != nil {
-			stack = c.resolved
+		ctx := effectfx.Ctx{W: 320, H: parityH}
+		for _, e := range stack {
+			if len(e.Keys) > 0 {
+				ctx.FPS, ctx.Frames = parityFPS, parityFrames
+			}
 		}
-		stmts, err := effectfx.StackGraph(stackOf(ClipJSON{Effects: stack}), effectfx.Ctx{W: 320, H: parityH}, work, "p", "[0:v]", "[fxout]")
+		stmts, err := effectfx.StackGraph(stackOf(ClipJSON{Effects: stack}), ctx, work, "p", "[0:v]", "[fxout]")
 		if err != nil {
 			return fmt.Errorf("%s: %w", c.Name, err)
 		}
@@ -259,7 +278,9 @@ func finishV3(cases []parityCase, work string) error {
 // limitsOf is the loosest parity limit in a stack ("none" beats "stats"
 // beats "pixels"; then the largest mean and p99) and the border to skip: 2
 // pixels, plus the widest reach in the stack: a def's parity.border, else
-// 20 px of a 1080-line frame for neighbourhood and geometry effects.
+// 20 px of a 1080-line frame for neighbourhood and geometry effects. An
+// effect with one of its parity.random params on is compared by statistics
+// (its mean/p99 limits then bound Δmean/Δstd).
 func limitsOf(stack []EffectJSON) (*effectfx.Parity, int) {
 	rank := map[string]int{"pixels": 0, "stats": 1, "none": 2}
 	var lim *effectfx.Parity
@@ -275,6 +296,13 @@ func limitsOf(stack []EffectJSON) (*effectfx.Parity, int) {
 		}
 		border = max(border, 2+int(math.Ceil(reach*parityH/1080)))
 		p := d.Parity
+		p.Random = nil
+		res := d.Resolve(e.Params)
+		for _, id := range d.Parity.Random {
+			if v, ok := res[id].(float64); ok && v != 0 && p.Mode == "pixels" {
+				p.Mode = "stats"
+			}
+		}
 		switch {
 		case lim == nil || rank[p.Mode] > rank[lim.Mode]:
 			lim = &p

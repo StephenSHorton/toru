@@ -17,6 +17,6 @@
     { "id": "seed", "label": "Variation", "type": "number", "min": 0, "max": 9999, "default": 3, "step": 1, "animate": false }
   ],
   "export": { "filters": ["rgbashift", "split", "crop", "overlay", "noise"] },
-  "parity": { "mode": "pixels", "mean": 1, "p99": 6 },
+  "parity": { "mode": "pixels", "mean": 1, "p99": 6, "random": ["noise"] },
   "amount": "blend"
 }

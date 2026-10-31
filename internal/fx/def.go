@@ -68,6 +68,10 @@ type Parity struct {
 	// effects that only show inside a time window; 0 = the clip's start.
 	Border float64 `json:"border,omitempty"`
 	T      float64 `json:"t,omitempty"`
+	// Random lists number params whose output is random on both sides (a
+	// noise amount): generated cases set them to 0 to compare pixels, and a
+	// case with one on is compared by statistics.
+	Random []string `json:"random,omitempty"`
 }
 
 // Animate is how a param is keyframed in the export: "cmd" (sendcmd),

@@ -12,6 +12,6 @@
     { "id": "duration", "label": "Duration", "type": "number", "min": 0.02, "max": 5, "default": 0.3, "step": 0.01, "unit": "s", "animate": false }
   ],
   "export": { "filters": ["geq"] },
-  "parity": { "mode": "pixels", "mean": 1, "p99": 6 },
+  "parity": { "mode": "pixels", "mean": 1, "p99": 6, "t": 0.15 },
   "amount": "native"
 }

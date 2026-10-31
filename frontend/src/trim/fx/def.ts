@@ -55,8 +55,9 @@ export type EffectDef = {
   // in 0..255 levels), stats (random effects like grain: mean/variance), or
   // none (with the reason). border: how far the effect reads past a pixel
   // (px of a 1080-line frame), skipped at the frame's edge; t: the
-  // clip-local time (s) generated cases draw at (internal/fx/def.go Parity).
-  parity: ({ mode: "pixels"; mean: number; p99: number } | { mode: "stats" } | { mode: "none"; reason: string }) & { border?: number; t?: number };
+  // clip-local time (s) generated cases draw at; random: params whose output
+  // is random on both sides (internal/fx/def.go Parity).
+  parity: ({ mode: "pixels"; mean: number; p99: number } | { mode: "stats" } | { mode: "none"; reason: string }) & { border?: number; t?: number; random?: string[] };
   // How a group's intensity applies: the effect scales itself (native), a
   // generic mix with the input (blend), or not at all (none).
   amount: "native" | "blend" | "none";
