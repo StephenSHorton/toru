@@ -76,7 +76,7 @@ func transition(from, to capture.ReplayConfig) (started, saved bool) {
 // It stays longer than the default: at a login launch the user may not be
 // looking yet.
 func (s *ReplayService) startedNote(cfg capture.ReplayConfig) toast.Note {
-	n := toast.Note{ID: recordingNoticeID, Title: "Game recording is on", Kind: toast.Info,
+	n := toast.Note{ID: recordingNoticeID, Title: "Replay & recording is on", Kind: toast.Info,
 		Expire: startedNoticeFor}
 	mode, game := ModeReplay, ""
 	if cfg.Persist {
@@ -144,13 +144,13 @@ func (s *ReplayService) startupNotice(err error) {
 	}
 	if err != nil {
 		if ff := s.GetFFmpegState(); ff.Ready && !ff.Downloading {
-			toast.Post(toast.Note{ID: recordingNoticeID, Title: "Game recording couldn't start",
+			toast.Post(toast.Note{ID: recordingNoticeID, Title: "Replay & recording couldn't start",
 				Body: err.Error(), Kind: toast.Error})
 		}
 		return
 	}
 	if st.RecordingNotices && st.Mode == ModeBackground && st.GamesOnly && !s.buf.Running() {
-		toast.Post(toast.Note{ID: recordingNoticeID, Title: "Game recording is on",
+		toast.Post(toast.Note{ID: recordingNoticeID, Title: "Replay & recording is on",
 			Body: "Background recording starts when you play a game", Kind: toast.Info,
 			Expire: startedNoticeFor})
 	}

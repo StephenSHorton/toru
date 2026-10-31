@@ -473,7 +473,7 @@ export function ReplayPanel() {
             checked={settings.enabled}
             disabled={busy}
             onCheckedChange={(v) => void update({ enabled: v })}
-            aria-label="Enable game recording"
+            aria-label="Enable replay & recording"
           />
         </div>
 
@@ -1279,7 +1279,7 @@ function PanelHeader() {
   return (
     <div className="flex items-center gap-2">
       <Clapperboard className="size-4" />
-      <span className="text-sm font-medium">Game recording</span>
+      <span className="text-sm font-medium">Replay & recording</span>
     </div>
   );
 }

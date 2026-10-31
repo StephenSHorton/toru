@@ -44,7 +44,7 @@ func TestStartedNote(t *testing.T) {
 		title, body string
 	}{
 		{capture.ReplayConfig{KeepSeconds: 60},
-			"Game recording is on", "Instant replay · Alt+F10 saves the last 1 min as a clip"},
+			"Replay & recording is on", "Instant replay · Alt+F10 saves the last 1 min as a clip"},
 		{capture.ReplayConfig{Persist: true, Tag: encodeTag(ModeManual, "", "h264")},
 			"Hotkey recording started", "Press Ctrl+F11 again to stop"},
 		{capture.ReplayConfig{Persist: true, Tag: encodeTag(ModeBackground, "Hades", "hevc")},

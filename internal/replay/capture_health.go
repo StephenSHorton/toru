@@ -73,11 +73,11 @@ func (s *ReplayService) watchCapture(st capture.ReplayStatus) {
 	switch {
 	case started:
 		log.Printf("toru: replay: capture keeps stopping: %s", st.Error)
-		toast.Post(toast.Note{ID: captureNoticeID, Title: "Game recording keeps stopping",
-			Body: st.Error + " Settings > Game recording shows the details.", Kind: toast.Error})
+		toast.Post(toast.Note{ID: captureNoticeID, Title: "Replay & recording keeps stopping",
+			Body: st.Error + " Settings > Replay & recording shows the details.", Kind: toast.Error})
 	case recovered:
 		log.Printf("toru: replay: capturing again")
-		toast.Post(toast.Note{ID: captureNoticeID, Title: "Game recording is capturing again", Kind: toast.Success})
+		toast.Post(toast.Note{ID: captureNoticeID, Title: "Replay & recording is capturing again", Kind: toast.Success})
 	}
 	if cb != nil && was != h.troubled {
 		cb()

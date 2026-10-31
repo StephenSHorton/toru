@@ -233,7 +233,7 @@ func libraryCopyOf(h *history.HistoryService, src string) (history.Item, bool) {
 func registerAppAgentCommands(reg *agentctl.Registry, d *appAgentDeps) {
 	reg.Register(agentctl.Command{
 		Name:        "app.status",
-		Description: "What Toru is doing now: version, monitors (ids and physical bounds, for capture targets), screen recordings in progress, instant replay and game recording state.",
+		Description: "What Toru is doing now: version, monitors (ids and physical bounds, for capture targets), screen recordings in progress, instant replay and replay & recording state.",
 		Handler: func(context.Context, json.RawMessage) (any, error) {
 			screens, _ := d.overlay.ListScreens()
 			return map[string]any{
@@ -391,7 +391,7 @@ func registerAppAgentCommands(reg *agentctl.Registry, d *appAgentDeps) {
 
 	reg.Register(agentctl.Command{
 		Name:        "record.status",
-		Description: "Screen recordings in progress (handles), plus game recording's state (mode, whether it is capturing, the game it follows, disk use).",
+		Description: "Screen recordings in progress (handles), plus replay & recording state (mode, whether it is capturing, the game it follows, disk use).",
 		Handler: func(context.Context, json.RawMessage) (any, error) {
 			return map[string]any{"recordings": d.recorder.Handles(), "gameRecording": d.replay.GetRecorderState()}, nil
 		},
@@ -399,7 +399,7 @@ func registerAppAgentCommands(reg *agentctl.Registry, d *appAgentDeps) {
 
 	reg.Register(agentctl.Command{
 		Name:        "replay.save",
-		Description: "Save the instant replay buffer (the last minutes of gameplay) as a clip, like the Save replay hotkey. Instant replay must be on in Settings > Game recording. Returns the clip's path.",
+		Description: "Save the instant replay buffer (the last minutes of gameplay) as a clip, like the Save replay hotkey. Instant replay must be on in Settings > Replay & recording. Returns the clip's path.",
 		Handler: func(context.Context, json.RawMessage) (any, error) {
 			p, err := d.replay.SaveReplay()
 			if err != nil {
