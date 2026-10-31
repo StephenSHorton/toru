@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type Ref } from "react";
 import { VideoService } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { clipsAt, timelineTimeAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
+import { clipLength, clipsAt, timelineTimeAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
+import { TransitionGL } from "@/trim/compositor/transition-gl";
 import { AudioMix, clipGain } from "@/trim/compositor/audio";
 import { reverseUrl } from "@/trim/reverse";
 import { clipAudible, fromSource, toSource } from "@/trim/speed";
@@ -178,6 +179,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
     };
     const vao = gl.createVertexArray();
     const effects = new FxRenderer(gl);
+    const transitions = new TransitionGL(gl);
     const mix = new AudioMix();
     const pool = new Map<string, Slot>();
     const stills = new Map<string, Still>();
@@ -436,7 +438,19 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       // A paused frame waiting for its exact decode (colorspace.ts): picks
       // and snapshots wait for it (at most EXACT_WAIT ms).
       let exactPending = false;
+      const fps = p.canvas.fps > 0 ? p.canvas.fps : 30;
+      // An outgoing clip drawn into the transition buffer but no incoming
+      // one yet (its frame isn't loaded): composite it with an empty
+      // incoming layer before anything else draws, so it doesn't vanish.
+      let pending: ActiveClip["trans"] | undefined;
+      const flush = () => {
+        if (!pending) return;
+        transitions.layer(1, W, H);
+        transitions.composite(pending.tr.type, pending.progress, W, H);
+        pending = undefined;
+      };
       for (const a of active) {
+        if (pending && !(a.trans?.role === "in" && a.trans.tr === pending.tr)) flush();
         if (a.track.kind !== "video") continue;
         let tex: WebGLTexture | null = null;
         let w = 0;
@@ -501,9 +515,30 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         // unless the frame was decoded exactly. Images need none.
         const slot = a.media.kind === "image" ? undefined : pool.get(a.clip.id);
         const fix = slot && !slot.exact ? matrixFix(a.media, h) : null;
-        const out = effects.apply(tex, w, h, clipStack(a.clip, t - a.clip.start, rawClips.has(a.clip.id)), t - a.clip.start, fix ? [correctionStep(fix)] : []);
-        drawLayer(gl, prog, vao, loc, out, w, h, a.clip, t - a.clip.start, W, H);
+        // A clip held in a transition's window keeps its edge frame's
+        // effects and placement (the export's tpad repeats that frame).
+        const lt = a.trans ? Math.min(Math.max(t - a.clip.start, 0), clipLength(a.clip) - 1 / fps) : t - a.clip.start;
+        const out = effects.apply(tex, w, h, clipStack(a.clip, lt, rawClips.has(a.clip.id)), lt, fix ? [correctionStep(fix)] : []);
+        if (a.trans) {
+          // Both clips go into their own canvas-size buffer, then the
+          // transition draws them onto the canvas (transition-gl.ts).
+          // An incoming clip whose outgoing one drew nothing this frame:
+          // clear that buffer first (it holds the last frame's picture).
+          if (a.trans.role === "in" && pending?.tr !== a.trans.tr) transitions.layer(0, W, H);
+          transitions.layer(a.trans.role === "out" ? 0 : 1, W, H);
+          drawLayer(gl, prog, vao, loc, out, w, h, a.clip, lt, W, H);
+          if (a.trans.role === "in") {
+            transitions.composite(a.trans.tr.type, a.trans.progress, W, H);
+            pending = undefined;
+          } else {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            pending = a.trans;
+          }
+          continue;
+        }
+        drawLayer(gl, prog, vao, loc, out, w, h, a.clip, lt, W, H);
       }
+      flush();
       // Read picks now, while this frame's pixels are still in the buffer.
       if (picks.length && !exactPending) {
         const px = new Uint8Array(4);
@@ -542,6 +577,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       for (const id of [...pool.keys()]) drop(id);
       for (const s of stills.values()) if (s.tex) gl.deleteTexture(s.tex);
       effects.dispose();
+      transitions.dispose();
       mix.dispose();
       gl.deleteProgram(prog);
       gl.deleteVertexArray(vao);
