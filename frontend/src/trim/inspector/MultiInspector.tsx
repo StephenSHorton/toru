@@ -7,8 +7,11 @@ import { clipLength, findClip, mediaById, type Clip, type Project } from "@/trim
 
 // MultiInspector is the inspector with several clips selected: what they
 // share, changed on all of them at once (one undo step per gesture). A
-// value that differs between them shows the first clip's, marked "mixed".
+// value that differs between them shows the first clip's, its label marked
+// with * (the tooltip says why).
 // Clips on locked tracks are left as they are.
+
+const MIXED = "The clips have different values: this shows the first one's, and a change sets them all";
 
 export function MultiInspector({
   project: p,
@@ -73,7 +76,7 @@ export function MultiInspector({
         {visual.length ? (
           <Section title="Video">
             <NumberRow
-              label={opacity.mixed ? "Opacity (mixed)" : "Opacity"}
+              label={opacity.mixed ? "Opacity*" : "Opacity"}
               value={opacity.value}
               min={0}
               max={1}
@@ -81,7 +84,7 @@ export function MultiInspector({
               def={1}
               scale={100}
               unit="%"
-              hint={visual.some((h) => keyed(h.clip, "opacity")) ? "Some clips have opacity keyframes, which take over from this value" : undefined}
+              hint={[opacity.mixed ? MIXED : "", visual.some((h) => keyed(h.clip, "opacity")) ? "Some clips have opacity keyframes, which take over from this value" : ""].filter(Boolean).join(". ") || undefined}
               onChange={(v) =>
                 edit("opacity", (q) =>
                   updateClips(
@@ -115,7 +118,7 @@ export function MultiInspector({
               />
             </div>
             <NumberRow
-              label={volume.mixed ? "Volume (mixed)" : "Volume"}
+              label={volume.mixed ? "Volume*" : "Volume"}
               value={volume.value}
               min={0}
               max={2}
@@ -124,7 +127,7 @@ export function MultiInspector({
               scale={100}
               unit="%"
               disabled={allMuted}
-              hint={sound.some((h) => keyed(h.clip, "volume")) ? "Some clips have volume keyframes, which take over from this value" : undefined}
+              hint={[volume.mixed ? MIXED : "", sound.some((h) => keyed(h.clip, "volume")) ? "Some clips have volume keyframes, which take over from this value" : ""].filter(Boolean).join(". ") || undefined}
               onChange={(v) =>
                 edit("volume", (q) =>
                   updateClips(
@@ -139,7 +142,8 @@ export function MultiInspector({
         ) : null}
         <Section title="Fades">
           <NumberRow
-            label={fadeIn.mixed ? "In (mixed)" : "Fade in"}
+            label={fadeIn.mixed ? "Fade in*" : "Fade in"}
+            hint={fadeIn.mixed ? MIXED : undefined}
             value={fadeIn.value}
             min={0}
             max={Math.min(10, shortest)}
@@ -149,7 +153,8 @@ export function MultiInspector({
             onChange={(v) => edit("fadeIn", (q) => updateClips(q, ids, { fadeIn: v }))}
           />
           <NumberRow
-            label={fadeOut.mixed ? "Out (mixed)" : "Fade out"}
+            label={fadeOut.mixed ? "Fade out*" : "Fade out"}
+            hint={fadeOut.mixed ? MIXED : undefined}
             value={fadeOut.value}
             min={0}
             max={Math.min(10, shortest)}

@@ -896,7 +896,7 @@ export function MultiTimeline({
             {/* selection box */}
             {box ? (
               <div
-                className="pointer-events-none absolute z-50 border border-primary bg-primary/15"
+                className="pointer-events-none absolute z-50 border-2 border-dashed border-primary bg-primary/20"
                 style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }}
                 aria-hidden="true"
               />
