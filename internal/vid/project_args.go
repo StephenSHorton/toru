@@ -166,6 +166,13 @@ func filterComplexArgs(graph, work string) ([]string, error) {
 func clipVideoChain(in int, c ClipJSON, m MediaJSON, w, h int, fps float64, work string, layer int) ([]string, string, string, string, error) {
 	head := fmt.Sprintf("[%d:v]", in)
 	var pre []string
+	if m.Untagged709 && m.Kind == "video" {
+		// Read an untagged HD source as BT.709 (markUntagged709): the tag
+		// rides on the frames into every conversion and the output.
+		cs := fmt.Sprintf("[cs%d]", layer)
+		pre = append(pre, head+untagged709Filter+cs)
+		head = cs
+	}
 	parts := []string{}
 	switch {
 	case m.Kind == "image":
