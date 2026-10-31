@@ -47,7 +47,11 @@ func BuildEditArgs(req EditRequest, info []MediaInfo, encoder string, textFilter
 	var graph []string
 	var concatIn strings.Builder
 	for i, seg := range req.Segments {
-		v := fmt.Sprintf("[%d:v]setpts=PTS-STARTPTS,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,setsar=1", i, w, h, w, h)
+		v := fmt.Sprintf("[%d:v]", i)
+		if src := info[seg.Source]; src.ColorSpace == "" && src.Height >= untaggedHDLines {
+			v += untagged709Filter + "," // as markUntagged709 does for projects
+		}
+		v += fmt.Sprintf("setpts=PTS-STARTPTS,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,setsar=1", w, h, w, h)
 		if fps := info[0].FPS; fps > 0 {
 			v += ",fps=" + formatFPS(fps)
 		}

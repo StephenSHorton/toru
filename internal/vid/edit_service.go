@@ -240,6 +240,7 @@ func (s *VideoService) exportProject(ctx context.Context, req ProjectExport, onP
 			return "", fmt.Errorf("export: %s is missing (moved or deleted?)", m.Path)
 		}
 	}
+	markUntagged709(ctx, &req.Project)
 	// Reversed clips play their reverse proxy (reverse.go), made now if needed.
 	req, err := withReverseProxies(ctx, req)
 	if err != nil {
@@ -267,6 +268,30 @@ func (s *VideoService) exportProject(ctx context.Context, req ProjectExport, onP
 		return args
 	}
 	return s.render(ctx, req.OutPath, req.Preset == "discord", build, ProjectDurationMs(req.Project), onProgress)
+}
+
+// untaggedHDLines is where an untagged video counts as BT.709: phone and
+// other apps' HD clips are usually BT.709 without saying so; SD stays
+// BT.601 (ffmpeg's default). The preview uses the same rule
+// (frontend/src/trim/colorspace.ts).
+const untaggedHDLines = 720
+
+// untagged709Filter tags frames BT.709, so every conversion after it (and
+// the output) reads them that way.
+const untagged709Filter = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709"
+
+// markUntagged709 probes each video source and sets Untagged709 on the
+// untagged HD ones. A failed probe leaves the source as it is.
+func markUntagged709(ctx context.Context, p *ProjectJSON) {
+	p.Media = append([]MediaJSON(nil), p.Media...) // don't change the caller's slice
+	for i, m := range p.Media {
+		if m.Kind != "video" || m.Height < untaggedHDLines {
+			continue
+		}
+		if info, err := probeMedia(ctx, m.Path); err == nil && info.ColorSpace == "" {
+			p.Media[i].Untagged709 = true
+		}
+	}
 }
 
 // projectTextFilter is editTextFilter for a v2 project: the texts laid out

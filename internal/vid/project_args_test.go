@@ -221,3 +221,27 @@ func indexOf(args []string, s string) int {
 	}
 	return -1
 }
+
+func TestBuildProjectArgsUntagged709(t *testing.T) {
+	req := testProject()
+	graph := func() string {
+		args, err := BuildProjectArgs(req, "h264_nvenc", "", t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return args[indexOf(args, "-filter_complex")+1]
+	}
+	if g := graph(); strings.Contains(g, "setparams") {
+		t.Fatalf("tagged sources got a setparams:\n%s", g)
+	}
+	// The untagged HD game clip (input 0) is read as BT.709 before anything
+	// else touches it; the SD cam clip (input 1) is left alone.
+	req.Project.Media[0].Untagged709 = true
+	g := graph()
+	if !strings.Contains(g, "[0:v]setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709[cs") {
+		t.Fatalf("untagged HD source isn't tagged bt709:\n%s", g)
+	}
+	if strings.Count(g, "setparams") != 1 || strings.Contains(g, "[1:v]setparams") {
+		t.Fatalf("setparams on the wrong inputs:\n%s", g)
+	}
+}

@@ -36,10 +36,12 @@ check("corrections are inverses", ab.every((r, i) => r.every((v, j) => Math.abs(
 
 // Which frames need which correction (browser by height, ffmpeg by tag).
 check("browser 720 = 709", browserMatrix(720) === "709" && browserMatrix(718) === "601");
-check("tags", matrixOfTag("") === "601" && matrixOfTag("bt470bg") === "601" && matrixOfTag("smpte170m") === "601" && matrixOfTag("bt709") === "709" && matrixOfTag("bt2020nc") === null);
+check("tags", matrixOfTag("bt470bg", 1080) === "601" && matrixOfTag("smpte170m", 480) === "601" && matrixOfTag("bt709", 480) === "709" && matrixOfTag("bt2020nc", 1080) === null);
+check("untagged by height", matrixOfTag("", 1080) === "709" && matrixOfTag("", 720) === "709" && matrixOfTag("", 718) === "601");
 const dev = { id: "d", path: "", url: "", kind: "video", duration: 1, width: 1920, height: 1080, fps: 30, hasAudio: false, tracks: [] } as Media;
-check("untagged HD → 709→601", JSON.stringify(matrixFix(dev, 1080)) === JSON.stringify({ from: "709", to: "601" }), matrixFix(dev, 1080));
-check("untagged SD → none", matrixFix(dev, 480) === null, matrixFix(dev, 480));
+// Untagged video follows the browser's own rule: never corrected.
+check("untagged HD → none", matrixFix(dev, 1080) === null, matrixFix(dev, 1080));
+check("untagged SD → none", matrixFix({ ...dev, height: 480 }, 480) === null, matrixFix({ ...dev, height: 480 }, 480));
 check("image → none", matrixFix({ ...dev, kind: "image" }, 1080) === null);
 
 if (failed) {

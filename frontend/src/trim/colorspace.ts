@@ -8,10 +8,14 @@ import type { Media } from "@/trim/project";
 // The browser (WebView2 / Chromium) ignores a video's matrix tag and picks
 // one by frame height: BT.709 from 720 lines up, BT.601 below (measured:
 // 718 vs 720 lines, any width). ffmpeg, which the export runs on, follows
-// the tag and treats an untagged video as BT.601 at any size. Toru's
-// recordings are tagged bt470bg (BT.601) and are HD, so without this the
-// preview decodes them as BT.709: reds pick up green (254,0,0 → 255,24,0)
-// and greens darken (1,128,1 → 0,109,0).
+// the tag. Toru's recordings are tagged bt470bg (BT.601) and are HD, so
+// without this the preview decodes them as BT.709: reds pick up green
+// (254,0,0 → 255,24,0) and greens darken (1,128,1 → 0,109,0).
+//
+// An untagged video is read by height, in the export too (internal/vid
+// markUntagged709, which ffmpeg alone wouldn't do): BT.709 from 720 lines
+// (phone and other apps' HD clips), BT.601 below. That's the browser's own
+// rule, so untagged video needs no correction.
 //
 // Two fixes, never both on one frame:
 //   exactFrame      the frame's own YUV planes, re-tagged with the source's
@@ -29,12 +33,17 @@ export type Matrix = "601" | "709";
 // browserMatrix is the matrix the browser decodes a frame of h lines with.
 export const browserMatrix = (h: number): Matrix => (h >= 720 ? "709" : "601");
 
-// matrixOfTag is the matrix ffmpeg decodes a video with, by its ffprobe
-// color_space tag ("" = untagged); null for one this doesn't correct
-// (BT.2020, SMPTE 240M, ...).
-export function matrixOfTag(tag: string): Matrix | null {
+// UNTAGGED_HD_LINES is where an untagged video counts as BT.709
+// (internal/vid untaggedHDLines).
+export const UNTAGGED_HD_LINES = 720;
+
+// matrixOfTag is the matrix the export decodes a video of h lines with, by
+// its ffprobe color_space tag ("" = untagged: by height); null for one this
+// doesn't correct (BT.2020, SMPTE 240M, ...).
+export function matrixOfTag(tag: string, h: number): Matrix | null {
   switch (tag) {
     case "":
+      return h >= UNTAGGED_HD_LINES ? "709" : "601";
     case "bt470bg":
     case "smpte170m":
       return "601";
@@ -47,15 +56,17 @@ export function matrixOfTag(tag: string): Matrix | null {
 
 // Tags by path, from VideoService.ProbeMedia: null when the probe failed.
 const tags = new Map<string, string | null>();
+const probing = new Set<string>();
 
 function probe(path: string) {
-  if (tags.has(path)) return;
-  tags.set(path, null);
+  if (probing.has(path)) return;
+  probing.add(path);
   // Imported lazily, so this module loads without the Wails runtime (checks).
   void import("@/lib/api")
     .then(({ VideoService }) => VideoService.ProbeMedia(path))
     .then((info) => tags.set(path, info.colorSpace ?? ""))
-    .catch(() => tags.set(path, null));
+    .catch(() => tags.set(path, null))
+    .finally(() => probing.delete(path));
 }
 
 // sourceMatrix is the matrix the export decodes media with: undefined while
@@ -64,13 +75,13 @@ function probe(path: string) {
 // as untagged.
 export function sourceMatrix(m: Media | undefined): Matrix | null | undefined {
   if (!m || m.kind !== "video") return null;
-  if (!m.path) return matrixOfTag("");
+  if (!m.path) return matrixOfTag("", m.height);
   if (!tags.has(m.path)) {
     probe(m.path);
     return undefined;
   }
   const tag = tags.get(m.path);
-  return tag == null ? null : matrixOfTag(tag);
+  return tag == null ? null : matrixOfTag(tag, m.height);
 }
 
 export type MatrixFix = { from: Matrix; to: Matrix };

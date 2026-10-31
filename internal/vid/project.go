@@ -25,6 +25,10 @@ type MediaJSON struct {
 	FPS      float64      `json:"fps"`      // 0 for image/audio
 	HasAudio bool         `json:"hasAudio"` //
 	Tracks   []AudioTrack `json:"tracks"`   // audio streams, titles, mix flag
+	// Untagged709 is set by the export (not the frontend) for a video with
+	// no matrix tag and 720+ lines: it's read as BT.709 (untaggedMatrix),
+	// where ffmpeg alone would assume BT.601.
+	Untagged709 bool `json:"-"`
 }
 
 // ClipJSON is one clip of a project as the frontend sends it

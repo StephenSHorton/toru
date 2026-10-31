@@ -11,11 +11,11 @@ import (
 // 2 = mic. rec1080 is a 1080p/60fps recording with one track. silent has no
 // audio at all.
 var (
-	clip1440 = MediaInfo{DurationMs: 120_000, Width: 3440, Height: 1440, FPS: 144, HasAudio: true,
+	clip1440 = MediaInfo{DurationMs: 120_000, Width: 3440, Height: 1440, FPS: 144, HasAudio: true, ColorSpace: "bt470bg",
 		Tracks: []AudioTrack{{Index: 0, Title: "Mix", IsMix: true}, {Index: 1, Title: "Game"}, {Index: 2, Title: "Mic"}}}
-	rec1080 = MediaInfo{DurationMs: 60_000, Width: 1920, Height: 1080, FPS: 60, HasAudio: true,
+	rec1080 = MediaInfo{DurationMs: 60_000, Width: 1920, Height: 1080, FPS: 60, HasAudio: true, ColorSpace: "bt470bg",
 		Tracks: []AudioTrack{{Index: 0}}}
-	silent = MediaInfo{DurationMs: 10_000, Width: 1280, Height: 720, FPS: 29.97002997}
+	silent = MediaInfo{DurationMs: 10_000, Width: 1280, Height: 720, FPS: 29.97002997, ColorSpace: "bt470bg"}
 )
 
 func TestBuildEditArgs(t *testing.T) {
@@ -258,5 +258,24 @@ func TestEditValidate(t *testing.T) {
 				t.Errorf("accepted")
 			}
 		})
+	}
+}
+
+func TestBuildEditArgsUntagged709(t *testing.T) {
+	// An untagged HD source is read as BT.709; untagged SD and tagged
+	// sources are left alone.
+	for _, c := range []struct {
+		info MediaInfo
+		want bool
+	}{
+		{MediaInfo{DurationMs: 5000, Width: 1920, Height: 1080, FPS: 30}, true},
+		{MediaInfo{DurationMs: 5000, Width: 640, Height: 480, FPS: 30}, false},
+		{MediaInfo{DurationMs: 5000, Width: 1920, Height: 1080, FPS: 30, ColorSpace: "bt470bg"}, false},
+	} {
+		req := EditRequest{Sources: []string{"a.mp4"}, Segments: []Segment{{Source: 0, StartMs: 0, EndMs: 1000}}, OutPath: "out.mp4"}
+		got := strings.Contains(strings.Join(BuildEditArgs(req, []MediaInfo{c.info}, "libx264", ""), " "), "[0:v]"+untagged709Filter+",setpts")
+		if got != c.want {
+			t.Errorf("%dx%d %q: bt709 tag = %v, want %v", c.info.Width, c.info.Height, c.info.ColorSpace, got, c.want)
+		}
 	}
 }
