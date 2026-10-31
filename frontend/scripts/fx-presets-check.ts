@@ -4,6 +4,7 @@
 // (src/trim/fx/presets.ts): keyframe times as fractions, groups, replace.
 // Run: bun scripts/fx-presets-check.ts
 import { cubeFn, parseCube, sampleCube } from "../src/trim/fx/cube";
+import { pinnedAdjust } from "../src/trim/fx/ops";
 import { applyPreset, instancesOf, presetFromClip } from "../src/trim/fx/presets";
 import { findClip, type Clip, type Project } from "../src/trim/project";
 
@@ -115,6 +116,8 @@ const pre = { id: "pre-1", effects: doc.effects };
 const added = findClip(applyPreset(project, "c1", pre), "c1")!.clip.effects!;
 check("append keeps the stack", added.length === 6 && added[0].id === "fx1", added.map((e) => e.type));
 check("append groups", added.slice(4).every((e) => e.group === "pre-1"));
+const onlyGrouped = findClip(applyPreset({ ...project, tracks: [{ ...project.tracks[0], clips: [{ ...clip, effects: [] }] }] } as Project, "c1", pre), "c1")!.clip.effects!;
+check("a grouped adjust isn't the pinned Adjust", onlyGrouped.length === 2 && pinnedAdjust(onlyGrouped) === undefined, onlyGrouped);
 const replaced = findClip(applyPreset(project, "c1", pre, { replace: true }), "c1")!.clip.effects!;
 check("replace swaps the stack", replaced.length === 2 && replaced.every((e) => !e.group), replaced);
 const single = findClip(applyPreset(project, "c1", { id: "builtin-bw", effects: [{ type: "look", enabled: true, params: { look: "bw" } }] }), "c1")!.clip.effects!;

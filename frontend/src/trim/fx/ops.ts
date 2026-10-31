@@ -151,11 +151,12 @@ export function ungroup(p: Project, clipId: string, group: string): Project {
 
 // --- The pinned Adjust and the green screen -----------------------------------
 
-// pinnedAdjust is the clip's Adjust tab instance: its first adjust effect.
-// (A migrated clip with a look has its adjust after the look, for an exact
-// match with v2; it stays where it is.)
+// pinnedAdjust is the clip's Adjust tab instance: its first adjust effect
+// that isn't part of a saved filter's group (those stay in the group's
+// card). (A migrated clip with a look has its adjust after the look, for an
+// exact match with v2; it stays where it is.)
 export function pinnedAdjust(fx: EffectInstance[]): EffectInstance | undefined {
-  return fx.find((e) => e.type === "adjust");
+  return fx.find((e) => e.type === "adjust" && !e.group);
 }
 
 // ensureAdjust gives the clip an adjust effect if it has none: first in the

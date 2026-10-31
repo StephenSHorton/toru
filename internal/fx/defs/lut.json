@@ -4,6 +4,7 @@
   "name": "LUT",
   "category": "color",
   "kind": "pixel",
+  "hidden": true,
   "params": [
     { "id": "lut", "label": "LUT", "type": "file", "default": "", "accept": [".cube"], "animate": false,
       "hint": "An imported .cube file (Filters → LUTs → Import LUT…)" },
