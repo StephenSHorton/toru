@@ -3,6 +3,7 @@ import { VideoService } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { clipsAt, timelineTimeAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
 import { AudioMix, clipGain } from "@/trim/compositor/audio";
+import { clipAudible, fromSource, toSource } from "@/trim/speed";
 import { FxRenderer } from "@/trim/fx/renderer";
 import { clipStack } from "@/trim/fx/stack";
 import type { PlaybackClock } from "@/trim/compositor/usePlayback";
@@ -17,7 +18,10 @@ import type { PlaybackClock } from "@/trim/compositor/usePlayback";
 // track clip), from a pool keyed by clip id and reused while the clip lives.
 // Each is kept at its clip's source time: while playing it plays at the
 // clip's speed (pitch kept), small drift is pulled in by nudging the rate, and
-// past MAX_DRIFT it re-seeks; while paused it seeks to the exact frame.
+// past MAX_DRIFT it re-seeks; while paused it seeks to the exact frame. A
+// speed curve sets the rate every frame from the curve (ActiveClip.rate,
+// speed.ts). Below MIN_RATE, on a freeze frame and on a reversed clip the
+// element stays paused and is stepped by seeks instead.
 // Pausing doesn't seek: the clock moves to the frame the top video stopped on
 // (a seek decodes from the last keyframe, a visible stall on long
 // recordings). Resuming holds the clock until that video is really playing,
@@ -48,6 +52,17 @@ const PREROLL = 1; // s: load clips starting this soon
 const MAX_STALL = 1.5; // s: hold the clock at most this long for a frame
 const POOL_IDLE = 8; // s: drop elements unused this long
 const MAX_POOL = 16;
+// Below this rate an element is paused and stepped by seeks (spec, Speed
+// ramps): the browser's slow playback stutters, and the audio rule mutes
+// it anyway. playbackRate itself is capped to what browsers allow.
+const MIN_RATE = 0.25;
+const RATE_LO = 0.0625;
+const RATE_HI = 16;
+
+// stepped says whether a clip's element is stepped by seeks rather than
+// played: a freeze frame, a rate below MIN_RATE, or a reversed clip (until
+// its reverse proxy plays it forwards).
+const stepped = (a: ActiveClip) => a.rate < MIN_RATE || !!a.clip.reversed;
 
 export type CompositorStats = {
   frames: number;
@@ -243,23 +258,24 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       const el = top && pool.get(top.clip.id)?.el;
       if (!top || !el) return;
       el.pause();
-      if (el.seeking || el.readyState < 2) return;
+      // A stepped clip (freeze, slow, reversed) already shows the clock's frame.
+      if (stepped(top) || el.seeking || el.readyState < 2) return;
       const at = timelineTimeAt(top.clip, el.currentTime);
       // Only a normal playing drift; anything bigger is a real position.
-      if (Math.abs(at - t) <= MAX_DRIFT * Math.max(1, top.clip.speed) * 2) clock.seek(at);
+      if (Math.abs(at - t) <= MAX_DRIFT * Math.max(1, top.rate) * 2) clock.seek(at);
     };
 
     // sync keeps an element at its clip's source time.
     const sync = (s: Slot, a: ActiveClip, playing: boolean, gain: number) => {
       const el = s.el;
       const want = a.srcT;
-      if (playing) {
+      if (playing && !stepped(a)) {
         const drift = el.currentTime - want;
-        if (!el.seeking && Math.abs(drift) > MAX_DRIFT * Math.max(1, a.clip.speed)) {
+        if (!el.seeking && Math.abs(drift) > MAX_DRIFT * Math.max(1, a.rate)) {
           el.currentTime = want;
         }
         const step = NUDGES.find(([d]) => Math.abs(drift) > d)?.[1] ?? 0;
-        const rate = a.clip.speed * (1 - Math.sign(drift) * step);
+        const rate = Math.max(RATE_LO, Math.min(RATE_HI, a.rate)) * (1 - Math.sign(drift) * step);
         if (Math.abs(el.playbackRate - rate) > 1e-3) el.playbackRate = rate;
         if (el.paused && !el.ended && !s.starting) {
           // A play() the browser blocks (no user gesture yet, autoplay
@@ -284,7 +300,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         el.muted = false;
         s.forcedMute = false;
       }
-      mix.set(el, playing ? gain : 0);
+      mix.set(el, playing && !stepped(a) ? gain : 0);
     };
 
     const frame = () => {
@@ -309,7 +325,8 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         const audioOnly = a.track.kind === "audio";
         const s = slotFor(a.clip, a.media, audioOnly, now);
         used.add(a.clip.id);
-        const g = clipGain(a.clip, a.track, t);
+        // The speed rule mutes ramps outside 0.25..4x, as the export does.
+        const g = clipAudible(a.clip, fromSource(a.clip, a.srcT)) ? clipGain(a.clip, a.track, t) : 0;
         // Per-track levels: play the extracted tracks once all are ready.
         const levels = a.media.tracks.length > 1 ? (a.clip.levels ?? []) : [];
         const urls = levels.map((l) => trackUrl(a.media.path, l.index));
@@ -328,7 +345,10 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         // Hold the clock while the picture can't keep up: no frame yet, or a
         // play() that hasn't started (resuming would otherwise run ahead and
         // force a re-seek).
-        if (!audioOnly && playing && (s.el.readyState < 2 || s.starting)) starving = true;
+        // A stepped clip seeks every frame; it only holds the clock until its
+        // first frame.
+        const waiting = stepped(a) ? s.uploaded < 0 && s.el.readyState < 2 : s.el.readyState < 2 || s.starting;
+        if (!audioOnly && playing && waiting) starving = true;
       }
       // Load what's about to start, parked at its first frame.
       if (playing) {
@@ -341,7 +361,8 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
             const s = slotFor(c, m, track.kind === "audio", now);
             used.add(c.id);
             if (!s.el.paused) s.el.pause();
-            if (!s.el.seeking && Math.abs(s.el.currentTime - c.in) > 1e-3) s.el.currentTime = c.in;
+            const first = toSource(c, 0); // out for a reversed clip
+            if (!s.el.seeking && Math.abs(s.el.currentTime - first) > 1e-3) s.el.currentTime = first;
             mix.set(s.el, 0);
           }
         }
