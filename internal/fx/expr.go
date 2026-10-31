@@ -24,8 +24,38 @@ func easeExpr(kind, x string) string {
 		return "(1-pow(1-" + x + ",3))"
 	case "inOut":
 		return "(st(1," + x + ");if(lt(ld(1),0.5),4*pow(ld(1),3),1-pow(2-2*ld(1),3)/2))"
+	case "hold":
+		return "0"
 	}
 	return x
+}
+
+// KeysExpr is ValueAt(keys, t, base) for numbers as an expression of the
+// time expression t (seconds; keys' T are ms, as the export receives
+// them): a ladder of if()s over the segments, each eased as ValueAt eases
+// it. Keys must be sorted; non-number values count as base.
+func KeysExpr(keys []Key, base float64, t string) string {
+	if len(keys) == 0 {
+		return num(base)
+	}
+	v := func(k Key) float64 {
+		if f, ok := k.V.(float64); ok {
+			return f
+		}
+		return base
+	}
+	sec := func(k Key) string { return num(k.T / 1000) }
+	e := num(v(keys[len(keys)-1]))
+	for i := len(keys) - 2; i >= 0; i-- {
+		a, b := keys[i], keys[i+1]
+		seg := num(v(b))
+		if span := b.T - a.T; span > 0 {
+			x := "clip((" + t + "-" + sec(a) + ")/" + num(span/1000) + ",0,1)"
+			seg = num(v(a)) + "+" + num(v(b)-v(a)) + "*" + easeExpr(a.Ease, x)
+		}
+		e = "if(lt(" + t + "," + sec(b) + ")," + seg + "," + e + ")"
+	}
+	return "if(lte(" + t + "," + sec(keys[0]) + ")," + num(v(keys[0])) + "," + e + ")"
 }
 
 // quoted wraps an expression for a filter option, so its commas and colons
