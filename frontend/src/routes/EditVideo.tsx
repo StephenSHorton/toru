@@ -12,6 +12,7 @@ import { useEditorAgentCommands } from "@/trim/agentCommands";
 import { newId } from "@/trim/edl";
 import { ExportDialog } from "@/trim/ExportDialog";
 import { Inspector } from "@/trim/inspector/Inspector";
+import { migrateProject } from "@/trim/migrate";
 import { MediaBin, toMedia, useMediaBin } from "@/trim/MediaBin";
 import { MultiTimeline, type TimelineSelection } from "@/trim/MultiTimeline";
 import { PlayerHandles } from "@/trim/PlayerHandles";
@@ -83,7 +84,7 @@ export default function EditVideo() {
         })
       : startEmpty
         ? Promise.resolve()
-        : firstMedia(absPath, devURL).then((m) => live && reset(newProject(m)));
+        : firstMedia(absPath, devURL).then((m) => live && reset(migrateProject(newProject(m))));
     start.catch((err) => live && setLoadErr(String(err))).finally(() => live && setLoading(false));
     return () => {
       live = false;
@@ -353,7 +354,7 @@ export default function EditVideo() {
 // emptyProject is the placeholder until the first file has loaded.
 function emptyProject(): Project {
   return {
-    version: 2,
+    version: 3,
     id: newId("proj"),
     name: "",
     canvas: { ...DEFAULT_CANVAS },
@@ -380,7 +381,9 @@ async function openSaved(id: string): Promise<{ project: Project; missing: strin
     const now = byId.get(m.id);
     return now ? { ...m, url: now.url, duration: now.duration || m.duration } : m;
   });
-  return { project: { ...p, media }, missing: p.media.filter((m) => m.path && !byId.has(m.id)).map((m) => m.path) };
+  // A v2 project opens as v3 (its chroma and filters become effects that
+  // draw the same pixels) and is saved as v3 on the next autosave.
+  return { project: migrateProject({ ...p, media }), missing: p.media.filter((m) => m.path && !byId.has(m.id)).map((m) => m.path) };
 }
 
 function baseName(p: string): string {
