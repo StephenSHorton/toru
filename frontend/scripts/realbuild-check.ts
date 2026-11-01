@@ -268,12 +268,22 @@ function meanVolume(file: string, from: number, d: number): number {
 // right after editor.open, editor.get can still answer for the old edit.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ctl results are JSON
 async function openFresh(src: string): Promise<any> {
+  // editor.open reloads the window asynchronously, and the edit before it may
+  // hold the same source as one clip (the text phase's does), so also wait for
+  // the track ids to change: otherwise a phase can grab ids the reload replaces.
+  const trackIds = (g: { tracks: { id: string }[] }) => g.tracks.map((t) => t.id).join(",");
+  let before = "";
+  try {
+    before = trackIds(ctl("editor.get"));
+  } catch {
+    // no edit open yet
+  }
   ctl("editor.open", { path: src });
   const norm = (x: string) => x.replaceAll("\\", "/").toLowerCase();
   return until("a fresh edit of the source", () => {
     const g = ctl("editor.get");
     const clips = g.tracks.flatMap((t: { clips: CtlClip[] }) => t.clips);
-    return clips.length === 1 && g.media.length === 1 && norm(g.media[0].path) === norm(src) && g;
+    return clips.length === 1 && g.media.length === 1 && norm(g.media[0].path) === norm(src) && trackIds(g) !== before && g;
   });
 }
 
@@ -500,16 +510,21 @@ async function phaseText(src: string) {
   ctl("editor.export", { preset: "original", path: out });
   say(`text: exported → ${out}`);
   // Boxes (of SAMPLE_W x SAMPLE_H) around each text and a control area.
-  const region = (b: Buffer, x0: number, x1: number, y0: number, y1: number) => {
+  // Mean per-pixel difference from the source inside a box. (Comparing the
+  // boxes' average colours misses text: a dark caption box with white letters
+  // can average out to the plain background.)
+  const delta = (t: number, x0: number, x1: number) => {
+    const a = rgb(out, t), b = rgb(src, t);
     let sum = 0, n = 0;
-    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) for (let c = 0; c < 3; c++) (sum += b[(y * SAMPLE_W + x) * 3 + c]), n++;
+    for (let y = 38; y < 52; y++)
+      for (let x = x0; x < x1; x++) for (let c = 0; c < 3; c++) (sum += Math.abs(a[(y * SAMPLE_W + x) * 3 + c] - b[(y * SAMPLE_W + x) * 3 + c])), n++;
     return sum / n;
   };
-  const delta = (t: number, x0: number, x1: number) => Math.abs(region(rgb(out, t), x0, x1, 38, 52) - region(rgb(src, t), x0, x1, 38, 52));
   const caption = delta(2.5, 36, 60);
   const fadeEarly = delta(1.2, 108, 132);
   const fadeLate = delta(3.8, 108, 132);
-  const control = delta(2.5, 70, 90);
+  // Left of the caption's box (the caption preset's box spans x≈15-80).
+  const control = delta(2.5, 2, 12);
   const before = delta(0.2, 36, 60);
   say(`text: change in caption box ${caption.toFixed(1)}, fade early ${fadeEarly.toFixed(1)} late ${fadeLate.toFixed(1)}, between ${control.toFixed(1)}, before start ${before.toFixed(1)}`);
   if (caption < 12) fail("text: the caption text isn't in the export");
