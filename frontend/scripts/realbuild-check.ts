@@ -24,7 +24,8 @@
 //   v17   v0.17.0's editor: the library rail, the Ctrl+K palette and the
 //         right-click menus (CDP); multi-select copy/paste and undo (ctl);
 //         waveforms on the test source and on a real recording (TORU_REAL,
-//         default the newest file in Videos/Toru Replays); a 16:9 edit
+//         default the newest file in Videos/Toru Replays, skipping test
+//         folders); a 16:9 edit
 //         switched to a 9:16 frame with fill, preview vs export
 //
 //   trans a cross dissolve and a wipe on the source's cuts (editor.split,
@@ -268,12 +269,22 @@ function meanVolume(file: string, from: number, d: number): number {
 // right after editor.open, editor.get can still answer for the old edit.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ctl results are JSON
 async function openFresh(src: string): Promise<any> {
+  // editor.open reloads the window asynchronously, and the edit before it may
+  // hold the same source as one clip (the text phase's does), so also wait for
+  // the track ids to change: otherwise a phase can grab ids the reload replaces.
+  const trackIds = (g: { tracks: { id: string }[] }) => g.tracks.map((t) => t.id).join(",");
+  let before = "";
+  try {
+    before = trackIds(ctl("editor.get"));
+  } catch {
+    // no edit open yet
+  }
   ctl("editor.open", { path: src });
   const norm = (x: string) => x.replaceAll("\\", "/").toLowerCase();
   return until("a fresh edit of the source", () => {
     const g = ctl("editor.get");
     const clips = g.tracks.flatMap((t: { clips: CtlClip[] }) => t.clips);
-    return clips.length === 1 && g.media.length === 1 && norm(g.media[0].path) === norm(src) && g;
+    return clips.length === 1 && g.media.length === 1 && norm(g.media[0].path) === norm(src) && trackIds(g) !== before && g;
   });
 }
 
@@ -500,16 +511,21 @@ async function phaseText(src: string) {
   ctl("editor.export", { preset: "original", path: out });
   say(`text: exported → ${out}`);
   // Boxes (of SAMPLE_W x SAMPLE_H) around each text and a control area.
-  const region = (b: Buffer, x0: number, x1: number, y0: number, y1: number) => {
+  // Mean per-pixel difference from the source inside a box. (Comparing the
+  // boxes' average colours misses text: a dark caption box with white letters
+  // can average out to the plain background.)
+  const delta = (t: number, x0: number, x1: number) => {
+    const a = rgb(out, t), b = rgb(src, t);
     let sum = 0, n = 0;
-    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) for (let c = 0; c < 3; c++) (sum += b[(y * SAMPLE_W + x) * 3 + c]), n++;
+    for (let y = 38; y < 52; y++)
+      for (let x = x0; x < x1; x++) for (let c = 0; c < 3; c++) (sum += Math.abs(a[(y * SAMPLE_W + x) * 3 + c] - b[(y * SAMPLE_W + x) * 3 + c])), n++;
     return sum / n;
   };
-  const delta = (t: number, x0: number, x1: number) => Math.abs(region(rgb(out, t), x0, x1, 38, 52) - region(rgb(src, t), x0, x1, 38, 52));
   const caption = delta(2.5, 36, 60);
   const fadeEarly = delta(1.2, 108, 132);
   const fadeLate = delta(3.8, 108, 132);
-  const control = delta(2.5, 70, 90);
+  // Left of the caption's box (the caption preset's box spans x≈15-80).
+  const control = delta(2.5, 2, 12);
   const before = delta(0.2, 36, 60);
   say(`text: change in caption box ${caption.toFixed(1)}, fade early ${fadeEarly.toFixed(1)} late ${fadeLate.toFixed(1)}, between ${control.toFixed(1)}, before start ${before.toFixed(1)}`);
   if (caption < 12) fail("text: the caption text isn't in the export");
@@ -518,9 +534,12 @@ async function phaseText(src: string) {
   if (control > 6 || before > 6) fail("text: the export changed where there's no text");
 }
 
-async function cdpPage(port: number, match: (url: string) => boolean) {
-  const list = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as { type: string; url: string; webSocketDebuggerUrl: string }[];
-  const t = list.find((x) => x.type === "page" && match(x.url));
+type CdpTarget = { id: string; type: string; url: string; webSocketDebuggerUrl: string };
+const cdpTargets = async (port: number) => (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as CdpTarget[];
+
+async function cdpPage(port: number, match: (url: string, id: string) => boolean) {
+  const list = await cdpTargets(port);
+  const t = list.find((x) => x.type === "page" && match(x.url, x.id));
   if (!t) throw new Error(`no page on CDP ${port} matching (have: ${list.map((x) => x.url).join(", ")})`);
   const ws = new WebSocket(t.webSocketDebuggerUrl);
   await new Promise((r, j) => ((ws.onopen = r), (ws.onerror = j)));
@@ -666,7 +685,9 @@ async function v17Ui(page: Page) {
 }
 
 // waveCheck says whether the clips of the open edit draw a waveform that
-// isn't flat (some column of a clip canvas has paint well off the middle).
+// isn't flat. ClipWave mirrors the wave about the middle of the band under the
+// clip's label, and a silent column is a 1 px line, so it measures each
+// column's painted span (top to bottom) against the canvas height.
 async function waveCheck(page: Page, label: string, shot: string) {
   await until(`${label} waveform`, () => page.evaluate(`[...document.querySelectorAll('[data-clip] canvas')].some((c) => c.style.display !== 'none' && c.width > 0)`), 30000).catch(() => false);
   const stat = (await page.evaluate(`(() => {
@@ -675,13 +696,17 @@ async function waveCheck(page: Page, label: string, shot: string) {
       if (c.style.display === 'none' || !c.width) continue;
       n++;
       const g = c.getContext('2d'); const d = g.getImageData(0, 0, c.width, c.height).data;
-      for (let x = 0; x < c.width; x += 2) { let top = c.height; for (let y = 0; y < c.height; y++) if (d[(y * c.width + x) * 4 + 3] > 40) { top = y; break; } best = Math.max(best, (c.height - top) / c.height); }
+      for (let x = 0; x < c.width; x += 2) {
+        let top = -1, bottom = -1;
+        for (let y = 0; y < c.height; y++) if (d[(y * c.width + x) * 4 + 3] > 40) { if (top < 0) top = y; bottom = y; }
+        if (top >= 0) best = Math.max(best, (bottom - top + 1) / c.height);
+      }
     }
     return { n, best };
   })()`)) as { n: number; best: number };
-  say(`  ${label}: ${stat.n} waveform canvas(es), tallest column ${(stat.best * 100).toFixed(0)}% of the clip`);
+  say(`  ${label}: ${stat.n} waveform canvas(es), tallest column spans ${(stat.best * 100).toFixed(0)}% of the clip`);
   if (!stat.n) fail(`v17: no waveform on ${label}`);
-  else if (stat.best < 0.6) fail(`v17: the ${label} waveform is flat`);
+  else if (stat.best < 0.15) fail(`v17: the ${label} waveform is flat`);
   await page.shot(path.join(v17Dir(), shot));
 }
 
@@ -694,7 +719,7 @@ function realRecording(): string | null {
   const walk = (d: string, depth: number) => {
     for (const e of fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }) : []) {
       const f = path.join(d, e.name);
-      if (e.isDirectory() && depth < 2 && !e.name.startsWith("toru-check-")) walk(f, depth + 1);
+      if (e.isDirectory() && depth < 2 && !/^toru-check-|test/i.test(e.name)) walk(f, depth + 1);
       else if (e.isFile() && /\.(mp4|mkv)$/i.test(e.name)) {
         const t = fs.statSync(f).mtimeMs;
         if (!best || t > best.t) best = { f, t };
@@ -707,10 +732,21 @@ function realRecording(): string | null {
 
 const realOpened = new Set<string>();
 
+// openPage opens a file with editor.open and connects to the window it made:
+// every editor.open opens a NEW editor window and leaves the old ones open,
+// so a page connected before it keeps showing the old edit.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ctl results are JSON
+async function openPage(file: string): Promise<{ g: any; page: Page }> {
+  const isEdit = (x: CdpTarget) => x.type === "page" && x.url.includes("view=edit");
+  const before = new Set((await cdpTargets(CDP)).filter(isEdit).map((x) => x.id));
+  const g = await openFresh(file);
+  const t = await until("the new editor window", async () => (await cdpTargets(CDP)).find((x) => isEdit(x) && !before.has(x.id)));
+  return { g, page: await cdpPage(CDP, (_, id) => id === t.id) };
+}
+
 async function phaseV17(src: string) {
   say("== v17: rail, palette, menus, multi-select, waveforms, 9:16 fill");
-  let g = await openFresh(src);
-  const page = await cdpPage(CDP, (u) => u.includes("view=edit"));
+  let { g, page } = await openPage(src);
   try {
     await sleep(1500);
     await v17Ui(page);
@@ -742,13 +778,23 @@ async function phaseV17(src: string) {
     else {
       realOpened.add(real);
       say(`  real recording: ${real}`);
-      await openFresh(real);
+      page.close();
+      ({ page } = await openPage(real));
+      // A long recording can take a while to show up on the new window's
+      // timeline: wait until it's there as the only clip.
+      const base = JSON.stringify(path.basename(real));
+      await until(
+        "the recording on the timeline",
+        () => page.evaluate(`(() => { const c = [...document.querySelectorAll('[data-clip]')]; return c.length > 0 && c.every((e) => e.textContent.includes(${base})); })()`),
+        90000,
+      );
       await sleep(1500);
       await waveCheck(page, path.basename(real), "wave_real.png");
     }
 
     // 9:16 with fill: preview vs export, and the export's size.
-    g = await openFresh(src);
+    page.close();
+    ({ g, page } = await openPage(src));
     ctl("editor.setCanvas", { preset: "9:16", place: "fill" });
     g = await until("the 9:16 frame", () => {
       const x = ctl("editor.get");
