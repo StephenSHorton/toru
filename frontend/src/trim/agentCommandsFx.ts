@@ -340,7 +340,7 @@ export function registerFxCommands(x: FxCommandCtx) {
       const { PresetService } = await import("@/lib/api");
       const saved = await PresetService.Save(JSON.stringify(doc));
       void refreshPresets();
-      return { id: saved.id, name: saved.name, effects: saved.effects.length };
+      return { id: saved.id, name: saved.name, effects: saved.effects?.length ?? 0 };
     },
   );
 }

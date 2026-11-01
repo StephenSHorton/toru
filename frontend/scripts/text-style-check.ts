@@ -1,10 +1,11 @@
 // text-style-check.ts checks the text style model (src/trim/textStyle.ts,
 // textRender.ts resolveStyle/textOpacityAt): defaults and clamping, edits
-// keeping only what differs from the plain look, opacity keyframes, presets.
+// keeping only what differs from the plain look, opacity keyframes, presets,
+// and moving pre-#125 saved styles out of localStorage.
 // The drawing itself is checked against the export in a browser (PR notes).
 // Run: bun scripts/text-style-check.ts
 import { resolveStyle, textOpacityAt, TEXT_DEFAULTS } from "../src/trim/textRender";
-import { BUILTIN_TEXT_PRESETS, replaceTextStyle, setTextOpacity, setTextStyle, tidyStyle, toggleTextOpacityKey } from "../src/trim/textStyle";
+import { BUILTIN_TEXT_PRESETS, migrateLocal, replaceTextStyle, setTextOpacity, setTextStyle, tidyStyle, toggleTextOpacityKey } from "../src/trim/textStyle";
 import type { Project } from "../src/trim/project";
 
 let failed = 0;
@@ -69,6 +70,43 @@ p = replaceTextStyle(p, "t1", undefined);
 check("reset keeps keys only", JSON.stringify(Object.keys(style(p) ?? {})) === '["opacityKeys"]', style(p));
 check("builtin ids unique", new Set(BUILTIN_TEXT_PRESETS.map((x) => x.id)).size === BUILTIN_TEXT_PRESETS.length);
 check("builtins are tidy", BUILTIN_TEXT_PRESETS.every((x) => JSON.stringify(tidyStyle(x.style) ?? {}) === JSON.stringify(x.style)));
+
+// Migration of the styles saved in localStorage before #125.
+{
+  const mem = new Map<string, string>();
+  const storage = { getItem: (k: string) => mem.get(k) ?? null, removeItem: (k: string) => void mem.delete(k) };
+  const docs: Record<string, unknown>[] = [];
+  const ok = async (doc: string) => void docs.push(JSON.parse(doc));
+  check("migrate: nothing stored", (await migrateLocal(ok, storage)) === 0 && docs.length === 0);
+  const ts = Date.UTC(2026, 9, 31, 20).toString(36);
+  mem.set(
+    "toru.editor.textPresets",
+    JSON.stringify([
+      { id: `text-${ts}-ab12`, name: "  Neon  ", style: { color: "#e6fffb", bold: false, opacityKeys: [{ t: 0, v: 1, ease: "linear" }] } },
+      { id: "weird:id", name: "", style: {} },
+      { id: 5, name: "bad" },
+    ]),
+  );
+  // A failing save leaves localStorage for next time.
+  let n = 0;
+  const flaky = async () => {
+    if (n++ === 1) throw new Error("disk full");
+  };
+  let threw = false;
+  await migrateLocal(flaky, storage).catch(() => (threw = true));
+  check("migrate: failure keeps localStorage", threw && mem.has("toru.editor.textPresets"));
+  check("migrate: count", (await migrateLocal(ok, storage)) === 2, docs);
+  check("migrate: cleared", !mem.has("toru.editor.textPresets"));
+  const [a, b] = docs;
+  check(
+    "migrate: first",
+    a.kind === "text" && a.version === 1 && a.id === `text-${ts}-ab12` && a.name === "Neon" && JSON.stringify(a.style) === '{"color":"#e6fffb"}' && a.createdAt === "2026-10-31T20:00:00.000Z",
+    a,
+  );
+  check("migrate: bad id gets a new one", b.id === "" && b.name === "My style" && JSON.stringify(b.style) === "{}" && b.createdAt === undefined, b);
+  mem.set("toru.editor.textPresets", "not json");
+  check("migrate: junk is dropped", (await migrateLocal(ok, storage)) === 0 && !mem.has("toru.editor.textPresets"));
+}
 
 if (failed) {
   console.error(`${failed} check(s) failed`);

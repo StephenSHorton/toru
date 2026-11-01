@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Check, Pencil, Plus, Save, Trash2, Type } from "lucide-react";
+import { Check, Download, Import, Pencil, Plus, Save, Trash2, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Text } from "@/trim/edl";
@@ -9,6 +9,8 @@ import { renderText } from "@/trim/textRender";
 import {
   BUILTIN_TEXT_PRESETS,
   deleteTextPreset,
+  exportTextPreset,
+  importTextPreset,
   renameTextPreset,
   saveTextPreset,
   savedTextPresets,
@@ -21,7 +23,8 @@ import {
 // as live previews (drawn by the same renderer as the player and the
 // export). Clicking a style restyles the selected text, or adds a new text
 // in that style when none is selected. "Save style" keeps the selected
-// text's look for later.
+// text's look for later (Go keeps it in %AppData%; Import and the tile's
+// share button move styles between PCs as .torufx files).
 
 const TILE_W = 240;
 const TILE_H = 120;
@@ -54,6 +57,15 @@ export function TextLibrary({
   const saved = useSyncExternalStore(subscribeTextPresets, savedTextPresets);
   const version = useFontsVersion();
   const [naming, setNaming] = useState<null | { id?: string; name: string }>(null);
+  const [error, setError] = useState("");
+  const run = async (fn: () => Promise<unknown>) => {
+    setError("");
+    try {
+      await fn();
+    } catch (err) {
+      setError((err instanceof Error ? err.message : String(err)).replace(/^Error:\s*/, ""));
+    }
+  };
   const current = JSON.stringify(tidyStyle({ ...(selected?.style ?? {}), opacityKeys: undefined }) ?? {});
 
   const tile = (p: TextPreset) => {
@@ -80,7 +92,8 @@ export function TextLibrary({
         {!p.builtin ? (
           <div className="absolute left-0.5 top-0.5 hidden gap-0.5 group-focus-within:flex group-hover:flex">
             <TileAction icon={Pencil} label={`Rename ${p.name}`} onClick={() => setNaming({ id: p.id, name: p.name })} />
-            <TileAction icon={Trash2} label={`Delete ${p.name}`} danger onClick={() => deleteTextPreset(p.id)} />
+            <TileAction icon={Download} label={`Share ${p.name} as a file`} onClick={() => void run(() => exportTextPreset(p.id))} />
+            <TileAction icon={Trash2} label={`Delete ${p.name}`} danger onClick={() => void run(() => deleteTextPreset(p.id))} />
           </div>
         ) : null}
       </div>
@@ -89,9 +102,12 @@ export function TextLibrary({
 
   const save = () => {
     if (!naming) return;
-    if (naming.id) renameTextPreset(naming.id, naming.name);
-    else if (selected) saveTextPreset(naming.name, selected.style);
+    const n = naming;
     setNaming(null);
+    void run(async () => {
+      if (n.id) await renameTextPreset(n.id, n.name);
+      else if (selected) await saveTextPreset(n.name, selected.style);
+    });
   };
 
   return (
@@ -110,9 +126,14 @@ export function TextLibrary({
       <Section
         title="My styles"
         action={
-          <Button size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px]" disabled={!selected || !!naming} onClick={() => setNaming({ name: "" })} title={selected ? "Save the selected text's style" : "Select a text to save its style"}>
-            <Save className="size-3" /> Save style
-          </Button>
+          <div className="flex items-center gap-0.5">
+            <Button size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px]" onClick={() => void run(importTextPreset)} title="Add a text style someone shared (.torufx)">
+              <Import className="size-3" /> Import
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px]" disabled={!selected || !!naming} onClick={() => setNaming({ name: "" })} title={selected ? "Save the selected text's style" : "Select a text to save its style"}>
+              <Save className="size-3" /> Save style
+            </Button>
+          </div>
         }
       >
         {naming ? (
@@ -144,6 +165,7 @@ export function TextLibrary({
             </Button>
           </form>
         ) : null}
+        {error ? <p className="mb-1.5 text-[11px] text-destructive">{error}</p> : null}
         {saved.length ? <div className="grid grid-cols-2 gap-1.5">{saved.map(tile)}</div> : <p className="text-[11px] text-muted-foreground">Style a text, select it and press Save style to reuse its look.</p>}
       </Section>
     </div>

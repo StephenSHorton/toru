@@ -45,17 +45,31 @@ func (s *Service) PickLut() (lut Lut, ok bool, err error) {
 }
 
 // PickImport asks for a .torufx file and adds it to My filters. ok is false
-// when the dialog was cancelled.
+// when the dialog was cancelled. A text style file is refused (it belongs
+// in the Text library).
 func (s *Service) PickImport() (preset Preset, ok bool, err error) {
 	path, err := openOne("Import filter", "Toru filter (.torufx)", "*.torufx")
 	if err != nil || path == "" {
 		return Preset{}, false, err
 	}
-	p, err := s.Import(path)
+	k := KindFilter
+	p, err := s.importAs(path, &k)
 	return p, err == nil, err
 }
 
-// PickExport asks where to save a filter as .torufx and writes it. It
+// PickImportTextStyle asks for a .torufx text style and adds it to My
+// styles. ok is false when the dialog was cancelled.
+func (s *Service) PickImportTextStyle() (preset Preset, ok bool, err error) {
+	path, err := openOne("Import text style", "Toru text style (.torufx)", "*.torufx")
+	if err != nil || path == "" {
+		return Preset{}, false, err
+	}
+	p, err := s.ImportTextStyle(path)
+	return p, err == nil, err
+}
+
+// PickExport asks where to save a filter or text style as .torufx and
+// writes it. It
 // returns the path written, or "" when the dialog was cancelled.
 func (s *Service) PickExport(id string) (string, error) {
 	p, err := s.Get(id)
@@ -74,7 +88,7 @@ func (s *Service) PickExport(id string) (string, error) {
 	}, p.Name)
 	dlg := app.Dialog.SaveFile().
 		SetFilename(name+".torufx").
-		AddFilter("Toru filter (.torufx)", "*.torufx")
+		AddFilter("Toru "+noun(p.Kind)+" (.torufx)", "*.torufx")
 	if cur := app.Window.Current(); cur != nil {
 		dlg.AttachToWindow(cur)
 	}
