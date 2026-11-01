@@ -30,8 +30,21 @@ const LIMITS: Record<string, Limits> = {
 };
 
 const tmp = tempDir("transition-parity");
-run(goBin, ["test", "./internal/vid/", "-run", "^TestWriteTransitionParityCases$", "-count=1"], { TORU_TRANSITION_PARITY_DIR: tmp });
-const spec = JSON.parse(fs.readFileSync(path.join(tmp, "cases.json"), "utf8")) as {
+// TORU_FFMPEG_PINNED lets the Go side download the pinned build (it still
+// prefers $TORU_FFMPEG when set); without it the case writer skips.
+run(goBin, ["test", "./internal/vid/", "-run", "^TestWriteTransitionParityCases$", "-count=1"], {
+  TORU_TRANSITION_PARITY_DIR: tmp,
+  TORU_FFMPEG_PINNED: "1",
+});
+const casesFile = path.join(tmp, "cases.json");
+if (!fs.existsSync(casesFile)) {
+  console.error(
+    "transition-parity: the Go case writer wrote no cases.json (TestWriteTransitionParityCases skipped?). Run it by hand to see why:\n" +
+      "  TORU_FFMPEG_PINNED=1 TORU_TRANSITION_PARITY_DIR=<dir> go test ./internal/vid/ -run ^TestWriteTransitionParityCases$ -v",
+  );
+  process.exit(1);
+}
+const spec = JSON.parse(fs.readFileSync(casesFile, "utf8")) as {
   w: number;
   h: number;
   fps: number;
