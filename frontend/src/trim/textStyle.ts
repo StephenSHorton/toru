@@ -126,7 +126,9 @@ export function refreshTextPresets(): Promise<void> {
   if (loading) return loading;
   loading = (async () => {
     const { PresetService } = await import("@/lib/api");
-    await migrateLocal(PresetService.Save);
+    // A style Go refuses mustn't hide the rest: list anyway, and the
+    // migration tries again next load.
+    await migrateLocal(PresetService.Save).catch(() => {});
     const list = ((await PresetService.ListTextStyles()) ?? []) as unknown as Doc[];
     saved = list.map(fromDoc);
     listeners.forEach((l) => l());
