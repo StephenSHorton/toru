@@ -146,7 +146,8 @@ func TestProjectTextExportInFFmpeg(t *testing.T) {
 	// 533 ms into an inOut ramp (the preview's fx/keyframes.ts ease).
 	f = frame(31)
 	near("a: gone after its end", px(f, 41, 41)[0], 0, 8)
-	u := 1 - math.Pow(-2*0.5333+2, 3)/2
+	v := -2*0.5333 + 2
+	u := 1 - v*v*v/2
 	near("c: keyed inOut part way", px(f, 231, 81)[0], 255*u, 14)
 	// Frame 50 = 1.67 s: c gone.
 	f = frame(50)
