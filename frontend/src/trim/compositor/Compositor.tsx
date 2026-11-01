@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type Ref } from "react";
 import { VideoService } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { clipLength, clipsAt, timelineTimeAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
+import { clipLength, clipsAt, frameLocalTime, timelineTimeAt, type ActiveClip, type Clip, type Media, type Project } from "@/trim/project";
 import { TransitionGL } from "@/trim/compositor/transition-gl";
 import { drawLayer, layerProgram } from "@/trim/compositor/layer";
 import { AudioMix, clipGain } from "@/trim/compositor/audio";
@@ -517,7 +517,13 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         const fix = slot && !slot.exact ? matrixFix(a.media, h) : null;
         // A clip held in a transition's window keeps its edge frame's
         // effects and placement (the export's tpad repeats that frame).
-        const lt = a.trans ? Math.min(Math.max(t - a.clip.start, 0), clipLength(a.clip) - 1 / fps) : t - a.clip.start;
+        // Effects and keyframes are read at the start of the frame on show,
+        // as the export does: its effect graph runs after fps=, so its t is
+        // a whole number of frames into the clip. The raw playhead sits
+        // anywhere inside the frame (seeks land mid-frame), and fast
+        // effects like shake moved several pixels in that half frame.
+        const ft = frameLocalTime(t - a.clip.start, fps);
+        const lt = a.trans ? Math.min(Math.max(ft, 0), clipLength(a.clip) - 1 / fps) : ft;
         const out = effects.apply(tex, w, h, clipStack(a.clip, lt, rawClips.has(a.clip.id)), lt, fix ? [correctionStep(fix)] : []);
         if (a.trans) {
           // Both clips go into their own canvas-size buffer, then the
