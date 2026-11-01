@@ -50,6 +50,8 @@ export function Get(id: string): $CancellablePromise<$models.Preset> {
 /**
  * Import reads a .torufx file and saves it as a new preset (a fresh id, so
  * importing the same file twice gives two copies rather than overwriting).
+ * The file says its kind: a text style lands in the Text library's My
+ * styles, a filter in My filters.
  */
 export function Import(path: string): $CancellablePromise<$models.Preset> {
     return $Call.ByID(2738200890, path).then(($result: any) => {
@@ -69,8 +71,18 @@ export function ImportLut(path: string): $CancellablePromise<$models.Lut> {
 }
 
 /**
- * List is the built-in looks, then the saved presets, newest first.
- * Unreadable files are skipped.
+ * ImportTextStyle is Import for the Text library: the file must be a text
+ * style.
+ */
+export function ImportTextStyle(path: string): $CancellablePromise<$models.Preset> {
+    return $Call.ByID(380087378, path).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
+ * List is the built-in looks, then the saved filters, newest first.
+ * Unreadable files are skipped. Text styles aren't in it (ListTextStyles).
  */
 export function List(): $CancellablePromise<$models.Preset[]> {
     return $Call.ByID(2286535211).then(($result: any) => {
@@ -88,7 +100,18 @@ export function ListLuts(): $CancellablePromise<$models.Lut[]> {
 }
 
 /**
- * PickExport asks where to save a filter as .torufx and writes it. It
+ * ListTextStyles is the saved text styles, oldest first (the order the Text
+ * library shows them in). The built-in styles live in the editor.
+ */
+export function ListTextStyles(): $CancellablePromise<$models.Preset[]> {
+    return $Call.ByID(1557493094).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
+ * PickExport asks where to save a filter or text style as .torufx and
+ * writes it. It
  * returns the path written, or "" when the dialog was cancelled.
  */
 export function PickExport(id: string): $CancellablePromise<string> {
@@ -97,10 +120,22 @@ export function PickExport(id: string): $CancellablePromise<string> {
 
 /**
  * PickImport asks for a .torufx file and adds it to My filters. ok is false
- * when the dialog was cancelled.
+ * when the dialog was cancelled. A text style file is refused (it belongs
+ * in the Text library).
  */
 export function PickImport(): $CancellablePromise<[$models.Preset, boolean]> {
     return $Call.ByID(2609996987).then(($result: any) => {
+        $result[0] = $$createType0($result[0]);
+        return $result;
+    });
+}
+
+/**
+ * PickImportTextStyle asks for a .torufx text style and adds it to My
+ * styles. ok is false when the dialog was cancelled.
+ */
+export function PickImportTextStyle(): $CancellablePromise<[$models.Preset, boolean]> {
+    return $Call.ByID(4100685665).then(($result: any) => {
         $result[0] = $$createType0($result[0]);
         return $result;
     });

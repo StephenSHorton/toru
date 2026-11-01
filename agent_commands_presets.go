@@ -19,6 +19,7 @@ import (
 // presetStore is what the commands use of *presets.Service.
 type presetStore interface {
 	List() ([]presets.Preset, error)
+	ListTextStyles() ([]presets.Preset, error)
 	Rename(id, name string) (presets.Preset, error)
 	Delete(id string) error
 	Import(path string) (presets.Preset, error)
@@ -49,7 +50,7 @@ func registerPresetAgentCommands(reg *agentctl.Registry, d presetAgentDeps) {
 			d.emit("presets:changed", nil)
 		}
 	}
-	propID := map[string]any{"type": "string", "description": "A filter's id from preset.list."}
+	propID := map[string]any{"type": "string", "description": "A saved filter's id from preset.list, or a saved text style's from preset.textStyles."}
 	propPath := func(what string) map[string]any {
 		return map[string]any{"type": "string", "description": what}
 	}
@@ -72,8 +73,25 @@ func registerPresetAgentCommands(reg *agentctl.Registry, d presetAgentDeps) {
 	})
 
 	reg.Register(agentctl.Command{
+		Name: "preset.textStyles",
+		Description: "List the saved text styles (the editor's Text library, My styles): id, name and style fields. " +
+			"Built-in text styles live in the editor (editor.textPresets lists both); use an id with the editor window's editor.setText preset.",
+		Handler: func(context.Context, json.RawMessage) (any, error) {
+			list, err := d.presets.ListTextStyles()
+			if err != nil {
+				return nil, err
+			}
+			out := make([]map[string]any, 0, len(list))
+			for _, p := range list {
+				out = append(out, map[string]any{"id": p.ID, "name": p.Name, "style": p.Style})
+			}
+			return map[string]any{"textStyles": out}, nil
+		},
+	})
+
+	reg.Register(agentctl.Command{
 		Name:        "preset.rename",
-		Description: "Rename a saved filter (built-in looks can't be renamed).",
+		Description: "Rename a saved filter or text style (built-in ones can't be renamed).",
 		Input: schema(map[string]any{
 			"id":   propID,
 			"name": map[string]any{"type": "string", "minLength": 1, "maxLength": presets.MaxNameLen},
@@ -97,7 +115,7 @@ func registerPresetAgentCommands(reg *agentctl.Registry, d presetAgentDeps) {
 
 	reg.Register(agentctl.Command{
 		Name:        "preset.delete",
-		Description: "Delete a saved filter for good. Clips it was applied to keep their effects. Needs confirm: true.",
+		Description: "Delete a saved filter or text style for good. Clips and texts it was applied to keep their look. Needs confirm: true.",
 		Destructive: true,
 		Input:       schema(map[string]any{"id": propID, "confirm": propConfirm}, "id", "confirm"),
 		Handler: func(_ context.Context, in json.RawMessage) (any, error) {
@@ -117,7 +135,7 @@ func registerPresetAgentCommands(reg *agentctl.Registry, d presetAgentDeps) {
 
 	reg.Register(agentctl.Command{
 		Name:        "preset.import",
-		Description: "Add a shared filter from a .torufx file (by absolute path) to My filters. Returns its new id.",
+		Description: "Add a shared filter or text style from a .torufx file (by absolute path): a filter lands in My filters, a text style in the Text library's My styles. Returns its new id and kind.",
 		Input:       schema(map[string]any{"path": propPath("Absolute path of the .torufx file.")}, "path"),
 		Handler: func(_ context.Context, in json.RawMessage) (any, error) {
 			v, err := decode[struct {
@@ -134,13 +152,17 @@ func registerPresetAgentCommands(reg *agentctl.Registry, d presetAgentDeps) {
 				return nil, err
 			}
 			changed()
-			return map[string]any{"id": p.ID, "name": p.Name}, nil
+			kind := "filter"
+			if p.Kind == presets.KindText {
+				kind = "text"
+			}
+			return map[string]any{"id": p.ID, "name": p.Name, "kind": kind}, nil
 		},
 	})
 
 	reg.Register(agentctl.Command{
 		Name:        "preset.export",
-		Description: "Write a filter to a .torufx file to share it (.torufx is added if missing; an existing file is never overwritten). Returns the path written.",
+		Description: "Write a saved filter, built-in look or saved text style to a .torufx file to share it (.torufx is added if missing; an existing file is never overwritten). Returns the path written.",
 		Input: schema(map[string]any{
 			"id":   propID,
 			"path": propPath("Absolute output path."),

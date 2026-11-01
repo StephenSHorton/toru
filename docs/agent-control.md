@@ -142,8 +142,10 @@ opacity, rotation, volume; times in timeline seconds),
 `editor.updateClip`'s v2 `chroma`/`filters`.
 
 Saved filters and LUTs (Go, `agent_commands_presets.go`): `preset.list`
-(saved filters and the built-in looks), `preset.rename`, `preset.delete`
-(destructive), `preset.import` / `preset.export` (`.torufx`),
+(saved filters and the built-in looks), `preset.textStyles` (the Text
+library's saved styles, presets of kind "text"), `preset.rename`,
+`preset.delete` (destructive), `preset.import` / `preset.export` (`.torufx`,
+filters and text styles; an imported file keeps its kind),
 `preset.luts`, `preset.importLut` (a `.cube` file; returns the id a `lut`
 effect takes) and `preset.deleteLut` (destructive).
 
