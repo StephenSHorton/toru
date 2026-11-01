@@ -133,6 +133,9 @@ type TextJSON struct {
 	Font   string `json:"font,omitempty"` // installed font's name; "" = DefaultTextFont
 	Start  int    `json:"start"`
 	End    int    `json:"end"`
+	// Style and Image: the editor's styled text (project_text.go).
+	Style *TextStyleJSON `json:"style,omitempty"`
+	Image *TextImageJSON `json:"image,omitempty"`
 }
 
 // CanvasJSON is the output frame before crop and the preset's scale.

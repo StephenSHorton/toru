@@ -15,6 +15,10 @@
 //         (preset.importLut) and used as a lut effect, editor.addEffect /
 //         setKeyframe, a filter saved, exported to .torufx, imported and
 //         applied (editor.savePreset, preset.export/import, applyPreset)
+//   text  styled texts (a preset, a blurred shadow, an opacity ramp) set with
+//         editor.setText and exported: the editor's text images reach the
+//         export through the bridge and land where the texts are (#122;
+//         editor.frame leaves texts out, so this checks the export alone)
 //   ui    screenshots of every inspector tab over CDP (C6); needs the build
 //         started with --remote-debugging-port (TORU_CDP, default 9333)
 //   v17   v0.17.0's editor: the library rail, the Ctrl+K palette and the
@@ -54,7 +58,7 @@ const DRY = flag("dry");
 const KEEP = flag("keep");
 const EXE = opt("exe");
 const OUT = path.resolve(opt("out", path.join(os.tmpdir(), `toru-realbuild-${Date.now()}`)));
-const PHASES = opt("phases", "time,fx,fx7,ui,v17,trans").split(",").map((s) => s.trim());
+const PHASES = opt("phases", "time,fx,fx7,text,ui,v17,trans").split(",").map((s) => s.trim());
 const URL_ = opt("url");
 const CDP = Number(process.env.TORU_CDP || 9333);
 const FFMPEG = process.env.FFMPEG || "ffmpeg";
@@ -482,6 +486,38 @@ async function phaseFx7(src: string) {
 // A minimal CDP client: one page target, Runtime.evaluate, real mouse
 // clicks (synthetic pointer events can't take pointer capture in WebView2)
 // and screenshots.
+// phaseText puts two styled texts on the source and exports: inside each
+// text's box the export must differ from the source (the text is there),
+// outside it must match (nothing else moved), and the faded-in text must be
+// fainter early than late.
+async function phaseText(src: string) {
+  await openFresh(src);
+  ctl("editor.setText", { text: "CLUTCH", x: 0.3, y: 0.5, size: 120, start: 0.5, end: 5, preset: "builtin:caption", style: { shadowOpacity: 0.9, shadowBlur: 0.3 } });
+  ctl("editor.setText", { text: "fade", x: 0.75, y: 0.5, size: 120, start: 1, end: 5, preset: "builtin:neon", style: { opacityKeys: [{ t: 0, v: 0.1, ease: "linear" }, { t: 3, v: 1, ease: "linear" }] } });
+  const dir = path.join(OUT, "text");
+  fs.mkdirSync(dir, { recursive: true });
+  const out = path.join(dir, `export-${Date.now()}.mp4`);
+  ctl("editor.export", { preset: "original", path: out });
+  say(`text: exported → ${out}`);
+  // Boxes (of SAMPLE_W x SAMPLE_H) around each text and a control area.
+  const region = (b: Buffer, x0: number, x1: number, y0: number, y1: number) => {
+    let sum = 0, n = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) for (let c = 0; c < 3; c++) (sum += b[(y * SAMPLE_W + x) * 3 + c]), n++;
+    return sum / n;
+  };
+  const delta = (t: number, x0: number, x1: number) => Math.abs(region(rgb(out, t), x0, x1, 38, 52) - region(rgb(src, t), x0, x1, 38, 52));
+  const caption = delta(2.5, 36, 60);
+  const fadeEarly = delta(1.2, 108, 132);
+  const fadeLate = delta(3.8, 108, 132);
+  const control = delta(2.5, 70, 90);
+  const before = delta(0.2, 36, 60);
+  say(`text: change in caption box ${caption.toFixed(1)}, fade early ${fadeEarly.toFixed(1)} late ${fadeLate.toFixed(1)}, between ${control.toFixed(1)}, before start ${before.toFixed(1)}`);
+  if (caption < 12) fail("text: the caption text isn't in the export");
+  if (fadeLate < 12) fail("text: the faded-in text isn't in the export");
+  if (!(fadeLate > fadeEarly + 4)) fail("text: the opacity ramp didn't show (early vs late)");
+  if (control > 6 || before > 6) fail("text: the export changed where there's no text");
+}
+
 async function cdpPage(port: number, match: (url: string) => boolean) {
   const list = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as { type: string; url: string; webSocketDebuggerUrl: string }[];
   const t = list.find((x) => x.type === "page" && match(x.url));
@@ -906,6 +942,7 @@ try {
     if (PHASES.includes("time")) await phaseTime(src);
     if (PHASES.includes("fx")) await phaseFx(src);
     if (PHASES.includes("fx7")) await phaseFx7(src);
+    if (PHASES.includes("text")) await phaseText(src);
     if (PHASES.includes("ui")) await phaseUi(CDP, (u) => u.includes("view=edit"));
     if (PHASES.includes("v17")) await phaseV17(src);
     if (PHASES.includes("trans")) await phaseTrans(src);

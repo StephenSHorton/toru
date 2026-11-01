@@ -27,8 +27,10 @@ export {
     Segment,
     SpeedCurveJSON,
     SpeedPointJSON,
+    TextImageJSON,
     TextJSON,
     TextOverlay,
+    TextStyleJSON,
     TrackJSON,
     TrackLevel,
     TransformJSON

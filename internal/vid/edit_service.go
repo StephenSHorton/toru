@@ -249,16 +249,19 @@ func (s *VideoService) exportProject(ctx context.Context, req ProjectExport, onP
 	if err != nil {
 		return "", err
 	}
-	textFilter, cleanupText, err := projectTextFilter(req.Project)
-	if err != nil {
-		return "", err
-	}
-	defer cleanupText()
 	work, err := os.MkdirTemp("", "toru-editfx-")
 	if err != nil {
 		return "", fmt.Errorf("export: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(work) }()
+	// The editor's text images, written into work (project_text.go).
+	// Audio-only exports draw no picture.
+	textFilter := ""
+	if o := req.Options; o == nil || (o.Format != FormatM4A && o.Format != FormatWAV) {
+		if textFilter, err = ProjectTextFilter(req.Project, work); err != nil {
+			return "", fmt.Errorf("export: %w", err)
+		}
+	}
 	// Build once up front, so a failure (writing a LUT) is an error, not a
 	// broken ffmpeg run.
 	if _, err := BuildProjectArgs(req, capture.TrimH264Encoder(), textFilter, work); err != nil {
@@ -295,27 +298,6 @@ func markUntagged709(ctx context.Context, p *ProjectJSON) {
 			p.Media[i].Untagged709 = true
 		}
 	}
-}
-
-// projectTextFilter is editTextFilter for a v2 project: the texts laid out
-// in the canvas (or crop), their files removed by cleanup.
-func projectTextFilter(p ProjectJSON) (filter string, cleanup func(), err error) {
-	texts := p.textOverlays()
-	if len(texts) == 0 {
-		return "", func() {}, nil
-	}
-	dir, err := os.MkdirTemp("", "toru-edittext-")
-	if err != nil {
-		return "", nil, fmt.Errorf("export: %w", err)
-	}
-	cleanup = func() { _ = os.RemoveAll(dir) }
-	w, h := ProjectFrameSize(p)
-	filter, _, err = TextFilter(texts, w, h, DefaultTextFont, dir)
-	if err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("export: %w", err)
-	}
-	return filter, cleanup, nil
 }
 
 // CancelExport stops the running export, if any. Export then returns

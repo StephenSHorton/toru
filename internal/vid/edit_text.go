@@ -12,7 +12,9 @@ import (
 // apart from writing one UTF-8 text file per overlay: drawtext reads the text
 // from textfile= so the user's text never goes through filtergraph escaping.
 //
-// The preview (frontend/src/trim/TextOverlays.tsx) draws the same box: the
+// Used by the v1 trim export only: the v3 editor draws its texts itself and
+// sends them as images (project_text.go). The layout here, which the v1
+// preview matched: the
 // text's font (fonts.go; DefaultTextFont when it has none or it isn't
 // installed), size = FontPx output pixels or a fraction of the output height
 // for the older s/m/l sizes, lines centred, line height = the font's
