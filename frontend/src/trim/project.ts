@@ -156,6 +156,12 @@ const finite = (n: number, fallback: number) => (Number.isFinite(n) ? n : fallba
 
 export const clipLength = (c: Clip) => clipOutLength(c);
 export const clipEnd = (c: Clip) => c.start + clipLength(c);
+// frameLocalTime is clip-local time lt snapped down to the start of its
+// frame at fps: the time the export reads effects and keyframes at (its
+// effect graph runs after fps=, so t counts whole frames from the clip's
+// start). The small slack keeps a time on a frame boundary from rounding
+// down a whole frame.
+export const frameLocalTime = (lt: number, fps: number) => (fps > 0 ? Math.floor(lt * fps + 1e-6) / fps : lt);
 
 // --- Lookups -------------------------------------------------------------
 
