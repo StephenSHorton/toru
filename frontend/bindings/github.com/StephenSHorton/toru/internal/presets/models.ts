@@ -125,14 +125,21 @@ export class Lut {
 }
 
 /**
- * Preset is a saved filter.
+ * Preset is a saved filter or text style.
  */
 export class Preset {
     "version": number;
     "id": string;
+    "kind"?: string;
     "name": string;
     "createdAt": time$0.Time;
-    "effects": Effect[];
+    "effects"?: Effect[];
+
+    /**
+     * Style is a text style's fields (the editor's TextStyle, without its
+     * opacity keys). Only for kind "text".
+     */
+    "style"?: { [_ in string]?: any };
 
     /**
      * Thumb is a small JPEG data URL of the frame it was saved from ("" if
@@ -160,9 +167,6 @@ export class Preset {
         if (!("createdAt" in $$source)) {
             this["createdAt"] = null;
         }
-        if (!("effects" in $$source)) {
-            this["effects"] = [];
-        }
 
         Object.assign(this, $$source);
     }
@@ -171,10 +175,14 @@ export class Preset {
      * Creates a new Preset instance from a string or object.
      */
     static createFrom($$source: any = {}): Preset {
-        const $$createField4_0 = $$createType5;
+        const $$createField5_0 = $$createType5;
+        const $$createField6_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("effects" in $$parsedSource) {
-            $$parsedSource["effects"] = $$createField4_0($$parsedSource["effects"]);
+            $$parsedSource["effects"] = $$createField5_0($$parsedSource["effects"]);
+        }
+        if ("style" in $$parsedSource) {
+            $$parsedSource["style"] = $$createField6_0($$parsedSource["style"]);
         }
         return new Preset($$parsedSource as Partial<Preset>);
     }

@@ -32,6 +32,7 @@
 //   AgentService.RegisterWindowCommands(window, cmds) / UnregisterWindowCommands / TouchWindow / Respond(id, result, err)  (use @/lib/agent)
 //   MediaService.Thumbnail(id): Promise<string>  (JPEG URL for video, the image itself, "" for audio)
 //   PresetService.List / Get / Save(json) / Rename / Delete / Import(path) / Export(id, path) / PickImport / PickExport(id)  (saved filters, %AppData%/toru/presets; "presets:changed")
+//   PresetService.ListTextStyles / ImportTextStyle(path) / PickImportTextStyle  (saved text styles: presets of kind "text"; Save/Rename/Delete/PickExport work on them too)
 //   PresetService.ListLuts / ImportLut(path) / PickLut / ReadLut(id) / DeleteLut(id)  (imported .cube LUTs, %AppData%/toru/luts)
 //   SettingsService.GetLaunchAtLogin(): Promise<boolean>
 //   SettingsService.SetLaunchAtLogin(enabled: boolean): Promise<void>  (registry Run key; --startup => silent-to-tray)

@@ -7,6 +7,11 @@
 // and import use a .torufx file (the same JSON), so presets can be shared.
 // v2's looks (bw, sepia, vintage, cool, warm) are read-only built-in presets.
 //
+// Saved text styles (the Text library's "My styles") are presets too, of
+// kind "text": a text overlay's style fields instead of effects. They share
+// the folder and the .torufx format; List is filters only and
+// ListTextStyles is text styles only.
+//
 // Imported .cube LUTs are copied into %AppData%\toru\luts (fx.LutDir) and
 // used by the lut effect, which names one by its file name.
 package presets
@@ -45,13 +50,23 @@ type Effect struct {
 	Keys    map[string][]Keyframe `json:"keys,omitempty"`
 }
 
-// Preset is a saved filter.
+// Kinds of preset.
+const (
+	KindFilter = ""     // an effect stack (Effects)
+	KindText   = "text" // a text overlay's style (Style)
+)
+
+// Preset is a saved filter or text style.
 type Preset struct {
 	Version   int       `json:"version"`
 	ID        string    `json:"id"`
+	Kind      string    `json:"kind,omitempty"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"createdAt"`
-	Effects   []Effect  `json:"effects"`
+	Effects   []Effect  `json:"effects,omitempty"`
+	// Style is a text style's fields (the editor's TextStyle, without its
+	// opacity keys). Only for kind "text".
+	Style map[string]any `json:"style,omitempty"`
 	// Thumb is a small JPEG data URL of the frame it was saved from ("" if
 	// none).
 	Thumb string `json:"thumb,omitempty"`
@@ -144,22 +159,43 @@ func presetPath(id string) (string, error) {
 	return filepath.Join(dir, id+".json"), nil
 }
 
+// maxStyleBytes caps a text style's JSON (a style is a few dozen fields).
+const maxStyleBytes = 16 << 10
+
+// noun is what the person calls a preset of kind k.
+func noun(k string) string {
+	if k == KindText {
+		return "text style"
+	}
+	return "filter"
+}
+
 // normalize checks a preset and fits it to what's stored: a trimmed name,
-// known effect types, keyframe times in 0..1. It doesn't touch the id.
+// known effect types, keyframe times in 0..1 (or, for a text style, a style
+// object). It doesn't touch the id.
 func normalize(p *Preset) error {
+	if p.Kind != KindFilter && p.Kind != KindText {
+		return fmt.Errorf("unknown preset kind %q (this file may be from a newer Toru)", p.Kind)
+	}
+	what := noun(p.Kind)
 	if p.Version != Version {
 		if p.Version > Version {
-			return errors.New("this filter was made with a newer Toru")
+			return fmt.Errorf("this %s was made with a newer Toru", what)
 		}
-		return fmt.Errorf("unsupported filter version %d", p.Version)
+		return fmt.Errorf("unsupported %s version %d", what, p.Version)
 	}
 	p.Name = strings.TrimSpace(p.Name)
 	if p.Name == "" {
-		return errors.New("give the filter a name")
+		return fmt.Errorf("give the %s a name", what)
 	}
 	if len([]rune(p.Name)) > MaxNameLen {
 		return fmt.Errorf("that name is too long (%d characters at most)", MaxNameLen)
 	}
+	p.Builtin = false
+	if p.Kind == KindText {
+		return normalizeText(p)
+	}
+	p.Style = nil
 	if len(p.Effects) == 0 {
 		return errors.New("a filter needs at least one effect")
 	}
@@ -189,7 +225,30 @@ func normalize(p *Preset) error {
 	if !strings.HasPrefix(p.Thumb, "data:image/") || len(p.Thumb) > 256<<10 {
 		p.Thumb = ""
 	}
-	p.Builtin = false
+	return nil
+}
+
+// normalizeText checks a text style preset: a style object (it may be
+// empty: the default look), no effects, no thumbnail (the Text library
+// draws its own previews), and no opacity keyframes (a style is a look,
+// not an animation).
+func normalizeText(p *Preset) error {
+	if len(p.Effects) > 0 {
+		return errors.New("a text style can't have effects")
+	}
+	if p.Style == nil {
+		p.Style = map[string]any{}
+	}
+	delete(p.Style, "opacityKeys")
+	b, err := json.Marshal(p.Style)
+	if err != nil {
+		return fmt.Errorf("bad text style: %w", err)
+	}
+	if len(b) > maxStyleBytes {
+		return errors.New("that text style is too big")
+	}
+	p.Effects = nil
+	p.Thumb = ""
 	return nil
 }
 
@@ -222,22 +281,50 @@ func readPreset(path string) (Preset, error) {
 		return p, err
 	}
 	if err := json.Unmarshal(b, &p); err != nil {
-		return p, fmt.Errorf("not a Toru filter file: %w", err)
+		return p, fmt.Errorf("not a Toru preset file: %w", err)
 	}
 	return p, normalize(&p)
 }
 
-// List is the built-in looks, then the saved presets, newest first.
-// Unreadable files are skipped.
+// List is the built-in looks, then the saved filters, newest first.
+// Unreadable files are skipped. Text styles aren't in it (ListTextStyles).
 func (s *Service) List() ([]Preset, error) {
-	out := Builtins()
+	saved, err := savedOf(KindFilter)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(saved, func(i, j int) bool { return saved[i].CreatedAt.After(saved[j].CreatedAt) })
+	return append(Builtins(), saved...), nil
+}
+
+// ListTextStyles is the saved text styles, oldest first (the order the Text
+// library shows them in). The built-in styles live in the editor.
+func (s *Service) ListTextStyles() ([]Preset, error) {
+	saved, err := savedOf(KindText)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(saved, func(i, j int) bool {
+		if !saved[i].CreatedAt.Equal(saved[j].CreatedAt) {
+			return saved[i].CreatedAt.Before(saved[j].CreatedAt)
+		}
+		return saved[i].ID < saved[j].ID
+	})
+	if saved == nil {
+		saved = []Preset{}
+	}
+	return saved, nil
+}
+
+// savedOf reads the saved presets of one kind. Unreadable files are skipped.
+func savedOf(kind string) ([]Preset, error) {
 	dir, err := Dir()
 	if err != nil {
 		return nil, err
 	}
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return out, nil
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
@@ -249,13 +336,12 @@ func (s *Service) List() ([]Preset, error) {
 			continue
 		}
 		p, err := readPreset(filepath.Join(dir, name))
-		if err != nil || p.ID != strings.TrimSuffix(name, ".json") {
+		if err != nil || p.ID != strings.TrimSuffix(name, ".json") || p.Kind != kind {
 			continue
 		}
 		saved = append(saved, p)
 	}
-	sort.SliceStable(saved, func(i, j int) bool { return saved[i].CreatedAt.After(saved[j].CreatedAt) })
-	return append(out, saved...), nil
+	return saved, nil
 }
 
 // Get is one preset (built-in or saved) by id.
@@ -269,7 +355,7 @@ func (s *Service) Get(id string) (Preset, error) {
 	}
 	p, err := readPreset(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Preset{}, fmt.Errorf("no filter %q", id)
+		return Preset{}, fmt.Errorf("no preset %q", id)
 	}
 	return p, err
 }
@@ -279,7 +365,7 @@ func (s *Service) Get(id string) (Preset, error) {
 func (s *Service) Save(doc string) (Preset, error) {
 	var p Preset
 	if err := json.Unmarshal([]byte(doc), &p); err != nil {
-		return Preset{}, fmt.Errorf("filter isn't valid JSON: %w", err)
+		return Preset{}, fmt.Errorf("preset isn't valid JSON: %w", err)
 	}
 	if p.Version == 0 {
 		p.Version = Version
@@ -331,7 +417,7 @@ func (s *Service) Delete(id string) error {
 	}
 	if err := os.Remove(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("no filter %q", id)
+			return fmt.Errorf("no preset %q", id)
 		}
 		return err
 	}
@@ -340,13 +426,30 @@ func (s *Service) Delete(id string) error {
 
 // Import reads a .torufx file and saves it as a new preset (a fresh id, so
 // importing the same file twice gives two copies rather than overwriting).
+// The file says its kind: a text style lands in the Text library's My
+// styles, a filter in My filters.
 func (s *Service) Import(path string) (Preset, error) {
+	return s.importAs(path, nil)
+}
+
+// ImportTextStyle is Import for the Text library: the file must be a text
+// style.
+func (s *Service) ImportTextStyle(path string) (Preset, error) {
+	k := KindText
+	return s.importAs(path, &k)
+}
+
+// importAs imports path; a non-nil kind must match the file's.
+func (s *Service) importAs(path string, kind *string) (Preset, error) {
 	p, err := readPreset(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return Preset{}, fmt.Errorf("%s doesn't exist", path)
 		}
 		return Preset{}, err
+	}
+	if kind != nil && p.Kind != *kind {
+		return Preset{}, fmt.Errorf("that file is a %s, not a %s: import it in the %s", noun(p.Kind), noun(*kind), libraryOf(p.Kind))
 	}
 	p.ID = newID()
 	p.CreatedAt = time.Now().UTC()
@@ -386,6 +489,14 @@ func (s *Service) export(id, path string, overwrite bool) (string, error) {
 		p.CreatedAt = time.Now().UTC()
 	}
 	return path, writeJSON(path, p)
+}
+
+// libraryOf is where the editor lists presets of kind k.
+func libraryOf(k string) string {
+	if k == KindText {
+		return "Text library (My styles)"
+	}
+	return "Filters tab (My filters)"
 }
 
 // newID is a preset id: "pre-" and the time in hex, unique within this
