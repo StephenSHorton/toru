@@ -84,7 +84,7 @@ func TestBuildProjectArgs(t *testing.T) {
 		"[o1][v2]overlay=x=496:y=216:eof_action=pass:enable='between(t,0.500,3.500)'[o2]",
 		// The game clip has no levels: its mix track at 100%.
 		"[0:a:0]asetpts=PTS-STARTPTS," + silentFormat + "[ca0]",
-		"[ca0]anull[c0]",
+		"[ca0]afade=t=in:st=0:d=0.010,afade=t=out:st=3.990:d=0.010[c0]", // edge fades (Irori #131)
 		// Music: volume and fades, no delay at 0.
 		"[3:a:0]asetpts=PTS-STARTPTS," + silentFormat + "[ca3]",
 		"[ca3]volume=0.8,afade=t=in:st=0:d=0.5,afade=t=out:st=3:d=1[c1]",
@@ -129,7 +129,7 @@ func TestBuildProjectArgsTracksSpeedAndPost(t *testing.T) {
 		"setpts=PTS+1.000/TB[v0]",
 		"enable='between(t,1.000,3.000)'[o0]",
 		"[0:a:2]asetpts=PTS-STARTPTS," + silentFormat + ",volume=0.50[ca0]",
-		"[ca0]atempo=2,adelay=delays=1000:all=1[c0]",
+		"[ca0]atempo=2,afade=t=in:st=0:d=0.010,afade=t=out:st=1.990:d=0.010,adelay=delays=1000:all=1[c0]",
 		// The hidden PiP adds no input, so the logo is input 1, layer 1.
 		"[1:v]setpts=PTS-STARTPTS,fps=60,scale=288:288,format=yuva420p,setpts=PTS+0.500/TB[v1]",
 		"[o1]crop=640:360:0:0,drawtext=x,scale=-2:240[vout]",

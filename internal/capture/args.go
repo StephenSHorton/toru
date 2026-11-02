@@ -227,6 +227,10 @@ func BuildTrimArgs(req TrimRequest) []string {
 		if req.Crop != nil {
 			args = append(args, "-vf", cropFilter(*req.Crop))
 		}
+		// Edge fades: the cut starts and stops mid-sound (edgefade.go).
+		if f := EdgeFadeFilter(req.EndMs - req.StartMs); f != "" {
+			args = append(args, "-af", f)
+		}
 		if strings.EqualFold(filepath.Ext(req.OutPath), ".webm") {
 			args = append(args, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "30", "-c:a", "libopus")
 		} else {
@@ -236,8 +240,10 @@ func BuildTrimArgs(req TrimRequest) []string {
 		args = append(args, containerFlags(req.OutPath)...)
 		return append(args, req.OutPath)
 	}
-	// -ss before -i for fast seek; -c copy for lossless stream copy.
-	args := []string{"-y", "-ss", ss, "-to", to, "-i", req.VideoPath, "-c", "copy"}
+	// -ss before -i for fast seek; the video is stream-copied (lossless),
+	// the audio re-encoded with edge fades (edgefade.go).
+	args := []string{"-y", "-ss", ss, "-to", to, "-i", req.VideoPath}
+	args = append(args, edgeAudioArgs(req.OutPath, req.EndMs-req.StartMs)...)
 	args = append(args, containerFlags(req.OutPath)...)
 	return append(args, req.OutPath)
 }

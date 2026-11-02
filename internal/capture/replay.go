@@ -854,7 +854,13 @@ func stitchReplay(bin string, segs []replaySegment, outPath string, trackTitles 
 	// -map 0 keeps every audio track (the default picks one). Segments don't
 	// carry track titles (MPEG-TS has none), so they're set here; the mix
 	// is the default track players pick.
-	tail := []string{"-map", "0", "-c", "copy"}
+	// Every track's audio is re-encoded with edge fades: the replay starts
+	// and stops mid-sound (edgefade.go). The video is stream-copied.
+	ms := replayMs(segs)
+	if ms > 0 {
+		ms -= replayEndMargin
+	}
+	tail := append([]string{"-map", "0"}, edgeAudioArgs(outPath, ms)...)
 	if probeCodec(segs[0].path) == "hevc" {
 		tail = append(tail, "-tag:v", "hvc1") // MP4 players expect hvc1, not ffmpeg's default hev1
 	}

@@ -138,6 +138,20 @@ func BuildProjectArgs(req ProjectExport, encoder string, textFilter string, work
 				if hasOut {
 					cut = append(cut, fmt.Sprintf("afade=t=out:st=%s:d=%s", msSeconds(ClipLengthMs(c)-trOut.Half()), msSeconds(trOut.Half())))
 				}
+				// A cut that starts or stops mid-sound clicks: a short fade at
+				// each edge without a transition or a fade of its own, unless
+				// the clip carries on seamlessly from (or into) its neighbour
+				// (Irori #131).
+				if n := ClipLengthMs(c); n > 4*EdgeFadeMs {
+					seamIn := i > 0 && seamless(t.Clips[i-1], c)
+					seamOut := i+1 < len(t.Clips) && seamless(c, t.Clips[i+1])
+					if !hasIn && c.FadeIn < EdgeFadeMs && !seamIn {
+						cut = append(cut, "afade=t=in:st=0:d="+msSeconds(EdgeFadeMs))
+					}
+					if !hasOut && c.FadeOut < EdgeFadeMs && !seamOut {
+						cut = append(cut, fmt.Sprintf("afade=t=out:st=%s:d=%s", msSeconds(n-EdgeFadeMs), msSeconds(EdgeFadeMs)))
+					}
+				}
 				graph = append(graph, clipAudioChains(in, c, picks, label, cut)...)
 				audioIn = append(audioIn, label)
 			}
@@ -333,6 +347,24 @@ func clipAudioPicks(c ClipJSON, m MediaJSON) []audioPick {
 		return []audioPick{{0, 100}}
 	}
 	return []audioPick{{mixTrack(MediaInfo{Tracks: m.Tracks}), 100}}
+}
+
+// EdgeFadeMs is the fade at a clip's sound edges in an export, the same as
+// at the edges of the cuts Toru saves (capture/edgefade.go).
+const EdgeFadeMs = capture.EdgeFadeMs
+
+// seamless says whether b carries on exactly where a stops: the same media,
+// back to back on the timeline and in the source, at one constant speed
+// (a split). Its sound runs on unbroken, so no edge fade goes there.
+func seamless(a, b ClipJSON) bool {
+	if a.Media != b.Media || a.Reversed || b.Reversed || a.Hold || b.Hold || a.SpeedCurve != nil || b.SpeedCurve != nil {
+		return false
+	}
+	if a.Speed != b.Speed || a.Muted != b.Muted || a.Volume != b.Volume || a.FadeOut > 0 || b.FadeIn > 0 {
+		return false
+	}
+	near := func(x, y int) bool { return x-y <= 1 && y-x <= 1 }
+	return near(a.Start+ClipLengthMs(a), b.Start) && near(a.Out, b.In)
 }
 
 // clipAudioChains leaves a clip's audio on label: its picked streams at

@@ -145,9 +145,10 @@ func TestTrimCropArgs(t *testing.T) {
 			wantNot: []string{"-vf", "crop="},
 		},
 		{
-			name:    "stream-copy without crop is unchanged",
+			// The video is stream-copied; the audio gets edge fades (Irori #131).
+			name:    "stream-copy without crop copies the video, edge-fades the audio",
 			req:     TrimRequest{VideoPath: "in.mp4", StartMs: 500, EndMs: 1000, OutPath: "out.mp4"},
-			want:    []string{"-ss 00:00:00.500 -to 00:00:01.000 -i in.mp4 -c copy"},
+			want:    []string{"-ss 00:00:00.500 -to 00:00:01.000 -i in.mp4 -c:v copy -c:a aac", "-af afade=t=in:st=0:d=0.010,afade=t=out:st=0.490:d=0.010"},
 			wantNot: []string{"-vf", "crop=", "libx264"},
 		},
 	}
