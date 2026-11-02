@@ -1,13 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MediaService } from "@/lib/api";
 import type { Media } from "@/trim/project";
-import { loadPeaks, loudest, peakHeight, peakIn, type Peaks } from "@/trim/waveform";
+import { FLOOR_DB, loadPeaks, loudest, peakIn, type Peaks } from "@/trim/waveform";
 
 // TrimWave is the clip window's waveform: the whole file's sound drawn across
 // the trim timeline, under the dimmed regions and the handles. It shows the
 // mix by default; a clip with separate tracks (game, voice chat, mic) can show
 // one lane per track instead. The loudest moment gets a marker you can click
 // to jump there.
+
+// The strip shows the top RANGE_DB below each lane's own peak: game sound is
+// loud most of the time, and on the full 60 dB scale it draws as a flat band
+// where nothing stands out. This way the loudest moments do.
+const RANGE_DB = 30;
 
 export type WaveLane = { track?: number; label: string }; // track undefined = the mix
 
@@ -114,9 +119,13 @@ export function TrimWave({
       if (!p) continue;
       const mid = lh * k + lh / 2;
       const half = lh / 2 - dpr;
+      const top = p.levels[p.levels.length - 1][0] ?? 0; // the lane's loudest byte
+      const span = (RANGE_DB / FLOOR_DB) * 255;
+      const lo = top - span;
       g.beginPath();
       for (let i = 0; i < pw; i++) {
-        const a = Math.max(0.5, peakHeight(peakIn(p, i * secPerPx, (i + 1) * secPerPx), 1) * half);
+        const b = peakIn(p, i * secPerPx, (i + 1) * secPerPx);
+        const a = Math.max(0.5, b > 0 ? Math.max(0, (b - lo) / span) * half : 0);
         g.rect(i, mid - a, 1, a * 2);
       }
       g.fill();

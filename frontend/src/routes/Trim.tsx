@@ -491,7 +491,7 @@ export default function Trim() {
       <div className="frost m-3 p-3">
         <div
           className="relative w-full cursor-pointer border bg-card/40"
-          style={{ height: waveLanes.length > 1 ? Math.max(56, waveLanes.length * 24) : 56 }}
+          style={{ height: waveLanes.length > 1 ? Math.max(56, waveLanes.length * 32) : 56 }}
           onPointerDown={seekFromTrack}
         >
           {/* the clip's sound, under everything else */}
