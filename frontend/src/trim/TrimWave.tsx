@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MediaService } from "@/lib/api";
+import { toMedia } from "@/trim/MediaBin";
 import type { Media } from "@/trim/project";
 import { FLOOR_DB, loadPeaks, loudest, peakIn, type Peaks } from "@/trim/waveform";
 
@@ -34,7 +35,7 @@ export function useTrimMedia(path: string, src: string): Media | null {
       return;
     }
     MediaService.Register([path])
-      .then((list) => live && setMedia((list[0] as Media | undefined) ?? dev()))
+      .then((list) => live && setMedia(list[0] ? toMedia(list[0]) : dev()))
       .catch(() => live && setMedia(dev()));
     return () => {
       live = false;
