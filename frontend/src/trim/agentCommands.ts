@@ -42,7 +42,7 @@ import type { MediaBinState } from "@/trim/MediaBin";
 import type { TimelineSelection } from "@/trim/MultiTimeline";
 import { withTextImages } from "@/trim/textExport";
 import { resolveStyle, TEXT_DEFAULTS } from "@/trim/textRender";
-import { BUILTIN_TEXT_PRESETS, savedTextPresets, textPresetById, tidyStyle } from "@/trim/textStyle";
+import { BUILTIN_TEXT_PRESETS, ensureTextPresets, textPresetById, tidyStyle } from "@/trim/textStyle";
 import { MAX_FONT_PX, MIN_FONT_PX, textFontSize } from "@/trim/textRender";
 import { addTransition, cutFor, DEFAULT_TRANSITION, isTransitionType, MAX_TRANSITION, MIN_TRANSITION, setClipTransition, TRANSITIONS, transitionLabel, type TransitionType } from "@/trim/transition";
 import {
@@ -907,6 +907,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
         }
         let style = old?.style;
         if (input.preset !== undefined) {
+          await ensureTextPresets();
           const pre = textPresetById(String(input.preset));
           if (!pre) throw new Error(`no text style "${input.preset}" (see editor.textPresets)`);
           style = tidyStyle({ ...pre.style, opacityKeys: style?.opacityKeys });
@@ -1036,8 +1037,8 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
 
     reg(
       "editor.textPresets",
-      { description: "The text styles editor.setText's preset takes: built-in ones and the ones saved in the Text library. Each has an id, a name and its style fields." },
-      () => [...BUILTIN_TEXT_PRESETS, ...savedTextPresets()].map((x) => ({ id: x.id, name: x.name, builtin: !!x.builtin, style: x.style })),
+      { description: "The text styles editor.setText's preset takes: built-in ones and the ones saved in the Text library (preset.textStyles, preset.rename/delete/export/import work on the saved ones). Each has an id, a name and its style fields." },
+      async () => [...BUILTIN_TEXT_PRESETS, ...(await ensureTextPresets())].map((x) => ({ id: x.id, name: x.name, builtin: !!x.builtin, style: x.style })),
     );
 
     reg(

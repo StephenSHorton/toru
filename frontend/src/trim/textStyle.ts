@@ -101,31 +101,91 @@ export const BUILTIN_TEXT_PRESETS: TextPreset[] = [
   { id: "builtin:subtle", name: "Subtle", style: { fillOpacity: 0.9, outlineOpacity: 0, shadowOpacity: 0.45, shadowX: 0, shadowY: 0.02, shadowBlur: 0.15, letterSpacing: 0.04 }, builtin: true },
 ];
 
-const SAVED_KEY = "toru.editor.textPresets";
+const SAVED_KEY = "toru.editor.textPresets"; // before #125: saved styles lived in localStorage
 let saved: TextPreset[] | null = null;
+let loading: Promise<void> | null = null;
+let watching = false;
 const listeners = new Set<() => void>();
+const EMPTY: TextPreset[] = [];
 
-// savedTextPresets is the presets this PC saved (localStorage; they're
-// small and only the editor reads them).
+// savedTextPresets is the styles saved on this PC (Go: internal/presets,
+// kind "text", in %AppData%\toru\presets), as last loaded: the same array
+// until the list changes (useSyncExternalStore needs that). Empty before
+// the first load; ensureTextPresets waits for it.
 export function savedTextPresets(): TextPreset[] {
-  if (saved) return saved;
-  try {
-    const raw = JSON.parse(localStorage.getItem(SAVED_KEY) ?? "[]");
-    saved = Array.isArray(raw) ? raw.filter((x) => x && typeof x.id === "string" && typeof x.name === "string" && x.style && typeof x.style === "object") : [];
-  } catch {
-    saved = [];
-  }
-  return saved!;
+  if (!saved && !loading) void refreshTextPresets();
+  return saved ?? EMPTY;
 }
 
-function store(list: TextPreset[]) {
-  saved = list;
+type Doc = { id: string; name: string; style?: Record<string, unknown> | null };
+const fromDoc = (d: Doc): TextPreset => ({ id: d.id, name: d.name, style: (d.style ?? {}) as TextStyle });
+
+// refreshTextPresets reloads the saved styles from Go, migrating any left in
+// localStorage first, and tells every subscriber.
+export function refreshTextPresets(): Promise<void> {
+  if (loading) return loading;
+  loading = (async () => {
+    const { PresetService } = await import("@/lib/api");
+    // A style Go refuses mustn't hide the rest: list anyway, and the
+    // migration tries again next load.
+    await migrateLocal(PresetService.Save).catch(() => {});
+    const list = ((await PresetService.ListTextStyles()) ?? []) as unknown as Doc[];
+    saved = list.map(fromDoc);
+    listeners.forEach((l) => l());
+    watch();
+  })()
+    .catch(() => {
+      // No Go (a test or the Vite dev page): keep what we have, or show none
+      // rather than retrying on every render. localStorage stays put, so a
+      // failed migration runs again next time.
+      saved ??= [];
+    })
+    .finally(() => {
+      loading = null;
+    });
+  return loading;
+}
+
+// ensureTextPresets is the saved styles once they've loaded (agent commands
+// may run before the Text library ever opened).
+export async function ensureTextPresets(): Promise<TextPreset[]> {
+  if (!saved) await refreshTextPresets();
+  return saved ?? EMPTY;
+}
+
+// watch reloads when another window or an agent changes the presets.
+function watch() {
+  if (watching) return;
+  watching = true;
+  void import("@wailsio/runtime")
+    .then(({ Events }) => Events.On("presets:changed", () => void refreshTextPresets()))
+    .catch(() => {
+      watching = false;
+    });
+}
+
+// migrateLocal moves the styles saved in localStorage before #125 into the
+// preset service, once: each keeps its id (so a retry overwrites rather
+// than copies) and its save time (from the id), and the localStorage entry
+// goes only after every one is saved.
+export async function migrateLocal(save: (doc: string) => Promise<unknown>, storage: Pick<Storage, "getItem" | "removeItem"> | undefined = globalThis.localStorage): Promise<number> {
+  let raw: unknown;
   try {
-    localStorage.setItem(SAVED_KEY, JSON.stringify(list));
+    raw = JSON.parse(storage?.getItem(SAVED_KEY) ?? "null");
   } catch {
-    // not kept past this session
+    raw = []; // unreadable: nothing to keep, so it goes
   }
-  listeners.forEach((l) => l());
+  if (raw == null) return 0;
+  const list = Array.isArray(raw) ? raw.filter((x) => x && typeof x.id === "string" && typeof x.name === "string" && x.style && typeof x.style === "object") : [];
+  for (const x of list as TextPreset[]) {
+    const id = /^[A-Za-z0-9-]{1,80}$/.test(x.id) && !x.id.startsWith("builtin-") ? x.id : "";
+    const ms = parseInt(x.id.split("-")[1] ?? "", 36);
+    const createdAt = Number.isFinite(ms) && ms > 1.5e12 && ms < 4e12 ? new Date(ms).toISOString() : undefined;
+    const { opacityKeys: _keys, ...style } = x.style;
+    await save(JSON.stringify({ version: 1, kind: "text", id, name: x.name.trim().slice(0, 60) || "My style", style: tidyStyle(style) ?? {}, ...(createdAt ? { createdAt } : {}) }));
+  }
+  storage?.removeItem(SAVED_KEY);
+  return list.length;
 }
 
 export function subscribeTextPresets(l: () => void) {
@@ -133,20 +193,50 @@ export function subscribeTextPresets(l: () => void) {
   return () => listeners.delete(l);
 }
 
+async function service() {
+  return (await import("@/lib/api")).PresetService;
+}
+
+// changed reloads after an edit; a load already under way may predate the
+// edit, so it waits for that one and loads again.
+async function changed() {
+  if (loading) await loading;
+  await refreshTextPresets();
+}
+
 // saveTextPreset keeps style (without its keyframes) under name.
-export function saveTextPreset(name: string, style: TextStyle | undefined): TextPreset {
+export async function saveTextPreset(name: string, style: TextStyle | undefined): Promise<TextPreset> {
   const { opacityKeys: _keys, ...rest } = style ?? {};
-  const pre: TextPreset = { id: `text-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, name: name.trim().slice(0, 60) || "My style", style: tidyStyle(rest) ?? {} };
-  store([...savedTextPresets(), pre]);
-  return pre;
+  const svc = await service();
+  const doc = await svc.Save(JSON.stringify({ version: 1, kind: "text", name: name.trim().slice(0, 60) || "My style", style: tidyStyle(rest) ?? {} }));
+  await changed();
+  return fromDoc(doc as unknown as Doc);
 }
 
-export function deleteTextPreset(id: string) {
-  store(savedTextPresets().filter((p) => p.id !== id));
+export async function deleteTextPreset(id: string) {
+  await (await service()).Delete(id);
+  await changed();
 }
 
-export function renameTextPreset(id: string, name: string) {
-  store(savedTextPresets().map((p) => (p.id === id ? { ...p, name: name.trim().slice(0, 60) || p.name } : p)));
+export async function renameTextPreset(id: string, name: string) {
+  const n = name.trim().slice(0, 60);
+  if (!n) return;
+  await (await service()).Rename(id, n);
+  await changed();
+}
+
+// importTextPreset asks for a shared .torufx text style; false when the
+// dialog was cancelled.
+export async function importTextPreset(): Promise<boolean> {
+  const [, ok] = await (await service()).PickImportTextStyle();
+  if (ok) await changed();
+  return !!ok;
+}
+
+// exportTextPreset asks where to save a style as .torufx; the path written,
+// or "" when cancelled.
+export async function exportTextPreset(id: string): Promise<string> {
+  return (await (await service()).PickExport(id)) ?? "";
 }
 
 export function textPresetById(id: string): TextPreset | undefined {
