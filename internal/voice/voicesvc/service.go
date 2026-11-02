@@ -168,7 +168,18 @@ func cacheKey(req RenderRequest, fi os.FileInfo) string {
 		fmt.Fprintf(&b, "|%d:%d:%t", l.Index, l.Volume, l.Muted)
 	}
 	h := sha256.Sum256([]byte(b.String()))
-	return req.Preset + "-" + hex.EncodeToString(h[:8])
+	// The clip shows the file's name, so it starts with the source's.
+	base := strings.TrimSuffix(filepath.Base(req.Path), filepath.Ext(req.Path))
+	base = strings.Map(func(r rune) rune {
+		if strings.ContainsRune(`<>:"/\|?*`, r) || r < 32 {
+			return '_'
+		}
+		return r
+	}, base)
+	if rs := []rune(base); len(rs) > 60 {
+		base = string(rs[:60])
+	}
+	return base + " (" + req.Preset + ") " + hex.EncodeToString(h[:6])
 }
 
 // preroll is how much sound before an audition section the chain hears
