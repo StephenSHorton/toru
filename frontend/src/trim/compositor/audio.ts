@@ -12,6 +12,9 @@ import { cutFade, trackTransitions } from "@/trim/transition";
 // How fast a gain follows a new value (s, setTargetAtTime's time constant):
 // short enough for fades, long enough that a step doesn't click.
 const GAIN_SMOOTHING = 0.012;
+// A seek of an element being heard dips its gain to 0 first (this time
+// constant; the Compositor seeks DUCK_MS later), so the jump doesn't click.
+const DUCK_SMOOTHING = 0.003;
 
 // clipGain is a clip's level at timeline time t: its volume (with its
 // keyframes, at clip-local time), ramped up over its fade in and down over
@@ -33,6 +36,7 @@ export function clipGain(clip: Clip, track: Track, t: number): number {
 export class AudioMix {
   private ctx: AudioContext | null = null;
   private gains = new Map<HTMLMediaElement, GainNode>();
+  private ducked = new Set<HTMLMediaElement>();
 
   // gainFor routes an element through its own gain node (once; an element
   // can only ever have one MediaElementSource).
@@ -48,12 +52,30 @@ export class AudioMix {
     return g;
   }
 
-  // set moves an element's level towards `gain` (0..2).
+  // set moves an element's level towards `gain` (0..2). A ducked element
+  // stays at 0 until its seek is done.
   set(el: HTMLMediaElement, gain: number) {
     const g = this.gainFor(el);
     const ctx = this.ctx!;
+    if (this.ducked.has(el)) gain = 0;
     if (Math.abs(g.gain.value - gain) < 1e-4) return;
     g.gain.setTargetAtTime(gain, ctx.currentTime, GAIN_SMOOTHING);
+  }
+
+  // duck fades an element out fast for a seek; its level comes back (set)
+  // once the element reports the seek done.
+  duck(el: HTMLMediaElement) {
+    const g = this.gainFor(el);
+    if (this.ducked.has(el)) return;
+    this.ducked.add(el);
+    g.gain.cancelScheduledValues(this.ctx!.currentTime);
+    g.gain.setTargetAtTime(0, this.ctx!.currentTime, DUCK_SMOOTHING);
+    el.addEventListener("seeked", () => this.ducked.delete(el), { once: true });
+  }
+
+  // isDucked says whether a duck is still waiting for its seek.
+  isDucked(el: HTMLMediaElement): boolean {
+    return this.ducked.has(el);
   }
 
   // level is an element's current gain (for tests and meters).
@@ -75,6 +97,7 @@ export class AudioMix {
   forget(el: HTMLMediaElement) {
     this.gains.get(el)?.disconnect();
     this.gains.delete(el);
+    this.ducked.delete(el);
   }
 
   dispose() {
