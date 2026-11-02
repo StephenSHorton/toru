@@ -44,8 +44,8 @@ var peaksDir = func() string {
 }
 
 var (
-	peaksLocks sync.Map                    // cache path -> *sync.Mutex
-	peaksSem   = make(chan struct{}, 2)    // decodes at once
+	peaksLocks sync.Map                 // cache path -> *sync.Mutex
+	peaksSem   = make(chan struct{}, 2) // decodes at once
 	errNoSound = errors.New("no sound")
 )
 
