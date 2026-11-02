@@ -78,6 +78,13 @@ check("exact", matchMic(mics, "Microphone (Shure MV7+)")?.id === "a");
 check("case-insensitive", matchMic(mics, "line in (realtek(r) audio)")?.id === "c");
 check("dshow 31-char cut", matchMic(mics, "Headset Microphone (Arctis Nova")?.id === "b");
 check("never the 'default' alias", matchMic([{ id: "default", label: "Default - X Mic" }], "X Mic") === undefined);
+// Real WebView2 labels carry the USB id (seen on Blake's PC, 2026-11-02).
+const real = [
+  { id: "default", label: "Default - Microphone (Shure MV7+) (14ed:1019)" },
+  { id: "mv7", label: "Microphone (Shure MV7+) (14ed:1019)" },
+  { id: "nova", label: "Microphone (Arctis Nova Pro Wireless) (1038:12e0)" },
+];
+check("USB id suffix", matchMic(real, "Microphone (Shure MV7+)")?.id === "mv7");
 check("none", matchMic(mics, "") === undefined && matchMic(mics, "Webcam") === undefined);
 
 // toPcm16: clipped, little-endian, symmetric ends.
