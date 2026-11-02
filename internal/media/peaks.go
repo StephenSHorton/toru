@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,14 +50,21 @@ var (
 )
 
 // servePeaks answers /__media/peaks/<id>: the file's peaks (see PeaksRate),
-// made on the first request. 204 when the file has no sound.
+// made on the first request. 204 when the file has no sound. ?track=<n>
+// picks one of the file's audio tracks (an index from Media.Tracks); without
+// it the waveform shows the mix (see peaksStream).
 func (s *Service) servePeaks(w http.ResponseWriter, r *http.Request, id string) {
 	m, ok := s.get(id)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	f, err := ensurePeaks(r.Context(), m)
+	stream, ok := peaksTrack(m, r.URL.Query().Get("track"))
+	if !ok {
+		http.Error(w, "no such track", http.StatusBadRequest)
+		return
+	}
+	f, err := ensurePeaks(r.Context(), m, stream)
 	if errors.Is(err, errNoSound) {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -85,10 +93,28 @@ func peaksStream(m Media) int {
 	return 0
 }
 
-// ensurePeaks returns the cached peaks file for m, decoding its sound on the
-// first call. The key has the file's size and mtime, so a replaced file gets
-// new peaks.
-func ensurePeaks(ctx context.Context, m Media) (string, error) {
+// peaksTrack is the stream a ?track= value asks for: one of m's tracks, or
+// the default (peaksStream) when it is empty. false for anything else.
+func peaksTrack(m Media, q string) (int, bool) {
+	if q == "" {
+		return peaksStream(m), true
+	}
+	n, err := strconv.Atoi(q)
+	if err != nil {
+		return 0, false
+	}
+	for _, t := range m.Tracks {
+		if t.Index == n {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// ensurePeaks returns the cached peaks file for stream of m, decoding its
+// sound on the first call. The key has the file's size and mtime, so a
+// replaced file gets new peaks.
+func ensurePeaks(ctx context.Context, m Media, stream int) (string, error) {
 	if !m.HasAudio {
 		return "", errNoSound
 	}
@@ -96,7 +122,7 @@ func ensurePeaks(ctx context.Context, m Media) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out := filepath.Join(peaksDir(), fmt.Sprintf("%s-%d-%x-%x.peaks", m.ID, peaksStream(m), fi.Size(), fi.ModTime().UnixNano()))
+	out := filepath.Join(peaksDir(), fmt.Sprintf("%s-%d-%x-%x.peaks", m.ID, stream, fi.Size(), fi.ModTime().UnixNano()))
 	lk, _ := peaksLocks.LoadOrStore(out, &sync.Mutex{})
 	mu := lk.(*sync.Mutex)
 	mu.Lock()
@@ -117,7 +143,7 @@ func ensurePeaks(ctx context.Context, m Media) (string, error) {
 	// gets the finished file, and an hour of sound takes a while.
 	dctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	peaks, err := decodePeaks(dctx, m.Path, peaksStream(m))
+	peaks, err := decodePeaks(dctx, m.Path, stream)
 	if err != nil {
 		return "", err
 	}

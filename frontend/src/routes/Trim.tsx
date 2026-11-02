@@ -26,10 +26,12 @@ import {
   Crop,
   RotateCcw,
   SquarePen,
+  AudioLines,
 } from "lucide-react";
 import { ExportService, ReplayService, UploadService, VideoService, WindowsService, TrimRequest } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { CropBox, type CropRect, type RenderedBox } from "@/trim/CropBox";
+import { MIX_LANE, TrimWave, trackLanes, useTrimMedia } from "@/trim/TrimWave";
 
 // DEVELOPER 2 — video trim editor. A player, a timeline with TWO draggable
 // in/out handles + a playhead, and Copy / Save As… / Trim actions. The region
@@ -147,6 +149,24 @@ export default function Trim() {
     const t = window.setTimeout(() => setNote(""), 2500);
     return () => window.clearTimeout(t);
   }, [note]);
+
+  // The waveform under the timeline: the mix, or one lane per audio track.
+  const waveMedia = useTrimMedia(absPath, src);
+  const sepLanes = trackLanes(waveMedia);
+  const [showTracks, setShowTracks] = useState(() => {
+    try {
+      return window.localStorage.getItem("toru.trim.waveTracks") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("toru.trim.waveTracks", showTracks ? "1" : "0");
+    } catch {
+      // storage unavailable: the choice lasts this window
+    }
+  }, [showTracks]);
 
   // MIN_GAP keeps the kept region selectable/playable (and the trim non-empty).
   const MIN_GAP = 0.1;
@@ -425,6 +445,7 @@ export default function Trim() {
 
   const pct = (sec: number) => (duration > 0 ? (sec / duration) * 100 : 0);
   const noFile = !absPath;
+  const waveLanes = sepLanes.length && showTracks ? sepLanes : MIX_LANE;
   const cropActive = crop !== null;
   // Copy / Save As / For Discord / Share act on the CURRENT file; only Trim
   // bakes the crop in. Say so on their tooltips while a crop is pending.
@@ -469,9 +490,12 @@ export default function Trim() {
       {/* frosted timeline */}
       <div className="frost m-3 p-3">
         <div
-          className="relative h-14 w-full cursor-pointer border bg-card/40"
+          className="relative w-full cursor-pointer border bg-card/40"
+          style={{ height: waveLanes.length > 1 ? Math.max(56, waveLanes.length * 24) : 56 }}
           onPointerDown={seekFromTrack}
         >
+          {/* the clip's sound, under everything else */}
+          <TrimWave media={waveMedia} lanes={waveLanes} duration={duration} onSeek={jumpTo} />
           {/* dimmed "to be removed" regions */}
           <div
             className="pointer-events-none absolute inset-y-0 left-0 bg-black/55"
@@ -598,6 +622,18 @@ export default function Trim() {
           </span>
           {note ? <span className="text-xs text-primary">{note}</span> : null}
           <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+            {sepLanes.length ? (
+              <Button
+                size="sm"
+                variant={showTracks ? "secondary" : "ghost"}
+                onClick={() => setShowTracks((t) => !t)}
+                title={showTracks ? "Show the mixed sound as one waveform" : "Show each audio track's waveform on its own lane"}
+                aria-label="Waveform per track"
+                aria-pressed={showTracks}
+              >
+                <AudioLines /> Tracks
+              </Button>
+            ) : null}
             <Button
               size="sm"
               variant={cropMode ? "default" : cropActive ? "secondary" : "ghost"}
