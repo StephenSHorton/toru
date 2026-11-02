@@ -36,6 +36,8 @@ import type { CompositorHandle } from "@/trim/compositor/Compositor";
 import { registerFxCommands } from "@/trim/agentCommandsFx";
 import { CANVAS_PRESETS, MAX_CANVAS, MIN_CANVAS, normCanvas, placeClip, setCanvas, type ClipPlace, type Placement } from "@/trim/canvas";
 import { registerMultiCommands } from "@/trim/agentCommandsMulti";
+import { registerVoiceCommands } from "@/trim/agentCommandsVoice";
+import type { VoiceControl } from "@/trim/voice/useVoiceSession";
 import { newId, type Text, type TextStyle } from "@/trim/edl";
 import { checkFont, DEFAULT_FONT_LABEL, fontInfo, loadFonts } from "@/trim/fonts";
 import type { MediaBinState } from "@/trim/MediaBin";
@@ -114,6 +116,7 @@ export interface EditorUiDeps {
   cropping: boolean;
   toggleCrop: () => void;
   openLibrary: (id: LibraryId) => void;
+  voice?: VoiceControl; // mic voiceover (editor.recordVoice)
 }
 
 // The editor window's commands take an optional window name; Go routes the
@@ -1288,6 +1291,7 @@ export function useEditorAgentCommands(deps: EditorAgentDeps) {
 
     registerTimeCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, clipOr, obj, lockedNote, selectClip: (id) => void selectClip(id) });
     registerFxCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, clipOr, obj, lockedNote, selectClip: (id) => void selectClip(id) });
+    registerVoiceCommands({ voice: () => d().ui?.voice, reg, obj });
     registerMultiCommands({ project: () => d().project, playhead: () => d().pb.clock.now(), reg, edit, obj, setSelection: (s) => d().setSelection(s) });
 
     // ---- window-only actions (no agent command: an agent sets values directly)

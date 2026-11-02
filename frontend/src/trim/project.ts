@@ -119,6 +119,7 @@ export type Track = {
   hidden: boolean;
   locked: boolean;
   clips: Clip[]; // sorted by start, no overlaps within a track
+  name?: string; // shown instead of "Audio 2" (the "Voice" track of mic takes)
 };
 
 export type Project = {
@@ -465,6 +466,37 @@ export function closeGap(p: Project, trackId: string, t: number): Project {
   if (len <= EPS) return p;
   const clips = track.clips.map((c) => (c.start >= next.start - EPS ? { ...c, start: c.start - len } : c));
   return withTrack(p, { ...track, clips });
+}
+
+// VOICE_TRACK names the audio track that mic voiceover takes land on.
+export const VOICE_TRACK = "Voice";
+
+// placeVoiceTake puts a recorded take (audio media, already in the project
+// or added here) on a "Voice" audio track at exactly `start`: the first
+// unlocked Voice track free over the take's length, or a new one. Never
+// moved to a free spot like insertClip, since the take is timed to the
+// video under it. A take that would start before 0 is trimmed at its head
+// (in > 0) so what was said at timeline 0 stays at 0.
+export function placeVoiceTake(p: Project, m: Media, start: number): { project: Project; clipId: string } | null {
+  if (m.kind !== "audio" || m.duration <= MIN_CLIP) return null;
+  let q = addMedia(p, m);
+  const head = start < 0 ? Math.min(-start, m.duration - MIN_CLIP) : 0;
+  const at = Math.max(0, start);
+  const len = m.duration - head;
+  const free = (t: Track) =>
+    t.kind === "audio" && !t.locked && t.name === VOICE_TRACK && t.clips.every((x) => clipEnd(x) <= at + EPS || x.start >= at + len - EPS);
+  let to = q.tracks.find(free);
+  if (!to) {
+    q = addTrack(q, "audio");
+    const added = audioTracks(q).at(-1)!;
+    to = { ...added, name: VOICE_TRACK };
+    q = withTrack(q, to);
+  }
+  const c = newClip(q, m, to.id, at);
+  c.in = head;
+  c.out = m.duration;
+  q = withTrack(q, { ...to, clips: sorted([...to.clips, c]) });
+  return { project: q, clipId: c.id };
 }
 
 // canExtractAudio says whether a clip has sound to detach: a video clip

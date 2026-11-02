@@ -115,6 +115,8 @@ from paths, `editor.addTrack`, `editor.insertClip`, `editor.moveClip`,
 `editor.rippleDelete`, `editor.closeGap`, `editor.duplicateClip`,
 `editor.extractAudio` (a video clip's sound onto its own audio track; the
 video clip is muted), `editor.saveAudio` (a clip's sound to .m4a or .wav),
+`editor.recordVoice` (start / stop / cancel / mics: a mic voiceover from the
+playhead onto a "Voice" audio track, raw WAV in %LOCALAPPDATA%/toru/voice),
 `editor.updateClip` (transform,
 speed, audio, chroma, filters), `editor.setText` (size in px or s/m/l, font),
 `editor.listFonts`, `editor.removeText`, `editor.addTransition` /
