@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/voice"
 )
 
 // Settings is the user's instant-replay configuration. JSON tags are the
@@ -192,7 +193,7 @@ func (s Settings) Normalize() Settings {
 	}
 	s.RecordingsDir = strings.TrimSpace(s.RecordingsDir)
 	s.MicDevice = strings.TrimSpace(s.MicDevice)
-	if s.MicNoise != capture.MicNoiseOff && s.MicNoise != capture.MicNoiseLight && s.MicNoise != capture.MicNoiseStrong {
+	if !voice.IsLive(s.MicNoise) {
 		s.MicNoise = d.MicNoise
 	}
 	s.DesktopVolume = min(max(s.DesktopVolume, 0), maxVolume)

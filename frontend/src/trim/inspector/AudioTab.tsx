@@ -6,11 +6,14 @@ import { cn } from "@/lib/utils";
 import { clipLength, updateClip, type ClipPatch } from "@/trim/project";
 import { NumberRow, Section } from "@/trim/inspector/controls";
 import type { TabProps } from "@/trim/inspector/Inspector";
+import { VoiceSection } from "@/trim/inspector/VoiceSection";
+import { canVoice } from "@/trim/voice";
 
-// AudioTab: mute, volume (keyframable), fades, and the per-source-track
-// levels of a clip recorded with separate tracks.
+// AudioTab: mute, volume (keyframable), fades, the per-source-track levels
+// of a clip recorded with separate tracks, and voice clean-up presets.
 
-export function AudioTab({ clip: c, media, edit, keys, set, value }: TabProps) {
+export function AudioTab(props: TabProps) {
+  const { project, clip: c, media, track, edit, keys, set, value } = props;
   const len = clipLength(c);
   const patch = (what: string, p: ClipPatch) => edit((q) => updateClip(q, c.id, p), what);
 
@@ -85,6 +88,15 @@ export function AudioTab({ clip: c, media, edit, keys, set, value }: TabProps) {
               </div>
             );
           })}
+        </Section>
+      ) : null}
+      {canVoice(project, c.id) ? (
+        <VoiceSection {...props} />
+      ) : track.kind === "video" && media?.hasAudio ? (
+        <Section title="Voice clean-up">
+          <p className="text-[11px] text-muted-foreground">
+            To clean up a voice, right-click the clip and choose Extract audio, then pick a preset on the audio clip.
+          </p>
         </Section>
       ) : null}
     </>

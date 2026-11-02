@@ -33,6 +33,7 @@
 //   MediaService.Thumbnail(id): Promise<string>  (JPEG URL for video, the image itself, "" for audio)
 //   PresetService.List / Get / Save(json) / Rename / Delete / Import(path) / Export(id, path) / PickImport / PickExport(id)  (saved filters, %AppData%/toru/presets; "presets:changed")
 //   PresetService.ListTextStyles / ImportTextStyle(path) / PickImportTextStyle  (saved text styles: presets of kind "text"; Save/Rename/Delete/PickExport work on them too)
+//   VoiceService.Presets() / Render(req) / Audition(req)  (voice clean-up presets, internal/voice; renders cached FLACs in %LOCALAPPDATA%/toru/voice/renders)
 //   PresetService.ListLuts / ImportLut(path) / PickLut / ReadLut(id) / DeleteLut(id)  (imported .cube LUTs, %AppData%/toru/luts)
 //   SettingsService.GetLaunchAtLogin(): Promise<boolean>
 //   SettingsService.SetLaunchAtLogin(enabled: boolean): Promise<void>  (registry Run key; --startup => silent-to-tray)
@@ -78,6 +79,9 @@ import * as AgentService from "../../bindings/github.com/StephenSHorton/toru/int
 import { WindowCommand as AgentWindowCommand } from "../../bindings/github.com/StephenSHorton/toru/internal/agentctl/models.js";
 import * as MediaService from "../../bindings/github.com/StephenSHorton/toru/internal/media/service.js";
 import * as PresetService from "../../bindings/github.com/StephenSHorton/toru/internal/presets/service.js";
+import * as VoiceService from "../../bindings/github.com/StephenSHorton/toru/internal/voice/voicesvc/service.js";
+import { RenderRequest as VoiceRenderRequest } from "../../bindings/github.com/StephenSHorton/toru/internal/voice/voicesvc/models.js";
+import { Preset as VoicePreset } from "../../bindings/github.com/StephenSHorton/toru/internal/voice/models.js";
 import { Preset, Lut } from "../../bindings/github.com/StephenSHorton/toru/internal/presets/models.js";
 import { Media as BinMedia } from "../../bindings/github.com/StephenSHorton/toru/internal/media/models.js";
 import {
@@ -165,6 +169,9 @@ export {
   BinMedia,
   PresetService,
   Preset,
+  VoiceService,
+  VoiceRenderRequest,
+  VoicePreset,
   Lut,
   MediaInfo,
   AudioTrack,
