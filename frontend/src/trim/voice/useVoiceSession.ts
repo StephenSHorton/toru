@@ -68,15 +68,22 @@ export function useVoiceSession({
   const projectRef = useRef(project);
   projectRef.current = project;
   const busy = useRef(false);
+  const stopping = useRef(false);
   const patch = useCallback((p: Partial<VoiceState>) => setState((s) => ({ ...s, ...p })), []);
 
-  // Elapsed time while recording.
+  // Elapsed time while recording. Pausing the preview mid-take (Space, the
+  // play button) ends the take, so it can't drift from the video; playback
+  // reaching the end doesn't (the take runs on past it).
+  const stopRef = useRef<() => Promise<unknown>>(async () => {});
   useEffect(() => {
     if (state.phase !== "recording") return;
     const t0 = performance.now();
-    const id = window.setInterval(() => patch({ elapsed: (performance.now() - t0) / 1000 }), 100);
+    const id = window.setInterval(() => {
+      patch({ elapsed: (performance.now() - t0) / 1000 });
+      if (!clock.playing && startAt.current < clock.duration - 1e-3 && clock.now() < clock.duration - 0.05) void stopRef.current().catch(() => {});
+    }, 100);
     return () => window.clearInterval(id);
-  }, [state.phase, patch]);
+  }, [state.phase, patch, clock]);
 
   // Closing the window releases the mic.
   useEffect(() => () => void rec.current?.close(), []);
@@ -144,7 +151,8 @@ export function useVoiceSession({
 
   const stop = useCallback(async (): Promise<VoiceTakeOut> => {
     const r = rec.current;
-    if (!r?.recording) throw new Error("not recording");
+    if (!r?.recording || stopping.current) throw new Error("not recording");
+    stopping.current = true;
     patch({ phase: "saving" });
     clock.pause();
     try {
@@ -170,8 +178,11 @@ export function useVoiceSession({
       throw err;
     } finally {
       busy.current = false;
+      stopping.current = false;
     }
   }, [apply, clock, onPlaced, patch, release]);
+
+  stopRef.current = stop;
 
   const cancel = useCallback(async () => {
     cancelled.current = true;
