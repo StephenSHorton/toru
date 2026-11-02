@@ -85,9 +85,9 @@ func TestTransitionGraph(t *testing.T) {
 		"[l0][l1]xfade=transition=wipeleft:duration=1.000:offset=1.500[x1]",
 		"[x1][l2]xfade=transition=fadeblack:duration=0.600:offset=3.700[x2]",
 		"[base][x2]overlay=eof_action=pass:enable='between(t,0.000,6.000)'[o2]",
-		"[ca0]afade=t=out:st=1.500:d=0.500[c0]",
+		"[ca0]afade=t=out:st=1.500:d=0.500,afade=t=in:st=0:d=0.010[c0]", // + edge fade at the start (Irori #131)
 		"[ca1]afade=t=in:st=0:d=0.500,afade=t=out:st=1.700:d=0.300,adelay",
-		"[ca2]afade=t=in:st=0:d=0.300,adelay",
+		"[ca2]afade=t=in:st=0:d=0.300,afade=t=out:st=1.990:d=0.010,adelay",
 	} {
 		if !strings.Contains(g, want) {
 			missing = append(missing, want)
