@@ -185,7 +185,7 @@ export function MultiTimeline({
   const audio = p.tracks.filter((t) => t.kind === "audio");
   const rows = [...video.slice().reverse(), ...audio];
   const label = (t: Track) =>
-    t.kind === "video" ? `Video ${video.indexOf(t) + 1}` : `Audio ${audio.indexOf(t) + 1}`;
+    t.name || (t.kind === "video" ? `Video ${video.indexOf(t) + 1}` : `Audio ${audio.indexOf(t) + 1}`);
 
   // Text lanes (overlapping texts stack).
   const lanes: Text[][] = [];

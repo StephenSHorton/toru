@@ -48,6 +48,8 @@ import {
 } from "@/trim/project";
 import { soundExportRequest } from "@/trim/saveAudio";
 import { TextOverlays } from "@/trim/TextOverlays";
+import { useVoiceSession } from "@/trim/voice/useVoiceSession";
+import { CountIn, VoiceRecord } from "@/trim/voice/VoiceRecord";
 
 // Video editor window, layout B (docs/editor-layout-proposal.md): the
 // library rail on the left (Media, Text, Effects, Audio, Filters; one panel
@@ -224,6 +226,9 @@ export default function EditVideo() {
   }, [project.crop, project.canvas.width]);
   const firstPath = project.media.find((m) => m.kind !== "audio")?.path ?? project.media[0]?.path ?? absPath;
 
+  // Mic voiceover (Irori #129): the take lands on the Voice track, selected.
+  const voice = useVoiceSession({ project, apply, clock: pb.clock, onPlaced: (id) => setSelection({ kind: "clip", id }) });
+
   // The clip menu's "Open in inspector" / "Speed…" and "Save audio as file…".
   const [tabRequest, setTabRequest] = useState<{ tab: TabId; seq: number }>();
   const openInspector = useCallback((clipId: string, tab?: TabId) => {
@@ -305,6 +310,7 @@ export default function EditVideo() {
         setCropMode((m) => !m);
       },
       openLibrary,
+      voice,
     },
   });
   const [viewerMenu, setViewerMenu] = useState<{ x: number; y: number } | null>(null);
@@ -414,6 +420,7 @@ export default function EditVideo() {
                 onPickingChange={setPicking}
               />
             ) : null}
+            {voice.state.phase === "counting" ? <CountIn count={voice.state.count} /> : null}
             {ready && cropMode && canvasBox.width > 0 ? (
               <CropBox
                 videoW={cw}
@@ -453,6 +460,7 @@ export default function EditVideo() {
               {fmtTime(pb.time)} / {fmtTime(duration)}
             </span>
             <CanvasSettings project={project} apply={apply} disabled={!ready} />
+            <VoiceRecord voice={voice} disabled={!ready || duration <= 0} />
             <span className="text-[11px] text-muted-foreground">
               {saveNote ? <span className={cn("ml-2", saveNote.startsWith("Couldn") && "text-destructive")}>· {saveNote}</span> : null}
               {audioNote ? <span className={cn("ml-2", audioNote.startsWith("Couldn") && "text-destructive")}>· {audioNote}</span> : null}
