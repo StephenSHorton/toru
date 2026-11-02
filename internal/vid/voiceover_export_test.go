@@ -11,17 +11,17 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
-	"github.com/StephenSHorton/toru/internal/voice"
+	"github.com/StephenSHorton/toru/internal/voiceover"
 )
 
-// TestVoiceTakeExport puts a mic voiceover take, written by internal/voice
+// TestVoiceoverTakeExport puts a mic voiceover take, written by internal/voice
 // exactly as the editor streams it, on a "Voice" audio track under a silent
 // video and exports: the tone must sound where the take sits on the
 // timeline (start 1.5 s, its first 40 ms trimmed for latency) and nowhere
 // else (Irori #129).
 //
-//	go test ./internal/vid -run VoiceTakeExport -v
-func TestVoiceTakeExport(t *testing.T) {
+//	go test ./internal/vid -run VoiceoverTakeExport -v
+func TestVoiceoverTakeExport(t *testing.T) {
 	if testing.Short() {
 		t.Skip("encodes video; skipped with -short")
 	}
@@ -41,7 +41,7 @@ func TestVoiceTakeExport(t *testing.T) {
 
 	// A 1 s 1 kHz take at 48 kHz, sent in 0.25 s chunks like the editor.
 	const rate = 48000
-	vs := voice.NewAt(filepath.Join(dir, "voice"))
+	vs := voiceover.NewAt(filepath.Join(dir, "voice"))
 	id, err := vs.Begin("proj_test", rate)
 	if err != nil {
 		t.Fatal(err)

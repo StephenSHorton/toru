@@ -1,4 +1,4 @@
-import { ReplayService, VoiceService } from "@/lib/api";
+import { ReplayService, VoiceoverService } from "@/lib/api";
 import { toPcm16 } from "@/trim/voice/pcm";
 
 export { listMics, matchMic, type MicOption } from "@/trim/voice/pcm";
@@ -12,7 +12,7 @@ export { listMics, matchMic, type MicOption } from "@/trim/voice/pcm";
 // AudioWorklet copies the samples from the moment start() is called and
 // meters the level the whole time the mic is open (during the count-in too).
 // The main thread turns the samples into 16-bit PCM and streams them to
-// VoiceService (Go), which writes the WAV as it goes.
+// VoiceoverService (Go), which writes the WAV as it goes.
 //
 // Alignment: start() returns the AudioContext time of the first recorded
 // frame. The person hears the preview late by the output latency and their
@@ -142,7 +142,7 @@ export class VoiceRecorder {
   // start opens a take for the project and records from now.
   async start(projectId: string): Promise<void> {
     if (this.take || this.closed) throw new Error("already recording");
-    this.take = await VoiceService.Begin(projectId, Math.round(this.ctx.sampleRate));
+    this.take = await VoiceoverService.Begin(projectId, Math.round(this.ctx.sampleRate));
     this.frames = 0;
     this.failed = null;
     this.node.port.postMessage("start");
@@ -162,10 +162,10 @@ export class VoiceRecorder {
     this.take = "";
     await this.sent;
     if (this.failed) {
-      await VoiceService.Cancel(id).catch(() => {});
+      await VoiceoverService.Cancel(id).catch(() => {});
       throw this.failed;
     }
-    const path = await VoiceService.Finish(id);
+    const path = await VoiceoverService.Finish(id);
     return { path, seconds: this.frames / this.ctx.sampleRate };
   }
 
@@ -178,7 +178,7 @@ export class VoiceRecorder {
     this.pending = [];
     this.pendingBytes = 0;
     await this.sent.catch(() => {});
-    await VoiceService.Cancel(id).catch(() => {});
+    await VoiceoverService.Cancel(id).catch(() => {});
   }
 
   // close releases the mic. A take still recording is cancelled.
@@ -220,7 +220,7 @@ export class VoiceRecorder {
     this.sent = this.sent.then(() =>
       this.failed
         ? undefined
-        : VoiceService.Append(id, chunk).catch((err) => {
+        : VoiceoverService.Append(id, chunk).catch((err) => {
             this.failed = err;
           }),
     );

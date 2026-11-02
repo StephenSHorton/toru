@@ -30,7 +30,7 @@
 //   MediaService.Register(paths) / PickMedia(): Promise<BinMedia[]>  (editor media bin; served at /__media/<id>/<name>, "media:dropped" from the edit window)
 //   AgentService.GetEnabled / SetEnabled(on)  (agent control: the per-user pipe exists only while on)
 //   AgentService.RegisterWindowCommands(window, cmds) / UnregisterWindowCommands / TouchWindow / Respond(id, result, err)  (use @/lib/agent)
-//   VoiceService.Begin(project, sampleRate) / Append(id, base64 s16le mono) / Finish(id) -> wav path / Cancel(id)  (editor mic voiceover takes, %LOCALAPPDATA%/toru/voice/<project>)
+//   VoiceoverService.Begin(project, sampleRate) / Append(id, base64 s16le mono) / Finish(id) -> wav path / Cancel(id)  (editor mic voiceover takes, %LOCALAPPDATA%/toru/voice/<project>)
 //   MediaService.Thumbnail(id): Promise<string>  (JPEG URL for video, the image itself, "" for audio)
 //   PresetService.List / Get / Save(json) / Rename / Delete / Import(path) / Export(id, path) / PickImport / PickExport(id)  (saved filters, %AppData%/toru/presets; "presets:changed")
 //   PresetService.ListTextStyles / ImportTextStyle(path) / PickImportTextStyle  (saved text styles: presets of kind "text"; Save/Rename/Delete/PickExport work on them too)
@@ -78,7 +78,7 @@ import * as VideoService from "../../bindings/github.com/StephenSHorton/toru/int
 import * as AgentService from "../../bindings/github.com/StephenSHorton/toru/internal/agentctl/service.js";
 import { WindowCommand as AgentWindowCommand } from "../../bindings/github.com/StephenSHorton/toru/internal/agentctl/models.js";
 import * as MediaService from "../../bindings/github.com/StephenSHorton/toru/internal/media/service.js";
-import * as VoiceService from "../../bindings/github.com/StephenSHorton/toru/internal/voice/service.js";
+import * as VoiceoverService from "../../bindings/github.com/StephenSHorton/toru/internal/voiceover/voiceoverservice.js";
 import * as PresetService from "../../bindings/github.com/StephenSHorton/toru/internal/presets/service.js";
 import { Preset, Lut } from "../../bindings/github.com/StephenSHorton/toru/internal/presets/models.js";
 import { Media as BinMedia } from "../../bindings/github.com/StephenSHorton/toru/internal/media/models.js";
@@ -164,7 +164,7 @@ export {
   AgentService,
   AgentWindowCommand,
   MediaService,
-  VoiceService,
+  VoiceoverService,
   BinMedia,
   PresetService,
   Preset,

@@ -38,7 +38,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/StephenSHorton/toru/internal/upload"
 	"github.com/StephenSHorton/toru/internal/vid"
-	"github.com/StephenSHorton/toru/internal/voice"
+	"github.com/StephenSHorton/toru/internal/voiceover"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -147,8 +147,8 @@ func main() {
 	shotSvc := shot.New()
 	vidSvc := vid.New()
 	mediaSvc := media.New()
-	// Mic voiceover takes from the editor (internal/voice, Irori #129).
-	voiceSvc := voice.New()
+	// Mic voiceover takes from the editor (internal/voiceover, Irori #129).
+	voiceSvc := voiceover.New()
 	presetSvc := presets.NewService()
 	// Agent control: one registry of commands for AI agents and scripts,
 	// served over a per-user named pipe while the setting is on.

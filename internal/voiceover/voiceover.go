@@ -1,4 +1,4 @@
-// Package voice writes the video editor's mic voiceover takes to disk
+// Package voiceover writes the video editor's mic voiceover takes to disk
 // (Irori #129). The edit window captures the mic itself (getUserMedia and
 // an AudioWorklet, raw PCM, no echo cancellation, noise suppression or AGC)
 // and streams the samples here in chunks. Each take becomes a mono 16-bit
@@ -7,7 +7,7 @@
 //
 // Chunks are appended as they arrive, so a crash mid-take leaves a file
 // whose header only needs fixing; Finish writes the real sizes.
-package voice
+package voiceover
 
 import (
 	"encoding/base64"
@@ -30,8 +30,8 @@ const (
 	headerLen = 44
 )
 
-// Service is bound to the frontend as VoiceService.
-type Service struct {
+// VoiceoverService is bound to the frontend.
+type VoiceoverService struct {
 	mu    sync.Mutex
 	root  string // "" = %LOCALAPPDATA%/toru/voice
 	takes map[string]*take
@@ -46,13 +46,15 @@ type take struct {
 }
 
 // New returns the service; takes go to %LOCALAPPDATA%/toru/voice.
-func New() *Service { return &Service{takes: map[string]*take{}} }
+func New() *VoiceoverService { return &VoiceoverService{takes: map[string]*take{}} }
 
 // NewAt returns a service writing under root (tests).
-func NewAt(root string) *Service { return &Service{root: root, takes: map[string]*take{}} }
+func NewAt(root string) *VoiceoverService {
+	return &VoiceoverService{root: root, takes: map[string]*take{}}
+}
 
 // dir is where the takes of a project live.
-func (s *Service) dir(project string) (string, error) {
+func (s *VoiceoverService) dir(project string) (string, error) {
 	root := s.root
 	if root == "" {
 		base, err := os.UserCacheDir() // %LOCALAPPDATA% on Windows
@@ -80,9 +82,9 @@ func safeName(s string) string {
 
 // Begin opens a new take for a project at sampleRate (mono, 16-bit) and
 // returns its id for Append, Finish and Cancel.
-func (s *Service) Begin(project string, sampleRate int) (string, error) {
+func (s *VoiceoverService) Begin(project string, sampleRate int) (string, error) {
 	if sampleRate < MinRate || sampleRate > MaxRate {
-		return "", fmt.Errorf("voice: sample rate %d is out of range", sampleRate)
+		return "", fmt.Errorf("voiceover: sample rate %d is out of range", sampleRate)
 	}
 	dir, err := s.dir(project)
 	if err != nil {
@@ -114,19 +116,19 @@ func (s *Service) Begin(project string, sampleRate int) (string, error) {
 }
 
 // Append adds base64 little-endian 16-bit mono samples to a take.
-func (s *Service) Append(id, pcm string) error {
+func (s *VoiceoverService) Append(id, pcm string) error {
 	b, err := base64.StdEncoding.DecodeString(pcm)
 	if err != nil {
-		return fmt.Errorf("voice: bad chunk: %w", err)
+		return fmt.Errorf("voiceover: bad chunk: %w", err)
 	}
 	if len(b)%2 != 0 {
-		return errors.New("voice: a chunk must hold whole 16-bit samples")
+		return errors.New("voiceover: a chunk must hold whole 16-bit samples")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.takes[id]
 	if !ok {
-		return errors.New("voice: no such take (it was finished or cancelled)")
+		return errors.New("voiceover: no such take (it was finished or cancelled)")
 	}
 	n, err := t.f.Write(b)
 	t.bytes += int64(n)
@@ -135,18 +137,18 @@ func (s *Service) Append(id, pcm string) error {
 
 // Finish writes the WAV sizes, closes the take and returns its path. A take
 // with no samples is deleted and Finish returns an error.
-func (s *Service) Finish(id string) (string, error) {
+func (s *VoiceoverService) Finish(id string) (string, error) {
 	s.mu.Lock()
 	t, ok := s.takes[id]
 	delete(s.takes, id)
 	s.mu.Unlock()
 	if !ok {
-		return "", errors.New("voice: no such take (it was finished or cancelled)")
+		return "", errors.New("voiceover: no such take (it was finished or cancelled)")
 	}
 	if t.bytes == 0 {
 		_ = t.f.Close()
 		_ = os.Remove(t.path)
-		return "", errors.New("voice: the take is empty (no sound reached Toru)")
+		return "", errors.New("voiceover: the take is empty (no sound reached Toru)")
 	}
 	if _, err := t.f.Seek(0, io.SeekStart); err == nil {
 		_, err = t.f.Write(wavHeader(t.rate, t.bytes))
@@ -162,7 +164,7 @@ func (s *Service) Finish(id string) (string, error) {
 }
 
 // Cancel drops a take and deletes its file. Unknown ids are fine.
-func (s *Service) Cancel(id string) error {
+func (s *VoiceoverService) Cancel(id string) error {
 	s.mu.Lock()
 	t, ok := s.takes[id]
 	delete(s.takes, id)
@@ -176,7 +178,7 @@ func (s *Service) Cancel(id string) error {
 
 // ServiceShutdown finishes every open take when the app exits (Wails calls
 // it; it isn't bound): what was recorded is kept.
-func (s *Service) ServiceShutdown() error {
+func (s *VoiceoverService) ServiceShutdown() error {
 	s.mu.Lock()
 	ids := make([]string, 0, len(s.takes))
 	for id := range s.takes {
