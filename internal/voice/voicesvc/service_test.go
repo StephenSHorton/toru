@@ -17,6 +17,7 @@ import (
 
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/fx/fxtest"
+	"github.com/StephenSHorton/toru/internal/vid"
 	"github.com/StephenSHorton/toru/internal/voice"
 )
 
@@ -226,4 +227,112 @@ func bestLag(a, b []float64, maxLag int) int {
 		}
 	}
 	return at
+}
+
+// TestPreviewEqualsExport measures the promise behind Apply: the preview
+// plays the rendered copy itself (the browser decodes the FLAC losslessly),
+// and an export of a clip on that copy carries the same samples. It renders
+// a copy, puts 2-6 s of it on an audio track, exports a WAV through
+// the editor's own export (vid.BuildProjectArgs) and compares it with the
+// copy sample by sample.
+func TestPreviewEqualsExport(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs ffmpeg")
+	}
+	bin := fxtest.PinnedFFmpeg(t)
+	t.Setenv("TORU_FFMPEG", bin)
+	dir := t.TempDir()
+	prev := outDir
+	outDir = func() string { return filepath.Join(dir, "renders") }
+	defer func() { outDir = prev }()
+
+	src := filepath.Join(dir, "take.wav")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := capture.RunFFmpeg(ctx, []string{"-y",
+		"-f", "lavfi", "-i", "sine=f=220:r=48000:d=8",
+		"-f", "lavfi", "-i", "anoisesrc=c=pink:a=0.02:r=48000:d=8",
+		"-filter_complex", "[0:a]volume='if(between(mod(t\\,4)\\,1\\,3)\\,0.6\\,0)':eval=frame[v];[v][1:a]amix=inputs=2:normalize=0[a]",
+		"-map", "[a]", "-c:a", "pcm_s16le", src}); err != nil {
+		t.Fatal(err)
+	}
+	// Light keeps the test tone (the speech model would take a sine out as
+	// noise), so the comparison runs on real signal; which preset made the
+	// copy doesn't matter to what the export reads.
+	copyPath, err := New().Render(RenderRequest{Path: src, Preset: voice.Light})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := vid.ProjectJSON{
+		Version: 3,
+		Canvas:  vid.CanvasJSON{Width: 320, Height: 180, FPS: 30},
+		Media:   []vid.MediaJSON{{ID: "c", Path: copyPath, Kind: "audio", Duration: 8000, HasAudio: true, Tracks: []vid.AudioTrack{{Index: 0}}}},
+		Tracks: []vid.TrackJSON{{ID: "v", Kind: "video"}, {ID: "a", Kind: "audio", Clips: []vid.ClipJSON{{ID: "s", Media: "c", In: 2000, Out: 6000, Speed: 1, Volume: 1,
+			Transform: vid.TransformJSON{X: 0.5, Y: 0.5, Scale: 1, Opacity: 1}}}}},
+	}
+	out := filepath.Join(dir, "export.wav")
+	req := vid.ProjectExport{Project: project, Preset: "original", OutPath: out, Options: &vid.ExportOptions{Format: vid.FormatWAV, SampleRate: 48000}}
+	if err := req.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	args, err := vid.BuildProjectArgs(req, "", "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := capture.RunFFmpeg(ctx, args); err != nil {
+		t.Fatal(err)
+	}
+	want := pcm(t, bin, copyPath, 2, 4)
+	got := pcm(t, bin, out, 0, 4)
+	if d := len(want) - len(got); d < -48 || d > 48 {
+		t.Fatalf("export has %d samples, the copy's section %d", len(got), len(want))
+	}
+	if lag := bestLag(want, got, 480); lag != 0 {
+		t.Fatalf("export is %d samples off the copy", lag)
+	}
+	var sig, diff float64
+	n := min(len(want), len(got))
+	for i := range n {
+		sig += want[i] * want[i]
+		e := want[i] - got[i]
+		diff += e * e
+	}
+	snr := 10 * math.Log10(sig/max(diff, 1e-30))
+	dbfs := 10 * math.Log10(max(diff, 1e-30)/float64(n))
+	t.Logf("export vs copy: %d samples, lag 0, difference %.1f dBFS (%.1f dB below the signal)", n, dbfs, snr)
+	// The copy is 24-bit and the WAV export 16-bit: rounding (with dither)
+	// alone leaves about -95 dBFS. Anything the export changed would be far
+	// louder.
+	if dbfs > -88 || snr < 60 {
+		t.Fatalf("export differs from the copy: %.1f dBFS", dbfs)
+	}
+}
+
+// TestWriteSamples renders every preset of $TORU_VOICE_SAMPLE_IN into the
+// folder $TORU_VOICE_SAMPLES as <preset>.flac, for listening (before/after
+// samples for a review). Skipped unless both are set.
+func TestWriteSamples(t *testing.T) {
+	in, dir := os.Getenv("TORU_VOICE_SAMPLE_IN"), os.Getenv("TORU_VOICE_SAMPLES")
+	if in == "" || dir == "" {
+		t.Skip("set TORU_VOICE_SAMPLE_IN and TORU_VOICE_SAMPLES")
+	}
+	prev := outDir
+	outDir = func() string { return filepath.Join(dir, "cache") }
+	defer func() { outDir = prev }()
+	s := New()
+	for _, p := range voice.Presets() {
+		out, err := s.Render(RenderRequest{Path: in, Preset: p.ID})
+		if err != nil {
+			t.Fatalf("%s: %v", p.ID, err)
+		}
+		dst := filepath.Join(dir, p.ID+".flac")
+		b, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dst, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("%s -> %s", p.Name, dst)
+	}
 }

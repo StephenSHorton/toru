@@ -63,7 +63,13 @@ export type Clip = {
   reversed?: boolean; // plays the source range backwards (a reverse proxy)
   blendFrames?: BlendFrames; // slow motion: off (default), mix (tmix) or smooth (minterpolate)
   transition?: ClipTransition; // with the clip before it on the track (transition.ts)
+  voice?: ClipVoice; // a voice clean-up preset is applied: media is its render (voice.ts)
 };
+
+// ClipVoice is what a clip played before a voice preset (voice.ts): media
+// is then the preset's render of this original, which a new preset renders
+// from again and Off restores (with the original's per-track levels).
+export type ClipVoice = { preset: string; media: string; levels?: TrackLevel[] };
 
 // --- v3 effects, keyframes and time (frozen contract for the v3 cards) ----
 
