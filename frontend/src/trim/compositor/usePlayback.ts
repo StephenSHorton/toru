@@ -57,6 +57,14 @@ export class PlaybackClock {
     this.onChange?.();
   }
 
+  // adjust shifts the running clock by dt seconds without telling anyone:
+  // the preview's clock following the sound it plays (tiny steps every
+  // frame, Compositor), so the element that's heard is never re-rated.
+  adjust(dt: number) {
+    if (!this.running || this.stalled || !Number.isFinite(dt)) return;
+    this.base = Math.max(0, Math.min(this.duration, this.base + dt));
+  }
+
   // setStalled freezes time while true (the clock resumes where it stopped).
   setStalled(on: boolean) {
     if (on === this.stalled) return;

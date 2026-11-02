@@ -48,9 +48,30 @@ import type { PlaybackClock } from "@/trim/compositor/usePlayback";
 // (colorspace.ts) before taking the corrected one.
 const EXACT_WAIT = 1000; // ms
 const MAX_DRIFT = 0.08; // s: past this a playing element re-seeks
-// Small drift is pulled in by running a little fast or slow, in a few fixed
-// steps so an element with sound isn't re-rated every frame: past each
-// drift (s) the rate moves by that fraction.
+// Sound and sync (Irori #131). Every playbackRate change on an element that
+// is heard restarts Chromium's pitch-keeping time-stretcher (1.0 bypasses
+// it), and each restart splices the audio: a click. currentTime only moves
+// once per audio callback (~10-20 ms steps), so nudging the rate on small
+// drift flipped it every frame (~75 changes/s, 120+ clicks a minute).
+// So, by what an element sounds like:
+// - the MASTER, the first heard element playing at a constant speed, is
+//   never re-rated: the clock follows it instead (clock.adjust, a smoothed
+//   fraction of its drift per frame);
+// - other HEARD elements (a voice track under the video) keep their rate
+//   inside AUDIBLE_DEADBAND and correct with one small held nudge
+//   (AUDIBLE_NUDGE) until back within AUDIBLE_SETTLE;
+// - SILENT elements (gain 0) are nudged as before: nobody hears them;
+// - a heard element that must seek ducks its gain first and seeks DUCK_MS
+//   later.
+const MASTER_SMOOTH = 0.1; // EMA weight of a new drift reading
+const MASTER_FOLLOW = 0.08; // fraction of the smoothed drift the clock takes per frame
+const AUDIBLE_DEADBAND = 0.03; // s
+const AUDIBLE_SETTLE = 0.006; // s
+const AUDIBLE_NUDGE = 0.015; // rate fraction
+const DUCK_MS = 15;
+// Small drift on a silent element is pulled in by running a little fast or
+// slow, in a few fixed steps: past each drift (s) the rate moves by that
+// fraction.
 const NUDGES: [number, number][] = [
   [0.03, 0.1],
   [0.012, 0.04],
@@ -130,6 +151,11 @@ type Slot = {
   exact: boolean;
   exactAt: number;
   exactFailed: boolean;
+  // Sound and sync: the smoothed drift (s), a held nudge (-1, 0, 1) on a
+  // heard element, and when a ducked seek was asked for (0 none).
+  ema: number;
+  nudge: number;
+  duckAt: number;
 };
 type Still = { img: HTMLImageElement; tex: WebGLTexture | null; ready: boolean };
 
@@ -218,7 +244,7 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         if (el instanceof HTMLVideoElement) el.playsInline = true;
         el.preservesPitch = true;
         el.src = url;
-        s = { el, url, lastUsed: now, tex: null, uploaded: -1, starting: false, forcedMute: false, w: 0, h: 0, exact: false, exactAt: -1, exactFailed: false };
+        s = { el, url, lastUsed: now, tex: null, uploaded: -1, starting: false, forcedMute: false, w: 0, h: 0, exact: false, exactAt: -1, exactFailed: false, ema: 0, nudge: 0, duckAt: 0 };
         pool.set(key, s);
       }
       s.lastUsed = now;
@@ -295,17 +321,40 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       if (Math.abs(at - t) <= MAX_DRIFT * Math.max(1, top.rate) * 2) clock.seek(at);
     };
 
-    // sync keeps an element at its clip's source time.
-    const sync = (s: Slot, a: Shown, playing: boolean, gain: number) => {
+    // sync keeps an element at its clip's source time. master: the clock
+    // follows this one (see Sound and sync above), so it's never re-rated.
+    const sync = (s: Slot, a: Shown, playing: boolean, gain: number, master = false) => {
       const el = s.el;
       const want = a.srcT;
       if (playing && !stepped(a)) {
         const drift = el.currentTime - want;
-        if (!el.seeking && Math.abs(drift) > MAX_DRIFT * Math.max(1, a.rate)) {
+        const heard = gain > 0 && !el.muted;
+        const base = Math.max(RATE_LO, Math.min(RATE_HI, a.rate));
+        let rate = base;
+        if (s.duckAt && !el.seeking && performance.now() - s.duckAt >= DUCK_MS) {
+          // The duck has faded out: jump now.
+          s.duckAt = 0;
+          s.ema = 0;
           el.currentTime = want;
+        } else if (!s.duckAt && !el.seeking && Math.abs(drift) > MAX_DRIFT * Math.max(1, a.rate)) {
+          if (heard && !el.paused) {
+            mix.duck(el);
+            s.duckAt = performance.now();
+          } else {
+            s.ema = 0;
+            el.currentTime = want;
+          }
+        } else if (master) {
+          s.nudge = 0;
+        } else if (heard) {
+          s.ema += (drift - s.ema) * MASTER_SMOOTH;
+          if (Math.abs(s.ema) > AUDIBLE_DEADBAND) s.nudge = -Math.sign(s.ema);
+          else if (Math.abs(s.ema) < AUDIBLE_SETTLE) s.nudge = 0;
+          rate = base * (1 + s.nudge * AUDIBLE_NUDGE);
+        } else {
+          const step = NUDGES.find(([d]) => Math.abs(drift) > d)?.[1] ?? 0;
+          rate = base * (1 - Math.sign(drift) * step);
         }
-        const step = NUDGES.find(([d]) => Math.abs(drift) > d)?.[1] ?? 0;
-        const rate = Math.max(RATE_LO, Math.min(RATE_HI, a.rate)) * (1 - Math.sign(drift) * step);
         if (Math.abs(el.playbackRate - rate) > 1e-3) el.playbackRate = rate;
         if (el.paused && !el.ended && !s.starting) {
           // A play() the browser blocks (no user gesture yet, autoplay
@@ -350,20 +399,33 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
       // Media for everything under the playhead.
       let starving = false;
       const gain: Record<string, number> = {};
-      for (const a of active) {
-        if (a.media.kind === "image") continue;
+      const plan = active
+        .filter((a) => a.media.kind !== "image")
+        .map((a) => {
+          // The speed rule mutes ramps outside 0.25..4x, as the export does.
+          const u = a.proxied ? a.srcT : fromSource(a.clip, a.srcT);
+          const g = clipAudible(a.clip, u) ? clipGain(a.clip, a.track, t) : 0;
+          // Per-track levels: play the extracted tracks once all are ready (a
+          // reversed clip plays its proxy's mix: the extracts run forwards).
+          const levels = a.media.tracks.length > 1 && !a.proxied ? (a.clip.levels ?? []) : [];
+          const urls = levels.map((l) => trackUrl(a.media.path, l.index));
+          const byTrack = levels.length > 0 && urls.every((u) => typeof u === "string");
+          return { a, g, levels, urls, byTrack };
+        });
+      // The master: the first heard element at a constant speed, playing
+      // steadily (see Sound and sync). The clock follows it below.
+      const master = playing
+        ? plan.find(({ a, g, byTrack }) => {
+            if (byTrack || g <= 0 || stepped(a) || a.proxied || a.clip.speedCurve || a.clip.reversed) return false;
+            const el = pool.get(a.clip.id)?.el;
+            return !!el && !el.paused && !el.seeking && !el.muted && el.readyState >= 3 && !mix.isDucked(el);
+          })
+        : undefined;
+      for (const { a, g, levels, urls, byTrack } of plan) {
         const audioOnly = a.track.kind === "audio";
         const s = slotFor(a.clip, a.url, audioOnly, now);
         used.add(a.clip.id);
-        // The speed rule mutes ramps outside 0.25..4x, as the export does.
-        const u = a.proxied ? a.srcT : fromSource(a.clip, a.srcT);
-        const g = clipAudible(a.clip, u) ? clipGain(a.clip, a.track, t) : 0;
-        // Per-track levels: play the extracted tracks once all are ready (a
-        // reversed clip plays its proxy's mix: the extracts run forwards).
-        const levels = a.media.tracks.length > 1 && !a.proxied ? (a.clip.levels ?? []) : [];
-        const urls = levels.map((l) => trackUrl(a.media.path, l.index));
-        const byTrack = levels.length > 0 && urls.every((u) => typeof u === "string");
-        sync(s, a, playing, byTrack ? 0 : g);
+        sync(s, a, playing, byTrack ? 0 : g, master?.a === a);
         if (byTrack) {
           levels.forEach((l, i) => {
             const key = `${a.clip.id}|t${l.index}`;
@@ -416,6 +478,17 @@ export function Compositor({ project, clock, className, canvasRef, handle, stats
         if (!s.el.paused) s.el.pause();
         mix.set(s.el, 0);
         if (now - s.lastUsed > POOL_IDLE * 1000 || pool.size > MAX_POOL) drop(id);
+      }
+      // The clock follows the master's sound: a smoothed fraction of its
+      // drift per frame (its currentTime moves in audio-callback steps, so a
+      // single reading is ~10-20 ms off). Big drift is the seek's job.
+      if (master && !clock.isStalled) {
+        const s = pool.get(master.a.clip.id)!;
+        const d = timelineTimeAt(master.a.clip, s.el.currentTime) - clock.now();
+        if (Math.abs(d) < MAX_DRIFT) {
+          s.ema += (d - s.ema) * MASTER_SMOOTH;
+          clock.adjust(s.ema * MASTER_FOLLOW);
+        } else s.ema = 0;
       }
       // Hold the clock while a clip that's due has no frame yet.
       if (starving) {
