@@ -6,7 +6,7 @@
 //   bun scripts/waveform-check.ts
 import type { Clip, Track } from "../src/trim/project";
 import { presetCurve } from "../src/trim/speed";
-import { buildPeaks, columnHeights, peakHeight, peakIn } from "../src/trim/waveform";
+import { buildPeaks, columnHeights, loudest, peakHeight, peakIn } from "../src/trim/waveform";
 
 let pass = 0;
 let fail = 0;
@@ -35,6 +35,17 @@ const clip = (p: Partial<Clip>): Clip => ({
   ...p,
 });
 const track: Track = { id: "t", kind: "audio", muted: false, hidden: false, locked: false, clips: [] };
+
+// Loudest moment: the middle of the first loudest bin; -1 for silence.
+{
+  const p = buildPeaks(Uint8Array.from([3, 9, 200, 40, 200, 7]), 100);
+  ok("loudest first max", near(loudest(p), 0.025), loudest(p));
+  ok("loudest silence", loudest(buildPeaks(new Uint8Array(50), 100)) === -1);
+  ok("loudest empty", loudest(buildPeaks(new Uint8Array(0), 100)) === -1);
+  const long = new Uint8Array(100 * 3600);
+  long[100 * 1234 + 50] = 255;
+  ok("loudest hour", near(loudest(buildPeaks(long, 100)), 1234.505), loudest(buildPeaks(long, 100)));
+}
 
 // Pyramid and lookup.
 {

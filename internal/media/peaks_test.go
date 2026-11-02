@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/vid"
 )
 
 func TestPeakByte(t *testing.T) {
@@ -139,5 +140,26 @@ func TestPeaksSmoke(t *testing.T) {
 	}
 	if res, _ = http.Get(srv.URL + peaksPrefix + "nope"); res.StatusCode != 404 {
 		t.Fatalf("unknown id: %d", res.StatusCode)
+	}
+}
+
+func TestPeaksTrack(t *testing.T) {
+	m := Media{Tracks: []vid.AudioTrack{{Index: 0, IsMix: true}, {Index: 1}, {Index: 2}}}
+	for _, c := range []struct {
+		q    string
+		want int
+		ok   bool
+	}{
+		{"", 0, true}, {"1", 1, true}, {"2", 2, true},
+		{"3", 0, false}, {"-1", 0, false}, {"x", 0, false}, {"1.5", 0, false},
+	} {
+		got, ok := peaksTrack(m, c.q)
+		if got != c.want || ok != c.ok {
+			t.Errorf("peaksTrack(%q) = %d, %v; want %d, %v", c.q, got, ok, c.want, c.ok)
+		}
+	}
+	// A file with one track and no mix: the default is that track.
+	if got, ok := peaksTrack(Media{Tracks: []vid.AudioTrack{{Index: 0}}}, ""); got != 0 || !ok {
+		t.Errorf("single track: %d, %v", got, ok)
 	}
 }

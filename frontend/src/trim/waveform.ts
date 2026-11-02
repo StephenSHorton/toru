@@ -34,6 +34,21 @@ export function buildPeaks(base: Uint8Array, rate: number): Peaks {
   return { rate, levels };
 }
 
+// loudest is the source time (s) of the loudest bin, the middle of the first
+// one when several tie; -1 for silence.
+export function loudest(p: Peaks): number {
+  const b = p.levels[0];
+  let at = -1;
+  let m = 0;
+  for (let i = 0; i < b.length; i++) {
+    if (b[i] > m) {
+      m = b[i];
+      at = i;
+    }
+  }
+  return at < 0 ? -1 : (at + 0.5) / p.rate;
+}
+
 // peakIn is the loudest byte between source times s0 and s1 (s0 <= s1):
 // exactly the bins they cover (at least the one under s0), read up the
 // pyramid like a segment tree, so any span costs O(log n). 0 past the end.
@@ -90,13 +105,14 @@ export function columnHeights(out: Float32Array, p: Peaks, clip: Clip, track: Tr
 const cache = new Map<string, Promise<Peaks | null>>();
 
 // loadPeaks fetches a file's peaks once per media (null: no sound). A failed
-// load is forgotten, so the next timeline render tries again.
-export function loadPeaks(m: Media): Promise<Peaks | null> {
+// load is forgotten, so the next timeline render tries again. track picks
+// one audio track (a stream index from Media.tracks); without it, the mix.
+export function loadPeaks(m: Media, track?: number): Promise<Peaks | null> {
   if (!m.hasAudio || m.kind === "image") return Promise.resolve(null);
-  const key = `${m.id}|${m.path}`;
+  const key = `${m.id}|${m.path}|${track ?? ""}`;
   let pr = cache.get(key);
   if (!pr) {
-    pr = fetchPeaks(m).catch((err) => {
+    pr = fetchPeaks(m, track).catch((err) => {
       cache.delete(key);
       throw err;
     });
@@ -105,8 +121,9 @@ export function loadPeaks(m: Media): Promise<Peaks | null> {
   return pr;
 }
 
-async function fetchPeaks(m: Media): Promise<Peaks | null> {
-  const res = await fetch(`/__media/peaks/${encodeURIComponent(m.id)}`).catch(() => null);
+async function fetchPeaks(m: Media, track?: number): Promise<Peaks | null> {
+  const q = track === undefined ? "" : `?track=${track}`;
+  const res = await fetch(`/__media/peaks/${encodeURIComponent(m.id)}${q}`).catch(() => null);
   if (res?.status === 204) return null;
   if (res?.ok && (res.headers.get("Content-Type") ?? "").includes("octet-stream")) {
     const rate = Number(res.headers.get("X-Peaks-Rate")) || 100;
