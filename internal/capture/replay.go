@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/StephenSHorton/toru/internal/voice"
 )
 
 // replay.go is the INSTANT REPLAY buffer: one long-lived ffmpeg keeps the last
@@ -86,25 +88,28 @@ type ReplayAudio struct {
 	MicNoise string `json:"micNoise"`
 }
 
-// Microphone noise suppression levels (ReplayAudio.MicNoise).
+// Microphone noise suppression levels (ReplayAudio.MicNoise): the live
+// presets of internal/voice, the one list the editor shares.
 const (
-	MicNoiseOff    = "off"
-	MicNoiseLight  = "light"
-	MicNoiseStrong = "strong"
+	MicNoiseOff    = voice.Off
+	MicNoiseLight  = voice.Light
+	MicNoiseStrong = voice.Strong
 )
 
 // micNoiseChain is the ffmpeg filter chain for a noise-suppression level
-// (no leading comma; "" for none). highpass drops desk rumble below speech;
-// afftdn tracks the noise floor adaptively (tn=1) and subtracts it; agate
-// mutes what's left between words when Strong.
+// (no leading comma; "" for none or a preset that can't run live).
+// highpass drops desk rumble below speech; afftdn tracks the noise floor
+// adaptively (tn=1) and subtracts it; agate mutes what's left between words
+// when Strong.
 func micNoiseChain(level string) string {
-	switch level {
-	case MicNoiseLight:
-		return "highpass=f=80,afftdn=nr=12:nf=-50:tn=1"
-	case MicNoiseStrong:
-		return "highpass=f=100,afftdn=nr=24:nf=-45:tn=1,agate=threshold=0.01:ratio=4:attack=5:release=300:range=0.08"
+	if !voice.IsLive(level) {
+		return ""
 	}
-	return ""
+	chain, err := voice.Chain(level, "")
+	if err != nil {
+		return ""
+	}
+	return chain
 }
 
 // Audio track titles, in track order after the mix.

@@ -38,6 +38,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/StephenSHorton/toru/internal/upload"
 	"github.com/StephenSHorton/toru/internal/vid"
+	"github.com/StephenSHorton/toru/internal/voice/voicesvc"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -147,6 +148,7 @@ func main() {
 	vidSvc := vid.New()
 	mediaSvc := media.New()
 	presetSvc := presets.NewService()
+	voiceSvc := voicesvc.New()
 	// Agent control: one registry of commands for AI agents and scripts,
 	// served over a per-user named pipe while the setting is on.
 	agentReg := agentctl.NewRegistry()
@@ -219,6 +221,7 @@ func main() {
 			application.NewService(vidSvc),
 			application.NewService(mediaSvc),
 			application.NewService(presetSvc),
+			application.NewService(voiceSvc),
 			application.NewService(agentSvc),
 			application.NewService(windowsSvc),
 			application.NewService(updateSvc),
