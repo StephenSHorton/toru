@@ -333,6 +333,7 @@ func main() {
 	})
 	registerBoardImageAgentCommands(agentReg, boardImageSvc) // agent_commands_board_images.go
 	whiteboardsSvc.open = windowsSvc.OpenWhiteboard
+	whiteboardsSvc.close = windowsSvc.CloseWhiteboard
 	whiteboardsSvc.emit = func(name string, data any) { app.Event.Emit(name, data) }
 	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in

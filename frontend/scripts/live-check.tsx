@@ -427,5 +427,34 @@ ok("no error shown", live.getState().error === null, live.getState().error);
   }
 }
 
+// ── 4. The board's name in the window ─────────────────────────────────
+{
+  const nameBox = () => host.querySelector<HTMLElement>('[data-slot="board-name"]');
+  ok("the window shows the board's name", nameBox()?.textContent?.includes("Window check") === true, nameBox()?.textContent);
+  ok("... and its title follows it", document.title === "Toru — Window check", document.title);
+  const before = mem.board().rev;
+  nameBox()!.querySelector<HTMLButtonElement>('button[aria-label="Rename board"]')!.click();
+  await settle();
+  const field = nameBox()!.querySelector<HTMLInputElement>('input[aria-label="Board name"]')!;
+  ok("the pencil turns the name into a field", !!field && field.value === "Window check");
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, "  Launch plan ");
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle();
+  key(nameBox()!.querySelector("input")!, "Enter");
+  await settle();
+  await settle();
+  ok("Enter renames the board in its store, as one op", mem.board().name === "Launch plan" && mem.board().rev === before + 1, mem.board().name);
+  ok("... the window shows the new name and title", nameBox()?.textContent?.includes("Launch plan") === true && document.title === "Toru — Launch plan", [nameBox()?.textContent, document.title]);
+  key(window, "z", { ctrlKey: true });
+  await settle();
+  await settle();
+  ok("Ctrl+Z takes the rename back", mem.board().name === "Window check" && nameBox()?.textContent?.includes("Window check") === true, mem.board().name);
+  // An agent renames it: the window follows.
+  agentDoes({ name: "Agent's name" });
+  await settle();
+  ok("an agent's rename shows live", nameBox()?.textContent?.includes("Agent's name") === true && inSync(), nameBox()?.textContent);
+  ok("still no error shown", live.getState().error === null, live.getState().error);
+}
+
 console.log(`live-check: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

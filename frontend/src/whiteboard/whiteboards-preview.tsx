@@ -33,6 +33,17 @@ const memory: WhiteboardsApi = {
     return b;
   },
   open: async () => {},
+  rename: async (id, name) => {
+    const b = boards.find((b) => b.id === id)!;
+    b.name = name;
+    b.updatedAt = ago(0);
+    listeners.forEach((f) => f());
+    return { ...b };
+  },
+  remove: async (id) => {
+    boards.splice(boards.findIndex((b) => b.id === id), 1);
+    listeners.forEach((f) => f());
+  },
   pickImport: async () => null,
   sendScreenshot: async (id) => boards.find((b) => b.id === id) ?? boards[0],
   onChange: (f) => {

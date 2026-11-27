@@ -1,5 +1,5 @@
 import * as React from "react";
-import { FileInput, Plus, Presentation, TriangleAlert } from "lucide-react";
+import { FileInput, Pencil, Plus, Presentation, Trash2, TriangleAlert } from "lucide-react";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -21,6 +21,10 @@ type WhiteboardsApi = {
   /** Makes an empty board and opens it; "" names it "Untitled whiteboard". */
   create: (name: string) => Promise<Board>;
   open: (id: string) => Promise<void>;
+  /** Gives a board a new name (undoable in its window). */
+  rename: (id: string, name: string) => Promise<Board>;
+  /** Deletes a board and its file for good, closing its window. */
+  remove: (id: string) => Promise<void>;
   /** Asks for a .toruboard file and adds it; null when cancelled. */
   pickImport: () => Promise<Board | null>;
   /** Puts a Library screenshot on a board ("" makes a new one) and opens it. */
@@ -41,6 +45,8 @@ const goWhiteboards: WhiteboardsApi = {
   list: async () => ((await WhiteboardsService.List()) ?? []).map(board),
   create: async (name) => board(await WhiteboardsService.Create(name)),
   open: async (id) => WhiteboardsService.Open(id),
+  rename: async (id, name) => board(await WhiteboardsService.Rename(id, name)),
+  remove: async (id) => WhiteboardsService.Delete(id),
   pickImport: async () => {
     const [s, ok] = await WhiteboardsService.PickImport();
     return ok ? board(s) : null;
@@ -105,6 +111,7 @@ function WhiteboardsPage() {
   const { boards, error } = useBoards();
   const [note, setNote] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [deleting, setDeleting] = React.useState<Board | null>(null);
   React.useEffect(() => {
     if (!note) return;
     const t = window.setTimeout(() => setNote(""), 6000);
@@ -157,48 +164,153 @@ function WhiteboardsPage() {
         <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4" aria-label="Whiteboards">
           {boards.map((b) => (
             <li key={b.id} className="flex">
-              <BoardCard board={b} onOpen={() => run(() => api.open(b.id))} />
+              <BoardCard
+                board={b}
+                onOpen={() => run(() => api.open(b.id))}
+                onRename={(name) => run(() => api.rename(b.id, name))}
+                onDelete={() => setDeleting(b)}
+              />
             </li>
           ))}
         </ul>
       )}
+
+      <Dialog open={!!deleting} onClose={() => setDeleting(null)}>
+        {deleting ? (
+          <div data-slot="delete-whiteboard">
+            <h2 className="text-base font-semibold">Delete this whiteboard?</h2>
+            <p className="mt-1 text-sm break-words text-muted-foreground">
+              <span className="font-medium text-foreground">{deleting.name}</span>
+              {deleting.error ? "" : ` and its ${deleting.blocks} ${deleting.blocks === 1 ? "block" : "blocks"}`} will be
+              deleted, and its window closed if it's open. This can't be undone.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => {
+                  const id = deleting.id;
+                  setDeleting(null);
+                  run(() => api.remove(id));
+                }}
+              >
+                <Trash2 /> Delete
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Dialog>
     </div>
   );
 }
 
-function BoardCard({ board: b, onOpen }: { board: Board; onOpen: () => void }) {
+/** One board: click opens it, the pencil renames it in place, the bin
+ * deletes it after a confirm (as the Library's project cards do). */
+function BoardCard({
+  board: b,
+  onOpen,
+  onRename,
+  onDelete,
+}: {
+  board: Board;
+  onOpen: () => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}) {
   const changed = when(b.updatedAt);
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(b.name);
+  const finish = (save: boolean) => {
+    setEditing(false);
+    const name = draft.trim();
+    if (save && name && name !== b.name) onRename(name);
+  };
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      disabled={!!b.error}
-      title={b.error ? `Can't open: ${b.error}` : `Open ${b.name}`}
+    <div
+      data-slot="board-card"
       className={cn(
-        "frost group flex w-full flex-col overflow-hidden border border-transparent text-left",
+        "frost group flex w-full flex-col overflow-hidden border border-transparent",
         "transition-[border-color,box-shadow,transform] duration-150",
         b.error
-          ? "cursor-not-allowed opacity-80"
+          ? "opacity-80"
           : "hover:-translate-y-0.5 hover:border-primary/70 hover:shadow-[0_0_0_1px_var(--color-ring),0_12px_28px_oklch(0_0_0/0.45)]",
       )}
     >
-      <span className="relative flex aspect-video w-full items-center justify-center bg-black/40">
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={!!b.error}
+        title={b.error ? `Can't open: ${b.error}` : `Open ${b.name}`}
+        className={cn(
+          "relative flex aspect-video w-full items-center justify-center bg-black/40",
+          b.error && "cursor-not-allowed",
+        )}
+      >
         <Presentation className="size-9 text-muted-foreground transition-transform duration-150 group-hover:scale-110" />
         {b.error ? (
           <span className="absolute left-1.5 top-1.5 flex items-center gap-1 bg-black/70 px-1.5 py-0.5 text-[10px] text-amber-300">
             <TriangleAlert className="size-3" /> Can't be read
           </span>
         ) : null}
-      </span>
-      <span className="flex flex-col px-2 py-1.5">
-        <span className="truncate text-xs font-medium">{b.name}</span>
-        <span className="truncate text-[10px] text-muted-foreground">
-          {b.error
-            ? b.error
-            : [`${b.blocks} ${b.blocks === 1 ? "block" : "blocks"}`, changed].filter(Boolean).join(" · ")}
-        </span>
-      </span>
-    </button>
+      </button>
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        <div className="min-w-0 flex-1">
+          {editing ? (
+            <input
+              autoFocus
+              value={draft}
+              maxLength={120}
+              aria-label="Whiteboard name"
+              onChange={(e) => setDraft(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              onBlur={() => finish(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") finish(true);
+                if (e.key === "Escape") finish(false);
+              }}
+              className="w-full border border-border bg-transparent px-1 text-xs font-medium outline-none focus:border-primary"
+            />
+          ) : (
+            <div className="truncate text-xs font-medium" title={b.name}>
+              {b.name}
+            </div>
+          )}
+          <div className="truncate text-[10px] text-muted-foreground">
+            {b.error
+              ? b.error
+              : [`${b.blocks} ${b.blocks === 1 ? "block" : "blocks"}`, changed].filter(Boolean).join(" · ")}
+          </div>
+        </div>
+        {b.error ? null : (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7 shrink-0 opacity-60 hover:opacity-100"
+            title="Rename whiteboard"
+            aria-label={`Rename ${b.name}`}
+            onClick={() => {
+              setDraft(b.name);
+              setEditing(true);
+            }}
+          >
+            <Pencil className="size-3.5" />
+          </Button>
+        )}
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 shrink-0 opacity-60 hover:opacity-100"
+          title="Delete whiteboard"
+          aria-label={`Delete ${b.name}`}
+          onClick={onDelete}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+    </div>
   );
 }
 
