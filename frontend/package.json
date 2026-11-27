@@ -24,7 +24,8 @@
     "test:actions": "bun scripts/actions-check.ts",
     "test:colorspace": "bun scripts/colorspace-check.ts",
     "test:text-style": "bun scripts/text-style-check.ts",
-    "test:frost": "bun scripts/frost-check.ts"
+    "test:frost": "bun scripts/frost-check.ts",
+    "test:board": "bun scripts/board-check.ts"
   },
   "dependencies": {
     "@lofcz/deepfilternet-web": "0.1.0",
@@ -43,6 +44,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^21.0.4",
     "@tailwindcss/vite": "^4.1.18",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.1",
