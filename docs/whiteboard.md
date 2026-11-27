@@ -78,8 +78,19 @@ What that gives the board:
   stays the board file's `frames` list, not a block.
 - **Renders:** `frontend/src/whiteboard/blocks.tsx`, one per type, from UI SDK
   parts (Textarea, Input, Checkbox, RadioGroup, Rating, TokenInput, FileInput,
-  Popover, Button). Every control is named after its block, like
-  "Rate How useful is this board?" or "Owners row 2 Owner".
+  Popover, Button, Collapsible). Every control is named after its block, like
+  "Rate How useful is this board?" or "Owners row 2 Owner", and no control's
+  name holds every word of another's (the bridge finds controls by whole
+  words; `test:blocks` checks it).
+- **Editing in place:** sticky, card and frame have a colour swatch row
+  ("Sticky colour: …"); a poll's "Options" and a table's "Columns" open a
+  list to rename, remove and add ("Option 2 text in …", "Remove column 3
+  from …"); checklist items have a remove cross; a filled image block has
+  Replace and Library over its picture ("New picture file for …"). Swatches,
+  crosses and the image buttons show while the block is hovered, selected
+  or in use. Every remove control carries `data-agent-confirm`, so an
+  agent's removal waits for the person (and fails with "Needs a person"
+  while the window's bridge has no `allow`).
 - **Images** are copied into `%AppData%\toru\boards\images`, named by their
   SHA-256, from a chosen or dropped file or a Library screenshot
   (`board.ImageService`, served at `/__board/image/<name>`). Agents import one
