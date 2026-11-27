@@ -69,6 +69,7 @@ go vet ./internal/... ./cmd/...
 go test ./internal/... ./cmd/...
 golangci-lint run ./internal/... ./cmd/...   # v2.12.2
 cd frontend && bun install --frozen-lockfile && bun run build && cd ..   # tsc + vite
+cd frontend && bun run test:frost && cd ..   # .frost keeps its blur in the built CSS
 go build -o build/bin/toru.exe .
 ```
 
