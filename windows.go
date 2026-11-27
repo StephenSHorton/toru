@@ -409,13 +409,15 @@ func (w *WindowsService) OpenWhiteboard(id string) {
 		width = min(1600, screen.WorkArea.Width*9/10)
 		height = min(1000, screen.WorkArea.Height*9/10)
 	}
+	// The theme goes in the address so the board's first paint is in it.
+	theme := loadWhiteboardTheme()
 	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             name,
 		Title:            "Toru — Whiteboard",
-		URL:              "/?view=whiteboard&id=" + url.QueryEscape(id),
+		URL:              "/?view=whiteboard&id=" + url.QueryEscape(id) + "&theme=" + theme,
 		Width:            width,
 		Height:           height,
-		BackgroundColour: dark,
+		BackgroundColour: whiteboardBackground(theme),
 	})
 	win.Center()
 }

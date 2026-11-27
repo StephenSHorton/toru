@@ -26,13 +26,13 @@
     }
   }
 
-  [data-color="yellow"] { --block-color: oklch(0.86 0.12 95); --block-accent: oklch(0.82 0.15 95); }
-  [data-color="pink"] { --block-color: oklch(0.82 0.09 0); --block-accent: oklch(0.72 0.17 0); }
-  [data-color="blue"] { --block-color: oklch(0.82 0.07 240); --block-accent: oklch(0.72 0.15 248); }
-  [data-color="green"] { --block-color: oklch(0.85 0.1 150); --block-accent: oklch(0.75 0.16 150); }
-  [data-color="purple"] { --block-color: oklch(0.8 0.08 300); --block-accent: oklch(0.7 0.16 300); }
-  [data-color="orange"] { --block-color: oklch(0.84 0.1 60); --block-accent: oklch(0.75 0.16 55); }
-  [data-color="grey"] { --block-color: oklch(0.82 0.01 264); --block-accent: var(--muted-foreground); }
+  [data-color="yellow"] { --block-color: var(--ui-board-yellow); --block-accent: var(--ui-board-yellow-accent); }
+  [data-color="pink"] { --block-color: var(--ui-board-pink); --block-accent: var(--ui-board-pink-accent); }
+  [data-color="blue"] { --block-color: var(--ui-board-blue); --block-accent: var(--ui-board-blue-accent); }
+  [data-color="green"] { --block-color: var(--ui-board-green); --block-accent: var(--ui-board-green-accent); }
+  [data-color="purple"] { --block-color: var(--ui-board-purple); --block-accent: var(--ui-board-purple-accent); }
+  [data-color="orange"] { --block-color: var(--ui-board-orange); --block-accent: var(--ui-board-orange-accent); }
+  [data-color="grey"] { --block-color: var(--ui-board-grey); --block-accent: var(--ui-board-grey-accent); }
 
   [data-slot="block-heading"] {
     display: flex;
@@ -78,7 +78,7 @@
     padding: 8px;
     background: var(--block-color);
     color: oklch(0.2 0.01 264);
-    box-shadow: 0 6px 18px oklch(0 0 0 / 0.35);
+    box-shadow: 0 6px 18px oklch(0.2 0.03 264 / 0.22);
 
     & [data-slot="textarea"] {
       padding: 2px;
@@ -211,7 +211,7 @@
     color: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
 
     &:is([data-filled], [data-partial], [data-highlighted]) {
-      color: oklch(0.85 0.15 90);
+      color: var(--ui-rating-color);
     }
 
     & svg {

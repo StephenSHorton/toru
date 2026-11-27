@@ -21,6 +21,9 @@ func Markdown(b Board) string {
 	}
 	for _, x := range b.Blocks {
 		label[x.ID] = blockLabel(x)
+		if d := b.BoardType(x.Type); d != nil {
+			label[x.ID] = customLabel(d, x)
+		}
 	}
 
 	byFrame := map[string][]Block{}
@@ -35,6 +38,10 @@ func Markdown(b Board) string {
 			return blocks[i].X < blocks[j].X
 		})
 		for _, x := range blocks {
+			if d := b.BoardType(x.Type); d != nil {
+				writeCustomBlock(&sb, d, x)
+				continue
+			}
 			writeBlock(&sb, x)
 		}
 	}
@@ -212,3 +219,70 @@ func blockLabelFull(x Block, p blockProps) string {
 
 // oneLine folds a text's lines into one.
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// customLabel is a custom block's name: its type's label and its name
+// prop, like "Feature idea: Dark mode".
+func customLabel(d *BlockDef, x Block) string {
+	var p map[string]any
+	_ = json.Unmarshal(x.Props, &p)
+	if s, _ := p[d.Name()].(string); oneLine(s) != "" {
+		s = oneLine(s)
+		if r := []rune(s); len(r) > 60 {
+			s = string(r[:59]) + "…"
+		}
+		return oneLine(d.Label) + ": " + s
+	}
+	return oneLine(d.Label)
+}
+
+// writeCustomBlock outlines a custom block: its name, then each prop the
+// name doesn't show, in its schema's order of names.
+func writeCustomBlock(sb *strings.Builder, d *BlockDef, x Block) {
+	fmt.Fprintf(sb, "- %s\n", customLabel(d, x))
+	var p map[string]any
+	_ = json.Unmarshal(x.Props, &p)
+	keys := make([]string, 0, len(p))
+	for k := range p {
+		if k != d.Name() {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		switch v := p[k].(type) {
+		case []any:
+			fmt.Fprintf(sb, "  - %s:\n", k)
+			for _, it := range v {
+				switch it := it.(type) {
+				case map[string]any:
+					if t, ok := it["text"].(string); ok {
+						box := " "
+						if it["done"] == true {
+							box = "x"
+						}
+						fmt.Fprintf(sb, "    - [%s] %s\n", box, oneLine(t))
+					} else if l, ok := it["label"].(string); ok {
+						fmt.Fprintf(sb, "    - %s (%v)\n", oneLine(l), numOr(it["votes"]))
+					}
+				case []any:
+					cells := make([]string, len(it))
+					for i, c := range it {
+						cells[i] = cell(fmt.Sprint(c))
+					}
+					fmt.Fprintf(sb, "    - %s\n", strings.Join(cells, " | "))
+				default:
+					fmt.Fprintf(sb, "    - %s\n", oneLine(fmt.Sprint(it)))
+				}
+			}
+		default:
+			fmt.Fprintf(sb, "  - %s: %s\n", k, oneLine(fmt.Sprint(v)))
+		}
+	}
+}
+
+func numOr(v any) any {
+	if v == nil {
+		return 0
+	}
+	return v
+}

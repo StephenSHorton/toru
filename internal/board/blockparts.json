@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "about": "The parts a custom block's layout is built from (board.block.define). A layout is data only: a tree of these parts, each bound to the block's props. Toru draws every part with its own UI SDK components; no markup, script or style from a definition is ever run. Go (internal/board/blockdef.go) and the board window (frontend/src/whiteboard/custom-blocks.tsx) both read this file.",
+  "fieldKinds": {
+    "text": "Plain text shown as is, up to 200 characters.",
+    "template": "Plain text up to 500 characters; {name} is replaced by the value of the block's text, number or true/false prop called name.",
+    "prop": "The name of one of the block's top-level props. Each part says which kinds of prop it takes.",
+    "boolean": "true or false.",
+    "number": "A number.",
+    "color": "One of the board colours: yellow, pink, blue, green, purple, orange, grey.",
+    "colors": "An object from a prop's enum values to board colours, like {\"high\": \"pink\"}.",
+    "icon": "One of the icon names listed under icons.",
+    "columns": "A list of 1 to 12 column names, up to 60 characters each."
+  },
+  "propKinds": {
+    "string": "{\"type\": \"string\"} without enum",
+    "enum": "{\"type\": \"string\", \"enum\": [...]}",
+    "number": "{\"type\": \"number\"}",
+    "integer": "{\"type\": \"integer\"}",
+    "boolean": "{\"type\": \"boolean\"}",
+    "string-list": "{\"type\": \"array\", \"items\": {\"type\": \"string\"}}",
+    "checklist": "{\"type\": \"array\", \"items\": {\"type\": \"object\", \"properties\": {\"text\": {\"type\": \"string\"}, \"done\": {\"type\": \"boolean\"}}, \"required\": [\"text\"]}}",
+    "poll": "{\"type\": \"array\", \"items\": {\"type\": \"object\", \"properties\": {\"label\": {\"type\": \"string\"}, \"votes\": {\"type\": \"integer\"}}, \"required\": [\"label\"]}}",
+    "rows": "{\"type\": \"array\", \"items\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}}}"
+  },
+  "parts": {
+    "stack": {
+      "description": "Lays its children out in a column (default) or a row. With tone it becomes a tinted panel.",
+      "children": true,
+      "fields": {
+        "direction": { "enum": ["column", "row"] },
+        "gap": { "enum": ["none", "s", "m", "l"] },
+        "align": { "enum": ["start", "center", "end", "stretch"] },
+        "justify": { "enum": ["start", "center", "end", "between"] },
+        "tone": { "enum": ["plain", "muted", "yellow", "pink", "blue", "green", "purple", "orange", "grey"] },
+        "wrap": { "kind": "boolean" }
+      }
+    },
+    "heading": {
+      "description": "A bold line of text.",
+      "fields": { "text": { "kind": "template", "required": true }, "size": { "enum": ["s", "m", "l"] } }
+    },
+    "text": {
+      "description": "A line or paragraph of text.",
+      "fields": {
+        "text": { "kind": "template", "required": true },
+        "size": { "enum": ["s", "m", "l"] },
+        "tone": { "enum": ["default", "muted"] },
+        "weight": { "enum": ["normal", "bold"] }
+      }
+    },
+    "badge": {
+      "description": "A small coloured label. With prop, it shows that prop's value and takes its colour from colors.",
+      "fields": {
+        "text": { "kind": "template" },
+        "prop": { "kind": "prop", "binds": ["string", "enum", "number", "integer"] },
+        "color": { "kind": "color" },
+        "colors": { "kind": "colors" }
+      },
+      "oneOf": ["text", "prop"]
+    },
+    "icon": {
+      "description": "One icon.",
+      "fields": { "icon": { "kind": "icon", "required": true }, "color": { "kind": "color" } }
+    },
+    "divider": { "description": "A thin line between parts.", "fields": {} },
+    "field": {
+      "description": "Editable text bound to a text prop: one line, or several with multiline.",
+      "fields": {
+        "prop": { "kind": "prop", "binds": ["string"], "required": true },
+        "label": { "kind": "text" },
+        "placeholder": { "kind": "text" },
+        "multiline": { "kind": "boolean" }
+      }
+    },
+    "checkbox": {
+      "description": "A checkbox bound to a true/false prop.",
+      "fields": { "prop": { "kind": "prop", "binds": ["boolean"], "required": true }, "label": { "kind": "text", "required": true } }
+    },
+    "choice": {
+      "description": "Pick one of a text prop's enum values, as radio buttons or a segmented row.",
+      "fields": {
+        "prop": { "kind": "prop", "binds": ["enum"], "required": true },
+        "label": { "kind": "text" },
+        "style": { "enum": ["radio", "segmented"] }
+      }
+    },
+    "counter": {
+      "description": "A whole number with a button that adds one, like votes. Shows the number beside the button.",
+      "fields": {
+        "prop": { "kind": "prop", "binds": ["integer"], "required": true },
+        "label": { "kind": "text", "required": true },
+        "icon": { "kind": "icon" },
+        "minus": { "kind": "boolean" }
+      }
+    },
+    "slider": {
+      "description": "A slider bound to a number prop. min and max come from the prop's schema unless given.",
+      "fields": {
+        "prop": { "kind": "prop", "binds": ["number", "integer"], "required": true },
+        "label": { "kind": "text", "required": true },
+        "min": { "kind": "number" },
+        "max": { "kind": "number" },
+        "step": { "kind": "number" }
+      }
+    },
+    "rating": {
+      "description": "Stars bound to a whole-number prop.",
+      "fields": {
+        "prop": { "kind": "prop", "binds": ["integer"], "required": true },
+        "label": { "kind": "text", "required": true },
+        "max": { "kind": "number" }
+      }
+    },
+    "progress": {
+      "description": "A bar showing a number prop out of max (default the prop's maximum, or 100).",
+      "fields": {
+        "prop": { "kind": "prop", "binds": ["number", "integer"], "required": true },
+        "label": { "kind": "text" },
+        "max": { "kind": "number" }
+      }
+    },
+    "checklist": {
+      "description": "A list of items to tick, bound to a list of {text, done}. People and agents add, tick and remove items.",
+      "fields": { "prop": { "kind": "prop", "binds": ["checklist"], "required": true }, "label": { "kind": "text" } }
+    },
+    "list": {
+      "description": "A bulleted list bound to a list of text. People and agents add and remove items.",
+      "fields": {
+        "prop": { "kind": "prop", "binds": ["string-list"], "required": true },
+        "label": { "kind": "text" },
+        "numbered": { "kind": "boolean" }
+      }
+    },
+    "tags": {
+      "description": "Tags bound to a list of text, typed with commas.",
+      "fields": { "prop": { "kind": "prop", "binds": ["string-list"], "required": true }, "label": { "kind": "text" } }
+    },
+    "poll": {
+      "description": "Vote for options, bound to a list of {label, votes}.",
+      "fields": {
+        "prop": { "kind": "prop", "binds": ["poll"], "required": true },
+        "label": { "kind": "text" },
+        "multi": { "kind": "boolean" }
+      }
+    },
+    "table": {
+      "description": "A table with fixed columns, bound to a list of rows (each a list of text). People and agents edit cells and add rows.",
+      "fields": {
+        "prop": { "kind": "prop", "binds": ["rows"], "required": true },
+        "columns": { "kind": "columns", "required": true },
+        "label": { "kind": "text" }
+      }
+    },
+    "image": {
+      "description": "A board picture, bound to a text prop holding a picture's asset name (from board.image.import). Empty shows a plain frame.",
+      "fields": { "prop": { "kind": "prop", "binds": ["string"], "required": true }, "alt": { "kind": "text" } }
+    }
+  },
+  "icons": [
+    "box", "bookmark", "bug", "calendar", "chart-bar", "circle-help", "clock", "file-text", "flag", "flame",
+    "git-branch", "heart", "image", "info", "layers", "lightbulb", "list", "map-pin", "megaphone", "message-square",
+    "package", "puzzle", "rocket", "shield", "smile", "sparkles", "square-check", "star", "sticky-note", "table",
+    "tag", "target", "thumbs-up", "triangle-alert", "trophy", "user", "users", "vote", "wrench", "zap"
+  ]
+}

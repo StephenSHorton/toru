@@ -31,6 +31,8 @@ import {
   type DocLink,
   type ListKey,
 } from "./document"
+import { isBuiltin } from "./catalog"
+import { libraryType, setBoardTypes } from "./custom-types"
 
 /** How the window reaches Go's board store. */
 type BoardLink = {
@@ -137,6 +139,7 @@ class LiveBoard {
   /** Lays the pending edits over the copy. */
   private render() {
     if (!this.doc) return
+    setBoardTypes(this.doc.types)
     const base = toCanvas(this.doc)
     // Reuse the blocks made for items Go didn't touch.
     const blocks: BoardBlocks = {}
@@ -357,6 +360,14 @@ class LiveBoard {
     }
     if (del.length) op.delete = del
     for (const key of listKeys) if (lists[key]?.length) (op as Record<ListKey, DocItem[]>)[key] = lists[key]!
+    // A block of one of the person's own types the board doesn't carry yet
+    // takes the type's definition with it, so the board shows it anywhere.
+    for (const b of (lists.blocks ?? []) as { type?: string }[]) {
+      const t = b.type
+      if (!t || isBuiltin(t) || doc.types?.some((d) => d.type === t) || op.types?.some((d) => d.type === t)) continue
+      const def = libraryType(t)
+      if (def) (op.types ??= []).push(def)
+    }
     return del.length || Object.keys(lists).length ? op : null
   }
 
