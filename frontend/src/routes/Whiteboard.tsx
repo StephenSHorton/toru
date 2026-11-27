@@ -6,7 +6,11 @@ import { Input } from "@ui-sdk/react/input";
 import { Window } from "@wailsio/runtime";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
+<<<<<<< HEAD
 import { Popover, PopoverClose, PopoverContent, PopoverTitle, PopoverTrigger } from "@ui-sdk/react/popover";
+=======
+import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
+>>>>>>> refs/remotes/origin/main
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
 import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MoonIcon, PencilIcon, SunIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
@@ -22,7 +26,8 @@ import { layoutKinds, type LayoutKind } from "@/whiteboard/layout";
 import { boardTemplates, templateBoard } from "@/whiteboard/templates";
 import type { LiveBoard } from "@/whiteboard/live";
 import { boardThemes, parseTheme, setBoardTheme, useBoardTheme, useWindowTheme } from "@/whiteboard/theme";
-import { agentSource, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
+import { agentSource, httpBase, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
+import { SharePopover, goShare, httpShare } from "@/whiteboard/share";
 import "@/whiteboard/toru-ui-sdk.css";
 
 // The whiteboard window (?view=whiteboard&id=<board>, WindowsService.OpenWhiteboard).
@@ -86,6 +91,10 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   // Light (the default) or slate grey dark, saved in Go for every board.
   useWindowTheme();
   const id = live.id;
+  const [shareApi] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("link") === "http" ? httpShare(httpBase(params)) : goShare;
+  });
   const [snap, setSnap] = useSnapToGrid();
   const grid = snap ? dotGrid : 1;
   // The person's own blocks (custom types), when the board is in Toru's store.
@@ -226,8 +235,19 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         drawing={drawing}
         grid={grid}
       >
+<<<<<<< HEAD
         <SampleToolbar grid={grid} snap={snap} onSnap={setSnap} exportMenu={<ExportMenu live={live} />} />
         <BlockGallery grid={grid} />
+=======
+        <SampleToolbar
+          onAdd={(type) => live.edit({ blocks: addBlock(live.getState().view.blocks, type, grid) })}
+          grid={grid}
+          snap={snap}
+          onSnap={setSnap}
+          exportMenu={<ExportMenu live={live} />}
+          share={<SharePopover boardId={id} api={shareApi} />}
+        />
+>>>>>>> refs/remotes/origin/main
         <ArrangeCommand live={live} />
         <DrawingBar settings={drawing} onChange={setDrawing} onUndo={() => void live.undo()} onRedo={() => void live.redo()} />
       </Board>
@@ -299,21 +319,53 @@ function BoardName({ name, onRename }: { name: string; onRename: (name: string) 
   );
 }
 
+<<<<<<< HEAD
 // The toolbar: Fit, Template, Layout and Export work; Snap to grid lands
 // what the person drags, resizes and adds on the dots. Blocks are added from
 // the block gallery on the left (whiteboard/BlockGallery.tsx). Share is still
 // a sample, kept out of agents' reach (data-agent-hidden) until whiteboard#13
 // makes it share.
+=======
+/**
+ * A new block of a catalog type, at its default size, below the lowest
+ * block, its corner on the grid (1: wherever that falls). Its id is random,
+ * so it can't meet one an agent adds meanwhile.
+ */
+function addBlock(blocks: BoardBlocks, type: BlockType, grid = 1): BoardBlocks {
+  const info = blockType(type);
+  if (!info) return blocks;
+  const all = Object.values(blocks);
+  const below = all.length ? Math.max(...all.map((b) => b.y + b.height)) + 40 : 0;
+  // Rounded up, so the new block never overlaps the lowest one.
+  const y = grid > 1 ? Math.ceil(below / grid) * grid : below;
+  const x = onGrid(all.length ? Math.min(...all.map((b) => b.x)) : 0, grid);
+  let id = "";
+  do id = `blk-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  while (blocks[id]);
+  const props = structuredClone(newProps[type]) as Record<string, unknown>;
+  return {
+    ...blocks,
+    [id]: { label: blockLabel(type, props), type, props, x, y, width: info.w, height: info.h },
+  };
+}
+
+// The toolbar: Add block places the chosen catalog type; Fit, Template,
+// Layout and Export work; Snap to grid lands what the person drags, resizes
+// and adds on the dots. Share shares the board with the people in your Toru
+// room (whiteboard/share.tsx).
+>>>>>>> refs/remotes/origin/main
 function SampleToolbar({
   grid,
   snap,
   onSnap,
   exportMenu,
+  share,
 }: {
   grid: number;
   snap: boolean;
   onSnap: (on: boolean) => void;
   exportMenu?: React.ReactNode;
+  share?: React.ReactNode;
 }) {
   const board = useBoard();
   return (
@@ -335,18 +387,7 @@ function SampleToolbar({
         Snap to grid
       </label>
       <ThemeSwitch />
-      {/* Share does nothing yet (whiteboard#13), so agents don't see it and
-          it makes no promise about who can view the board. */}
-      <Popover>
-        <PopoverTrigger data-agent-hidden="">Share</PopoverTrigger>
-        <PopoverContent className="frost" data-agent-hidden="">
-          <PopoverTitle>Share this board</PopoverTitle>
-          <div className="flex justify-end gap-2">
-            <PopoverClose>Cancel</PopoverClose>
-            <PopoverClose data-variant="solid">Copy link</PopoverClose>
-          </div>
-        </PopoverContent>
-      </Popover>
+      {share}
     </div>
   );
 }

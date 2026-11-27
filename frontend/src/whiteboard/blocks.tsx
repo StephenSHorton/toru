@@ -724,6 +724,18 @@ function PicturePicker({
   );
 }
 
+// A picture on a copy of someone else's shared board can arrive a moment
+// after its block (Toru fetches it from them by name): a picture that
+// fails to load tries again for a while.
+function BoardPicture({ src, alt }: { src: string; alt: string }) {
+  const [tries, setTries] = React.useState(0);
+  React.useEffect(() => setTries(0), [src]);
+  const retry = () => {
+    if (tries < 20) window.setTimeout(() => setTries((n) => n + 1), 1500);
+  };
+  return <img src={tries ? `${src}${src.includes("?") ? "&" : "?"}try=${tries}` : src} alt={alt} draggable={false} onError={retry} />;
+}
+
 function ImageBlock({ props, onProps }: BlockRenderProps<ImageProps>) {
   const images = useBoardImages();
   const [error, setError] = React.useState("");
@@ -748,7 +760,7 @@ function ImageBlock({ props, onProps }: BlockRenderProps<ImageProps>) {
     const what = props.alt?.trim() || props.caption?.trim() || "image";
     return (
       <figure data-slot="block-image" data-fit={props.fit ?? "contain"} aria-busy={busy || undefined}>
-        <img src={images.url(props.asset)} alt={props.alt ?? ""} draggable={false} />
+        <BoardPicture src={images.url(props.asset)} alt={props.alt ?? ""} />
         {props.caption && <figcaption>{props.caption}</figcaption>}
         <div data-slot="block-image-replace">
           <PicturePicker

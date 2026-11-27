@@ -145,6 +145,19 @@ const golden = JSON.parse(readFileSync(goFile, "utf8")) as { start: BoardDoc; op
     ok("a gap that doesn't fill reloads", link.loads === 2 && sameBoard(live.getState().doc, golden.end), link.loads);
     live.stop();
   }
+
+  // A shared board's copy replaced whole (joining, or catching up with
+  // its owner) sends a reset: the window loads the board again, even at
+  // rev 0, which Go leaves out.
+  {
+    const link = replay(0);
+    const live = new LiveBoard(golden.start.id, link, { gapMs: 10_000 });
+    await live.start();
+    link.send({ kind: "reset", source: "" } as BoardOp);
+    await wait(10);
+    ok("a reset reloads the board, rev 0 too", link.loads === 2 && sameBoard(live.getState().doc, golden.end), link.loads);
+    live.stop();
+  }
 }
 
 // ── 2. The window on a store in the page ──────────────────────────────
@@ -479,12 +492,12 @@ ok("no error shown", live.getState().error === null, live.getState().error);
   await settle();
   ok("ticking it again is saved", localStorage.getItem("toru.whiteboard.snapToGrid") === "1");
   const names = JSON.stringify(agent.snapshot().map((c) => [c.component, c.label]));
-  ok("agents don't see Share, which does nothing yet", !/share/i.test(names), names);
+  ok("agents don't see Share: who can reach a board is the person's (whiteboard#13)", !/share/i.test(names), names);
   ok("agents don't see a zoom slider", !agent.snapshot().some((c) => c.component === "slider"), names);
-  // Open Share: its title shows, but no promise about who can view the board.
+  // Open Share: the room sharing popover (whiteboard/share.tsx; no Go here, so it waits on its status).
   [...host.querySelectorAll<HTMLButtonElement>("button")].find((x) => x.textContent?.trim() === "Share")!.click();
   await settle();
-  ok("Share opens", document.body.textContent?.includes("Share this board") === true);
+  ok("Share opens", !!document.querySelector("[data-share-popover]"));
   ok("... and makes no promise about who can view the board", !document.body.textContent?.includes("Anyone with the link"));
   key(document.activeElement ?? document.body, "Escape");
   await settle();

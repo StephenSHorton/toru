@@ -223,6 +223,16 @@ board windows as a `board:op` event:
   replaced only with `confirm: true`. PNG, PDF and HTML come with the
   export card.
 
+- `board.shared`, `board.join`, `board.leave`
+  (`agent_commands_board_share.go`): boards shared between Toru installs in
+  this Toru's room (docs/whiteboard.md section 2, "Shared boards").
+  `board.shared` lists the person's boards they share (and who has each
+  open) and boards others in the room share; `board.join` makes this
+  Toru's live copy of one and returns its id, which every board command
+  then takes: each change goes to the board's owner, under the agent's name
+  and its person's (`agent:Claude Code (Blake)`). Sharing itself is the
+  person's: only the board window's Share button does it.
+
 `board.snapshot` and `board.act` (the window's live controls, through UI
 SDK's `createAgent`) are the board window's own commands while it is open:
 `board.act` fills its blocks as a person would (type in a sticky, tick a
