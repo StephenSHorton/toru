@@ -45,7 +45,11 @@ type BoardProps = BoardOptions & {
   /** The freehand pen (ink.ts). While it's on, presses on the board draw. */
   pen?: PenOptions;
   className?: string;
-  /** What each block shows, like its catalog type's render. Defaults to its label. */
+  /**
+   * What each block shows, like its catalog type's render. Defaults to its
+   * label. It's called again only when that block (or this function)
+   * changes, so draw the block from `blocks[id]` alone.
+   */
   renderBlock?: (id: string, blocks: BoardBlocks) => React.ReactNode;
   /** Controls drawn over the board, which can call `useBoard()`. */
   children?: React.ReactNode;
@@ -80,37 +84,9 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
               <XIcon aria-hidden="true" />
             </parts.Unlink>
           ))}
-          {frameFirst(blocks).map((id) => {
-            const block = blocks[id];
-            // A freehand stroke shows its line, with no ports or resize handles.
-            if (block.ink) {
-              return (
-                <BoardBlock key={id} value={id} data-block={id} data-by={block.createdBy} title={madeBy(block)}>
-                  <InkLine stroke={block.ink} width={block.width} height={block.height} />
-                </BoardBlock>
-              );
-            }
-            return (
-              <BoardBlock key={id} value={id} data-block={id} data-type={block.type} data-by={block.createdBy}>
-                {block.createdBy && (
-                  <span data-slot="board-block-by" data-agent={block.createdBy.startsWith("agent:") ? "" : undefined} title={madeBy(block)}>
-                    {who(block.createdBy)}
-                  </span>
-                )}
-                {renderBlock ? (
-                  <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
-                ) : (
-                  <span data-slot="board-block-label">{block.label}</span>
-                )}
-                {sides.map((side) => (
-                  <BoardPart key={side} slot="port" value={`${id}:${side}`} />
-                ))}
-                {handles.map((h) => (
-                  <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
-                ))}
-              </BoardBlock>
-            );
-          })}
+          {frameFirst(blocks).map((id) => (
+            <BlockItem key={id} id={id} block={blocks[id]} blocks={blocks} renderBlock={renderBlock} />
+          ))}
           {/* The stroke being drawn, above the blocks. */}
           <svg data-slot="board-lines" width="1" height="1">
             <InkDraft pen={pen} />
@@ -156,6 +132,75 @@ function madeBy(block: { createdBy?: string; updatedBy?: string }) {
   const made = `Made by ${who(block.createdBy) === "You" ? "you" : who(block.createdBy)}`;
   if (!block.updatedBy || block.updatedBy === block.createdBy) return made;
   return `${made}, last changed by ${who(block.updatedBy) === "You" ? "you" : who(block.updatedBy)}`;
+}
+
+type BlockItemProps = {
+  id: string;
+  block: BoardBlocks[string];
+  blocks: BoardBlocks;
+  renderBlock?: BoardProps["renderBlock"];
+};
+
+/**
+ * One block on the board. It renders again only when its own block or
+ * `renderBlock` changes, not on every change to the board: a drop, a vote or
+ * an agent's edit then re-renders that block alone, where re-rendering every
+ * block body cost a long frame on a full board. Its parts still follow the
+ * board's selection, drags and lines by themselves. So `renderBlock` must
+ * draw a block from that block alone, as Toru's do.
+ */
+const BlockItem = React.memo(
+  function BlockItem({ id, block, blocks, renderBlock }: BlockItemProps) {
+    // A freehand stroke shows its line, with no ports or resize handles.
+    if (block.ink) {
+      return (
+        <BoardBlock value={id} data-block={id} data-by={block.createdBy} title={madeBy(block)}>
+          <InkLine stroke={block.ink} width={block.width} height={block.height} />
+        </BoardBlock>
+      );
+    }
+    return (
+      <BoardBlock value={id} data-block={id} data-type={block.type} data-by={block.createdBy}>
+        {block.createdBy && (
+          <span data-slot="board-block-by" data-agent={block.createdBy.startsWith("agent:") ? "" : undefined} title={madeBy(block)}>
+            {who(block.createdBy)}
+          </span>
+        )}
+        {renderBlock ? (
+          <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
+        ) : (
+          <span data-slot="board-block-label">{block.label}</span>
+        )}
+        {sides.map((side) => (
+          <BoardPart key={side} slot="port" value={`${id}:${side}`} />
+        ))}
+        {handles.map((h) => (
+          <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
+        ))}
+      </BoardBlock>
+    );
+  },
+  (a, b) => a.id === b.id && a.renderBlock === b.renderBlock && sameLook(a.block, b.block),
+);
+
+/**
+ * Whether a block draws the same: everything but where it is. The board
+ * places and sizes a block's element itself, so a move or resize needn't
+ * render the block again; doing so rewrote its fields, and a field rewritten
+ * inside the board makes the browser restyle every block (UI SDK's :has()
+ * rules), a long frame on each drop. A stroke's svg does take its size.
+ */
+function sameLook(a: BoardBlocks[string], b: BoardBlocks[string]) {
+  if (a === b) return true;
+  return (
+    a.label === b.label &&
+    a.type === b.type &&
+    a.props === b.props &&
+    a.ink === b.ink &&
+    a.createdBy === b.createdBy &&
+    a.updatedBy === b.updatedBy &&
+    (!a.ink || (a.width === b.width && a.height === b.height))
+  );
 }
 
 function BoardBlock({ value, ...props }: { value: string } & PartProps<"div", BoardBlockState>) {

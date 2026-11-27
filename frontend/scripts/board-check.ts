@@ -203,6 +203,31 @@ await b.settle();
   await b.drag(b.root, { by: { x: 50, y: 30 } });
   ok("drag on empty space pans", b.state.viewport.x === 50 && b.state.viewport.y === 30, b.state.viewport);
 
+  // The dot grid follows the canvas: a dot every 24 board units from (0, 0),
+  // drawn in the middle of each tile, so tiles start half a spacing early.
+  await b.settle();
+  const dots = () => ({ size: b.root.style.backgroundSize, at: b.root.style.backgroundPosition });
+  ok("dots move with a pan", dots().size === "24px 24px" && dots().at === "38px 18px", dots());
+  await b.api.viewport.setViewport({ x: 100, y: -40, zoom: 2 });
+  await b.settle();
+  ok("dots scale and move with a zoom", dots().size === "48px 48px" && dots().at === "76px -64px", dots());
+  // Zoom stays out of inherited custom properties: one on the board or the
+  // world would restyle every block on each zoom step.
+  const world = b.root.querySelector('[data-slot="board-world"]') as HTMLElement;
+  ok(
+    "no zoom custom property on the board or world",
+    !/--(board|canvas)-zoom/.test(`${b.root.getAttribute("style")} ${world.getAttribute("style")}`),
+    { root: b.root.getAttribute("style"), world: world.getAttribute("style") },
+  );
+  ok("the world still moves by one transform", world.style.transform.includes("translate(100px") && world.style.transform.includes("scale(2)"), world.style.transform);
+  // The zoom label keeps one text node: a new one each change would make the
+  // browser recheck :has() rules across the board on every pointer move.
+  const label = b.root.querySelector('[data-slot="board-zoom"]')!;
+  const text = label.firstChild;
+  await b.api.viewport.setViewport({ x: 0, y: 0, zoom: 1.5 });
+  await b.settle();
+  ok("zoom label updates in its one text node", label.textContent === "150%" && label.firstChild === text && label.childNodes.length === 1, label.innerHTML);
+
   b.api.fit();
   placeOnScreen();
 }

@@ -232,6 +232,30 @@ function contentRect(blocks: BoardBlocks) {
   }
 }
 
+/** Board units between the background's dots, which sit at multiples of it from (0, 0). */
+const dotSpacing = 24
+
+/**
+ * The dot grid's background size and position for a viewport, so each dot
+ * stays on the same board point as the canvas pans and zooms. board.css draws
+ * one dot in the middle of each tile, so tiles start half a spacing early.
+ */
+function dotGrid({ x, y, zoom }: Viewport) {
+  const size = dotSpacing * zoom
+  return {
+    "background-size": `${size}px ${size}px`,
+    "background-position": `${x - size / 2}px ${y - size / 2}px`,
+  }
+}
+
+/** The world's style from UI SDK's viewport, without its --canvas-zoom. */
+function worldStyle(style: string) {
+  return style
+    .split(";")
+    .filter((d) => !d.trim().startsWith("--canvas-zoom"))
+    .join(";")
+}
+
 const board = /* @__PURE__ */ definePrimitive({
   name: "board",
   options: {
@@ -827,10 +851,14 @@ const board = /* @__PURE__ */ definePrimitive({
           "user-select": "none",
         }),
       }),
+      // The dot grid (board.css) moves and scales with the canvas: a dot at
+      // every `dotSpacing` board units from (0, 0). Background size and
+      // position aren't inherited, so changing them restyles the board alone;
+      // a custom property here would restyle every element in it each frame.
       live: live<BoardState, any, {}>((state) => ({
         "data-connecting": state.connecting ? "" : undefined,
         "data-lassoing": state.lasso ? "" : undefined,
-        style: css({ "--board-zoom": state.viewport.zoom }),
+        style: css(dotGrid(state.viewport)),
       })),
       on: {
         wheel: (event, { api }) => api.viewport.wheel(event),
@@ -874,8 +902,11 @@ const board = /* @__PURE__ */ definePrimitive({
           height: "1px",
         }),
       }),
+      // UI SDK's viewport style also sets --canvas-zoom, which nothing here
+      // reads; as an inherited custom property, every zoom step would restyle
+      // every block under the world. Only the transform is kept.
       live: live<BoardState, any, {}>((state, { api }) => ({
-        style: api.viewport.style(state),
+        style: worldStyle(api.viewport.style(state)),
       })),
     }),
     block: slot<{ value: string }, BoardBlockState>({
@@ -1056,9 +1087,20 @@ const board = /* @__PURE__ */ definePrimitive({
     }),
     zoom: slot({
       attrs: () => ({ "aria-hidden": "true" }),
+      // The store changes on every pointer move of a pan or drag. Setting
+      // textContent each time would put a new text node in the board, which
+      // makes the browser recheck UI SDK's :has() rules and restyle every
+      // block (tens of ms a frame on a full board). So write only a new
+      // percentage, into the one text node.
       bind: (el, { store }) => {
-        const write = () =>
-          (el.textContent = `${Math.round(store.get().viewport.zoom * 100)}%`)
+        const text = document.createTextNode("")
+        el.replaceChildren(text)
+        const write = () => {
+          const shown = `${Math.round(store.get().viewport.zoom * 100)}%`
+          if (text.data !== shown) {
+            text.data = shown
+          }
+        }
         write()
         return store.subscribe(write)
       },

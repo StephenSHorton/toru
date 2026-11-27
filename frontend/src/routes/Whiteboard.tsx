@@ -299,7 +299,9 @@ function addBlock(blocks: BoardBlocks, type: BlockType): BoardBlocks {
 // The tools down the board's left side: select or pen, then the pen's colour
 // and width (Toru's --ink-* tokens).
 function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Partial<PenOptions>) => void }) {
-  const widths = inkWidths.map((w) => ({ ...w, value: tokenWidth(w.token, w.fallback) }));
+  // Read once: reading a CSS variable while rendering makes the browser
+  // restyle the page first, a long frame when it follows a change to the board.
+  const widths = React.useMemo(() => inkWidths.map((w) => ({ ...w, value: tokenWidth(w.token, w.fallback) })), []);
   const width = widths.find((w) => w.value === pen.width) ?? widths[0];
   return (
     <div
