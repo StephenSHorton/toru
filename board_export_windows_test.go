@@ -27,7 +27,7 @@ func TestAgentBoardExportAsToruWiresIt(t *testing.T) {
 		}
 		t.Skip("the board viewer isn't built into this binary (run `bun run build` in frontend)")
 	}
-	exporter.WebViewDir = filepath.Join(t.TempDir(), "webview")
+	exporter.WebViewDir = webViewDir(t)
 
 	dir := t.TempDir()
 	old := board.Dir
