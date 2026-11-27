@@ -19,7 +19,7 @@ import (
 var boardCommands = []string{
 	"board.list", "board.create", "board.templates", "board.open", "board.read", "board.catalog",
 	"board.add", "board.update", "board.move", "board.group",
-	"board.connect", "board.disconnect", "board.layout", "board.delete", "board.export",
+	"board.connect", "board.disconnect", "board.draw", "board.layout", "board.delete", "board.export",
 }
 
 type boardEvents struct {

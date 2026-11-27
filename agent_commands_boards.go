@@ -885,6 +885,8 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 			return map[string]any{"path": path, "bytes": len(data)}, nil
 		},
 	})
+
+	registerBoardInkCommand(reg, d)
 }
 
 // itemIDs is every id on b.
