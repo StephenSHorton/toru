@@ -184,6 +184,10 @@ func main() {
 	// as a board:op event (wired below, once app exists).
 	boardStore := board.NewStore()
 	boardSvc := board.NewService(boardStore)
+	// Exports and import for the board window's Export menu and agents'
+	// board.export / board.import (board_export.go).
+	boardExporter := newBoardExporter()
+	boardExportSvc := &BoardExportService{store: boardStore, exporter: boardExporter, copier: exportSvc}
 
 	// App-level preferences ("launch at Windows login", notifications). Launch
 	// at login is backed by Wails' AutostartManager; app is injected after
@@ -237,6 +241,7 @@ func main() {
 			application.NewService(histSvc),
 			application.NewService(boardImageSvc),
 			application.NewService(boardSvc),
+			application.NewService(boardExportSvc),
 			application.NewService(replaySvc),
 			application.NewService(uploadSvc),
 			application.NewService(transferSvc),
@@ -322,10 +327,14 @@ func main() {
 	// with the window open or closed (agent_commands_boards.go).
 	boardStore.OnOp(func(id string, op board.Op) { app.Event.Emit(evBoardOp, boardOpEvent(id, op)) })
 	registerBoardAgentCommands(agentReg, boardAgentDeps{
-		boards: boardStore,
-		open:   windowsSvc.OpenWhiteboard,
-		emit:   func(name string, data any) { app.Event.Emit(name, data) },
+		boards:   boardStore,
+		open:     windowsSvc.OpenWhiteboard,
+		emit:     func(name string, data any) { app.Event.Emit(name, data) },
+		exporter: boardExporter,
 	})
+	boardExportSvc.SetApp(app)
+	boardExportSvc.open = windowsSvc.OpenWhiteboard
+	boardExportSvc.emit = func(name string, data any) { app.Event.Emit(name, data) }
 	registerBoardImageAgentCommands(agentReg, boardImageSvc) // agent_commands_board_images.go
 	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in

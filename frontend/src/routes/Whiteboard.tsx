@@ -1,3 +1,4 @@
+import * as React from "react";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { createAgent } from "@ui-sdk/react/agent";
 import { Button } from "@ui-sdk/react/button";
@@ -14,7 +15,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
-import { CheckIcon, ChevronDownIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PlusIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PlusIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
@@ -186,7 +187,10 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         renderBlock={renderBlock}
         pen={pen}
       >
-        <SampleToolbar onAdd={(type) => live.edit({ blocks: addBlock(live.getState().view.blocks, type) })} />
+        <SampleToolbar
+          onAdd={(type) => live.edit({ blocks: addBlock(live.getState().view.blocks, type) })}
+          exportMenu={<ExportMenu live={live} />}
+        />
         <ArrangeCommand live={live} />
         <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
       </Board>
@@ -289,7 +293,7 @@ function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Par
 
 // The toolbar: Add block places the chosen catalog type; Fit works. The rest
 // are samples of UI SDK controls in Toru's theme, for later cards.
-function SampleToolbar({ onAdd }: { onAdd: (type: BlockType) => void }) {
+function SampleToolbar({ onAdd, exportMenu }: { onAdd: (type: BlockType) => void; exportMenu?: React.ReactNode }) {
   const board = useBoard();
   const [kind, setKind] = useState<BlockType>("sticky");
   return (
@@ -458,4 +462,91 @@ function ArrangeCommand({ live }: { live: LiveBoard }) {
     [board, live],
   );
   return null;
+}
+
+// Export: the board as a file (a .toruboard with its pictures, a 2× PNG of
+// the whole board, a vector PDF, a standalone live HTML page, a Markdown
+// outline), or on the clipboard as a picture or an outline; and Import, a
+// .toruboard into a new board in its own window. Go makes every file
+// (board_export.go, internal/boardexport), the same ones agents get from
+// board.export. What's waiting to be sent goes to Go first, so the file has
+// it.
+const exportService = () => import("../../bindings/github.com/StephenSHorton/toru/boardexportservice.js");
+
+const saveFormats = [
+  { format: "toruboard", title: "Toru board (.toruboard)", description: "The board and its pictures, to import into Toru" },
+  { format: "png", title: "PNG picture", description: "The whole board at 2×" },
+  { format: "pdf", title: "PDF", description: "One vector page the board's size" },
+  { format: "html", title: "Web page (.html)", description: "One file that opens in any browser, offline, still live" },
+  { format: "markdown", title: "Markdown outline", description: "Frames, notes, checklists, tables and links as text" },
+] as const;
+
+function ExportMenu({ live }: { live: LiveBoard }) {
+  const [status, setStatus] = useState<string | null>(null);
+  useEffect(() => {
+    if (!status || status.endsWith("…")) return;
+    const t = setTimeout(() => setStatus(null), 6000);
+    return () => clearTimeout(t);
+  }, [status]);
+  const run = async (working: string, work: () => Promise<string | null>) => {
+    setStatus(working);
+    try {
+      await live.flush();
+      setStatus(await work());
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const save = (format: string, title: string) =>
+    run(`Exporting ${title}…`, async () => {
+      const path = await (await exportService()).Save(live.id, format);
+      return path ? `Saved ${path}` : null;
+    });
+  const copy = (format: string, what: string) =>
+    run(`Copying ${what}…`, async () => {
+      await (await exportService()).Copy(live.id, format);
+      return `Copied ${what}`;
+    });
+  return (
+    <>
+      <Menu>
+        <MenuTrigger data-menu="export">
+          <DownloadIcon aria-hidden="true" />
+          Export
+          <ChevronDownIcon aria-hidden="true" />
+        </MenuTrigger>
+        <MenuContent className="frost">
+          {saveFormats.map((f) => (
+            <MenuItem key={f.format} value={f.format} title={f.description} data-export={f.format} onSelect={() => void save(f.format, f.title)}>
+              Save as {f.title}
+            </MenuItem>
+          ))}
+          <MenuItem value="copy-png" data-export="copy-png" title="The whole board at 2×, to paste anywhere" onSelect={() => void copy("png", "the board as a picture")}>
+            Copy as picture
+          </MenuItem>
+          <MenuItem value="copy-markdown" data-export="copy-markdown" title="The board's outline as Markdown" onSelect={() => void copy("markdown", "the board's outline")}>
+            Copy as Markdown
+          </MenuItem>
+          <MenuItem
+            value="import"
+            data-export="import"
+            title="Open a .toruboard as a new board"
+            onSelect={() =>
+              void run("Importing…", async () => {
+                const id = await (await exportService()).Import();
+                return id ? "Imported: it opened in its own window" : null;
+              })
+            }
+          >
+            Import board…
+          </MenuItem>
+        </MenuContent>
+      </Menu>
+      {status && (
+        <span role="status" data-slot="export-status" className="frost absolute top-full left-1/2 mt-2 -translate-x-1/2 whitespace-nowrap px-3 py-1.5">
+          {status}
+        </span>
+      )}
+    </>
+  );
 }

@@ -126,7 +126,7 @@ window, and the window shows each change live when it is open:
 | `board.connect`, `board.disconnect` | Lines between blocks |
 | `board.layout` | Arrange blocks (grid, tree, cluster by tag) |
 | `board.delete` | Destructive: needs `"confirm": true` |
-| `board.export` | Any format in section 3, to a path |
+| `board.export`, `board.import` | Any format in section 3, to a path; a `.toruboard` back in |
 
 **Live controls (window commands, while the board is open).**
 `board.snapshot` and `board.act` pass straight through to UI SDK's
@@ -199,6 +199,48 @@ window commands time out (30 s default).
 Copy to clipboard (PNG and Markdown) goes on the same menu. SVG is not
 planned: a DOM board has no faithful SVG path (`foreignObject` breaks in
 most viewers).
+
+### Export and import (built, whiteboard#10)
+
+- **One path for the person and agents.** The board window's Export menu
+  (`BoardExportService` in `board_export.go`: Save as each format, Copy as
+  picture, Copy as Markdown, Import board…) and agents' `board.export` /
+  `board.import` all go through `internal/boardexport`, so they make the
+  same files. None needs the board window open; the window sends what's
+  waiting to Go first.
+- **`.toruboard`:** the board file plus an `images` object (asset name →
+  base64), from `board.EncodePortable`. `Store.ImportFile` checks each
+  picture's name is the SHA-256 of its bytes, copies it into the board
+  images, and keeps the file's id unless a board has it (then a new
+  `brd-` id): an import never replaces a board. Toru's own board files
+  never carry `images`, and a plain board file still imports.
+- **HTML:** `frontend/board-export.html` + `src/board-export` is the board
+  window's canvas and blocks over a store in the page (`memoryLink`),
+  built as one file (`vite.board-export.config.ts`, part of `bun run
+  build`) into `dist/board-export.html`, which Go embeds. Go puts the board
+  and its pictures (data: URLs) in its `#toru-board` script; `json.Marshal`
+  escapes `<`, so a note saying `</script>` stays text. Offline in any
+  browser, polls vote, checklists tick, notes take typing; changes stay in
+  the page.
+- **PNG and PDF:** `internal/webprint` opens that page with `#print` in a
+  WebView2 of its own (its own window, off every screen, its own data
+  folder under the user cache folder, `toruoard-export-webview`). The
+  page swaps the canvas for a still copy of the whole board at zoom 1
+  (`whiteboard/snapshot.ts`: no ports, handles or who-made-it tags, no dot
+  grid). PNG: the page draws the copy through an SVG `foreignObject` into
+  tiles at 2× (4096 px a side at most) and Go joins them, so a board of
+  any size comes out whole (up to 144 million pixels; past that it says to
+  export a PDF). PDF: `ICoreWebView2_7::PrintToPdf`, which Wails alpha.98's
+  go-webview2 lacks, called through its vtable (slot 80) with print
+  settings from `ICoreWebView2Environment6` (slot 14): one page the board's
+  size, backgrounds on, no header or footer; text stays text.
+- **Markdown:** `board.Markdown`, as `board.read` gives it.
+- **Checks:** `go test ./internal/board` (round trip, plain import, bad
+  pictures, the outline), `go test ./internal/boardexport` (every format of
+  the sample board plus a note far off-screen; the HTML stays live in a
+  WebView2; skips when the viewer isn't built), `go test
+  ./internal/webprint` (PrintToPdf). `TORU_EXPORT_SAMPLES=<folder> go test
+  ./internal/boardexport` writes a sample of each format.
 
 ## 4. Theming UI SDK with Toru's design system
 

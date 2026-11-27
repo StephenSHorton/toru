@@ -12,6 +12,7 @@ import (
 
 	"github.com/StephenSHorton/toru/internal/agentctl"
 	"github.com/StephenSHorton/toru/internal/board"
+	"github.com/StephenSHorton/toru/internal/boardexport"
 )
 
 // agent_commands_boards.go registers the whiteboard's board commands
@@ -31,6 +32,7 @@ type boardStore interface {
 	Load(id string) (board.Board, error)
 	Edit(id string, f func(b board.Board) (board.Op, error)) (board.Op, error)
 	Delete(id string) error
+	ImportFile(path string) (board.Board, error)
 }
 
 type boardAgentDeps struct {
@@ -42,6 +44,10 @@ type boardAgentDeps struct {
 	// (boardOpEvent), so the window's own changes and agents' arrive in one
 	// stream, in rev order.
 	emit func(name string, data any)
+	// exporter makes board.export's files (board_export.go). Nil: a plain
+	// one, which makes the files that need no board viewer or WebView2
+	// (toruboard, markdown).
+	exporter *boardexport.Exporter
 }
 
 // Board events.
@@ -125,7 +131,7 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 	})
 
 	reg.Register(agentctl.Command{
-		Name:        "board.create",
+		Name: "board.create",
 		Description: "Make a new whiteboard: empty, or ready to fill from a brainstorm template (board.templates lists them; the board's name heads it). " +
 			"Returns its id. Give open: true to show it in a window so the person can watch it fill.",
 		Input: schema(map[string]any{
@@ -827,17 +833,22 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 		},
 	})
 
+	exporter := d.exporter
+	if exporter == nil {
+		exporter = &boardexport.Exporter{}
+	}
 	reg.Register(agentctl.Command{
 		Name: "board.export",
-		Description: "Write a whiteboard to a file: toruboard (the board document; Toru can read it back) or markdown (the outline board.read gives). " +
-			"PNG, PDF and HTML come with the export card. The extension is added if missing; an existing file is only replaced with confirm: true. Returns the path written.",
+		Description: "Write a whiteboard to a file: toruboard (the board with its pictures inlined; board.import or Toru's Import reads it back), " +
+			"png (the whole board drawn at 2×, however big), pdf (one vector page the board's size), html (one standalone file that opens offline in any browser and stays live: polls vote, checklists tick) " +
+			"or markdown (the outline board.read gives). The board's window needn't be open. The extension is added if missing; an existing file is only replaced with confirm: true. Returns the path written.",
 		Input: schema(map[string]any{
 			"id":      propBoard,
-			"format":  map[string]any{"type": "string", "enum": []string{"toruboard", "markdown"}},
+			"format":  map[string]any{"type": "string", "enum": []string{"toruboard", "png", "pdf", "html", "markdown"}},
 			"path":    str("Absolute output path."),
 			"confirm": map[string]any{"type": "boolean", "description": "Replace the file if it exists."},
 		}, "id", "format", "path"),
-		Handler: func(_ context.Context, in json.RawMessage) (any, error) {
+		Handler: func(ctx context.Context, in json.RawMessage) (any, error) {
 			v, err := decode[struct {
 				ID      string `json:"id"`
 				Format  string `json:"format"`
@@ -850,39 +861,60 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 			if !filepath.IsAbs(v.Path) {
 				return nil, errors.New(`"path" must be absolute`)
 			}
+			f, err := boardexport.ParseFormat(v.Format)
+			if err != nil {
+				return nil, err
+			}
 			b, err := d.boards.Load(v.ID)
 			if err != nil {
 				return nil, err
 			}
-			var data []byte
-			ext := ""
-			switch v.Format {
-			case "toruboard":
-				if data, err = board.Encode(b); err != nil {
-					return nil, err
-				}
-				ext = board.Ext
-			case "markdown":
-				data, ext = []byte(board.Markdown(b)), ".md"
-			case "png", "pdf", "html":
-				return nil, fmt.Errorf("%s export isn't built yet: it comes with the board export card", strings.ToUpper(v.Format))
-			default:
-				return nil, fmt.Errorf("no format %q (use toruboard or markdown)", v.Format)
-			}
 			path := v.Path
-			if !strings.EqualFold(filepath.Ext(path), ext) {
-				path += ext
+			if !strings.EqualFold(filepath.Ext(path), f.Ext()) {
+				path += f.Ext()
 			}
 			if _, err := os.Stat(path); err == nil && !v.Confirm {
 				return nil, fmt.Errorf("%s already exists; send \"confirm\": true to replace it", path)
 			}
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			data, err := exporter.Export(ctx, b, f)
+			if err != nil {
 				return nil, err
 			}
-			if err := os.WriteFile(path, data, 0o644); err != nil {
+			if err := writeExport(path, data); err != nil {
 				return nil, err
 			}
 			return map[string]any{"path": path, "bytes": len(data)}, nil
+		},
+	})
+
+	reg.Register(agentctl.Command{
+		Name: "board.import",
+		Description: "Read a .toruboard file (from board.export or Toru's Export) into Toru as a board, with its pictures. " +
+			"It keeps the file's board id unless a board already has it, then gets a new one: an import never replaces a board. Returns the board's id and name.",
+		Input: schema(map[string]any{
+			"path": str("Absolute path of the .toruboard file."),
+			"open": map[string]any{"type": "boolean", "description": "Also show the board's window."},
+		}, "path"),
+		Handler: func(_ context.Context, in json.RawMessage) (any, error) {
+			v, err := decode[struct {
+				Path string `json:"path"`
+				Open bool   `json:"open"`
+			}](in)
+			if err != nil {
+				return nil, err
+			}
+			if !filepath.IsAbs(v.Path) {
+				return nil, errors.New(`"path" must be absolute`)
+			}
+			b, err := d.boards.ImportFile(v.Path)
+			if err != nil {
+				return nil, err
+			}
+			emit(evBoardsChanged, nil)
+			if v.Open && d.open != nil {
+				d.open(b.ID)
+			}
+			return map[string]any{"id": b.ID, "name": b.Name, "blocks": len(b.Blocks)}, nil
 		},
 	})
 }
