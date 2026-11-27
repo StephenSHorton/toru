@@ -273,8 +273,9 @@ Toru's tokens onto it:
 }
 ```
 
-- Toru's tokens stay the one source: change `index.css` and the whiteboard
-  follows. Dark only, like the rest of Toru.
+- ~~Toru's tokens stay the one source: change `index.css` and the whiteboard
+  follows. Dark only, like the rest of Toru.~~ Replaced by the two themes
+  below (whiteboard#25).
 - Popups and toolbars take Toru's existing `.frost` (CSS blur, 1px border),
   not WebGL glass. Board blocks sit flat on the canvas.
 - Icons swap to lucide (Toru's icon set) through the `--ui-icon-*` tokens or
@@ -283,6 +284,54 @@ Toru's tokens onto it:
 - The theme file is written so it can later move out into its own package
   for any Toru-styled UI SDK app. The whiteboard uses none of Toru's
   shadcn `components/ui` files.
+
+### Light and dark themes (built, whiteboard#25)
+
+Stephen found the dark-only board too dark, and asked for a light mode as
+the default. So the whiteboard has two themes; the rest of Toru keeps its
+dark look.
+
+- **Light is the default.** **Dark is slate grey** (canvas `oklch(0.35
+  0.025 257)`, about `#323b48`), not the near-black of Toru's other windows.
+- **One token set.** `toru-ui-sdk.css` sets the `--ui-*` tokens twice, under
+  `<html data-theme="light">` and `data-theme="dark"`: canvas, cards, text,
+  muted text, borders, control edges, primary (links, selection, who-made-it
+  tags), shadows, the dot grid and lines (`--ui-board-dot`,
+  `--ui-board-line`), the pens (`--ui-ink-*`) and the catalog's colours
+  (`--ui-board-<colour>` for a sticky's paper and swatches,
+  `--ui-board-<colour>-accent` for a frame's border and name and a card's
+  edge). Toru's own token names (`--background`, `--card`, `--primary`, ...,
+  `--ink-*`) are pointed at them in the whiteboard window only, so `.frost`,
+  Tailwind classes, `board.css`, `blocks.css` and `ink.css` follow. This
+  reverses the direction above: the whiteboard's `--ui-*` tokens are now the
+  source, not `index.css`.
+- **The switch** is a Light/Dark pair of icon toggles in the toolbar. The
+  choice is one for every board, saved by Go in
+  `%AppData%\toru\whiteboard.json` (`WhiteboardsService.Theme`/`SetTheme`,
+  `whiteboard_theme.go`). Go puts it in a board window's address
+  (`&theme=`) and window colour so the first paint is right; a switch in one
+  board window reaches the others (`whiteboard:theme`).
+- **Pens follow the theme.** A stroke keeps its pen's token name, so every
+  existing stroke redraws in the theme's colour. `ink-white` is the board's
+  ink colour: dark on a light board (its pen is called Black there), white
+  on a dark one. Yellow and green are darker on light boards so they keep
+  3:1 on the canvas.
+- **Stickies** keep dark text on their paper in both themes; frame and card
+  accents are dark on light boards and light on dark ones.
+- **Exports** (PNG, PDF, HTML, and agents' `board.export`) are drawn in the
+  saved theme: Go puts it in the exported page's `#toru-board` payload. An
+  exported page from before themes opens light.
+- **Contrast** is measured in WebView2 by
+  `TestWhiteboardThemeContrastInWebView2` (`whiteboard_theme_windows_test.go`,
+  `testdata/theme-contrast.js`): every text against what's behind it (4.5:1,
+  3:1 when large), the edges of text fields, checkboxes, radios and selects
+  (3:1) and every pen stroke on the canvas (3:1), in both themes, on the
+  exported page and, with `TORU_THEME_WINDOW_URL`, the whiteboard window
+  itself. `TORU_THEME_BOARD` measures a real `.toruboard` instead of the
+  built-in one; `TORU_THEME_OUT` writes each theme's PNG, PDF and HTML.
+- The board demo server (`bun x vite --mode board-demo`) takes
+  `TORU_BOARD_DEMO_BOARD=<file.toruboard>` to show a copy of a real board,
+  still, for checks like this one.
 
 ## 5. Where it sits in Toru's Wails app
 
