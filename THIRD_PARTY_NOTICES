@@ -222,6 +222,13 @@ tailwind-merge 3.x
 @wailsio/runtime
   License: MIT (per its package.json; the npm package has no license file).
   Copyright the Wails authors (https://github.com/wailsapp/wails).
+@ui-sdk/core and @ui-sdk/react 0.1.0-beta.18 (the whiteboard's components)
+  License: Apache-2.0. Copyright Vercel, Inc. (https://github.com/vercel-labs/ui).
+  The whiteboard canvas (frontend/src/whiteboard/board.ts, BoardView.tsx,
+  board.css and edge-path.ts) is adapted from the repository's canvas
+  experiments (examples/experiments/react/canvas.tsx and board.tsx,
+  examples/experiments/edge-path.ts and experiments.css, at that tag) and
+  modified; each file says what changed.
 shadcn/ui components (copied into frontend/src/components/ui)
   License: MIT, per the upstream repository (https://github.com/shadcn-ui/ui);
   not read from a local license file. Copyright the shadcn/ui authors.
@@ -232,7 +239,10 @@ Inter font (frontend/public/Inter-Medium.ttf)
 
 Build tools, not shipped: Vite and @vitejs/plugin-react (MIT), Tailwind CSS
 and @tailwindcss/vite (MIT, Copyright (c) Tailwind Labs, Inc.), TypeScript
-(Apache-2.0), @types/react and @types/react-dom (MIT).
+(Apache-2.0), @types/react and @types/react-dom (MIT), and
+happy-dom and @happy-dom/global-registrator (MIT, Copyright (c) 2019 David
+Ortner (capricorn86)),
+which the whiteboard's tests run in.
 
 
 Design references, no code copied

@@ -1,4 +1,5 @@
-import { useRef, useState, type PointerEvent } from "react";
+import { useEffect } from "react";
+import { createAgent } from "@ui-sdk/react/agent";
 import { Button } from "@ui-sdk/react/button";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
 import {
@@ -12,64 +13,86 @@ import {
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
 import { CheckIcon, ChevronDownIcon, PlusIcon } from "lucide-react";
+import { registerAgentCommand } from "@/lib/agent";
+import { Board, useBoard } from "@/whiteboard/BoardView";
+import type { BoardBlocks, BoardLine } from "@/whiteboard/board";
 import "@/whiteboard/toru-ui-sdk.css";
 
 // The whiteboard window (?view=whiteboard&id=<board>, WindowsService.OpenWhiteboard).
-// For now an empty surface that pans with a drag, and a toolbar of UI SDK
-// controls in Toru's theme. The board canvas (pan, zoom, select, move,
-// resize, connect on UI SDK's viewport) replaces the surface in a later card.
-// The whiteboard uses UI SDK only, never Toru's shadcn components/ui.
+// The board canvas (whiteboard/board.ts on UI SDK's canvas behaviors: pan,
+// zoom, select, lasso, move, resize, connect) under a toolbar of UI SDK
+// controls in Toru's theme. The whiteboard uses UI SDK only, never Toru's
+// shadcn components/ui.
+//
+// Until the board document lives in Go (the board store and live-board
+// cards), the window opens on a sample board kept in this window only.
 
-const GRID = 24;
+// UI SDK's agent bridge, made before the board renders so it hears it mount.
+// `board.snapshot` hands its snapshot to agents over Toru's agent control.
+const agent = createAgent();
+
+const sampleBlocks: BoardBlocks = {
+  goal: { label: "Goal: ship the whiteboard", x: 0, y: 160, width: 200, height: 72 },
+  users: { label: "Who uses it", x: 280, y: 40, width: 160, height: 64 },
+  ideas: { label: "Ideas", x: 280, y: 200, width: 160, height: 64 },
+  sticky: { label: "Sticky notes", x: 520, y: 120, width: 152, height: 56 },
+  polls: { label: "Polls", x: 520, y: 200, width: 152, height: 56 },
+  ink: { label: "Freehand ink", x: 520, y: 280, width: 152, height: 56 },
+  risks: { label: "Risks", x: 280, y: 360, width: 160, height: 64 },
+};
+const sampleLines: BoardLine[] = [
+  { id: "goal:right->users:left", from: "goal:right", to: "users:left" },
+  { id: "goal:right->ideas:left", from: "goal:right", to: "ideas:left" },
+  { id: "ideas:right->sticky:left", from: "ideas:right", to: "sticky:left" },
+  { id: "ideas:right->polls:left", from: "ideas:right", to: "polls:left" },
+  { id: "ideas:right->ink:left", from: "ideas:right", to: "ink:left" },
+];
 
 export default function Whiteboard() {
   const id = new URLSearchParams(window.location.search).get("id") ?? "";
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
 
-  const down = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget || e.button !== 0) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
-  };
-  const move = (e: PointerEvent<HTMLDivElement>) => {
-    const d = drag.current;
-    if (d) setPan({ x: d.px + e.clientX - d.x, y: d.py + e.clientY - d.y });
-  };
-  const up = () => {
-    drag.current = null;
-  };
+  useEffect(
+    () =>
+      registerAgentCommand(
+        "board.snapshot",
+        {
+          description:
+            "The open whiteboard as UI SDK's agent bridge sees it: every block by id with its label and box, every line with its label, the selection, and each component's actions.",
+        },
+        () => agent.snapshot(),
+      ),
+    [],
+  );
 
   return (
     <div className="relative h-full overflow-hidden">
-      <div
-        data-board-surface
-        aria-label={`Whiteboard ${id}`}
-        className="absolute inset-0 cursor-grab touch-none active:cursor-grabbing"
-        style={{
-          backgroundImage: "radial-gradient(circle, color-mix(in oklch, var(--muted-foreground) 35%, transparent) 1px, transparent 1.5px)",
-          backgroundSize: `${GRID}px ${GRID}px`,
-          backgroundPosition: `${pan.x}px ${pan.y}px`,
-        }}
-        onPointerDown={down}
-        onPointerMove={move}
-        onPointerUp={up}
-        onPointerCancel={up}
-      />
-      <SampleToolbar />
+      <Board
+        aria-label={`Whiteboard ${id}`.trim()}
+        className="h-full w-full"
+        defaultBlocks={sampleBlocks}
+        defaultLines={sampleLines}
+      >
+        <SampleToolbar />
+      </Board>
     </div>
   );
 }
 
 // A sample of UI SDK controls, to see the theme next to Toru's own windows.
+// Fit works; the rest wait for the block catalog and later cards.
 function SampleToolbar() {
+  const board = useBoard();
   return (
-    <div className="frost absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-3 px-3 py-2">
+    <div
+      className="frost absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-3 px-3 py-2"
+      onWheel={(e) => e.stopPropagation()}
+      style={{ cursor: "default" }}
+    >
       <Button data-variant="solid">
         <PlusIcon aria-hidden="true" />
         Add block
       </Button>
-      <Button>Fit</Button>
+      <Button onClick={() => board.fit()}>Fit</Button>
       <Select defaultValue="sticky" aria-label="Block kind">
         <SelectTrigger>
           <SelectValue />
