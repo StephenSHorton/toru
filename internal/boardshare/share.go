@@ -66,6 +66,7 @@ var (
 	imageAgain   = 3 * time.Second
 	imageTries   = 10
 	partTimeout  = 2 * time.Minute
+	partQuiet    = 2 * time.Second // parts this recent hold back asking again
 )
 
 // Sizes.
@@ -97,6 +98,7 @@ type message struct {
 	T string `json:"t"`
 
 	Shares []shareInfo `json:"shares,omitempty"` // hello
+	Seq    int64       `json:"seq,omitempty"`    // hello: counts up, so a late one is ignored
 	Joined []joinRef   `json:"joined,omitempty"` // hello
 
 	Board  string          `json:"board,omitempty"`
@@ -122,6 +124,9 @@ type shareInfo struct {
 	Board string `json:"board"`
 	Name  string `json:"name"`
 	Rev   int    `json:"rev"`
+	// Token is new each time the board is shared, so a late "stopped
+	// sharing" never ends a newer share (the room doesn't keep order).
+	Token string `json:"token"`
 }
 
 type joinRef struct {
@@ -138,11 +143,13 @@ type offer struct {
 }
 
 type hosted struct {
+	token   string
 	viewers map[string]time.Time // peer → last hello naming this board
 }
 
 type mirror struct {
 	key
+	token    string // the share it follows
 	local    string
 	hostName string
 	live     bool // has its board, and its Remote is set
@@ -164,6 +171,7 @@ type partial struct {
 	parts map[int][]byte
 	size  int
 	at    time.Time
+	last  time.Time // when a part last came
 }
 
 type incoming struct {
@@ -184,10 +192,13 @@ type ShareService struct {
 	hosting  map[string]*hosted
 	offers   map[key]*offer
 	mirrors  map[key]*mirror
-	waiting  map[string]chan message
+	waiting  map[string]waiter
 	parts    map[string]*partial // from + "/" + id
 	images   map[string]*imageWant
-	sentImgs map[string]bool // pictures in changes this Toru sent, which it may serve
+	sentImgs map[string]bool      // pictures in changes this Toru sent, which it may serve
+	seq      int64                // this Toru's hellos, counted
+	helloSeq map[string]int64     // the latest hello heard from each peer
+	ended    map[string]time.Time // host + "/" + token of shares that ended
 	emit     func(name string, data any)
 	pics     pictures
 
@@ -217,6 +228,12 @@ var boardPictures = pictures{
 	},
 }
 
+// waiter is a request waiting for its answer from the board's owner.
+type waiter struct {
+	host string
+	ch   chan message
+}
+
 type outgoing struct {
 	to  string
 	msg message
@@ -229,14 +246,18 @@ func New(store *board.Store) *ShareService {
 		hosting:  map[string]*hosted{},
 		offers:   map[key]*offer{},
 		mirrors:  map[key]*mirror{},
-		waiting:  map[string]chan message{},
+		waiting:  map[string]waiter{},
 		parts:    map[string]*partial{},
 		images:   map[string]*imageWant{},
 		sentImgs: map[string]bool{},
-		pics:     boardPictures,
-		in:       make(chan incoming, queueLen),
-		out:      make(chan outgoing, queueLen),
-		quit:     make(chan struct{}),
+		helloSeq: map[string]int64{},
+		// Counted from the clock, so a Toru that restarts still counts up.
+		seq:   time.Now().UnixNano(),
+		ended: map[string]time.Time{},
+		pics:  boardPictures,
+		in:    make(chan incoming, queueLen),
+		out:   make(chan outgoing, queueLen),
+		quit:  make(chan struct{}),
 	}
 }
 
@@ -467,7 +488,7 @@ func (s *ShareService) Share(id string) (BoardStatus, error) {
 		return BoardStatus{}, errNoRoom
 	}
 	if _, ok := s.hosting[id]; !ok {
-		s.hosting[id] = &hosted{viewers: map[string]time.Time{}}
+		s.hosting[id] = &hosted{token: randHex(8), viewers: map[string]time.Time{}}
 	}
 	s.mu.Unlock()
 	_ = b.Name
@@ -480,11 +501,11 @@ func (s *ShareService) Share(id string) (BoardStatus, error) {
 // which stops following this one.
 func (s *ShareService) Unshare(id string) BoardStatus {
 	s.mu.Lock()
-	_, ok := s.hosting[id]
+	h, ok := s.hosting[id]
 	delete(s.hosting, id)
 	s.mu.Unlock()
 	if ok {
-		s.send("", message{T: tUnshare, Board: id})
+		s.send("", message{T: tUnshare, Board: id, ID: h.token})
 		s.hello()
 		s.changed()
 	}
@@ -532,6 +553,11 @@ func (s *ShareService) Join(host, boardID string) (string, error) {
 	}
 	m := &mirror{key: k, local: local, hostName: hostName, joined: make(chan struct{}), buffered: map[int]board.Op{}}
 	s.mu.Lock()
+	if o := s.offers[k]; o != nil {
+		m.token = o.Token
+	}
+	s.mu.Unlock()
+	s.mu.Lock()
 	if old := s.mirrors[k]; old != nil {
 		joined := old.joined
 		s.mu.Unlock()
@@ -577,10 +603,16 @@ func (s *ShareService) localID(k key) (string, error) {
 	}
 	taken := map[string]bool{}
 	for _, b := range list {
-		if b.MirrorOf != nil && b.MirrorOf.Host == k.host && b.MirrorOf.Board == k.board {
+		taken[b.ID] = true
+		if b.MirrorOf == nil || b.MirrorOf.Host != k.host || b.MirrorOf.Board != k.board {
+			continue
+		}
+		// The copy this Toru already has, unless it was changed here after
+		// it stopped following: then it stays as it is, and the new copy
+		// gets an id of its own.
+		if full, err := s.store.Load(b.ID); err == nil && full.MirrorOf != nil && full.Rev == full.MirrorOf.Rev {
 			return b.ID, nil
 		}
-		taken[b.ID] = true
 	}
 	s.mu.Lock()
 	for _, m := range s.mirrors {
@@ -747,6 +779,9 @@ func (s *ShareService) tick(now time.Time) {
 		}
 	}
 	for k, m := range s.mirrors {
+		if s.receivingLocked(k.host, now) {
+			continue // a big message from them is still coming in
+		}
 		if !m.gapSince.IsZero() && now.Sub(m.gapSince) > gapWait && now.Sub(m.snapAt) > snapAgain {
 			m.snapAt = now
 			snaps = append(snaps, k)
@@ -757,7 +792,7 @@ func (s *ShareService) tick(now time.Time) {
 		}
 	}
 	for asset, w := range s.images {
-		if now.Sub(w.at) < imageAgain {
+		if now.Sub(w.at) < imageAgain || s.receivingLocked(w.from, now) {
 			continue
 		}
 		if w.tries >= imageTries {
@@ -771,6 +806,11 @@ func (s *ShareService) tick(now time.Time) {
 	for id, p := range s.parts {
 		if now.Sub(p.at) > partTimeout {
 			delete(s.parts, id)
+		}
+	}
+	for id, t := range s.ended {
+		if now.Sub(t) > partTimeout {
+			delete(s.ended, id)
 		}
 	}
 	s.mu.Unlock()
@@ -789,6 +829,17 @@ func (s *ShareService) tick(now time.Time) {
 	}
 }
 
+// receivingLocked reports whether parts of a big message from peer came in
+// the last moment: asking again then would only send it all again.
+func (s *ShareService) receivingLocked(peer string, now time.Time) bool {
+	for id, p := range s.parts {
+		if strings.HasPrefix(id, peer+"/") && now.Sub(p.last) < partQuiet {
+			return true
+		}
+	}
+	return false
+}
+
 // hello tells the room what this Toru shares and has joined.
 func (s *ShareService) hello() {
 	s.mu.Lock()
@@ -797,16 +848,20 @@ func (s *ShareService) hello() {
 		return
 	}
 	ids := make([]string, 0, len(s.hosting))
-	for id := range s.hosting {
+	tokens := map[string]string{}
+	for id, h := range s.hosting {
 		ids = append(ids, id)
+		tokens[id] = h.token
 	}
+	s.seq++
+	seq := s.seq
 	var joined []joinRef
 	for k := range s.mirrors {
 		joined = append(joined, joinRef{Host: k.host, Board: k.board})
 	}
 	s.mu.Unlock()
 	sort.Strings(ids)
-	m := message{T: tHello, Joined: joined}
+	m := message{T: tHello, Joined: joined, Seq: seq}
 	for _, id := range ids {
 		if len(m.Shares) == maxSharesSent {
 			break
@@ -815,7 +870,7 @@ func (s *ShareService) hello() {
 		if err != nil {
 			continue
 		}
-		m.Shares = append(m.Shares, shareInfo{Board: id, Name: b.Name, Rev: b.Rev})
+		m.Shares = append(m.Shares, shareInfo{Board: id, Name: b.Name, Rev: b.Rev, Token: tokens[id]})
 	}
 	s.send("", m)
 }
@@ -860,18 +915,27 @@ func (s *ShareService) handle(from string, body json.RawMessage) {
 		s.onReq(from, m)
 	case tRes:
 		s.mu.Lock()
-		ch := s.waiting[m.Req]
-		delete(s.waiting, m.Req)
+		w, ok := s.waiting[m.Req]
+		if ok && w.host == from { // only the board's owner answers
+			delete(s.waiting, m.Req)
+		}
 		s.mu.Unlock()
-		if ch != nil {
-			ch <- m
+		if ok && w.host == from {
+			w.ch <- m
 		}
 	case tUnshare:
 		s.mu.Lock()
 		k := key{from, m.Board}
-		delete(s.offers, k)
+		s.ended[from+"/"+m.ID] = time.Now()
+		if o := s.offers[k]; o != nil && o.Token == m.ID {
+			delete(s.offers, k)
+		}
 		mi := s.mirrors[k]
-		delete(s.mirrors, k)
+		if mi != nil && mi.token == m.ID {
+			delete(s.mirrors, k)
+		} else {
+			mi = nil
+		}
 		s.mu.Unlock()
 		if mi != nil {
 			s.store.SetRemote(mi.local, nil)
@@ -914,6 +978,7 @@ func (s *ShareService) putPart(from string, m message) []byte {
 	}
 	p.parts[m.I] = m.Part
 	p.size += len(m.Part)
+	p.last = time.Now()
 	if p.size > maxWhole {
 		delete(s.parts, id)
 		return nil
@@ -940,11 +1005,22 @@ func (s *ShareService) onHello(from string, m message) {
 	if s.room != nil {
 		self, _, _ = s.room.RoomPeer()
 	}
+	if m.Seq <= s.helloSeq[from] && m.Seq != 0 {
+		s.mu.Unlock()
+		return // an older hello than one already heard
+	}
+	s.helloSeq[from] = m.Seq
 	offered := map[string]bool{}
 	changed := false
 	for _, sh := range m.Shares {
 		if !board.ValidID(sh.Board) {
 			continue
+		}
+		if _, gone := s.ended[from+"/"+sh.Token]; gone {
+			continue // a late hello from a share that has ended
+		}
+		if mi := s.mirrors[key{from, sh.Board}]; mi != nil {
+			mi.token = sh.Token
 		}
 		offered[sh.Board] = true
 		k := key{from, sh.Board}
@@ -1065,7 +1141,7 @@ func (s *ShareService) onSnap(from string, m message) {
 	hostName := s.hostName(from)
 	b.MapSources(toLocal(hostName, myName))
 	b.ID = mi.local
-	b.MirrorOf = &board.MirrorOf{Host: from, HostName: hostName, Board: m.Board}
+	b.MirrorOf = &board.MirrorOf{Host: from, HostName: hostName, Board: m.Board, Rev: b.Rev}
 	if _, err := s.store.Mirror(b); err != nil {
 		return
 	}
@@ -1283,7 +1359,7 @@ func (s *ShareService) request(k key, action string, op *board.Op, src board.Sou
 		s.mu.Unlock()
 		return board.Op{}, errors.New("this board isn't shared any more")
 	}
-	s.waiting[id] = ch
+	s.waiting[id] = waiter{host: k.host, ch: ch}
 	hostName := mi.hostName
 	s.mu.Unlock()
 	if op != nil {

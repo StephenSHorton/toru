@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -118,61 +119,38 @@ func TestPipeSDDLIsCurrentUserOnly(t *testing.T) {
 	}
 }
 
-func TestToggle(t *testing.T) {
-	svc, _ := newBridge(t)
-	svc.pipeName = testPipeName(t)
-	reg := svc.Registry()
-	reg.Register(echo("app.echo"))
-
-	dial := func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-		defer cancel()
-		c, err := Dial(ctx, svc.pipeName)
-		if err == nil {
-			_ = c.Close()
-		}
-		return err
-	}
-
-	// Off by default: Start makes no pipe.
-	if svc.GetEnabled() {
-		t.Fatal("enabled by default")
-	}
-	if err := svc.Start(); err != nil {
+// The pipe is always on: Start opens it with no setting, and an old
+// agent.json from the removed toggle (saved off) changes nothing.
+func TestStartAlwaysListens(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("APPDATA", dir) // os.UserConfigDir on Windows
+	if err := os.MkdirAll(filepath.Join(dir, "toru"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if dial() == nil {
-		t.Fatal("pipe exists while off")
+	if err := os.WriteFile(filepath.Join(dir, "toru", "agent.json"), []byte(`{"enabled": false}`), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	// On: the pipe answers, and the choice is saved.
-	if err := svc.SetEnabled(true); err != nil {
+	svc, _ := newBridge(t)
+	svc.pipeName = testPipeName(t)
+	svc.Registry().Register(echo("app.echo"))
+
+	if err := svc.Start(); err != nil {
 		t.Fatal(err)
 	}
 	if got := roundTrip(t, svc.pipeName, `{"id":1,"method":"call","name":"app.echo","input":{"hi":1}}`); got[0]["result"].(map[string]any)["hi"] != 1.0 {
 		t.Fatalf("echo: %v", got)
 	}
-	if !svc.GetEnabled() {
-		t.Fatal("not saved")
-	}
-	if err := svc.SetEnabled(true); err != nil { // already on: no-op
+	if err := svc.Start(); err != nil { // already open: no-op
 		t.Fatal(err)
 	}
-	// A fresh service with the same settings starts listening on its own.
-	svc2 := New(reg)
-	svc2.configPath, svc2.pipeName = svc.configPath, svc.pipeName+"-2"
-	if err := svc2.Start(); err != nil {
-		t.Fatal(err)
+	svc.Shutdown()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if c, err := Dial(ctx, svc.pipeName); err == nil {
+		_ = c.Close()
+		t.Fatal("pipe still exists after Shutdown")
 	}
-	svc2.Shutdown()
-
-	// Off: the pipe goes away.
-	if err := svc.SetEnabled(false); err != nil {
-		t.Fatal(err)
-	}
-	if dial() == nil {
-		t.Fatal("pipe still exists after turning off")
-	}
-	if svc.GetEnabled() {
-		t.Fatal("off not saved")
+	if data, err := os.ReadFile(filepath.Join(dir, "toru", "agent.json")); err != nil || string(data) != `{"enabled": false}` {
+		t.Fatalf("old setting file changed: %q %v", data, err)
 	}
 }

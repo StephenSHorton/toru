@@ -105,12 +105,11 @@ var (
 	deleteCmd = CommandInfo{Name: "library.delete", Description: "Delete a Library item. Destructive.", Input: json.RawMessage(`{"type":"object"}`), Destructive: true}
 )
 
-func ctl(t *testing.T, f *fakeToru, enabled bool, stdin string, args ...string) (code int, stdout, stderr string) {
+func ctl(t *testing.T, f *fakeToru, stdin string, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	var out, errb bytes.Buffer
 	env := Env{
-		Dial:    f.dial,
-		Enabled: func() bool { return enabled },
+		Dial: f.dial,
 		Start: func() error {
 			f.mu.Lock()
 			f.running = true
@@ -125,7 +124,7 @@ func ctl(t *testing.T, f *fakeToru, enabled bool, stdin string, args ...string) 
 
 func TestCtlList(t *testing.T) {
 	f := newFake(splitCmd, deleteCmd)
-	code, out, errOut := ctl(t, f, true, "", "list")
+	code, out, errOut := ctl(t, f, "", "list")
 	if code != exitOK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
@@ -144,7 +143,7 @@ func TestCtlList(t *testing.T) {
 
 func TestCtlCall(t *testing.T) {
 	f := newFake(splitCmd)
-	code, out, errOut := ctl(t, f, true, "", "editor.split", "--json", `{"t":12.5}`)
+	code, out, errOut := ctl(t, f, "", "editor.split", "--json", `{"t":12.5}`)
 	if code != exitOK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
@@ -153,14 +152,14 @@ func TestCtlCall(t *testing.T) {
 		t.Errorf("out = %s (%v)", out, err)
 	}
 	// --json=..., and "-" reads stdin.
-	if code, _, errOut := ctl(t, f, true, "", "editor.split", `--json={"t":1}`); code != exitOK {
+	if code, _, errOut := ctl(t, f, "", "editor.split", `--json={"t":1}`); code != exitOK {
 		t.Errorf("--json=: exit %d %s", code, errOut)
 	}
-	if code, _, errOut := ctl(t, f, true, ` {"t":2} `, "editor.split", "--json", "-"); code != exitOK {
+	if code, _, errOut := ctl(t, f, ` {"t":2} `, "editor.split", "--json", "-"); code != exitOK {
 		t.Errorf("--json -: exit %d %s", code, errOut)
 	}
 	// No --json sends an empty object.
-	if code, _, _ := ctl(t, f, true, "", "editor.split"); code != exitOK {
+	if code, _, _ := ctl(t, f, "", "editor.split"); code != exitOK {
 		t.Error("no input")
 	}
 	want := []string{`editor.split {"t":12.5}`, `editor.split {"t":1}`, `editor.split {"t":2}`, `editor.split {}`}
@@ -171,34 +170,31 @@ func TestCtlCall(t *testing.T) {
 
 func TestCtlErrors(t *testing.T) {
 	f := newFake(deleteCmd)
-	if code, _, errOut := ctl(t, f, true, "", "library.delete", "--json", `{"id":"x"}`); code != exitCommand || !strings.Contains(errOut, "confirm") {
+	if code, _, errOut := ctl(t, f, "", "library.delete", "--json", `{"id":"x"}`); code != exitCommand || !strings.Contains(errOut, "confirm") {
 		t.Errorf("command error: exit %d %q", code, errOut)
 	}
-	if code, _, errOut := ctl(t, f, true, "", "editor.split", "--json", `[1]`); code != exitUsage || !strings.Contains(errOut, "JSON object") {
+	if code, _, errOut := ctl(t, f, "", "editor.split", "--json", `[1]`); code != exitUsage || !strings.Contains(errOut, "JSON object") {
 		t.Errorf("array input: exit %d %q", code, errOut)
 	}
-	if code, _, errOut := ctl(t, f, true, "", "editor.split", "--json", `{bad`); code != exitUsage || errOut == "" {
+	if code, _, errOut := ctl(t, f, "", "editor.split", "--json", `{bad`); code != exitUsage || errOut == "" {
 		t.Errorf("bad JSON: exit %d %q", code, errOut)
 	}
-	if code, _, _ := ctl(t, f, true, "", "editor.split", "extra"); code != exitUsage {
+	if code, _, _ := ctl(t, f, "", "editor.split", "extra"); code != exitUsage {
 		t.Errorf("stray argument: exit %d", code)
 	}
-	if code, _, errOut := ctl(t, f, true, ""); code != exitUsage || !strings.Contains(errOut, "Usage") {
+	if code, _, errOut := ctl(t, f, ""); code != exitUsage || !strings.Contains(errOut, "Usage") {
 		t.Errorf("no command: exit %d %q", code, errOut)
 	}
 
 	f.stop()
-	if code, _, errOut := ctl(t, f, true, "", "list"); code != exitUnreachable || !strings.Contains(errOut, "isn't running") || !strings.Contains(errOut, "app.start") {
+	if code, _, errOut := ctl(t, f, "", "list"); code != exitUnreachable || !strings.Contains(errOut, "isn't running") || !strings.Contains(errOut, "app.start") {
 		t.Errorf("not running: exit %d %q", code, errOut)
-	}
-	if code, _, errOut := ctl(t, f, false, "", "editor.split"); code != exitUnreachable || !strings.Contains(errOut, "Settings > General") {
-		t.Errorf("toggle off: exit %d %q", code, errOut)
 	}
 }
 
 func TestCtlImageSavedToFile(t *testing.T) {
 	f := newFake(frameCmd)
-	code, out, errOut := ctl(t, f, true, "", "editor.frame", "--json", `{"t":1.5}`)
+	code, out, errOut := ctl(t, f, "", "editor.frame", "--json", `{"t":1.5}`)
 	if code != exitOK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
@@ -218,18 +214,14 @@ func TestCtlImageSavedToFile(t *testing.T) {
 
 func TestCtlAppStart(t *testing.T) {
 	f := newFake(splitCmd)
-	code, out, _ := ctl(t, f, true, "", "app.start")
+	code, out, _ := ctl(t, f, "", "app.start")
 	if code != exitOK || !strings.Contains(out, `"started": false`) {
 		t.Errorf("already running: exit %d %s", code, out)
 	}
 	f.stop()
-	code, out, errOut := ctl(t, f, true, "", "app.start")
+	code, out, errOut := ctl(t, f, "", "app.start")
 	if code != exitOK || !strings.Contains(out, `"started": true`) {
 		t.Errorf("start: exit %d %s %s", code, out, errOut)
-	}
-	f.stop()
-	if code, _, errOut := ctl(t, f, false, "", "app.start"); code != exitUnreachable || !strings.Contains(errOut, "Settings > General") {
-		t.Errorf("toggle off: exit %d %q", code, errOut)
 	}
 }
 
@@ -252,9 +244,9 @@ func TestClientRedials(t *testing.T) {
 }
 
 // mcpSession connects an MCP client to newMCPServer in memory.
-func mcpSession(t *testing.T, f *fakeToru, enabled bool) *mcp.ClientSession {
+func mcpSession(t *testing.T, f *fakeToru) *mcp.ClientSession {
 	t.Helper()
-	s := newMCPServer(Env{Dial: f.dial, Enabled: func() bool { return enabled }, Start: func() error {
+	s := newMCPServer(Env{Dial: f.dial, Start: func() error {
 		f.mu.Lock()
 		f.running = true
 		f.mu.Unlock()
@@ -291,7 +283,7 @@ func toolNames(t *testing.T, cs *mcp.ClientSession) string {
 
 func TestMCPListsAndRefreshesTools(t *testing.T) {
 	f := newFake(splitCmd, deleteCmd)
-	cs := mcpSession(t, f, true)
+	cs := mcpSession(t, f)
 	if got := toolNames(t, cs); got != "app.start,editor.split,library.delete" {
 		t.Errorf("tools = %s", got)
 	}
@@ -316,7 +308,7 @@ func TestMCPListsAndRefreshesTools(t *testing.T) {
 
 func TestMCPCallTool(t *testing.T) {
 	f := newFake(splitCmd, frameCmd, deleteCmd)
-	cs := mcpSession(t, f, true)
+	cs := mcpSession(t, f)
 	ctx := context.Background()
 	toolNames(t, cs)
 
@@ -353,7 +345,7 @@ func TestMCPCallTool(t *testing.T) {
 // A window command registered after the last tools/list is still callable.
 func TestMCPCallsCommandAddedSinceList(t *testing.T) {
 	f := newFake(splitCmd)
-	cs := mcpSession(t, f, true)
+	cs := mcpSession(t, f)
 	toolNames(t, cs)
 	f.setCommands(splitCmd, frameCmd)
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "editor.frame", Arguments: map[string]any{"t": 0}})
@@ -364,7 +356,7 @@ func TestMCPCallsCommandAddedSinceList(t *testing.T) {
 
 func TestMCPWhenToruIsUnreachable(t *testing.T) {
 	f := newFake(splitCmd)
-	cs := mcpSession(t, f, true)
+	cs := mcpSession(t, f)
 	toolNames(t, cs)
 	f.stop()
 	if got := toolNames(t, cs); got != "app.start" {
@@ -378,25 +370,17 @@ func TestMCPWhenToruIsUnreachable(t *testing.T) {
 	if got := toolNames(t, cs); got != "app.start,editor.split" {
 		t.Errorf("after start, tools = %s", got)
 	}
-
-	off := newFake(splitCmd)
-	off.running = false
-	cs = mcpSession(t, off, false)
-	res, err = cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "app.start"})
-	if err != nil || !res.IsError || !strings.Contains(res.Content[0].(*mcp.TextContent).Text, "Settings > General") {
-		t.Errorf("toggle off: %+v %v", res, err)
-	}
 }
 
 // A client that kept an older tool list calls a command while Toru is
-// down or agent control is off: it hears why, not "unknown tool". With
+// down: it hears why, not "unknown tool". With
 // Toru up, a name that really isn't a command is still unknown.
 func TestMCPCallWhenUnreachableExplains(t *testing.T) {
 	ctx := context.Background()
 	text := func(res *mcp.CallToolResult) string { return res.Content[0].(*mcp.TextContent).Text }
 
 	f := newFake(splitCmd)
-	cs := mcpSession(t, f, true)
+	cs := mcpSession(t, f)
 	toolNames(t, cs)
 	f.stop()
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "editor.split", Arguments: map[string]any{"t": 1}})
@@ -408,16 +392,16 @@ func TestMCPCallWhenUnreachableExplains(t *testing.T) {
 		t.Errorf("down, tool never listed: %+v %v", res, err)
 	}
 
-	off := newFake(splitCmd)
-	off.running = false
-	cs = mcpSession(t, off, false)
+	never := newFake(splitCmd)
+	never.running = false
+	cs = mcpSession(t, never)
 	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "capture.screenshot", Arguments: map[string]any{"mode": "fullscreen"}})
-	if err != nil || !res.IsError || !strings.Contains(text(res), "Agent control is off") || !strings.Contains(text(res), "Settings > General") {
-		t.Errorf("toggle off: %+v %v", res, err)
+	if err != nil || !res.IsError || !strings.Contains(text(res), "Toru isn't running") || strings.Contains(text(res), "Settings") {
+		t.Errorf("never started: %+v %v", res, err)
 	}
 
 	up := newFake(splitCmd)
-	cs = mcpSession(t, up, true)
+	cs = mcpSession(t, up)
 	if _, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "editor.nope"}); err == nil || !strings.Contains(err.Error(), "unknown tool") {
 		t.Errorf("running, no such tool: err = %v", err)
 	}

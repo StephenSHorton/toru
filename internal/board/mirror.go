@@ -127,6 +127,11 @@ func (s *Store) ApplyMirror(id string, op Op) (bool, error) {
 		d.b.UpdatedAt = op.At
 		fwd.At = op.At
 	}
+	if m := d.b.MirrorOf; m != nil {
+		mm := *m
+		mm.Rev = d.b.Rev
+		d.b.MirrorOf = &mm
+	}
 	if err := s.writeFile(d.b); err != nil {
 		*d = saved
 		return false, fmt.Errorf("couldn't save board %q: %w", id, err)

@@ -105,12 +105,12 @@ What that gives the board:
 
 Toru already has one: `toru.exe mcp` (stdio MCP) and `toru.exe ctl`, both
 reaching the running Toru over a named pipe only the current user can open.
-Off by default ("Let AI agents and scripts control Toru" in Settings). No
-network port. The whiteboard adds its commands to that registry; it opens
-nothing new.
+Always on while Toru runs: no setting; Settings > Connect your agent shows
+the commands to add it. No network port. The whiteboard adds its commands
+to that registry; it opens nothing new.
 
 ```
-claude mcp add toru -- "%LOCALAPPDATA%\Programs\Toru\toru.exe" mcp
+claude mcp add --scope user toru -- "%LOCALAPPDATA%\Programs\Toru\toru.exe" mcp
 ```
 
 **Board commands (Go, always available, window open or not).** The board
@@ -226,12 +226,18 @@ window commands time out (30 s default).
 - **Ending.** "Stop sharing", leaving the room, or the owner not heard from
   for 13 s ends it: copies stop following and stay as ordinary boards,
   labelled whose they were. A copy's "Stop following" does the same for
-  one copy. Shares don't survive a restart: share again.
+  one copy. Joining again follows the same copy, unless it was changed
+  after it stopped following: then it's kept as it is and the new copy
+  gets an id of its own. Each share has a token, so a late "stopped
+  sharing" never ends a newer share. Shares don't survive a restart:
+  share again.
 - **Checks:** `go test ./internal/boardshare` (two Torus on a fake room,
   out of order and losing messages: share, join, both people and both
   agents building, undo, catch-up, pictures, a forged board or source
-  refused, leaving); `go test ./internal/boardshare -run TestRealRoom
-  -args -e2e` does it on the real brokers.
+  refused, leaving, rejoining); `go test ./internal/boardshare -run
+  'TestRealRoom|TestTwoStreamServices' -args -e2e` does it on the real
+  brokers, with a 2 MB picture, and through two of Toru's own room
+  services (`stream.StreamService`).
 - **Demo in a browser:** `cd frontend && bun x vite --mode share-demo
   --port 47820`, then `/share-demo.html`: two Torus with their own stores,
   Stephen's and Blake's, sharing a board through a fresh real room, side by

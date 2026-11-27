@@ -10,7 +10,10 @@ instant replay, Library, export). One command list inside Toru, reached
 two ways:
 
 - **MCP**: `toru.exe mcp` speaks MCP over stdio. Add it to Claude Code
-  with `claude mcp add toru -- "%LOCALAPPDATA%\Programs\Toru\toru.exe" mcp`.
+  with `claude mcp add --scope user toru -- "%LOCALAPPDATA%\Programs\Toru\toru.exe" mcp`.
+  Settings > Connect your agent shows this command and the JSON config for
+  other MCP clients, filled in with the install's real `toru.exe` path,
+  each with a Copy button.
 - **CLI**: `toru.exe ctl <command> [--json '{...}']` prints the result as
   JSON. `toru.exe ctl list` lists every command with its input schema.
 
@@ -19,9 +22,13 @@ current user can open. No network port.
 
 ## Rules
 
-- **Off by default.** Settings > General: "Let AI agents and scripts
-  control Toru". When it's off, the pipe isn't created and `mcp` / `ctl`
-  exit with a clear message saying how to turn it on.
+- **Always on.** Whenever Toru runs, the pipe is open; there is no
+  setting for it (whiteboard#22 removed the old off-by-default toggle; an
+  old `%AppData%\toru\agent.json` left by it is ignored). The pipe's
+  per-user lock is the protection: any program running as this Windows
+  user can drive Toru, other users can't, and no network port opens.
+  When Toru isn't running, `mcp` / `ctl` say so and how to start it
+  (`app.start`).
 - **One registry, every feature.** A feature isn't done until its actions
   are registered (add this to CONTRIBUTING.md's checklist). MCP tools and
   CLI commands are generated from the registry; nothing is hand-listed
@@ -236,21 +243,20 @@ agent's change as well as the person's.
 
 | Card | Owns | Needs |
 | --- | --- | --- |
-| AC-1 Registry + pipe + window bridge | `internal/agentctl/**`, `frontend/src/lib/agent.ts`, Settings toggle, `main.go` wiring (lease) | — |
+| AC-1 Registry + pipe + window bridge | `internal/agentctl/**`, `frontend/src/lib/agent.ts`, `main.go` wiring (lease) | — |
 | AC-2 `mcp` + `ctl` entry points | `internal/agentctl/cli/**`, top of `main.go` (lease) | AC-1 protocol (this spec) |
 | AC-3 App-wide commands | `RegisterAgentCommands` on existing services | AC-1 API (this spec) |
 | AC-4 Editor commands | editor's `registerAgentCommand` calls (a file next to `EditVideo.tsx`) | v2-H (#19) window, AC-1 |
 
 ## Done
 
-- With the toggle on, `claude mcp add toru -- toru.exe mcp` lists every
+- `claude mcp add --scope user toru -- toru.exe mcp` lists every
   command; an agent opens a clip in the editor, splits it, adds a PNG on a
   second track with green screen, exports, and the person sees each step
   and can undo it.
 - `toru.exe ctl capture.screenshot --json '{"mode":"fullscreen"}'` prints
   the saved path.
-- With the toggle off, nothing listens and both entry points explain how
-  to turn it on.
+- With Toru not running, both entry points say so and how to start it.
 - Another Windows user on the same PC can't open the pipe.
 - `go vet`, `go test ./internal/...`, golangci-lint v2.12.2 and
   `bun run build` pass.

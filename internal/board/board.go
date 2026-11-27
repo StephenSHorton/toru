@@ -68,6 +68,10 @@ type MirrorOf struct {
 	Host     string `json:"host"`
 	HostName string `json:"hostName"`
 	Board    string `json:"board"`
+	// Rev is the host's rev this copy last had. A copy whose own Rev is
+	// past it was changed here after it stopped following, so joining
+	// again never replaces it.
+	Rev int `json:"rev"`
 }
 
 // Meta says who made an item and who last changed it, as Sources. Apply

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,11 +22,13 @@ type realRoom struct {
 	self, name, code string
 	room             *stream.Room
 	names            map[string]string
+	sent             atomic.Int64
 }
 
 func (r *realRoom) RoomPeer() (string, string, string) { return r.self, r.name, r.code }
 func (r *realRoom) HostName(peer string) string        { return r.names[peer] }
 func (r *realRoom) SendBoard(to string, body json.RawMessage) error {
+	r.sent.Add(1)
 	return r.room.Send(to, "board", body)
 }
 
@@ -116,6 +119,25 @@ func TestRealRoom(t *testing.T) {
 		}
 	}
 	t.Logf("Stephen's board: %s", strings.Join(got, "; "))
+	// A big picture (a screenshot's size, many parts) placed on Stephen's
+	// side reaches Blake's Toru through the brokers.
+	fa, fb := &folder{pics: map[string][]byte{}}, &folder{pics: map[string][]byte{}}
+	a.mu.Lock()
+	a.pics = fa.pictures()
+	a.mu.Unlock()
+	b.mu.Lock()
+	b.pics = fb.pictures()
+	b.mu.Unlock()
+	pic := testPNG(t, 900, 900)
+	asset, _ := fa.pictures().import_(pic)
+	sentBefore := ar.sent.Load()
+	t0 = time.Now()
+	if _, err := aStore.Apply(id, board.Op{Source: board.Agent("Claude Code"), Blocks: []board.Block{{Type: "image", X: 0, Y: 400, W: 300, H: 300, Props: json.RawMessage(`{"asset":"` + asset + `"}`)}}}); err != nil {
+		t.Fatal(err)
+	}
+	wait("the picture on Blake's Toru", 60*time.Second, func() bool { return fb.pictures().has(asset) })
+	t.Logf("a %d KB picture reached the copy in %v; Stephen's Toru sent %d room messages for it (%d parts each time)",
+		len(pic)>>10, time.Since(t0), ar.sent.Load()-sentBefore, (len(pic)*4/3+partSize-1)/partSize)
 	after := listening(t)
 	t.Logf("ports this process listens on with the board shared, joined and edited both ways: %v", after)
 	if len(after) != len(before) {

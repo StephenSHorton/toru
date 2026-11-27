@@ -104,7 +104,7 @@ const listNames = (names: string[]) =>
 function triggerText(s: ShareStatus | null) {
   if (!s) return "Share";
   if (s.sharing) return s.viewers.length ? `Shared · ${s.viewers.length + 1}` : "Shared";
-  if (s.hostName && s.live) return `Live from ${s.hostName}`;
+  if (s.hostName) return s.live ? `Live from ${s.hostName}` : `Copy of ${s.hostName}'s`;
   return "Share";
 }
 

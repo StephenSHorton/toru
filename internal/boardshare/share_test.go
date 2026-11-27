@@ -265,6 +265,34 @@ func TestShareJoinAndEditBothWays(t *testing.T) {
 	if len(x.Blocks) != 3 {
 		t.Fatalf("a change to Blake's copy after unsharing reached Stephen's board")
 	}
+
+	// Stephen shares it again and Blake joins: Blake's changed copy is kept
+	// as it is, and the new live copy gets an id of its own.
+	if _, err := a.Share(id); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the board offered again", func() bool { return len(b.GetState().Offered) == 1 })
+	again, err := b.Join("", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again == local {
+		t.Fatal("joining again replaced the copy Blake had changed")
+	}
+	kept, _ := bStore.Load(local)
+	if !strings.Contains(fmt.Sprint(texts(kept)), "offline") {
+		t.Fatal("Blake's own change to the old copy is gone")
+	}
+	// An unchanged copy is simply followed again.
+	a.Unshare(id)
+	eventually(t, "the new copy to stop following", func() bool { return !bStore.IsMirror(again) })
+	if _, err := a.Share(id); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the board offered again", func() bool { return len(b.GetState().Offered) == 1 })
+	if third, err := b.Join("", id); err != nil || third != again {
+		t.Fatalf("rejoining an unchanged copy: %q, %v; want %q", third, err, again)
+	}
 }
 
 func firstVal(m map[string]string) string {

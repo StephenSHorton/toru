@@ -55,9 +55,9 @@ type windowReply struct {
 	err    string
 }
 
-// Service is the Wails-bound side of agent control: the on/off setting
-// (the pipe exists only while it's on) and the bridge that lets windows
-// register commands.
+// Service is the Wails-bound side of agent control: the per-user pipe
+// (open whenever Toru runs), how to connect an agent to it, and the bridge
+// that lets windows register commands.
 type Service struct {
 	reg *Registry
 
@@ -74,7 +74,7 @@ type Service struct {
 
 	// Seams for tests; production values come from New.
 	pipeName    string                       // "" = PipeName()
-	configPath  func() (string, error)       // agent.json
+	exePath     func() (string, error)       // this toru.exe
 	emit        func(event string, data any) // to every window
 	windowAlive func(name string) bool       // nil = assume alive
 	callTimeout time.Duration
@@ -83,11 +83,11 @@ type Service struct {
 // New returns the service over reg. Call Start once the app runs.
 func New(reg *Registry) *Service {
 	return &Service{
-		reg:        reg,
-		windows:    map[string]map[string]CommandInfo{},
-		timeouts:   map[string]map[string]time.Duration{},
-		pending:    map[string]chan windowReply{},
-		configPath: defaultConfigPath,
+		reg:      reg,
+		windows:  map[string]map[string]CommandInfo{},
+		timeouts: map[string]map[string]time.Duration{},
+		pending:  map[string]chan windowReply{},
+		exePath:  os.Executable,
 		emit: func(event string, data any) {
 			if app := application.Get(); app != nil {
 				app.Event.Emit(event, data)
@@ -110,13 +110,11 @@ func New(reg *Registry) *Service {
 //wails:ignore
 func (s *Service) Registry() *Registry { return s.reg }
 
-// Start opens the pipe if agent control is on. Go-only.
+// Start opens the pipe. Go-only. Agents and scripts can always reach a
+// running Toru; the pipe's per-user lock is what keeps other users out.
 //
 //wails:ignore
 func (s *Service) Start() error {
-	if !s.GetEnabled() {
-		return nil
-	}
 	return s.setListening(true)
 }
 
@@ -127,31 +125,42 @@ func (s *Service) Shutdown() {
 	_ = s.setListening(false)
 }
 
-// Enabled reports whether the user turned agent control on (Settings >
-// General), read from %AppData%\toru\agent.json. The mcp/ctl entry points
-// use it to tell "turned off" apart from "Toru isn't running".
-func Enabled() bool {
-	return loadConfig(defaultConfigPath).Enabled
+// ConnectInfo is what Settings > Connect your agent shows: this install's
+// toru.exe and the two ways to add it to an MCP client.
+type ConnectInfo struct {
+	// Exe is the full path of this toru.exe.
+	Exe string `json:"exe"`
+	// ClaudeCommand adds Toru to Claude Code for every project.
+	ClaudeCommand string `json:"claudeCommand"`
+	// MCPConfig is the mcpServers JSON other MCP clients take.
+	MCPConfig string `json:"mcpConfig"`
 }
 
-// GetEnabled reports whether AI agents and scripts may control Toru.
-func (s *Service) GetEnabled() bool {
-	return loadConfig(s.configPath).Enabled
+// GetConnectInfo returns the commands that connect an agent to this
+// install of Toru.
+func (s *Service) GetConnectInfo() (ConnectInfo, error) {
+	exe, err := s.exePath()
+	if err != nil {
+		return ConnectInfo{}, err
+	}
+	if p, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = p
+	}
+	return connectInfo(exe), nil
 }
 
-// SetEnabled turns agent control on (creates the pipe) or off (removes it,
-// disconnecting any client) and remembers the choice.
-func (s *Service) SetEnabled(on bool) error {
-	if err := s.setListening(on); err != nil {
-		return err
+func connectInfo(exe string) ConnectInfo {
+	type server struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
 	}
-	if err := saveConfig(s.configPath, config{Enabled: on}); err != nil {
-		if on {
-			_ = s.setListening(false)
-		}
-		return err
+	cfg := map[string]any{"mcpServers": map[string]server{"toru": {Command: exe, Args: []string{"mcp"}}}}
+	b, _ := json.MarshalIndent(cfg, "", "  ")
+	return ConnectInfo{
+		Exe:           exe,
+		ClaudeCommand: `claude mcp add --scope user toru -- "` + exe + `" mcp`,
+		MCPConfig:     string(b),
 	}
-	return nil
 }
 
 func (s *Service) setListening(on bool) error {
@@ -363,54 +372,4 @@ func (s *Service) windowNamesLocked() map[string]CommandInfo {
 		}
 	}
 	return out
-}
-
-// config is %AppData%/toru/agent.json.
-type config struct {
-	Enabled bool `json:"enabled"`
-}
-
-var configMu sync.Mutex
-
-func defaultConfigPath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "toru", "agent.json"), nil
-}
-
-// loadConfig reads the setting; a missing or broken file means off.
-func loadConfig(path func() (string, error)) config {
-	configMu.Lock()
-	defer configMu.Unlock()
-	var c config
-	p, err := path()
-	if err != nil {
-		return c
-	}
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return c
-	}
-	_ = json.Unmarshal(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), &c)
-	return c
-}
-
-func saveConfig(path func() (string, error), c config) error {
-	configMu.Lock()
-	defer configMu.Unlock()
-	p, err := path()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	data, _ := json.MarshalIndent(c, "", "  ")
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
 }
