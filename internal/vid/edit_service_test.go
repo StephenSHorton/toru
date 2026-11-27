@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -90,6 +91,9 @@ func TestParseRate(t *testing.T) {
 }
 
 func TestEditedName(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	for in, want := range map[string]string{
 		`C:\Users\me\Videos\Toru Replays\The Finals 2026-10-28.mp4`: "The Finals 2026-10-28-edited.mp4",
 		`D:\rec\clip.webm`: "clip-edited.mp4",
@@ -102,6 +106,9 @@ func TestEditedName(t *testing.T) {
 }
 
 func TestAudioName(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	for in, want := range map[string]string{
 		`D:\rec\clip.mp4`: "clip-audio.m4a",
 		"":                "audio.m4a",

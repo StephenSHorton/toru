@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -71,6 +72,9 @@ func TestExtractZipHappyPath(t *testing.T) {
 }
 
 func TestExtractZipRejectsZipSlip(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	bad := []string{
 		"../evil.txt",
 		"sub/../../evil.txt",
@@ -107,6 +111,9 @@ func TestExtractZipRejectsZipSlip(t *testing.T) {
 }
 
 func TestSafeZipRel(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	root := t.TempDir()
 	ok := map[string]string{
 		"a.txt":         "a.txt",

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,9 @@ func TestPrunePersistentAgeSizeAndProtect(t *testing.T) {
 }
 
 func TestSegmentTimesAndDeleteRun(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "r0042.csv"), []byte(`C:\x\r0042-00000000.ts,0.000000,2.000000`+"\nr0042-00000001.ts,2.000000,4.016667\nbad line\n"), 0o644)
 	got := SegmentTimes(dir, 42)
