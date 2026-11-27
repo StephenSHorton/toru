@@ -75,18 +75,31 @@ const images: BoardImages = {
   },
 };
 
-// The bridge is made before the board renders, as the window makes it. Its
-// allow stands in for the person: a step on a control marked
-// data-agent-confirm runs only while personSays is true.
+// The bridge is made before the board renders, with the window's own allow:
+// a step on a control marked data-agent-confirm opens the window's AskPerson
+// dialog and waits. The test answers it as the person would, pressing Allow
+// while personSays is true and Don't allow otherwise.
+const { AskPerson, createAskPerson } = await import("../src/whiteboard/ask-person");
+const askPerson = createAskPerson();
+const agent = createAgent({ allow: askPerson.allow });
 let personSays = false;
 const asked: string[] = [];
-const agent = createAgent({
-  allow: (step) => {
-    if (!step.confirm) return true;
-    asked.push(step.confirm);
-    return personSays;
-  },
-});
+const agentSawDialog: string[] = [];
+let answering = false;
+const answerer = setInterval(() => {
+  if (!askPerson.controller.isOpen()) {
+    answering = false;
+    return;
+  }
+  const dialog = document.querySelector<HTMLElement>("[data-ask-person]");
+  if (answering || !dialog) return;
+  answering = true;
+  asked.push(dialog.querySelector('[data-slot="alert-dialog-description"]')?.textContent ?? "");
+  // The dialog is kept from the agent: only the person can answer it.
+  for (const c of agent.snapshot()) if (/allow/i.test(c.label ?? "")) agentSawDialog.push(c.label!);
+  const want = personSays ? "Allow" : "Don't allow";
+  [...dialog.querySelectorAll("button")].find((b) => b.textContent?.trim() === want)?.click();
+}, 5);
 const changes: { id: string; source?: string }[] = [];
 // The sample board, and a poll that takes several picks.
 const startBlocks: Blocks = {
@@ -125,6 +138,7 @@ function Harness() {
           />
         )}
       />
+      <AskPerson api={askPerson} />
     </BoardImagesContext.Provider>
   );
 }
@@ -228,6 +242,12 @@ async function run(name: string, steps: { ref: string; action: string; args?: un
   const res = await agent.act({ steps });
   await settle();
   ok(`act: ${name}`, !!res?.ok === expectOk, res?.error?.message ?? res);
+  return res;
+}
+// A step the person refused fails with their no, not "Needs a person".
+function saidNo(name: string, res: Awaited<ReturnType<typeof run>>) {
+  const message = res?.error?.message ?? "";
+  ok(`${name}: the step fails with the person's no`, message.includes("The person said no") && !message.includes("Needs a person"), message);
 }
 
 changes.length = 0;
@@ -285,7 +305,7 @@ await run("clear the refused new option", [{ ref: "New option for Which block ne
 await run("emptying a poll option", [{ ref: "Option 4 text in Which block next?", action: "setValue", args: [""] }]);
 ok("the refused names left the poll alone", props("poll").options[3].label === "Timer v2", props("poll").options);
 asked.length = 0;
-await run("removing a poll option needs the person", [{ ref: "Remove option 4 from Which block next?", action: "press" }], false);
+saidNo("poll option", await run("removing a poll option needs the person", [{ ref: "Remove option 4 from Which block next?", action: "press" }], false));
 ok("the person was asked about the option", asked.length === 1 && asked[0].includes('"Timer v2"'), asked);
 ok("a refused removal keeps the option", props("poll").options.length === 4, props("poll").options);
 personSays = true;
@@ -297,7 +317,7 @@ ok("vote moved to the renamed option", props("poll").options[1].votes === 2 && p
 
 // ── checklist items: remove, with the person's yes ─────────────────────
 asked.length = 0;
-await run("removing a checklist item needs the person", [{ ref: "Remove item 2 from Before launch", action: "press" }], false);
+saidNo("checklist item", await run("removing a checklist item needs the person", [{ ref: "Remove item 2 from Before launch", action: "press" }], false));
 ok("the person was asked about the item", asked.length === 1 && asked[0].includes('"Render every block"'), asked);
 ok("a refused removal keeps the item", props("checklist").items.length === 4, props("checklist").items);
 personSays = true;
@@ -357,11 +377,14 @@ await run("emptying a column name", [{ ref: "Column 3 name in Owners", action: "
 await run("typing another column's name", [{ ref: "Column 3 name in Owners", action: "setValue", args: ["Task"] }]);
 ok("an emptied column name isn't kept", props("table").columns[2] === "Deadline", props("table").columns);
 asked.length = 0;
-await run("removing a column needs the person", [{ ref: "Remove column 2 from Owners", action: "press" }], false);
+saidNo("column", await run("removing a column needs the person", [{ ref: "Remove column 2 from Owners", action: "press" }], false));
 ok("the person was asked about the column", asked.length === 1 && asked[0].includes('"Owner"'), asked);
 personSays = true;
 await run("column removed with the person's yes", [{ ref: "Remove column 2 from Owners", action: "press" }]);
 personSays = false;
+ok("the person was asked twice about the column, no then yes", asked.length === 2, asked);
+ok("the agent never saw the person's dialog", agentSawDialog.length === 0, agentSawDialog);
+ok("the dialog closed after each answer", !askPerson.controller.isOpen() && !document.querySelector("[data-ask-person]"));
 ok(
   "the column and its cells are gone",
   props("table").columns.join() === "Task,Deadline,Status" &&
@@ -446,6 +469,7 @@ for (const [id, block] of Object.entries(current)) {
   ok("a drag from the sticky's rim moves it", current["idea-polls"].x !== before.x || current["idea-polls"].y !== before.y, current["idea-polls"]);
 }
 
+clearInterval(answerer);
 root.unmount();
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
