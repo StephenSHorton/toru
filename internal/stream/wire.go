@@ -15,6 +15,9 @@ const (
 	// services of two members, to one peer or everyone. The body is the blob
 	// itself; this side never parses it (lan.go).
 	msgLan = "lan"
+	// msgBoard carries one shared-whiteboard message (internal/boardshare)
+	// between members. This side never parses it (board.go).
+	msgBoard = "board"
 )
 
 type presenceBody struct {

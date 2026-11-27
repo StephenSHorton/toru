@@ -6,20 +6,13 @@ import { Input } from "@ui-sdk/react/input";
 import { Window } from "@wailsio/runtime";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
-import {
-  Popover,
-  PopoverClose,
-  PopoverContent,
-  PopoverDescription,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@ui-sdk/react/popover";
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
 import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PencilIcon, PlusIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
+import { SharePopover, goShare, httpShare } from "@/whiteboard/share";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
 import type { BoardBlocks } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
@@ -28,7 +21,7 @@ import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
 import { layoutKinds, type LayoutKind } from "@/whiteboard/layout";
 import { boardTemplates, templateBoard } from "@/whiteboard/templates";
 import type { LiveBoard } from "@/whiteboard/live";
-import { agentSource, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
+import { agentSource, httpBase, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
 import "@/whiteboard/toru-ui-sdk.css";
 
 // The whiteboard window (?view=whiteboard&id=<board>, WindowsService.OpenWhiteboard).
@@ -65,6 +58,10 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   const [live] = useState(() => given ?? openLive());
   const { view, error, doc } = useSyncExternalStore(live.subscribe, live.getState);
   const id = live.id;
+  const [shareApi] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("link") === "http" ? httpShare(httpBase(params)) : goShare;
+  });
   const [pen, setPen] = useState<PenOptions>(() => ({
     active: false,
     color: inkColors[0].token,
@@ -204,6 +201,7 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         <SampleToolbar
           onAdd={(type) => live.edit({ blocks: addBlock(live.getState().view.blocks, type) })}
           exportMenu={<ExportMenu live={live} />}
+          share={<SharePopover boardId={id} api={shareApi} />}
         />
         <ArrangeCommand live={live} />
         <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
@@ -362,7 +360,7 @@ function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Par
 
 // The toolbar: Add block places the chosen catalog type; Fit works. The rest
 // are samples of UI SDK controls in Toru's theme, for later cards.
-function SampleToolbar({ onAdd, exportMenu }: { onAdd: (type: BlockType) => void; exportMenu?: React.ReactNode }) {
+function SampleToolbar({ onAdd, exportMenu, share }: { onAdd: (type: BlockType) => void; exportMenu?: React.ReactNode; share?: React.ReactNode }) {
   const board = useBoard();
   const [kind, setKind] = useState<BlockType>("sticky");
   return (
@@ -417,17 +415,7 @@ function SampleToolbar({ onAdd, exportMenu }: { onAdd: (type: BlockType) => void
           </SliderTrack>
         </SliderControl>
       </Slider>
-      <Popover>
-        <PopoverTrigger>Share</PopoverTrigger>
-        <PopoverContent className="frost">
-          <PopoverTitle>Share this board</PopoverTitle>
-          <PopoverDescription>Anyone with the link can view it.</PopoverDescription>
-          <div className="flex justify-end gap-2">
-            <PopoverClose>Cancel</PopoverClose>
-            <PopoverClose data-variant="solid">Copy link</PopoverClose>
-          </div>
-        </PopoverContent>
-      </Popover>
+      {share}
     </div>
   );
 }

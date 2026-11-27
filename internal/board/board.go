@@ -55,6 +55,19 @@ type Board struct {
 	Blocks []Block  `json:"blocks"`
 	Links  []Link   `json:"links"`
 	Ink    []Stroke `json:"ink"`
+	// MirrorOf is set on this Toru's copy of a board someone else shares
+	// in the room (internal/boardshare): whose board it is. While they
+	// share it, every change goes to them and theirs come back; after,
+	// it stays here as a copy.
+	MirrorOf *MirrorOf `json:"mirrorOf,omitempty"`
+}
+
+// MirrorOf says whose board a copy is: the host's peer id and name in the
+// room, and the board's id on their Toru.
+type MirrorOf struct {
+	Host     string `json:"host"`
+	HostName string `json:"hostName"`
+	Board    string `json:"board"`
 }
 
 // Meta says who made an item and who last changed it, as Sources. Apply
@@ -239,6 +252,11 @@ func (b *Board) Validate() error {
 	}
 	if b.Rev < 0 {
 		return errors.New("bad board rev")
+	}
+	if m := b.MirrorOf; m != nil {
+		if !idPattern.MatchString(m.Host) || !idPattern.MatchString(m.Board) || len([]rune(m.HostName)) > MaxNameLen {
+			return errors.New("bad mirrorOf")
+		}
 	}
 	if n := len(b.Frames) + len(b.Blocks) + len(b.Links) + len(b.Ink); n > MaxItems {
 		return fmt.Errorf("the board has %d items, more than %d", n, MaxItems)

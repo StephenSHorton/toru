@@ -1,9 +1,9 @@
 import * as React from "react";
-import { FileInput, Pencil, Plus, Presentation, Trash2, TriangleAlert } from "lucide-react";
+import { FileInput, Pencil, Plus, Presentation, Trash2, TriangleAlert, Users } from "lucide-react";
 import { Events as WailsEvents } from "@wailsio/runtime";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { WhiteboardsService } from "@/lib/api";
+import { StreamService, WhiteboardsService } from "@/lib/api";
 import type { BoardSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -14,7 +14,31 @@ import { cn } from "@/lib/utils";
 // a screenshot of them can run on Vite alone with boards in memory
 // (whiteboards-preview.tsx).
 
-type Board = Pick<BoardSummary, "id" | "name" | "blocks" | "error"> & { updatedAt: string };
+type Board = Pick<BoardSummary, "id" | "name" | "blocks" | "error"> & {
+  updatedAt: string;
+  /** Set on a copy of someone else's shared board: whose it is. */
+  from?: string;
+};
+
+/** A board someone else in the room shares (Go's boardshare.Offered). */
+type OfferedBoard = { host: string; hostName: string; board: string; name: string; local: string; live: boolean };
+
+/** Sharing in the room, as the page shows it (Go's boardshare.State). */
+type RoomState = {
+  inRoom: boolean;
+  code: string;
+  sharing: { board: string; name: string; viewers: string[] }[];
+  offered: OfferedBoard[];
+};
+
+/** The room side of the page: Go's ShareService and StreamService. */
+type RoomApi = {
+  state: () => Promise<RoomState>;
+  /** Makes a live copy of a shared board and opens it. */
+  join: (host: string, board: string) => Promise<void>;
+  joinRoom: (code: string) => Promise<void>;
+  onChange: (f: () => void) => () => void;
+};
 
 type WhiteboardsApi = {
   list: () => Promise<Board[]>;
@@ -31,6 +55,8 @@ type WhiteboardsApi = {
   sendScreenshot: (boardId: string, libraryId: string) => Promise<Board>;
   /** Calls back when boards are made, removed, renamed or changed. */
   onChange: (f: () => void) => () => void;
+  /** Boards shared in the Toru room; absent where there's no room. */
+  room?: RoomApi;
 };
 
 const board = (s: BoardSummary): Board => ({
@@ -39,7 +65,31 @@ const board = (s: BoardSummary): Board => ({
   blocks: s.blocks,
   error: s.error,
   updatedAt: String(s.updatedAt ?? ""),
+  from: s.mirrorOf?.hostName || undefined,
 });
+
+const shareService = () => import("../../bindings/github.com/StephenSHorton/toru/internal/boardshare/shareservice.js");
+
+const goRoom: RoomApi = {
+  state: async () => {
+    const s = await (await shareService()).GetState();
+    return {
+      inRoom: s.inRoom,
+      code: s.code,
+      sharing: (s.sharing ?? []).map((x) => ({ board: x.board, name: x.name, viewers: x.viewers ?? [] })),
+      offered: (s.offered ?? []).map((x) => ({ ...x })),
+    };
+  },
+  join: async (host, board) => {
+    const id = await (await shareService()).Join(host, board);
+    await WhiteboardsService.Open(id);
+  },
+  joinRoom: async (code) => void (await StreamService.JoinRoom(code)),
+  onChange: (f) => {
+    const offs = ["board:share", "board:shared", "stream:state"].map((name) => WailsEvents.On(name, f));
+    return () => offs.forEach((off) => off());
+  },
+};
 
 const goWhiteboards: WhiteboardsApi = {
   list: async () => ((await WhiteboardsService.List()) ?? []).map(board),
@@ -56,6 +106,7 @@ const goWhiteboards: WhiteboardsApi = {
     const offs = [WailsEvents.On("boards:changed", f), WailsEvents.On("board:op", f)];
     return () => offs.forEach((off) => off());
   },
+  room: goRoom,
 };
 
 const WhiteboardsContext = React.createContext<WhiteboardsApi>(goWhiteboards);
@@ -149,6 +200,8 @@ function WhiteboardsPage() {
         </div>
       ) : null}
 
+      {api.room ? <SharedInRoom room={api.room} onError={setNote} /> : null}
+
       {boards === null ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : boards.length === 0 ? (
@@ -204,6 +257,89 @@ function WhiteboardsPage() {
         ) : null}
       </Dialog>
     </div>
+  );
+}
+
+/** Boards shared in the Toru room (the room Call and LAN use): join one to
+ * get a live copy you and your agents build on, or join the room first. */
+function SharedInRoom({ room, onError }: { room: RoomApi; onError: (note: string) => void }) {
+  const [state, setState] = React.useState<RoomState | null>(null);
+  const [code, setCode] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const refresh = React.useCallback(() => {
+    room
+      .state()
+      .then(setState)
+      .catch(() => {});
+  }, [room]);
+  React.useEffect(() => {
+    refresh();
+    return room.onChange(refresh);
+  }, [room, refresh]);
+  const run = (f: () => Promise<unknown>) => {
+    setBusy(true);
+    f()
+      .then(refresh)
+      .catch((e: unknown) => onError(errText(e)))
+      .finally(() => setBusy(false));
+  };
+  if (!state) return null;
+  return (
+    <section className="frost flex flex-col gap-3 px-4 py-3" data-slot="shared-in-room" aria-label="Shared in your room">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Users className="size-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Shared in your room</h2>
+          {state.inRoom ? <span className="font-mono text-xs text-muted-foreground">{state.code}</span> : null}
+        </div>
+        {state.inRoom ? null : (
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              run(() => room.joinRoom(code));
+            }}
+          >
+            <input
+              aria-label="Room code"
+              placeholder="ABCD-EFGH-JKMN-PQRS"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              className="w-52 border border-border bg-transparent px-2 py-1 font-mono text-xs outline-none focus:border-primary"
+            />
+            <Button size="sm" type="submit" disabled={busy || !code.trim()}>
+              Join room
+            </Button>
+          </form>
+        )}
+      </div>
+      {!state.inRoom ? (
+        <p className="text-xs text-muted-foreground">
+          Join the room code your friends use for Call to see the boards they share. Share one of yours from its window's Share button.
+        </p>
+      ) : state.offered.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Nobody else in the room is sharing a board. Share one of yours from its window's Share button
+          {state.sharing.length ? ` (you share ${state.sharing.map((s) => s.name).join(", ")})` : ""}.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1.5" aria-label="Boards shared in your room">
+          {state.offered.map((o) => (
+            <li key={`${o.host}/${o.board}`} className="flex items-center justify-between gap-3" data-slot="offered-board">
+              <div className="min-w-0">
+                <div className="truncate text-xs font-medium">{o.name}</div>
+                <div className="truncate text-[10px] text-muted-foreground">
+                  {o.hostName}'s board{o.live ? " · you have it open, live" : ""}
+                </div>
+              </div>
+              <Button size="sm" variant={o.live ? "outline" : "default"} disabled={busy} onClick={() => run(() => room.join(o.host, o.board))}>
+                {o.live ? "Open" : "Join"}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -281,7 +417,9 @@ function BoardCard({
           <div className="truncate text-[10px] text-muted-foreground">
             {b.error
               ? b.error
-              : [`${b.blocks} ${b.blocks === 1 ? "block" : "blocks"}`, changed].filter(Boolean).join(" · ")}
+              : [b.from ? `${b.from}'s board` : "", `${b.blocks} ${b.blocks === 1 ? "block" : "blocks"}`, changed]
+                  .filter(Boolean)
+                  .join(" · ")}
           </div>
         </div>
         {b.error ? null : (
@@ -405,4 +543,13 @@ function SendChooser({ shot, onClose }: { shot: Shot; onClose: () => void }) {
   );
 }
 
-export { SendToWhiteboard, WhiteboardsContext, WhiteboardsPage, goWhiteboards, type Board as WhiteboardSummary, type WhiteboardsApi };
+export {
+  SendToWhiteboard,
+  WhiteboardsContext,
+  WhiteboardsPage,
+  goWhiteboards,
+  type Board as WhiteboardSummary,
+  type WhiteboardsApi,
+  type RoomApi,
+  type RoomState,
+};
