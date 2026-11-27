@@ -4,6 +4,7 @@
 // always agree. blocks.tsx renders each type; scripts/blocks-check.ts fails
 // when a type has no render or a render has no type.
 import catalogJSON from "../../../internal/board/catalog.json";
+import { customType } from "./custom-types";
 
 type Schema = {
   type?: string;
@@ -66,7 +67,26 @@ type BlockType = keyof BlockPropsByType;
 const blockTypes = catalogJSON.types as unknown as BlockTypeInfo[];
 const byType = new Map(blockTypes.map((t) => [t.type, t]));
 
-const blockType = (type: string) => byType.get(type);
+/** A built-in type, or a custom one (custom-types.ts) as a catalog entry. */
+const blockType = (type: string): BlockTypeInfo | undefined => {
+  const builtin = byType.get(type);
+  if (builtin) return builtin;
+  const def = customType(type);
+  if (!def) return undefined;
+  return { type: def.type, label: def.label, description: def.description ?? "", w: def.w, h: def.h, props: def.props as Schema };
+};
+
+/** Whether a type is one of Toru's built-in ones. */
+const isBuiltin = (type: string) => byType.has(type);
+
+/** The prop that names a custom block: nameProp, else its first required text prop. */
+function customNameProp(type: string): string {
+  const def = customType(type);
+  if (!def) return "";
+  if (def.nameProp) return def.nameProp;
+  const s = def.props as Schema;
+  return s.required?.find((r) => s.properties?.[r]?.type === "string") ?? "";
+}
 
 /** A new block's props: the least its schema needs. */
 const newProps: { [T in BlockType]: BlockPropsByType[T] } = {
@@ -95,8 +115,10 @@ function excerpt(text: string, max = 40) {
 function blockLabel(type: string, props: Record<string, unknown> = {}) {
   const kind = blockType(type)?.label ?? type;
   const str = (key: string) => (typeof props[key] === "string" ? (props[key] as string) : "");
-  const what =
-    type === "sticky" || type === "text"
+  const custom = !isBuiltin(type) ? customNameProp(type) : "";
+  const what = custom
+    ? excerpt(str(custom))
+    : type === "sticky" || type === "text"
       ? excerpt(str("text"))
       : type === "poll"
         ? excerpt(str("question"))
@@ -171,6 +193,7 @@ function checkProps(type: string, props: unknown): string | null {
 }
 
 export {
+  isBuiltin,
   blockColors,
   checkProps,
   blockLabel,

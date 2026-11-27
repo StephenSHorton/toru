@@ -9,19 +9,25 @@ import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
-import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PencilIcon, PlusIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MoonIcon, MousePointer2Icon, PenLineIcon, PencilIcon, PlusIcon, SunIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
 import { SharePopover, goShare, httpShare } from "@/whiteboard/share";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
 import type { BoardBlocks } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
+import { useBlockLibrary } from "@/whiteboard/block-library";
 import { blockLabel, blockType, blockTypes, newProps, type BlockType } from "@/whiteboard/catalog";
 import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
 import { layoutKinds, type LayoutKind } from "@/whiteboard/layout";
 import { boardTemplates, templateBoard } from "@/whiteboard/templates";
 import type { LiveBoard } from "@/whiteboard/live";
+<<<<<<< HEAD
 import { agentSource, httpBase, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
+=======
+import { boardThemes, parseTheme, setBoardTheme, useBoardTheme, useWindowTheme } from "@/whiteboard/theme";
+import { agentSource, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
+>>>>>>> refs/remotes/origin/main
 import "@/whiteboard/toru-ui-sdk.css";
 
 // The whiteboard window (?view=whiteboard&id=<board>, WindowsService.OpenWhiteboard).
@@ -57,11 +63,21 @@ const agent = createAgent({ allow: askPerson.allow });
 export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   const [live] = useState(() => given ?? openLive());
   const { view, error, doc } = useSyncExternalStore(live.subscribe, live.getState);
+  // Light (the default) or slate grey dark, saved in Go for every board.
+  useWindowTheme();
   const id = live.id;
+<<<<<<< HEAD
   const [shareApi] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("link") === "http" ? httpShare(httpBase(params)) : goShare;
   });
+=======
+  // The person's own blocks (custom types), when the board is in Toru's store.
+  useBlockLibrary(id, !given && (() => {
+    const params = new URLSearchParams(window.location.search);
+    return !!params.get("id") && params.get("link") !== "http";
+  })());
+>>>>>>> refs/remotes/origin/main
   const [pen, setPen] = useState<PenOptions>(() => ({
     active: false,
     color: inkColors[0].token,
@@ -296,7 +312,11 @@ function addBlock(blocks: BoardBlocks, type: BlockType): BoardBlocks {
 
 // The tools down the board's left side: select or pen, then the pen's colour
 // and width (Toru's --ink-* tokens).
+// The white pen is the board's ink colour: it draws dark on a light board.
+const penName = (c: { token: string; name: string }, theme: string) => (c.token === "ink-white" && theme === "light" ? "Black" : c.name);
+
 function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Partial<PenOptions>) => void }) {
+  const theme = useBoardTheme();
   const widths = inkWidths.map((w) => ({ ...w, value: tokenWidth(w.token, w.fallback) }));
   const width = widths.find((w) => w.value === pen.width) ?? widths[0];
   return (
@@ -331,7 +351,7 @@ function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Par
         className="flex flex-col gap-1"
       >
         {inkColors.map((c) => (
-          <Toggle key={c.token} value={c.token} aria-label={c.name} title={c.name} data-pen-colour={c.token}>
+          <Toggle key={c.token} value={c.token} aria-label={penName(c, theme)} title={penName(c, theme)} data-pen-colour={c.token}>
             <span data-slot="pen-swatch" style={{ background: inkColor(c.token) }} />
           </Toggle>
         ))}
@@ -415,8 +435,48 @@ function SampleToolbar({ onAdd, exportMenu, share }: { onAdd: (type: BlockType) 
           </SliderTrack>
         </SliderControl>
       </Slider>
+<<<<<<< HEAD
       {share}
+=======
+      <ThemeSwitch />
+      <Popover>
+        <PopoverTrigger>Share</PopoverTrigger>
+        <PopoverContent className="frost">
+          <PopoverTitle>Share this board</PopoverTitle>
+          <PopoverDescription>Anyone with the link can view it.</PopoverDescription>
+          <div className="flex justify-end gap-2">
+            <PopoverClose>Cancel</PopoverClose>
+            <PopoverClose data-variant="solid">Copy link</PopoverClose>
+          </div>
+        </PopoverContent>
+      </Popover>
+>>>>>>> refs/remotes/origin/main
     </div>
+  );
+}
+
+// Theme: Light (the default) or Dark, for every board; saved in Go
+// (whiteboard/theme.ts), and what PNG, PDF and HTML exports are drawn in.
+function ThemeSwitch() {
+  const theme = useBoardTheme();
+  return (
+    <ToggleGroup
+      aria-label="Theme"
+      data-slot="theme-switch"
+      deselectable={false}
+      value={[theme]}
+      onValueChange={(value) => {
+        const t = parseTheme(value[0]);
+        if (t && t !== theme) void setBoardTheme(t);
+      }}
+      className="flex"
+    >
+      {boardThemes.map((t) => (
+        <Toggle key={t.theme} value={t.theme} aria-label={`${t.title} theme`} title={`${t.title} theme`} data-theme-option={t.theme}>
+          {t.theme === "light" ? <SunIcon aria-hidden="true" /> : <MoonIcon aria-hidden="true" />}
+        </Toggle>
+      ))}
+    </ToggleGroup>
   );
 }
 

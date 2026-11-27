@@ -27,18 +27,27 @@ type portable struct {
 	Images map[string]string `json:"images,omitempty"`
 }
 
-// Assets is every picture name b's image blocks show, sorted.
+// Assets is every picture name b's image blocks show, sorted: built-in
+// image blocks, and the image parts of custom blocks (BlockDef).
 func Assets(b Board) []string {
 	seen := map[string]bool{}
 	for _, x := range b.Blocks {
+		keys := []string{"asset"}
 		if x.Type != "image" {
+			d := b.BoardType(x.Type)
+			if d == nil {
+				continue
+			}
+			keys = d.ImageProps()
+		}
+		var p map[string]any
+		if json.Unmarshal(x.Props, &p) != nil {
 			continue
 		}
-		var p struct {
-			Asset string `json:"asset"`
-		}
-		if json.Unmarshal(x.Props, &p) == nil && assetPattern.MatchString(p.Asset) {
-			seen[p.Asset] = true
+		for _, k := range keys {
+			if a, _ := p[k].(string); assetPattern.MatchString(a) {
+				seen[a] = true
+			}
 		}
 	}
 	out := make([]string, 0, len(seen))

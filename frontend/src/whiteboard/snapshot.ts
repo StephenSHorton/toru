@@ -141,6 +141,9 @@ async function rasterize(snap: Snapshot, scale: number, onTile: (tile: Tile) => 
   const wrap = document.createElement("div")
   wrap.setAttribute("xmlns", "http://www.w3.org/1999/xhtml")
   wrap.className = document.documentElement.className
+  // The whiteboard theme (toru-ui-sdk.css): the SVG's root isn't <html>.
+  const theme = document.documentElement.dataset.theme
+  if (theme) wrap.dataset.theme = theme
   wrap.style.cssText = `width:${width}px;height:${height}px;font-family:${style.fontFamily};color:${style.color};font-size:${style.fontSize};line-height:${style.lineHeight};`
   const css = document.createElement("style")
   css.textContent = pageCSS()

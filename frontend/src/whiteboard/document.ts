@@ -14,6 +14,7 @@
 // document item when a canvas change is turned back into one (`toDocItem`).
 import { facing, sides, type BoardBlock, type BoardBlocks, type BoardLine } from "./board"
 import { blockLabel } from "./catalog"
+import type { BlockDef } from "./custom-types"
 import { fromDocumentStroke, toDocumentStroke } from "./ink"
 
 type Meta = { createdBy?: string; updatedBy?: string }
@@ -54,6 +55,8 @@ type BoardDoc = {
   blocks: DocBlock[]
   links: DocLink[]
   ink: DocStroke[]
+  /** The custom block types the board's blocks use (custom-types.ts); left out when none. */
+  types?: BlockDef[]
 }
 
 /** One change to a board (`board.Op`). Go sets rev, at and kind when it applies it. */
@@ -69,6 +72,10 @@ type BoardOp = {
   ink?: DocStroke[]
   links?: DocLink[]
   pos?: Record<string, number>
+  /** Custom block types put on the board (added, or a newer version of the same block). */
+  types?: BlockDef[]
+  /** Custom block types taken off the board (undo uses it). */
+  dropTypes?: string[]
 }
 
 type ListKey = "frames" | "blocks" | "ink" | "links"
@@ -110,10 +117,22 @@ function applyOp(doc: BoardDoc, op: BoardOp): BoardDoc {
     const list = gone.size ? (doc[key] as DocItem[]).filter((x) => !gone.has(x.id)) : (doc[key] as DocItem[])
     ;(next as Record<ListKey, DocItem[]>)[key] = put(list, op[key] as DocItem[] | undefined, op.pos)
   }
+  if (op.types?.length || op.dropTypes?.length) next.types = putTypes(doc.types, op.types, op.dropTypes)
   if (op.name !== undefined) next.name = op.name
   if (op.rev !== undefined) next.rev = op.rev
   if (op.at) next.updatedAt = op.at
   return next
+}
+
+/** A board's custom types after dropping and putting some, as Go's applier.types; undefined when none are left. */
+function putTypes(list: BlockDef[] | undefined, put: BlockDef[] = [], drop: string[] = []): BlockDef[] | undefined {
+  let out = (list ?? []).filter((d) => !drop.includes(d.type))
+  for (const d of put) {
+    const i = out.findIndex((x) => x.type === d.type)
+    if (i >= 0) out = [...out.slice(0, i), d, ...out.slice(i + 1)]
+    else out = [...out, d]
+  }
+  return out.length ? out : undefined
 }
 
 /** Which list an id is in, if any. */
@@ -226,6 +245,7 @@ function sameItem(a: unknown, b: unknown): boolean {
 }
 
 export {
+  putTypes,
   applyOp,
   blockKind,
   findItem,

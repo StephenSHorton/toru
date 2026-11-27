@@ -127,12 +127,19 @@ type Op struct {
 	Ink    []Stroke       `json:"ink,omitempty"`
 	Links  []Link         `json:"links,omitempty"`
 	Pos    map[string]int `json:"pos,omitempty"`
+	// Types puts custom block type definitions on the board (BlockDef):
+	// a new type is added, a newer version of one the board has (same
+	// Origin) replaces it. DropTypes takes types off; a type a block still
+	// uses can't go. Undo uses both to put a board's types back.
+	Types     []BlockDef `json:"types,omitempty"`
+	DropTypes []string   `json:"dropTypes,omitempty"`
 }
 
 // empty reports whether the op changes nothing.
 func (o *Op) empty() bool {
 	return o.Name == nil && len(o.Delete) == 0 && len(o.Frames) == 0 &&
-		len(o.Blocks) == 0 && len(o.Ink) == 0 && len(o.Links) == 0
+		len(o.Blocks) == 0 && len(o.Ink) == 0 && len(o.Links) == 0 &&
+		len(o.Types) == 0 && len(o.DropTypes) == 0
 }
 
 // ErrNothingToUndo and ErrNothingToRedo are returned by Undo and Redo when
@@ -249,9 +256,14 @@ func (d *Doc) apply(op Op, kind string, restore bool) (fwd, inv Op, err error) {
 
 	inv = restoreOp(before, a.touched)
 	fwd = restoreOp(a.b, a.touched)
+	inv.Types, inv.DropTypes = restoreTypes(before, a.touchedTypes)
+	fwd.Types, fwd.DropTypes = restoreTypes(a.b, a.touchedTypes)
 	if op.Name != nil {
 		n, old := a.b.Name, before.Name
 		fwd.Name, inv.Name = &n, &old
+	}
+	if fwd.empty() {
+		return Op{}, Op{}, errors.New("the change changes nothing")
 	}
 	fwd.Rev, fwd.At, fwd.Kind, fwd.Source = a.b.Rev, t, kind, op.Source
 	d.b = a.b
@@ -266,6 +278,8 @@ type applier struct {
 	kinds   map[string]string // every id on the board, to its kind
 	touched []string          // ids the op deleted, put or changed, in order
 	seen    map[string]bool
+	// touchedTypes are the custom block types the op put or dropped.
+	touchedTypes []string
 }
 
 func (a *applier) touch(id string) {
@@ -280,6 +294,9 @@ func (a *applier) touch(id string) {
 
 func (a *applier) run(op Op) error {
 	if err := a.del(op.Delete); err != nil {
+		return err
+	}
+	if err := a.types(op.Types, op.DropTypes); err != nil {
 		return err
 	}
 	var err error
@@ -305,7 +322,101 @@ func (a *applier) run(op Op) error {
 		}
 		a.b.Name = name
 	}
+	if len(op.DropTypes) > 0 && !a.restore {
+		for _, t := range op.DropTypes {
+			for _, x := range a.b.Blocks {
+				if x.Type == t {
+					return fmt.Errorf("block type %q is still used by block %q", t, x.ID)
+				}
+			}
+		}
+	}
 	return a.b.checkRefs(a.kinds)
+}
+
+// types puts and drops the board's custom block types. Outside undo and
+// redo, a type the board has can only be replaced by a newer version of
+// the same block (same Origin); the same version is left as it is.
+func (a *applier) types(put []BlockDef, drop []string) error {
+	if len(put) == 0 && len(drop) == 0 {
+		return nil
+	}
+	list := append([]BlockDef(nil), a.b.Types...)
+	find := func(t string) int {
+		for i := range list {
+			if list[i].Type == t {
+				return i
+			}
+		}
+		return -1
+	}
+	touched := map[string]bool{}
+	touch := func(t string) error {
+		if touched[t] {
+			return fmt.Errorf("the change puts or drops block type %q twice", t)
+		}
+		touched[t] = true
+		a.touchedTypes = append(a.touchedTypes, t)
+		return nil
+	}
+	for _, t := range drop {
+		i := find(t)
+		if i < 0 {
+			return fmt.Errorf("the board has no custom block type %q", t)
+		}
+		if err := touch(t); err != nil {
+			return err
+		}
+		list = append(list[:i], list[i+1:]...)
+	}
+	for _, d := range put {
+		d := d
+		if err := d.Check(); err != nil {
+			return err
+		}
+		i := find(d.Type)
+		if i >= 0 && !a.restore {
+			old := list[i]
+			if old.Origin != d.Origin {
+				return fmt.Errorf("this board already has a different block type called %q: give yours another name", d.Type)
+			}
+			if d.Version < old.Version {
+				return fmt.Errorf("this board has a newer version of block type %q (%d, not %d)", d.Type, old.Version, d.Version)
+			}
+			if d.Version == old.Version {
+				continue
+			}
+		}
+		if err := touch(d.Type); err != nil {
+			return err
+		}
+		if i >= 0 {
+			list[i] = d
+		} else {
+			list = append(list, d)
+		}
+	}
+	if len(list) > MaxBoardTypes {
+		return fmt.Errorf("the board would have more than %d custom block types", MaxBoardTypes)
+	}
+	if len(list) == 0 {
+		list = nil
+	}
+	a.b.Types = list
+	return nil
+}
+
+// restoreTypes is what brings the named custom types to their state in b:
+// the ones b has, put back, and the rest dropped.
+func restoreTypes(b Board, names []string) (put []BlockDef, drop []string) {
+	for _, t := range names {
+		if d := b.BoardType(t); d != nil {
+			put = append(put, *d)
+		} else {
+			drop = append(drop, t)
+		}
+	}
+	return put, drop
 }
 
 // del removes ids, the links to them, and empties the frames they were.
@@ -578,6 +689,9 @@ func shallow(b Board) Board {
 	b.Blocks = append([]Block{}, b.Blocks...)
 	b.Ink = append([]Stroke{}, b.Ink...)
 	b.Links = append([]Link{}, b.Links...)
+	if b.Types != nil {
+		b.Types = append([]BlockDef{}, b.Types...)
+	}
 	return b
 }
 
