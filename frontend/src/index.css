@@ -37,6 +37,19 @@
 
   /* SHARP EDGES — every radius derives from 0. */
   --radius: 0rem;
+
+  /* Whiteboard pens (frontend/src/whiteboard/ink.ts). A stroke keeps the
+     token's name, like "ink-blue", so it follows these. White and blue are
+     Toru's own foreground and primary; red is destructive. Widths are
+     unitless canvas units (CSS pixels at 100% zoom). */
+  --ink-white: var(--foreground);
+  --ink-blue: var(--primary);
+  --ink-red: var(--destructive);
+  --ink-yellow: oklch(0.86 0.15 92);
+  --ink-green: oklch(0.76 0.15 155);
+  --ink-width-fine: 2;
+  --ink-width-medium: 4;
+  --ink-width-bold: 8;
 }
 
 @theme inline {
