@@ -237,8 +237,9 @@ var fontChecks sync.Map // name -> error (nil = draws)
 
 // CheckFont reports whether the export can draw text in the installed font
 // called name, by drawing one line with it in ffmpeg (cached per name). A
-// few fonts (Mongolian Baiti) load but fail in drawtext; the picker refuses
-// those rather than letting the export fail later.
+// few fonts load but fail in drawtext (Mongolian Baiti, in the pinned LGPL
+// build Toru ships; newer full builds draw it); the picker refuses those
+// rather than letting the export fail later.
 func CheckFont(ctx context.Context, name string) error {
 	if v, ok := fontChecks.Load(name); ok {
 		err, _ := v.(error)
@@ -250,10 +251,7 @@ func CheckFont(ctx context.Context, name string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	err := capture.RunFFmpeg(ctx, []string{"-hide_banner", "-loglevel", "error",
-		"-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.1",
-		"-vf", "drawtext=fontfile=" + filterValue(filepath.ToSlash(file)) + ":text=Ag:fontsize=24:borderw=1:text_align=C:y_align=font",
-		"-frames:v", "1", "-f", "null", "-"})
+	err := capture.RunFFmpeg(ctx, fontCheckArgs(file))
 	if ctx.Err() != nil {
 		return ctx.Err() // a timeout says nothing about the font: not cached
 	}
@@ -265,6 +263,15 @@ func CheckFont(ctx context.Context, name string) error {
 	}
 	fontChecks.Store(name, err)
 	return err
+}
+
+// fontCheckArgs is the ffmpeg command line CheckFont runs: one line of text
+// drawn in the font file, with the options the export uses.
+func fontCheckArgs(file string) []string {
+	return []string{"-hide_banner", "-loglevel", "error",
+		"-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.1",
+		"-vf", "drawtext=fontfile=" + filterValue(filepath.ToSlash(file)) + ":text=Ag:fontsize=24:borderw=1:text_align=C:y_align=font",
+		"-frames:v", "1", "-f", "null", "-"}
 }
 
 // ListFonts is the installed fonts for the text font picker, sorted by name;
