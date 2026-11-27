@@ -63,7 +63,7 @@ func readFile(path string) (Board, error) {
 	if err != nil {
 		return Board{}, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
 	if err != nil {
 		return Board{}, err
@@ -93,7 +93,7 @@ func writeFile(b Board) error {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return err
 	}
 	return nil
@@ -256,6 +256,19 @@ func (s *Store) Apply(id string, op Op) (Op, error) {
 	return s.change(id, func(d *Doc) (Op, error) { return d.Apply(op) })
 }
 
+// Edit makes a change worked out from the board as it stands: f gets a copy
+// of the board and returns the op to apply. Reading and applying happen
+// under one lock, so no other change lands in between.
+func (s *Store) Edit(id string, f func(b Board) (Op, error)) (Op, error) {
+	return s.change(id, func(d *Doc) (Op, error) {
+		op, err := f(d.Board())
+		if err != nil {
+			return Op{}, err
+		}
+		return d.Apply(op)
+	})
+}
+
 // Undo takes back a board's latest change; src is who asked.
 func (s *Store) Undo(id string, src Source) (Op, error) {
 	return s.change(id, func(d *Doc) (Op, error) { return d.Undo(src) })
@@ -304,3 +317,10 @@ func randHex(n int) string {
 	}
 	return hex.EncodeToString(b)
 }
+
+// RandomID is a fresh item id with prefix ("blk", "frm", "lnk"), like the
+// ones Apply makes. Check it isn't on the board before using it.
+func RandomID(prefix string) string { return prefix + "-" + randHex(6) }
+
+// ValidID reports whether id can be a board or item id.
+func ValidID(id string) bool { return idPattern.MatchString(id) }

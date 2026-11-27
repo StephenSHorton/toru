@@ -22,6 +22,7 @@ type request struct {
 	Method string          `json:"method"`
 	Name   string          `json:"name,omitempty"`
 	Input  json.RawMessage `json:"input,omitempty"`
+	Client string          `json:"client,omitempty"`
 }
 
 type response struct {
@@ -94,7 +95,13 @@ func (c *Client) List(ctx context.Context) ([]CommandInfo, error) {
 
 // Call runs one command and returns its raw JSON result.
 func (c *Client) Call(ctx context.Context, name string, input json.RawMessage) (json.RawMessage, error) {
-	return c.do(ctx, request{Method: "call", Name: name, Input: input})
+	return c.CallAs(ctx, "", name, input)
+}
+
+// CallAs is Call saying who is calling: Toru tags the changes the command
+// makes with caller (board changes become "agent:<caller>").
+func (c *Client) CallAs(ctx context.Context, caller, name string, input json.RawMessage) (json.RawMessage, error) {
+	return c.do(ctx, request{Method: "call", Name: name, Input: input, Client: caller})
 }
 
 func (c *Client) do(ctx context.Context, req request) (json.RawMessage, error) {
