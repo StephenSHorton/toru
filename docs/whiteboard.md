@@ -91,6 +91,17 @@ What that gives the board:
   or in use. Every remove control carries `data-agent-confirm`, so an
   agent's removal waits for the person (and fails with "Needs a person"
   while the window's bridge has no `allow`).
+- **Click selects, double-click edits (whiteboard#30):** a press or drag
+  anywhere on a block, its text fields included, selects and moves it.
+  Double-click (or Enter on the focused block) edits its text, with the
+  caret where you double-clicked; Escape or a press outside stops editing
+  and leaves the block selected. While a block edits, presses and drags in
+  it go to its text and never move it. Quick controls (ticks, votes, stars,
+  buttons, swatches) still take one press. The rule is the board's, by
+  selector (`blockTextFields` in `board.ts`), so a new block type gets it
+  for free; `board.css` stops text fields taking the pointer until their
+  block edits, and the hover cursor is "move" on blocks and "text" only in
+  a field being edited. Agents fill fields through the bridge as before.
 - **Images** are copied into `%AppData%\toru\boards\images`, named by their
   SHA-256, from a chosen or dropped file or a Library screenshot
   (`board.ImageService`, served at `/__board/image/<name>`). Agents import one
@@ -238,7 +249,8 @@ or code from an agent is ever run.** A custom block is data only.
   catalog type's JSON Schema keywords (enum, items, properties, required,
   min/max, lengths), so a type added to the catalog later (or an AI-built
   type that `blockType()` finds, whiteboard#27) gets a form with no new
-  code. A schema it can't map is a JSON box. Under the props: X, Y, width,
+  code. The panel draws again when custom types arrive (`subscribeTypes`),
+  since the library can load after the board. A schema it can't map is a JSON box. Under the props: X, Y, width,
   height, rotation, the frame it sits in, Locked, and who made it and last
   changed it. A frame shows its name and colour; ink its colour and width;
   a block lists its lines, each a button that picks the line.

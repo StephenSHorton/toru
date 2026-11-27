@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -35,6 +36,9 @@ func TestNotifierPostsOnTerminalEdges(t *testing.T) {
 }
 
 func TestReceiveNoteOffersShowInExplorer(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	n, ok := receiveNote(ReceiveState{Phase: RecvDone, Name: "a.mp4", OutPath: `C:\Downloads\a (1).mp4`, Dir: `C:\Downloads`})
 	if !ok {
 		t.Fatal("no note for a finished receive")

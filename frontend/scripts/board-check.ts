@@ -11,7 +11,7 @@ GlobalRegistrator.register({ url: "http://127.0.0.1/" });
 
 const { mount } = await import("@ui-sdk/core/testing");
 const { createAgent } = await import("@ui-sdk/core/agent");
-const { board, nameLines, facing } = await import("../src/whiteboard/board");
+const { board, nameLines, facing, dotGrid } = await import("../src/whiteboard/board");
 const { edgePath } = await import("../src/whiteboard/edge-path");
 
 type Blocks = import("../src/whiteboard/board").BoardBlocks;
@@ -322,6 +322,128 @@ function shiftPress(el: HTMLElement) {
   ok("Ctrl+C doesn't start a connection", !b.state.connecting);
 }
 
+// ── click selects, double-click edits (a field in a block) ────────────
+{
+  const el = b.part("block", "b11")!;
+  const field = document.createElement("textarea");
+  field.value = "Some notes";
+  el.append(field);
+  const tick = document.createElement("button");
+  tick.setAttribute("role", "checkbox");
+  el.append(tick);
+  const at = { ...b.state.blocks.b11 };
+  b.root.focus();
+  await b.click(b.root);
+  await b.click(field);
+  ok("a click on a block's text field selects the block", b.state.selected.join() === "b11", b.state.selected);
+  ok("...and doesn't edit it", b.state.editing === null && !el.hasAttribute("data-editing"), b.state.editing);
+  await b.drag(field, { by: { x: 16, y: 8 } });
+  ok("a drag from a text field moves the block", b.state.blocks.b11.x === at.x + 16 && b.state.blocks.b11.y === at.y + 8, b.state.blocks.b11);
+  placeOnScreen();
+
+  field.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, button: 0, clientX: 10, clientY: 10 }));
+  await b.settle();
+  ok("double-click edits the block's text", b.state.editing === "b11" && el.hasAttribute("data-editing") && document.activeElement === field, b.state.editing);
+  const still = { ...b.state.blocks.b11 };
+  await b.drag(field, { by: { x: 40, y: 40 } });
+  ok("while editing, a drag in the text doesn't move the block", b.state.blocks.b11.x === still.x && b.state.blocks.b11.y === still.y, b.state.blocks.b11);
+  field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  await b.settle();
+  ok("Escape stops editing, keeps the block selected and focused", b.state.editing === null && b.state.selected.join() === "b11" && document.activeElement === el, [b.state.editing, b.state.selected]);
+  await b.keys("Enter");
+  ok("Enter on the block edits its text", b.state.editing === "b11" && document.activeElement === field, b.state.editing);
+  ok("...with the caret at the end", field.selectionStart === field.value.length, field.selectionStart);
+  await b.click(b.root);
+  ok("a click outside stops editing and keeps the selection", b.state.editing === null && b.state.selected.join() === "b11", [b.state.editing, b.state.selected]);
+  await b.click(b.root);
+  ok("the next click outside clears the selection", b.state.selected.length === 0, b.state.selected);
+
+  // A quick control takes one press and never starts a move or an edit.
+  const was = { ...b.state.blocks.b11 };
+  await b.drag(tick, { by: { x: 30, y: 0 } });
+  ok("a drag from a quick control doesn't move the block", b.state.blocks.b11.x === was.x, b.state.blocks.b11);
+  tick.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, button: 0 }));
+  await b.settle();
+  ok("a double-click on a quick control doesn't edit", b.state.editing === null, b.state.editing);
+
+  // A block with no text field doesn't edit.
+  b.part("block", "b10")!.focus();
+  await b.keys("Enter");
+  ok("Enter on a block with no text does nothing", b.state.editing === null, b.state.editing);
+  field.remove();
+  tick.remove();
+}
+
 b.unmount();
+
+// ── Snap to grid: a board on the dots' grid (dotGrid, 24) ─────────────
+{
+  ok("the dots are 24 apart", dotGrid === 24, dotGrid);
+  const g = mount(
+    board,
+    {
+      grid: dotGrid,
+      defaultBlocks: {
+        a: { label: "Aligned", x: 0, y: 0, width: 192, height: 96 },
+        odd: { label: "Placed by an agent", x: 13, y: 250, width: 150, height: 70 },
+      },
+    },
+    `<root aria-label="Snap board"><world>
+      <block value="a">Aligned${["n", "ne", "e", "se", "s", "sw", "w", "nw"].map((h) => `<handle value="a:${h}"></handle>`).join("")}</block>
+      <block value="odd">Odd</block>
+    </world><lasso></lasso><instructions>i</instructions></root>`,
+  );
+  g.root.getBoundingClientRect = () => rect(0, 0, 1000, 600);
+  await g.api.viewport.setViewport({ x: 0, y: 0, zoom: 1 });
+  for (const [id, box] of Object.entries(g.state.blocks)) g.part("block", id)!.getBoundingClientRect = () => rect(box.x, box.y, box.width, box.height);
+  await g.settle();
+
+  // Mid-drag, the block already shows on the dots: 37 right and 10 down shows as 48 right (2 dots), 0 down.
+  const el = g.part("block", "a")!;
+  const pe = (type: string, x: number, y: number) =>
+    new PointerEvent(type, { pointerId: 3, pointerType: "mouse", clientX: x, clientY: y, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true, cancelable: true });
+  el.dispatchEvent(pe("pointerdown", 20, 20));
+  for (const t of [0.3, 0.6, 1]) window.dispatchEvent(pe("pointermove", 20 + 37 * t, 20 + 10 * t));
+  el.dispatchEvent(pe("pointermove", 57, 30));
+  await g.settle();
+  const style = el.getAttribute("style") ?? "";
+  ok("while dragging, the block shows on the dots", /translate:\s*48px 0px/.test(style) && g.api.liveBox(g.state, "a")?.x === 48, style);
+  window.dispatchEvent(pe("pointerup", 57, 30));
+  el.dispatchEvent(pe("pointerup", 57, 30));
+  await g.settle();
+  ok("the drop lands where it showed", g.state.blocks.a.x === 48 && g.state.blocks.a.y === 0, g.state.blocks.a);
+
+  // A resize lands its edges on the dots, and can't go below the smallest box on the grid.
+  for (const [id, box] of Object.entries(g.state.blocks)) g.part("block", id)!.getBoundingClientRect = () => rect(box.x, box.y, box.width, box.height);
+  await g.drag(g.part("handle", "a:se")!, { by: { x: 30, y: 17 } });
+  ok("a resize lands on the dots", g.state.blocks.a.width === 216 && g.state.blocks.a.height === 120, g.state.blocks.a);
+  await g.drag(g.part("handle", "a:se")!, { by: { x: -1000, y: -1000 } });
+  ok("the smallest box is on the grid too", g.state.blocks.a.width === 48 && g.state.blocks.a.height === 48, g.state.blocks.a);
+
+  // An agent's exact x/y and size stay exact.
+  g.api.moveBlock("odd", 101, 203);
+  ok("an agent's moveBlock keeps its exact x/y", g.state.blocks.odd.x === 101 && g.state.blocks.odd.y === 203, g.state.blocks.odd);
+  g.api.resizeBlock("odd", 155, 77);
+  ok("an agent's resizeBlock keeps its exact size", g.state.blocks.odd.width === 155 && g.state.blocks.odd.height === 77, g.state.blocks.odd);
+  g.api.addBlock("new", { label: "Added in code", x: 7, y: 9, width: 50, height: 50 });
+  ok("a block added in code keeps its exact x/y", g.state.blocks.new.x === 7 && g.state.blocks.new.y === 9, g.state.blocks.new);
+  g.unmount();
+}
+
+// ── Snap to grid off: grid 1 places blocks where they're dropped ──────
+{
+  const f = mount(
+    board,
+    { grid: 1, defaultBlocks: { a: { label: "Free", x: 0, y: 0, width: 100, height: 60 } } },
+    `<root aria-label="Free board"><world><block value="a">Free</block></world><lasso></lasso><instructions>i</instructions></root>`,
+  );
+  f.root.getBoundingClientRect = () => rect(0, 0, 1000, 600);
+  await f.api.viewport.setViewport({ x: 0, y: 0, zoom: 1 });
+  f.part("block", "a")!.getBoundingClientRect = () => rect(0, 0, 100, 60);
+  await f.drag(f.part("block", "a")!, { by: { x: 37, y: 10 } });
+  ok("with snapping off, a drag lands where it's dropped", f.state.blocks.a.x === 37 && f.state.blocks.a.y === 10, f.state.blocks.a);
+  f.unmount();
+}
+
 console.log(`board-check: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

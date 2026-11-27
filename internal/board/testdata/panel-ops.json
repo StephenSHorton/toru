@@ -88,6 +88,24 @@
         },
         "createdBy": "person",
         "updatedBy": "person"
+      },
+      {
+        "id": "u1",
+        "type": "bug-report",
+        "x": 1400,
+        "y": 600,
+        "w": 380,
+        "h": 480,
+        "props": {
+          "title": "Save fails",
+          "severity": "medium",
+          "steps": [],
+          "expected": "",
+          "actual": "",
+          "fixed": false
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
       }
     ],
     "links": [
@@ -120,6 +138,145 @@
         "width": 4,
         "createdBy": "person",
         "updatedBy": "person"
+      }
+    ],
+    "types": [
+      {
+        "type": "bug-report",
+        "label": "Bug report",
+        "description": "A bug: how bad it is, how to make it happen, what should happen and what does.",
+        "icon": "bug",
+        "w": 380,
+        "h": 480,
+        "props": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "title",
+            "severity"
+          ],
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ]
+            },
+            "steps": {
+              "type": "array",
+              "maxItems": 30,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "done": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "expected": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "actual": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "fixed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "defaults": {
+          "title": "New bug",
+          "severity": "medium",
+          "steps": [],
+          "expected": "",
+          "actual": "",
+          "fixed": false
+        },
+        "layout": {
+          "part": "stack",
+          "gap": "m",
+          "children": [
+            {
+              "part": "stack",
+              "direction": "row",
+              "justify": "between",
+              "children": [
+                {
+                  "part": "badge",
+                  "prop": "severity",
+                  "colors": {
+                    "low": "grey",
+                    "medium": "yellow",
+                    "high": "orange",
+                    "critical": "pink"
+                  }
+                },
+                {
+                  "part": "checkbox",
+                  "prop": "fixed",
+                  "label": "Fixed"
+                }
+              ]
+            },
+            {
+              "part": "field",
+              "prop": "title",
+              "label": "Bug"
+            },
+            {
+              "part": "choice",
+              "prop": "severity",
+              "label": "Severity",
+              "style": "segmented"
+            },
+            {
+              "part": "checklist",
+              "prop": "steps",
+              "label": "Steps to reproduce"
+            },
+            {
+              "part": "stack",
+              "direction": "row",
+              "align": "start",
+              "children": [
+                {
+                  "part": "field",
+                  "prop": "expected",
+                  "label": "Expected",
+                  "multiline": true
+                },
+                {
+                  "part": "field",
+                  "prop": "actual",
+                  "label": "Actual",
+                  "multiline": true
+                }
+              ]
+            }
+          ]
+        },
+        "version": 1,
+        "origin": "blt-panel1"
       }
     ]
   },
@@ -662,6 +819,31 @@
           }
         }
       ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "u1",
+          "type": "bug-report",
+          "x": 1400,
+          "y": 600,
+          "w": 380,
+          "h": 480,
+          "props": {
+            "title": "Save fails on Mac",
+            "severity": "medium",
+            "steps": [],
+            "expected": "",
+            "actual": "",
+            "fixed": false
+          }
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
     }
   ],
   "end": {
@@ -669,7 +851,7 @@
     "version": 1,
     "id": "props",
     "name": "Props",
-    "rev": 27,
+    "rev": 29,
     "frames": [
       {
         "id": "frm-plan",
@@ -756,6 +938,24 @@
         },
         "createdBy": "person",
         "updatedBy": "person"
+      },
+      {
+        "id": "u1",
+        "type": "bug-report",
+        "x": 1400,
+        "y": 600,
+        "w": 380,
+        "h": 480,
+        "props": {
+          "title": "Save fails",
+          "severity": "medium",
+          "steps": [],
+          "expected": "",
+          "actual": "",
+          "fixed": false
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
       }
     ],
     "links": [
@@ -788,6 +988,145 @@
         "width": 4,
         "createdBy": "person",
         "updatedBy": "person"
+      }
+    ],
+    "types": [
+      {
+        "type": "bug-report",
+        "label": "Bug report",
+        "description": "A bug: how bad it is, how to make it happen, what should happen and what does.",
+        "icon": "bug",
+        "w": 380,
+        "h": 480,
+        "props": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "title",
+            "severity"
+          ],
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ]
+            },
+            "steps": {
+              "type": "array",
+              "maxItems": 30,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "done": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "expected": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "actual": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "fixed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "defaults": {
+          "title": "New bug",
+          "severity": "medium",
+          "steps": [],
+          "expected": "",
+          "actual": "",
+          "fixed": false
+        },
+        "layout": {
+          "part": "stack",
+          "gap": "m",
+          "children": [
+            {
+              "part": "stack",
+              "direction": "row",
+              "justify": "between",
+              "children": [
+                {
+                  "part": "badge",
+                  "prop": "severity",
+                  "colors": {
+                    "low": "grey",
+                    "medium": "yellow",
+                    "high": "orange",
+                    "critical": "pink"
+                  }
+                },
+                {
+                  "part": "checkbox",
+                  "prop": "fixed",
+                  "label": "Fixed"
+                }
+              ]
+            },
+            {
+              "part": "field",
+              "prop": "title",
+              "label": "Bug"
+            },
+            {
+              "part": "choice",
+              "prop": "severity",
+              "label": "Severity",
+              "style": "segmented"
+            },
+            {
+              "part": "checklist",
+              "prop": "steps",
+              "label": "Steps to reproduce"
+            },
+            {
+              "part": "stack",
+              "direction": "row",
+              "align": "start",
+              "children": [
+                {
+                  "part": "field",
+                  "prop": "expected",
+                  "label": "Expected",
+                  "multiline": true
+                },
+                {
+                  "part": "field",
+                  "prop": "actual",
+                  "label": "Actual",
+                  "multiline": true
+                }
+              ]
+            }
+          ]
+        },
+        "version": 1,
+        "origin": "blt-panel1"
       }
     ]
   }

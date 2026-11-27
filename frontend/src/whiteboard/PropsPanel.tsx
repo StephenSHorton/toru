@@ -25,6 +25,7 @@ import { Textarea } from "@ui-sdk/react/textarea";
 import { CheckIcon, ChevronDownIcon, PlusIcon, XIcon } from "lucide-react";
 import { who, type LineLook } from "./BoardView";
 import { blockColors, blockLabel, blockType, checkProps, type Schema } from "./catalog";
+import { subscribeTypes, typesStamp } from "./custom-types";
 import { findItem, type BoardDoc, type DocBlock, type DocFrame, type DocItem, type DocLink, type DocStroke, type ListKey } from "./document";
 import { inkColor, inkColors, inkWidths, tokenWidth } from "./ink";
 import type { DocPatch, LiveBoard } from "./live";
@@ -62,6 +63,9 @@ function targetsOf(doc: BoardDoc | null, selected: readonly string[], link: stri
 }
 
 function PropsPanel({ live, doc, selected, link, onPickLink, onSelect, source }: PropsPanelProps) {
+  // AI-built block types (custom-types.ts) can arrive after the first draw:
+  // draw again then, so their blocks get their own form.
+  React.useSyncExternalStore(subscribeTypes, typesStamp, typesStamp);
   const targets = targetsOf(doc, selected, link);
   const open = targets.length > 0;
   // While it slides away it keeps showing what it showed.

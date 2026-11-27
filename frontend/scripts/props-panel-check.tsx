@@ -19,6 +19,9 @@
 //   8. A panel change made while typing in a block is still waiting, or
 //      right after another panel change, builds on it and never puts the
 //      old value back. F6 hops between the board and the panel.
+//   10. AI-built block types (whiteboard#27): a block of a type the board
+//      carries gets a form from that type's schema, and one whose type
+//      arrives after the panel drew is drawn again with its form.
 //   9. The ops the panel sent go to internal/board/testdata/panel-ops.json,
 //      which Go's TestPanelOps applies through the real store.
 //
@@ -47,7 +50,11 @@ const React = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { LiveBoard } = await import("../src/whiteboard/live");
 const { memoryLink } = await import("../src/whiteboard/links");
-const { SchemaField } = await import("../src/whiteboard/PropsPanel");
+const { PropsPanel, SchemaField } = await import("../src/whiteboard/PropsPanel");
+const { setLibraryTypes } = await import("../src/whiteboard/custom-types");
+// Two types agents built with board.block.define (whiteboard#27).
+const custom = (await import("../../internal/board/testdata/custom-blocks.json")).default as { blocks: Record<string, any>[] };
+const [ideaDef, bugDef] = custom.blocks.map((b, i) => ({ ...b, version: 1, origin: `blt-panel${i}` }));
 const { default: Whiteboard } = await import("../src/routes/Whiteboard");
 
 type BoardDoc = import("../src/whiteboard/document").BoardDoc;
@@ -84,7 +91,9 @@ const start: BoardDoc = {
   ],
   links: [{ id: "lnk-12", from: "s1", to: "s2", fromPort: "right", toPort: "left", label: "leads to", ...meta }],
   ink: [{ id: "ink-1", points: [240, 340, 0.5, 330, 400, 0.7, 420, 360, 0.5], color: "ink-blue", width: 4, ...meta }],
+  types: [bugDef as any],
 };
+start.blocks.push({ id: "u1", type: "bug-report", x: 1400, y: 600, w: 380, h: 480, props: { ...bugDef.defaults, title: "Save fails" }, createdBy: "agent:Claude Code", updatedBy: "agent:Claude Code" });
 
 const mem = memoryLink(start);
 const sent: BoardOp[] = [];
@@ -372,6 +381,26 @@ await settle();
 ok("nothing selected: the panel hides and is inert", !open() && panel().hasAttribute("inert"));
 ok("the window ends in step with the store", JSON.stringify(live.getState().doc) === JSON.stringify(mem.board()));
 
+// 10. A block of a type an agent built, which the board carries.
+{
+  press(block("u1"));
+  await settle();
+  ok("an AI-built block shows its type's label", $("h2", panel())?.textContent === "Bug report", $("h2", panel())?.textContent);
+  const title = byLabel<HTMLInputElement>(/^Title of /);
+  ok("... its text from its own schema", title?.value === "Save fails", title?.value);
+  ok("... its enum a choice", !!byLabel(/^Severity of /));
+  ok("... its list of objects, a list", !!panel().querySelector('[data-slot="props-panel-list"]'));
+  const n = sent.length;
+  await type(title!, "Save fails on Mac");
+  leave(title!);
+  await settle();
+  ok("an edit to it is one op", sent.length === n + 1 && item("u1").props.title === "Save fails on Mac", item("u1").props);
+  ok("... checked against its type's schema", byLabel<HTMLInputElement>(/^Title of /)?.value === "Save fails on Mac");
+  await undo();
+  ok("... and Ctrl+Z takes it back", item("u1").props.title === "Save fails", item("u1").props.title);
+  await none();
+}
+
 // 7. A schema the window has never seen.
 const made = document.createElement("div");
 document.body.append(made);
@@ -416,6 +445,25 @@ key(lvl, "Enter");
 await settle();
 ok("a number is kept to its schema's maximum", (got as { level?: number })?.level === 5, got);
 madeRoot.unmount();
+
+// 10b. A type that arrives after the panel drew (the library loads late).
+{
+  const lateDoc = structuredClone(mem.board());
+  lateDoc.blocks.push({ id: "f1", type: ideaDef.type, x: 0, y: 2000, w: 340, h: 300, props: { ...ideaDef.defaults }, createdBy: "person", updatedBy: "person" } as any);
+  const at = document.createElement("div");
+  document.body.append(at);
+  const root = createRoot(at);
+  root.render(<PropsPanel live={live} doc={lateDoc} selected={["f1"]} link={null} onPickLink={() => {}} onSelect={() => {}} />);
+  await settle();
+  const h2 = () => at.querySelector("h2")?.textContent;
+  ok("before its type arrives, the block shows by its type name", h2()?.toLowerCase() === ideaDef.type, h2());
+  setLibraryTypes([ideaDef as any]);
+  await settle();
+  ok("when it arrives, the panel draws again with its label", h2() === ideaDef.label, h2());
+  ok("... and a form from its schema", at.querySelectorAll('[data-slot="props-panel-section"] [aria-label]').length > 2);
+  setLibraryTypes([]);
+  root.unmount();
+}
 
 // 9. The panel's ops, for Go.
 {

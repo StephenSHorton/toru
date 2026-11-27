@@ -456,5 +456,39 @@ ok("no error shown", live.getState().error === null, live.getState().error);
   ok("still no error shown", live.getState().error === null, live.getState().error);
 }
 
+// ── 5. The toolbar: no dead controls ──────────────────────────────────
+{
+  const snapBox = () =>
+    [...host.querySelectorAll<HTMLElement>('[role="checkbox"]')].find((c) => c.closest("label")?.textContent?.includes("Snap to grid"));
+  ok("the zoom slider is gone", !host.querySelector('[role="slider"]') && !host.querySelector('[aria-label="Zoom"]'));
+  ok("Snap to grid starts ticked", snapBox()?.getAttribute("aria-checked") === "true", snapBox()?.outerHTML.slice(0, 120));
+  const before = { ...memBlock("s1")! };
+  el("s1")!.focus();
+  key(el("s1")!, "ArrowRight", { altKey: true });
+  await settle();
+  ok("... and Alt+arrow moves a block one dot (24)", memBlock("s1")!.x === before.x + 24, [before.x, memBlock("s1")!.x]);
+  snapBox()!.click();
+  await settle();
+  ok("unticking it is saved", snapBox()?.getAttribute("aria-checked") === "false" && localStorage.getItem("toru.whiteboard.snapToGrid") === "0", localStorage.getItem("toru.whiteboard.snapToGrid"));
+  const was = memBlock("s1")!.x;
+  el("s1")!.focus();
+  key(el("s1")!, "ArrowRight", { altKey: true });
+  await settle();
+  ok("... and moves go where they're put (1 unit)", memBlock("s1")!.x === was + 1, [was, memBlock("s1")!.x]);
+  snapBox()!.click();
+  await settle();
+  ok("ticking it again is saved", localStorage.getItem("toru.whiteboard.snapToGrid") === "1");
+  const names = JSON.stringify(agent.snapshot().map((c) => [c.component, c.label]));
+  ok("agents don't see Share, which does nothing yet", !/share/i.test(names), names);
+  ok("agents don't see a zoom slider", !agent.snapshot().some((c) => c.component === "slider"), names);
+  // Open Share: its title shows, but no promise about who can view the board.
+  [...host.querySelectorAll<HTMLButtonElement>("button")].find((x) => x.textContent?.trim() === "Share")!.click();
+  await settle();
+  ok("Share opens", document.body.textContent?.includes("Share this board") === true);
+  ok("... and makes no promise about who can view the board", !document.body.textContent?.includes("Anyone with the link"));
+  key(document.activeElement ?? document.body, "Escape");
+  await settle();
+}
+
 console.log(`live-check: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
