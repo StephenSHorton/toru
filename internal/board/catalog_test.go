@@ -43,15 +43,6 @@ func TestCatalogTypes(t *testing.T) {
 	}
 }
 
-// checkSchema implements only some JSON Schema keywords; any other keyword
-// in catalog.json would be silently ignored in Go while the window and
-// agents read it as a rule.
-var schemaKeywords = map[string]bool{
-	"type": true, "properties": true, "required": true, "additionalProperties": true, "items": true,
-	"enum": true, "minLength": true, "maxLength": true, "minItems": true, "maxItems": true,
-	"minimum": true, "maximum": true, "description": true,
-}
-
 func walkSchema(t *testing.T, at string, s map[string]any) {
 	t.Helper()
 	for k, v := range s {

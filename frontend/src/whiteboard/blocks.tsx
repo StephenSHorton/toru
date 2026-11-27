@@ -44,6 +44,8 @@ import {
   type TextProps,
 } from "./catalog";
 import { useBoardImages, type BoardImage, type LibraryShot } from "./images";
+import { CustomBlock, CustomBoundary, PlaceholderBlock, type BuiltinRender } from "./custom-blocks";
+import { boardType, customType, freeTypeName, saveHandler, saveState, subscribeTypes, typesStamp } from "./custom-types";
 import "./blocks.css";
 
 /** Who made a change, from UI SDK's change details. */
@@ -806,7 +808,41 @@ const blockRenderers: Renderers = {
   frame: Frame,
 };
 
-/** One block's content, by its type; a type the window doesn't know shows its name. */
+/**
+ * "Save to my blocks" on a custom block the board carries but the person's
+ * library lacks (or has older): it came from someone else's board, a shared
+ * board or an import. Shown while the window can reach the library.
+ */
+function SaveToLibrary({ type }: { type: string }) {
+  const [state, setState] = React.useState<"idle" | "busy" | "done" | string>("idle");
+  const can = saveState(type);
+  const save = saveHandler();
+  if (!save || (can !== "new" && can !== "newer" && can !== "clash") || state === "done") return null;
+  const label = boardType(type)?.label ?? type;
+  const as = can === "clash" ? freeTypeName(type) : "";
+  return (
+    <span data-slot="custom-save">
+      <Button
+        aria-label={as ? `Save ${label} to my blocks as ${as}` : `Save ${label} to my blocks`}
+        title={as ? `You have a different block called ${type}: this one is saved as ${as}` : "Keep this block type in your library to use on your own boards"}
+        disabled={state === "busy"}
+        onClick={() => {
+          setState("busy");
+          save(type, as).then(
+            () => setState("done"),
+            (err: unknown) => setState(err instanceof Error ? err.message : String(err)),
+          );
+        }}
+      >
+        <PlusIcon aria-hidden="true" />
+        {can === "newer" ? "Update in my blocks" : "Save to my blocks"}
+      </Button>
+      {state !== "idle" && state !== "busy" && <span data-slot="block-error">{state}</span>}
+    </span>
+  );
+}
+
+/** One block's content, by its type; a type the window doesn't know shows as a plain placeholder card. */
 function BlockBody({
   id,
   type,
@@ -818,10 +854,33 @@ function BlockBody({
   props: Record<string, unknown>;
   onProps: (next: Record<string, unknown>, details: PropsChange) => void;
 }) {
+  // Custom types come and go with the board and the library: redraw when they do.
+  React.useSyncExternalStore(subscribeTypes, typesStamp);
   const Render = blockRenderers[type as BlockType] as
     | ((p: BlockRenderProps<Record<string, unknown>>) => React.ReactNode)
     | undefined;
-  if (!Render) return <span data-slot="board-block-label">{blockLabel(type, props)}</span>;
+  if (!Render) {
+    const def = customType(type);
+    if (!def) return <PlaceholderBlock type={type} reason="Toru doesn't have this block type." />;
+    const keepCustom = (next: Record<string, unknown>, details: PropsChange) => {
+      if (checkProps(type, next) !== null) return false;
+      onProps(next, details);
+      return true;
+    };
+    return (
+      <CustomBoundary type={type} resetKey={def}>
+        <CustomBlock
+          id={id}
+          def={def}
+          name={blockLabel(type, props)}
+          props={props}
+          onProps={keepCustom}
+          builtins={blockRenderers as unknown as Record<string, BuiltinRender>}
+          footer={<SaveToLibrary type={type} />}
+        />
+      </CustomBoundary>
+    );
+  }
   // Props Go would refuse never leave the block: the control keeps its value,
   // and the agent bridge reports the step didn't take.
   const keep = (next: Record<string, unknown>, details: PropsChange) => {

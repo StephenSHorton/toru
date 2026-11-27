@@ -30,6 +30,7 @@
     "test:blocks": "bun scripts/blocks-check.tsx",
     "test:templates": "bun scripts/templates-check.ts",
     "test:live": "bun scripts/live-check.tsx",
+    "test:custom-blocks": "bun scripts/custom-blocks-check.tsx",
     "test:gallery": "bun scripts/gallery-check.tsx"
   },
   "dependencies": {

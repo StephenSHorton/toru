@@ -41,7 +41,8 @@
   /* Whiteboard pens (frontend/src/whiteboard/ink.ts). A stroke keeps the
      token's name, like "ink-blue", so it follows these. White and blue are
      Toru's own foreground and primary; red is destructive. Widths are
-     unitless canvas units (CSS pixels at 100% zoom). */
+     unitless canvas units (CSS pixels at 100% zoom). The whiteboard window
+     points these colours at its light or dark theme (toru-ui-sdk.css). */
   --ink-white: var(--foreground);
   --ink-blue: var(--primary);
   --ink-red: var(--destructive);

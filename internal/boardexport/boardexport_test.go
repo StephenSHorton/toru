@@ -325,3 +325,88 @@ func TestHTMLStaysLive(t *testing.T) {
 		t.Fatalf("after ticking and voting: %s", got)
 	}
 }
+
+// Custom blocks (whiteboard#27) are live in a real browser too: in the HTML
+// export, in a WebView2, a person's clicks on a segmented choice's label,
+// a counter's Vote button and a checkbox change the blocks on screen.
+func TestCustomBlocksClickInWebView2(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("needs WebView2")
+	}
+	needViewer(t)
+	data, err := os.ReadFile(filepath.Join("..", "board", "testdata", "custom-blocks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		Blocks []board.BlockDef `json:"blocks"`
+	}
+	if err := json.Unmarshal(data, &f); err != nil {
+		t.Fatal(err)
+	}
+	b := board.New("brd-custom", "Custom blocks", time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC))
+	for i := range f.Blocks {
+		f.Blocks[i].Version, f.Blocks[i].Origin = 1, "blt-click"
+	}
+	b.Types = f.Blocks
+	b.Blocks = []board.Block{
+		{ID: "idea", Type: "feature-idea", X: 0, Y: 0, W: 340, H: 500, Props: json.RawMessage(`{"title":"Dark mode","votes":2,"status":"idea","effort":3,"tags":[]}`)},
+		{ID: "bug", Type: "bug-report", X: 380, Y: 0, W: 380, H: 480, Props: json.RawMessage(`{"title":"Crash","severity":"low","steps":[],"fixed":false}`)},
+	}
+	e := exporter(t)
+	page, err := e.HTML(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "custom.html")
+	if err := os.WriteFile(path, page, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	p, err := webprint.Open(ctx, path, webprint.Options{DataDir: e.WebViewDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	state := `(() => {
+		const q = (s) => document.querySelector(s);
+		const votes = q('[data-block="idea"] [data-slot="custom-counter"] [data-slot="block-count"]')?.textContent;
+		const status = q('[data-block="idea"] [data-slot="custom-badge"]')?.textContent;
+		const severity = q('[data-block="bug"] [data-slot="custom-badge"]')?.textContent;
+		const fixed = q('[data-block="bug"] [data-slot="custom-checkbox"] [data-slot="checkbox"]')?.hasAttribute("data-checked");
+		return JSON.stringify({ votes, status, severity, fixed });
+	})()`
+	read := func(prefix string) string {
+		t.Helper()
+		js := `(async () => { for (let i = 0; i < 100 && !document.querySelector('[data-block="bug"] [data-slot="custom-badge"]'); i++) await new Promise(r => setTimeout(r, 50));
+			window.chrome.webview.postMessage("` + prefix + `" + ` + state + `) })()`
+		if err := p.Eval(ctx, js); err != nil {
+			t.Fatal(err)
+		}
+		got, err := p.Next(ctx, prefix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := read("before:"); got != `{"votes":"2","status":"idea","severity":"low","fixed":false}` {
+		t.Fatalf("before: %s", got)
+	}
+	// What a person clicks: the word "building" in the segmented row (its
+	// radio is hidden), Vote, the word "critical", and Fixed's box.
+	click := `(() => {
+		const label = (block, text) => [...document.querySelectorAll('[data-block="' + block + '"] [data-slot="custom-choice"] label')].find((l) => l.textContent.trim() === text);
+		label("idea", "building").click();
+		document.querySelector('[data-block="idea"] [data-slot="custom-counter"] button').click();
+		label("bug", "critical").click();
+		document.querySelector('[data-block="bug"] [data-slot="custom-checkbox"] [data-slot="checkbox"]').click();
+	})()`
+	if err := p.Eval(ctx, click); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if got := read("after:"); got != `{"votes":"3","status":"building","severity":"critical","fixed":true}` {
+		t.Fatalf("after the clicks: %s", got)
+	}
+}

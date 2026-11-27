@@ -1,13 +1,21 @@
-/* Toru's theme for UI SDK.
+/* Toru's theme for UI SDK, and the whiteboard's two themes.
 
    UI SDK's components render no styles; @ui-sdk/core/web.css gives them a
    default look driven entirely by --ui-* tokens. This file loads web.css and
-   points those tokens at Toru's own design tokens (index.css :root), so Toru's
-   palette stays the one source: change index.css and the whiteboard follows.
+   sets those tokens twice: a light theme (the default) and a slate grey dark
+   theme, picked by <html data-theme="light|dark"> (whiteboard/theme.ts). The
+   --ui-* tokens here are the whiteboard's one colour source: Toru's own token
+   names (--background, --card, --primary, ... and the --ink-* pens) are
+   pointed at them below, so .frost, Tailwind classes, board.css, blocks.css
+   and ink.css all follow the theme. Toru's other windows never load this file
+   and keep index.css's dark palette.
 
-   Loaded only by the whiteboard window (routes/Whiteboard.tsx, a lazy route):
-   web.css also styles bare elements (a, hr, code, kbd) and must not reach
-   Toru's other windows.
+   Loaded only by the whiteboard window (routes/Whiteboard.tsx, a lazy route)
+   and the exported board page (board-export/main.tsx): web.css also styles
+   bare elements (a, hr, code, kbd) and must not reach Toru's other windows.
+
+   Contrast (WCAG 2.2: 4.5:1 for text, 3:1 for control edges and pen strokes)
+   is measured in WebView2 for both themes by scripts/theme-contrast.ts.
 
    Layers: index.css declares `@layer ui-sdk;` above its Tailwind import, so
    UI SDK's behavior CSS sits below everything. web.css goes into Tailwind's
@@ -20,27 +28,6 @@
 @import "@ui-sdk/core/web.css" layer(components);
 
 :root {
-  /* Dark only, like the rest of Toru. web.css asks for light dark. */
-  color-scheme: dark;
-
-  --ui-background: var(--background);
-  --ui-foreground: var(--foreground);
-  --ui-muted: var(--muted);
-  --ui-muted-foreground: var(--muted-foreground);
-  --ui-border: var(--border);
-  /* Toru's --input (oklch 0.28) is a 1.4:1 edge on the background; UI SDK
-     asks 3:1 for control edges (WCAG 1.4.11). Mixed from Toru's own tokens:
-     about 3.9:1. */
-  --ui-input: color-mix(in oklch, var(--muted-foreground) 70%, var(--background));
-  --ui-primary: var(--primary);
-  --ui-primary-foreground: var(--primary-foreground);
-  --ui-destructive: var(--destructive);
-  --ui-ring: var(--ring);
-  --ui-ring-border: var(--ring);
-  --ui-overlay: oklch(0 0 0 / 0.6);
-  /* The same drop shadow as .frost. */
-  --ui-shadow: 0 8px 30px oklch(0 0 0 / 0.45);
-
   /* Toru is sharp-edged. */
   --ui-radius: 0;
   --ui-font-sans: "Inter", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
@@ -58,7 +45,165 @@
   --ui-icon-star: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z'/%3E%3C/svg%3E");
 }
 
-/* web.css leaves the page font to the app. */
+/* Light, the default (also when data-theme is missing). The theme is on
+   <html>; a copy of the board drawn elsewhere (snapshot.ts's PNG, inside an
+   SVG whose root isn't <html>) carries data-theme on its own wrapper. */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --ui-background: oklch(0.985 0.002 264);
+  --ui-foreground: oklch(0.2 0.012 264);
+  --ui-card: oklch(1 0 0);
+  --ui-card-foreground: oklch(0.2 0.012 264);
+  --ui-muted: oklch(0.945 0.004 264);
+  --ui-muted-foreground: oklch(0.47 0.014 264);
+  --ui-accent: oklch(0.92 0.006 264);
+  --ui-border: oklch(0.87 0.006 264);
+  /* Control edges: 3:1 on the canvas and on cards (WCAG 1.4.11). */
+  --ui-input: oklch(0.6 0.012 264);
+  --ui-primary: oklch(0.53 0.17 255);
+  --ui-primary-foreground: oklch(0.99 0 0);
+  --ui-destructive: oklch(0.53 0.2 25);
+  --ui-destructive-foreground: oklch(0.99 0 0);
+  --ui-ring: oklch(0.53 0.17 255);
+  --ui-ring-border: oklch(0.53 0.17 255);
+  --ui-overlay: oklch(0.2 0.012 264 / 0.35);
+  --ui-shadow: 0 8px 30px oklch(0.2 0.03 264 / 0.16);
+  --ui-rating-color: oklch(0.7 0.16 70);
+
+  /* The canvas's dot grid, and the lines between blocks. */
+  --ui-board-dot: oklch(0.2 0.012 264 / 0.22);
+  --ui-board-line: oklch(0.2 0.012 264 / 0.5);
+
+  /* Pens (whiteboard/ink.ts). ink-white is the board's ink colour: dark on a
+     light board, so white-pen strokes stay visible in both themes. */
+  --ui-ink-white: oklch(0.2 0.012 264);
+  --ui-ink-blue: oklch(0.53 0.17 255);
+  --ui-ink-red: oklch(0.55 0.21 25);
+  --ui-ink-yellow: oklch(0.63 0.14 72);
+  --ui-ink-green: oklch(0.55 0.14 150);
+  /* The drawing bar's extra pens (whiteboard#28). */
+  --ui-ink-orange: oklch(0.58 0.16 50);
+  --ui-ink-purple: oklch(0.52 0.18 300);
+  --ui-ink-pink: oklch(0.56 0.19 0);
+  --ui-ink-grey: oklch(0.5 0.014 264);
+
+  /* The catalog's colours (blocks.css). The colour is a sticky's paper and a
+     swatch; stickies keep dark text in both themes. The accent is a frame's
+     border and name and a card's edge, so it must read on the canvas. */
+  --ui-board-yellow: oklch(0.9 0.12 95);
+  --ui-board-yellow-accent: oklch(0.52 0.11 85);
+  --ui-board-pink: oklch(0.86 0.08 0);
+  --ui-board-pink-accent: oklch(0.52 0.18 0);
+  --ui-board-blue: oklch(0.86 0.06 240);
+  --ui-board-blue-accent: oklch(0.5 0.15 250);
+  --ui-board-green: oklch(0.88 0.09 150);
+  --ui-board-green-accent: oklch(0.5 0.13 150);
+  --ui-board-purple: oklch(0.85 0.07 300);
+  --ui-board-purple-accent: oklch(0.5 0.17 300);
+  --ui-board-orange: oklch(0.88 0.09 60);
+  --ui-board-orange-accent: oklch(0.53 0.15 50);
+  --ui-board-grey: oklch(0.88 0.01 264);
+  --ui-board-grey-accent: oklch(0.47 0.014 264);
+}
+
+/* Dark: slate grey, not near-black. */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ui-background: oklch(0.35 0.025 257);
+  --ui-foreground: oklch(0.97 0.004 257);
+  --ui-card: oklch(0.4 0.026 257);
+  --ui-card-foreground: oklch(0.97 0.004 257);
+  --ui-muted: oklch(0.44 0.026 257);
+  --ui-muted-foreground: oklch(0.85 0.016 257);
+  --ui-accent: oklch(0.47 0.028 257);
+  --ui-border: oklch(0.5 0.026 257);
+  --ui-input: oklch(0.7 0.02 257);
+  --ui-primary: oklch(0.82 0.11 248);
+  --ui-primary-foreground: oklch(0.22 0.03 257);
+  --ui-destructive: oklch(0.8 0.13 25);
+  --ui-destructive-foreground: oklch(0.22 0.03 257);
+  --ui-ring: oklch(0.82 0.11 248);
+  --ui-ring-border: oklch(0.82 0.11 248);
+  --ui-overlay: oklch(0.15 0.02 257 / 0.6);
+  --ui-shadow: 0 8px 30px oklch(0.12 0.02 257 / 0.45);
+  --ui-rating-color: oklch(0.86 0.15 90);
+
+  --ui-board-dot: oklch(0.97 0.004 257 / 0.22);
+  --ui-board-line: oklch(0.97 0.004 257 / 0.55);
+
+  --ui-ink-white: oklch(0.97 0.004 257);
+  --ui-ink-blue: oklch(0.82 0.11 248);
+  --ui-ink-red: oklch(0.78 0.15 25);
+  --ui-ink-yellow: oklch(0.88 0.15 92);
+  --ui-ink-green: oklch(0.8 0.15 155);
+  --ui-ink-orange: oklch(0.8 0.13 60);
+  --ui-ink-purple: oklch(0.8 0.11 300);
+  --ui-ink-pink: oklch(0.81 0.11 0);
+  --ui-ink-grey: oklch(0.8 0.016 257);
+
+  --ui-board-yellow: oklch(0.86 0.12 95);
+  --ui-board-yellow-accent: oklch(0.86 0.13 95);
+  --ui-board-pink: oklch(0.82 0.09 0);
+  --ui-board-pink-accent: oklch(0.8 0.12 0);
+  --ui-board-blue: oklch(0.82 0.07 240);
+  --ui-board-blue-accent: oklch(0.8 0.1 248);
+  --ui-board-green: oklch(0.85 0.1 150);
+  --ui-board-green-accent: oklch(0.82 0.13 150);
+  --ui-board-purple: oklch(0.8 0.08 300);
+  --ui-board-purple-accent: oklch(0.8 0.11 300);
+  --ui-board-orange: oklch(0.84 0.1 60);
+  --ui-board-orange-accent: oklch(0.83 0.12 60);
+  --ui-board-grey: oklch(0.82 0.01 264);
+  --ui-board-grey-accent: oklch(0.85 0.016 257);
+}
+
+/* Toru's own token names, pointed at the theme, so the Toru-styled parts of
+   the whiteboard (.frost, Tailwind classes, board.css, blocks.css, ink.css)
+   follow it. html:root outranks index.css's :root. */
+html:root,
+[data-theme] {
+  --background: var(--ui-background);
+  --foreground: var(--ui-foreground);
+  --card: var(--ui-card);
+  --card-foreground: var(--ui-card-foreground);
+  --popover: var(--ui-card);
+  --popover-foreground: var(--ui-card-foreground);
+  --primary: var(--ui-primary);
+  --primary-foreground: var(--ui-primary-foreground);
+  --secondary: var(--ui-muted);
+  --secondary-foreground: var(--ui-foreground);
+  --muted: var(--ui-muted);
+  --muted-foreground: var(--ui-muted-foreground);
+  --accent: var(--ui-accent);
+  --accent-foreground: var(--ui-foreground);
+  --destructive: var(--ui-destructive);
+  --destructive-foreground: var(--ui-destructive-foreground);
+  --border: var(--ui-border);
+  --input: var(--ui-input);
+  --ring: var(--ui-ring);
+
+  --ink-white: var(--ui-ink-white);
+  --ink-blue: var(--ui-ink-blue);
+  --ink-red: var(--ui-ink-red);
+  --ink-yellow: var(--ui-ink-yellow);
+  --ink-green: var(--ui-ink-green);
+  --ink-orange: var(--ui-ink-orange);
+  --ink-purple: var(--ui-ink-purple);
+  --ink-pink: var(--ui-ink-pink);
+  --ink-grey: var(--ui-ink-grey);
+}
+
+/* web.css leaves the page font to the app. index.css's tinted backdrop is for
+   Toru's dark windows; the board's page is the theme's own colour. */
 body {
   font-family: var(--ui-font-sans);
+  background-image: none;
+}
+
+/* .frost is Toru's glass; its drop shadow comes from the theme. */
+.frost {
+  box-shadow: var(--ui-shadow);
 }

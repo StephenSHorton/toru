@@ -37,6 +37,9 @@ import (
 // one change at a time, so the window shows an agent building live; then
 // it clears what it made and builds again, while a window watches.
 //
+// With TORU_BOARD_DEMO_BOARD naming a .toruboard file, it serves a copy of
+// that board instead, and no agent builds.
+//
 // It stops when the process TORU_BOARD_DEMO_PARENT names (Vite) has gone.
 func TestBoardLiveDemo(t *testing.T) {
 	port := os.Getenv("TORU_BOARD_DEMO_PORT")
@@ -54,15 +57,33 @@ func TestBoardLiveDemo(t *testing.T) {
 	registerBoardAgentCommands(reg, boardAgentDeps{boards: store})
 
 	const id = "brd-demo"
-	if _, err := store.Save(board.New(id, "Launch brainstorm", time.Now().UTC())); err != nil {
+	// TORU_BOARD_DEMO_BOARD shows a copy of a .toruboard file instead, still,
+	// with no agent building (a theme or layout check on a real board).
+	still := os.Getenv("TORU_BOARD_DEMO_BOARD")
+	if still != "" {
+		data, err := os.ReadFile(still)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := board.Decode(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.ID = id
+		if _, err := store.Save(b); err != nil {
+			t.Fatal(err)
+		}
+	} else if _, err := store.Save(board.New(id, "Launch brainstorm", time.Now().UTC())); err != nil {
 		t.Fatal(err)
 	}
 	// The person's note, there before the agent starts.
-	if _, err := store.Apply(id, board.Op{Source: board.Person, Blocks: []board.Block{{
-		ID: "goal", Type: "sticky", X: 120, Y: 110, W: 220, H: 170,
-		Props: json.RawMessage(`{"text":"Goal: ship the live whiteboard","color":"yellow"}`),
-	}}}); err != nil {
-		t.Fatal(err)
+	if still == "" {
+		if _, err := store.Apply(id, board.Op{Source: board.Person, Blocks: []board.Block{{
+			ID: "goal", Type: "sticky", X: 120, Y: 110, W: 220, H: 170,
+			Props: json.RawMessage(`{"text":"Goal: ship the live whiteboard","color":"yellow"}`),
+		}}}); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	type input = struct {
@@ -114,7 +135,7 @@ func TestBoardLiveDemo(t *testing.T) {
 	// The agent builds while a window watches, clears what it made, and
 	// builds again, so whoever opens the page sees it happen.
 	go func() {
-		for ctx.Err() == nil {
+		for still == "" && ctx.Err() == nil {
 			if hub.watchers() == 0 {
 				time.Sleep(300 * time.Millisecond)
 				continue

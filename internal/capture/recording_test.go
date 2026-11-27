@@ -29,12 +29,6 @@ func lavfiRecorder(t *testing.T, candidates ...[]string) *Recorder {
 	return r
 }
 
-// slowStartGrace is the grace window for tests whose bogus backend must die
-// inside it. Under a loaded "go test ./..." ffmpeg can take well over 300ms
-// just to start and report the bad graph, so a short window flakes; the
-// backends that should survive are infinite, so a longer window costs nothing.
-const slowStartGrace = 3 * time.Second
-
 // lavfiArgs is an infinite synthetic input encoded with the same realtime VP9
 // settings the real recorder uses (output path appended by lavfiRecorder).
 func lavfiArgs() []string {
@@ -111,7 +105,9 @@ func TestRecordingLifecycle(t *testing.T) {
 func TestRecordingBackendFallback(t *testing.T) {
 	bogus := []string{"-y", "-f", "lavfi", "-i", "nosuchsource=broken", "-c:v", "libvpx-vp9"}
 	r := lavfiRecorder(t, bogus, lavfiArgs())
-	r.grace = slowStartGrace
+	// The bogus backend has to die inside the grace window, and ffmpeg can
+	// take seconds just to start on a busy or freshly updated machine.
+	r.grace = 5 * time.Second
 
 	handle, err := r.StartRecording(videoReq())
 	if err != nil {
@@ -128,7 +124,9 @@ func TestRecordingBackendFallback(t *testing.T) {
 func TestAllBackendsFailing(t *testing.T) {
 	bogus := []string{"-y", "-f", "lavfi", "-i", "nosuchsource=broken", "-c:v", "libvpx-vp9"}
 	r := lavfiRecorder(t, bogus)
-	r.grace = slowStartGrace
+	// The bogus backend has to die inside the grace window, and ffmpeg can
+	// take seconds just to start on a busy or freshly updated machine.
+	r.grace = 5 * time.Second
 
 	_, err := r.StartRecording(videoReq())
 	if err == nil {
