@@ -47,6 +47,12 @@ export function ConnectAgentPanel() {
       />
 
       <span className="text-xs text-muted-foreground">
+        Agents can also design new whiteboard blocks for you, like a feature idea with votes or a bug report. Ask
+        for one by name: it's kept in your own blocks (<code className="font-mono">board.block.define</code>) and
+        you can place it on any board. A board carries its blocks with it, so they show the same for everyone.
+      </span>
+
+      <span className="text-xs text-muted-foreground">
         Scripts can run the same commands with <code className="font-mono">toru.exe ctl list</code> and{" "}
         <code className="font-mono">toru.exe ctl &lt;command&gt;</code>.
       </span>

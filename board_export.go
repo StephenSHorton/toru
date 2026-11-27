@@ -31,6 +31,7 @@ func newBoardExporter() *boardexport.Exporter {
 		Viewer:     func() ([]byte, error) { return fs.ReadFile(assets, "frontend/dist/board-export.html") },
 		ReadImage:  board.ReadImage,
 		WebViewDir: filepath.Join(dir, "toru", "board-export-webview"),
+		Theme:      loadWhiteboardTheme,
 	}
 }
 

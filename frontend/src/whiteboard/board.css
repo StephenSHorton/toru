@@ -6,8 +6,8 @@
 
 @layer components {
   [data-slot="board"] {
-    --board-dot: color-mix(in oklch, var(--muted-foreground) 35%, transparent);
-    --board-line: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
+    --board-dot: var(--ui-board-dot);
+    --board-line: var(--ui-board-line);
     box-sizing: border-box;
     background-color: var(--background);
     background-image: radial-gradient(circle, var(--board-dot) 1px, transparent 1.5px);
@@ -103,7 +103,7 @@
     }
 
     &:is([data-dragging], [data-resizing]) {
-      box-shadow: 0 8px 30px oklch(0 0 0 / 0.45);
+      box-shadow: var(--ui-shadow);
     }
 
     &[data-dragging] {
@@ -276,5 +276,19 @@
     font-size: 12px;
     font-variant-numeric: tabular-nums;
     text-align: center;
+  }
+
+  /* The toolbar's Light/Dark switch (routes/Whiteboard.tsx): two icon toggles. */
+  [data-slot="theme-switch"] [data-slot="toggle"] {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+
+    & svg {
+      width: 16px;
+      height: 16px;
+    }
   }
 }

@@ -214,7 +214,11 @@ func (p *Page) run(path string, opt Options, loaded chan<- error) {
 	p.chromium = c
 	c.Resize()
 	_ = c.Show()
-	c.Navigate((&url.URL{Scheme: "file", Path: "/" + filepath.ToSlash(path), Fragment: opt.Fragment}).String())
+	if opt.URL != "" {
+		c.Navigate(opt.URL)
+	} else {
+		c.Navigate((&url.URL{Scheme: "file", Path: "/" + filepath.ToSlash(path), Fragment: opt.Fragment}).String())
+	}
 
 	var m msg
 	for {
