@@ -172,6 +172,41 @@ window commands time out (30 s default).
   a temporary folder, and while a window watches, an agent named Claude
   Code builds a board, clears what it made and builds it again.
 
+### Properties panel (built, whiteboard#29)
+
+- **Down the right side, over the canvas** (`frontend/src/whiteboard/PropsPanel.tsx`,
+  `props-panel.css`): it shows what's selected and slides away (inert) when
+  nothing is; the canvas never moves or shrinks. Tab reaches it after the
+  board.
+- **A form from the schema.** A block's props are fields made from its
+  catalog type's JSON Schema keywords (enum, items, properties, required,
+  min/max, lengths), so a type added to the catalog later (or an AI-built
+  type that `blockType()` finds, whiteboard#27) gets a form with no new
+  code. A schema it can't map is a JSON box. Under the props: X, Y, width,
+  height, rotation, the frame it sits in, Locked, and who made it and last
+  changed it. A frame shows its name and colour; ink its colour and width;
+  a block lists its lines, each a button that picks the line.
+- **Lines** are picked by pressing them (`board-line-hit`, a wide
+  see-through stroke) or from a block's list. A line shows its label above
+  its middle and its style from the link's props: `start` and `end`
+  (`"arrow"` or none), `dash` (`"dashed"`, `"dotted"`, or solid) and
+  `color` (a block colour). `board.connect`'s `style` takes the same keys.
+- **Several selected:** the props their types share (same keywords),
+  marked "(mixed)" where they differ; a change goes to each. A list of
+  words (tags) adds or removes the word on each, keeping their own.
+- **One change, one undo:** every edit is one `LiveBoard.update`: one op to
+  Go's store, the store `board.update` changes, so Ctrl+Z takes it back.
+  Text and numbers are sent when the field is left or on Enter, never per
+  key; while a field has unsent typing, Ctrl+Z is the field's own.
+- **Lock** (`locked` on blocks, frames, strokes and links; `board.update`
+  sets it): the person can't move, resize, arrange or delete a locked item
+  in the window; it still selects, so it can be unlocked. Agents' commands
+  aren't stopped by it.
+- **Rotation** is drawn (CSS `rotate`); moving, resizing, lassoing and
+  ports still use the unturned box.
+- **Checks:** `bun run test:props-panel` drives the real window against a
+  store in the page.
+
 **Rules.**
 
 - Every agent change is a board op tagged with its source (`agent:<name>`

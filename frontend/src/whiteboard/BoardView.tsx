@@ -4,7 +4,7 @@
 // Vercel, Inc.); see board.ts for what changed.
 import * as React from "react";
 import { createParts, usePart, usePrimitive, type PartProps } from "@ui-sdk/react/primitive";
-import { MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
+import { LockIcon, MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { board, boardInstructions, handleNames, sides, type BoardBlocks, type BoardBlockState, type BoardOptions } from "./board";
 import { InkDraft, InkLine, InkSurface, usePen } from "./InkView";
 import "./board.css";
@@ -15,6 +15,8 @@ const parts = createParts(board, {
   root: "div",
   world: "div",
   line: "path",
+  "line-hit": "path",
+  "line-label": "span",
   unlink: "button",
   wire: "path",
   lasso: "div",
@@ -37,6 +39,18 @@ function useBoard() {
   return handle.api;
 }
 
+/**
+ * How a line looks, from its link in the document: its label, arrow heads,
+ * dash and colour (a block colour, like `blue`).
+ */
+type LineLook = {
+  label?: string;
+  start?: "arrow" | "none";
+  end?: "arrow" | "none";
+  dash?: "solid" | "dashed" | "dotted";
+  color?: string;
+};
+
 /** The pen: on or off, and its colour (a token name like `ink-blue`) and width. */
 type PenOptions = { active: boolean; color: string; width: number };
 
@@ -49,9 +63,17 @@ type BoardProps = BoardOptions & {
   renderBlock?: (id: string, blocks: BoardBlocks) => React.ReactNode;
   /** Controls drawn over the board, which can call `useBoard()`. */
   children?: React.ReactNode;
+  /** Each line's label and style, by its id. */
+  lineLook?: (id: string) => LineLook | undefined;
+  /** The line picked out for its properties, if any. */
+  selectedLine?: string | null;
+  /** A press on a line: pick it. */
+  onLinePress?: (id: string) => void;
 };
 
-function Board({ renderBlock, children, className, pen: penOptions, "aria-label": label, ...options }: BoardProps) {
+const dashes = { solid: undefined, dashed: "8 6", dotted: "1 5" } as const;
+
+function Board({ renderBlock, children, className, pen: penOptions, lineLook, selectedLine, onLinePress, "aria-label": label, ...options }: BoardProps) {
   const handle = usePrimitive(board, options);
   const pen = usePen({
     active: !!penOptions?.active,
@@ -70,11 +92,50 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
       <>
         <parts.World>
           <svg data-slot="board-lines" width="1" height="1">
-            {lines.map((line) => (
-              <parts.Line key={line.id} value={line.id} strokeWidth={2} />
-            ))}
+            <defs>
+              {/* One arrow head for both ends, in the line's own colour. */}
+              <marker id="board-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" />
+              </marker>
+            </defs>
+            {lines.map((line) => {
+              const look = lineLook?.(line.id);
+              return (
+                <parts.Line
+                  key={line.id}
+                  value={line.id}
+                  strokeWidth={2}
+                  strokeDasharray={look?.dash ? dashes[look.dash] : undefined}
+                  strokeLinecap={look?.dash === "dotted" ? "round" : undefined}
+                  markerStart={look?.start === "arrow" ? "url(#board-arrow)" : undefined}
+                  markerEnd={look?.end === "arrow" ? "url(#board-arrow)" : undefined}
+                  data-color={look?.color}
+                  data-selected={selectedLine === line.id ? "" : undefined}
+                />
+              );
+            })}
+            {onLinePress &&
+              lines.map((line) => (
+                <parts.LineHit
+                  key={line.id}
+                  value={line.id}
+                  strokeWidth={14}
+                  data-line={line.id}
+                  onPointerDown={(e: React.PointerEvent) => {
+                    if (e.button === 0) onLinePress(line.id);
+                  }}
+                />
+              ))}
             <parts.Wire strokeWidth={2} strokeDasharray="6 4" />
           </svg>
+          {lines.map((line) => {
+            const text = lineLook?.(line.id)?.label;
+            return text ? (
+              <parts.LineLabel key={line.id} value={line.id} data-color={lineLook?.(line.id)?.color}>
+                {text}
+              </parts.LineLabel>
+            ) : null;
+          })}
           {lines.map((line) => (
             <parts.Unlink key={line.id} value={line.id}>
               <XIcon aria-hidden="true" />
@@ -87,6 +148,7 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
               return (
                 <BoardBlock key={id} value={id} data-block={id} data-by={block.createdBy} title={madeBy(block)}>
                   <InkLine stroke={block.ink} width={block.width} height={block.height} />
+                  {block.locked && <Locked />}
                 </BoardBlock>
               );
             }
@@ -102,12 +164,15 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
                 ) : (
                   <span data-slot="board-block-label">{block.label}</span>
                 )}
+                {block.locked && <Locked />}
                 {sides.map((side) => (
                   <BoardPart key={side} slot="port" value={`${id}:${side}`} />
                 ))}
-                {handles.map((h) => (
-                  <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
-                ))}
+                {/* A locked block doesn't resize. */}
+                {!block.locked &&
+                  handles.map((h) => (
+                    <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
+                  ))}
               </BoardBlock>
             );
           })}
@@ -136,6 +201,15 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
     ),
   });
   return <BoardContext.Provider value={handle}>{root}</BoardContext.Provider>;
+}
+
+/** The badge on a locked block. */
+function Locked() {
+  return (
+    <span data-slot="board-block-locked" title="Locked">
+      <LockIcon aria-hidden="true" />
+    </span>
+  );
 }
 
 /** Block ids with frames first, so frames sit behind the blocks in them. */
@@ -167,4 +241,4 @@ function BoardPart({ slot, value, ...props }: { slot: "port" | "handle"; value: 
   return usePart(board, slot, { value }, props, "span");
 }
 
-export { Board, madeBy, useBoard, who, type BoardProps, type PenOptions };
+export { Board, madeBy, useBoard, who, type BoardProps, type LineLook, type PenOptions };

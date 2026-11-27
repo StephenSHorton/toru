@@ -403,13 +403,15 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 				"rotation":     numP("Degrees, clockwise."),
 				"frame":        str("A frame id to sit in, or \"\" to leave its frame."),
 				"group":        str("A group id, or \"\" to leave its group."),
+				"locked":       map[string]any{"type": "boolean", "description": "Locked: the person can't move, resize or delete it in the window until it's unlocked."},
 			}, "id"), "Blocks to change."),
 			"frames": list(obj(map[string]any{
-				"id":    str("The frame's id."),
-				"name":  map[string]any{"type": "string", "minLength": 1, "maxLength": board.MaxNameLen},
-				"w":     map[string]any{"type": "number", "minimum": 0},
-				"h":     map[string]any{"type": "number", "minimum": 0},
-				"color": str("A colour."),
+				"id":     str("The frame's id."),
+				"name":   map[string]any{"type": "string", "minLength": 1, "maxLength": board.MaxNameLen},
+				"w":      map[string]any{"type": "number", "minimum": 0},
+				"h":      map[string]any{"type": "number", "minimum": 0},
+				"color":  str("A colour."),
+				"locked": map[string]any{"type": "boolean", "description": "Locked: the person can't move, resize or delete it in the window."},
 			}, "id"), "Frames to change."),
 		}, "id"),
 		Handler: func(ctx context.Context, in json.RawMessage) (any, error) {
@@ -424,12 +426,14 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 					Rotation     *float64 `json:"rotation"`
 					Frame        *string  `json:"frame"`
 					Group        *string  `json:"group"`
+					Locked       *bool    `json:"locked"`
 				} `json:"blocks"`
 				Frames []struct {
-					ID    string  `json:"id"`
-					Name  *string `json:"name"`
-					W, H  *float64
-					Color *string `json:"color"`
+					ID     string  `json:"id"`
+					Name   *string `json:"name"`
+					W, H   *float64
+					Color  *string `json:"color"`
+					Locked *bool   `json:"locked"`
 				} `json:"frames"`
 			}](in)
 			if err != nil {
@@ -466,6 +470,9 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 					if u.Group != nil {
 						x.Group = *u.Group
 					}
+					if u.Locked != nil {
+						x.Locked = *u.Locked
+					}
 					op.Blocks = append(op.Blocks, x)
 				}
 				for _, u := range v.Frames {
@@ -480,6 +487,9 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 					setF(&f.H, u.H)
 					if u.Color != nil {
 						f.Color = *u.Color
+					}
+					if u.Locked != nil {
+						f.Locked = *u.Locked
 					}
 					op.Frames = append(op.Frames, f)
 				}
@@ -640,7 +650,7 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 				"fromPort": str("Optional port on the from end (top, right, bottom, left)."),
 				"toPort":   str("Optional port on the to end."),
 				"label":    map[string]any{"type": "string", "maxLength": board.MaxLabelLen},
-				"style":    map[string]any{"type": "object", "description": "Optional line style: arrow heads, dash, colour."},
+				"style":    map[string]any{"type": "object", "description": "Optional line style: start and end (\"arrow\" or \"none\"; end defaults to none), dash (\"solid\", \"dashed\", \"dotted\") and color (a block colour: yellow, pink, blue, green, purple, orange, grey)."},
 			}, "from", "to"), "The lines to draw."),
 		}, "id", "links"),
 		Handler: func(ctx context.Context, in json.RawMessage) (any, error) {

@@ -26,6 +26,7 @@ import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
 import { blockLabel, blockType, blockTypes, newProps, type BlockType } from "@/whiteboard/catalog";
 import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
 import { layoutKinds, type LayoutKind } from "@/whiteboard/layout";
+import { PropsPanel, usePropsSelection } from "@/whiteboard/PropsPanel";
 import { boardTemplates, templateBoard } from "@/whiteboard/templates";
 import type { LiveBoard } from "@/whiteboard/live";
 import { agentSource, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
@@ -89,7 +90,8 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
     const keydown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       // The board's name field keeps its own text undo.
-      if ((event.target as Element | null)?.closest?.('[data-slot="board-name"]')) return;
+      // So does a properties panel field with typing not yet sent.
+      if ((event.target as Element | null)?.closest?.('[data-slot="board-name"], [data-slot="props-panel"] [data-dirty]')) return;
       const key = event.key.toLowerCase();
       if (key === "z" && !event.shiftKey) {
         event.preventDefault();
@@ -173,6 +175,9 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
     [live],
   );
 
+  // What's selected, for the canvas and the properties panel.
+  const pick = usePropsSelection(doc);
+
   const renderBlock = useCallback(
     (blockId: string, all: BoardBlocks) => {
       const block = all[blockId];
@@ -190,8 +195,9 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   );
 
   return (
-    <div className="relative h-full overflow-hidden">
+    <div className="relative h-full overflow-hidden" onPointerDownCapture={pick.onPointerDownCapture}>
       <Board
+        {...pick.board}
         aria-label={doc ? `Whiteboard ${doc.name}` : `Whiteboard ${id}`}
         className="h-full w-full"
         blocks={view.blocks}
@@ -208,6 +214,7 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         <ArrangeCommand live={live} />
         <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
       </Board>
+      <PropsPanel live={live} doc={doc} source={() => sourceOf()} {...pick.panel} />
       {doc && <BoardName name={doc.name} onRename={(next) => live.rename(next)} />}
       {error && (
         <div role="alert" data-slot="board-error" className="frost absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 px-3 py-2">

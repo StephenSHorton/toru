@@ -28,6 +28,7 @@ type DocBlock = Meta & {
   frame?: string
   group?: string
   props: Record<string, unknown>
+  locked?: boolean
 }
 type DocLink = Meta & {
   id: string
@@ -37,9 +38,10 @@ type DocLink = Meta & {
   toPort?: string
   label?: string
   props?: Record<string, unknown>
+  locked?: boolean
 }
-type DocStroke = Meta & { id: string; points: number[]; color: string; width: number; frame?: string }
-type DocFrame = Meta & { id: string; name: string; x: number; y: number; w: number; h: number; color?: string }
+type DocStroke = Meta & { id: string; points: number[]; color: string; width: number; frame?: string; locked?: boolean }
+type DocFrame = Meta & { id: string; name: string; x: number; y: number; w: number; h: number; color?: string; locked?: boolean }
 
 /** A board as Go keeps it (`board.Board`). */
 type BoardDoc = {
@@ -143,17 +145,21 @@ const meta = (m: Meta): Meta => ({
   ...(m.updatedBy ? { updatedBy: m.updatedBy } : {}),
 })
 
+// What the canvas shows of a lock and a turn, but never changes itself.
+const locked = (x: { locked?: boolean }): Partial<BoardBlock> => (x.locked ? { locked: true } : {})
+const turned = (b: DocBlock): Partial<BoardBlock> => (b.rotation ? { rotation: b.rotation } : {})
+
 function frameBlock(f: DocFrame): BoardBlock {
   const props: Record<string, unknown> = { name: f.name, ...(f.color ? { color: f.color } : {}) }
-  return { label: blockLabel("frame", props), type: "frame", props, x: f.x, y: f.y, width: f.w, height: f.h, ...meta(f) }
+  return { label: blockLabel("frame", props), type: "frame", props, x: f.x, y: f.y, width: f.w, height: f.h, ...meta(f), ...locked(f) }
 }
 
 function blockBlock(b: DocBlock): BoardBlock {
-  return { label: blockLabel(b.type, b.props), type: b.type, props: b.props, x: b.x, y: b.y, width: b.w, height: b.h, ...meta(b) }
+  return { label: blockLabel(b.type, b.props), type: b.type, props: b.props, x: b.x, y: b.y, width: b.w, height: b.h, ...meta(b), ...locked(b), ...turned(b) }
 }
 
 function strokeBlock(s: DocStroke): BoardBlock {
-  return { ...fromDocumentStroke(s), ...meta(s) }
+  return { ...fromDocumentStroke(s), ...meta(s), ...locked(s) }
 }
 
 function linkLine(l: DocLink, blocks: BoardBlocks): BoardLine {
