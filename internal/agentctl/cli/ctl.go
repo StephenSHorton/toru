@@ -14,6 +14,10 @@ import (
 	"time"
 )
 
+// CtlCaller is who `toru.exe ctl` says is calling: board changes it makes
+// are tagged "agent:toru-ctl".
+const CtlCaller = "toru-ctl"
+
 // RunCtl runs `toru.exe ctl <command> [--json '{...}']`: one call, the
 // result printed as indented JSON on stdout. It returns the exit code.
 func RunCtl(ctx context.Context, args []string, env Env) int {
@@ -66,7 +70,7 @@ func RunCtl(ctx context.Context, args []string, env Env) int {
 		out, err = appStart(ctx, c, env)
 	default:
 		var raw json.RawMessage
-		raw, err = c.Call(ctx, name, input)
+		raw, err = c.CallAs(ctx, CtlCaller, name, input)
 		if err == nil {
 			out, err = ctlResult(raw)
 		}

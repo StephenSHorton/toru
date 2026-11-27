@@ -24,6 +24,32 @@ var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._@()/+-]{0,63
 // Agent is the Source for an agent named name.
 func Agent(name string) Source { return Source(agentPrefix + strings.TrimSpace(name)) }
 
+// AgentNamed is the Source for an agent whose name came from outside (an
+// MCP client's name): characters a source can't hold become "-", it is cut
+// to 64 characters, and an empty name becomes "unknown".
+func AgentNamed(raw string) Source {
+	var b strings.Builder
+	n := 0
+	for _, r := range strings.TrimSpace(raw) {
+		if n == 64 {
+			break
+		}
+		ok := r < 0x80 && (r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune(" ._@()/+-", r))
+		if !ok {
+			r = '-'
+		}
+		b.WriteRune(r)
+		n++
+	}
+	name := strings.TrimSpace(b.String())
+	// The first character must be a letter or digit.
+	name = strings.TrimLeft(name, " ._@()/+-")
+	if name == "" {
+		name = "unknown"
+	}
+	return Agent(name)
+}
+
 // Check reports whether s is "person" or "agent:<name>".
 func (s Source) Check() error {
 	if s == Person {

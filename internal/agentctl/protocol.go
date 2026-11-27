@@ -24,6 +24,10 @@ type Request struct {
 	Method string          `json:"method"` // "list" | "call"
 	Name   string          `json:"name,omitempty"`
 	Input  json.RawMessage `json:"input,omitempty"`
+	// Client names who is calling: the MCP client's name for `toru.exe
+	// mcp`, "toru-ctl" for `toru.exe ctl`. Commands read it with Caller
+	// (the board commands tag their changes with it).
+	Client string `json:"client,omitempty"`
 }
 
 // Response is one line Toru sends back.
@@ -90,7 +94,7 @@ func handle(ctx context.Context, reg *Registry, req Request) Response {
 	case "call":
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
-		res, err := reg.Call(cctx, req.Name, req.Input)
+		res, err := reg.Call(WithCaller(cctx, req.Client), req.Name, req.Input)
 		if err != nil {
 			resp.Error = &ErrorBody{Message: err.Error()}
 			break
@@ -103,4 +107,19 @@ func handle(ctx context.Context, reg *Registry, req Request) Response {
 		resp.Error = &ErrorBody{Message: `unknown method "` + req.Method + `" (use "list" or "call")`}
 	}
 	return resp
+}
+
+type callerKey struct{}
+
+// WithCaller is ctx carrying the name of who is calling (a request's
+// "client").
+func WithCaller(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, callerKey{}, name)
+}
+
+// Caller is the name of who is calling, as the request gave it ("" when it
+// gave none).
+func Caller(ctx context.Context) string {
+	s, _ := ctx.Value(callerKey{}).(string)
+	return s
 }

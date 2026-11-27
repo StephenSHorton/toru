@@ -20,6 +20,7 @@ import (
 	toast "github.com/StephenSHorton/go-toast"
 	"github.com/StephenSHorton/toru/internal/agentctl"
 	agentcli "github.com/StephenSHorton/toru/internal/agentctl/cli"
+	"github.com/StephenSHorton/toru/internal/board"
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/clicker"
 	"github.com/StephenSHorton/toru/internal/dpi"
@@ -305,6 +306,16 @@ func main() {
 	registerPresetAgentCommands(agentReg, presetAgentDeps{ // agent_commands_presets.go
 		presets: presetSvc,
 		emit:    func(name string, data any) { app.Event.Emit(name, data) },
+	})
+	// Whiteboards: the board document lives in Go, so agents build boards
+	// with the window open or closed (agent_commands_boards.go).
+	// boardStore is the one store of whiteboards: the board window's service
+	// must share it, so agents and the person share one undo history.
+	boardStore := board.NewStore()
+	registerBoardAgentCommands(agentReg, boardAgentDeps{
+		boards: boardStore,
+		open:   windowsSvc.OpenWhiteboard,
+		emit:   func(name string, data any) { app.Event.Emit(name, data) },
 	})
 	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in
