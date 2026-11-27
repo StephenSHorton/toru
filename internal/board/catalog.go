@@ -2,6 +2,7 @@ package board
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -13,97 +14,35 @@ import (
 // a board, with its props as JSON Schema. board.catalog lists these, and the
 // board commands check every block's props against its type's schema.
 //
-// This is the starting set. The block catalog card (whiteboard#6) renders
-// these types in the window and adds more; each new type is added here too,
-// so agents see it.
+// The catalog is catalog.json, which the board window reads too
+// (frontend/src/whiteboard/catalog.ts), so Go and the window agree on every
+// type and field. A new block type is added there and rendered in
+// frontend/src/whiteboard/blocks.
 type BlockType struct {
-	Type        string          `json:"type"`
-	Description string          `json:"description"`
-	W           float64         `json:"w"` // default size, world units
-	H           float64         `json:"h"`
-	Props       json.RawMessage `json:"props"` // JSON Schema of the props object
+	Type        string `json:"type"`
+	Label       string `json:"label"` // what people call it, like "Sticky note"
+	Description string `json:"description"`
+	// Region marks a type that isn't placed as a block: frame, which is the
+	// board's Frames list. Its props schema is the frame's fields.
+	Region bool            `json:"region,omitempty"`
+	W      float64         `json:"w"` // default size, world units
+	H      float64         `json:"h"`
+	Props  json.RawMessage `json:"props"` // JSON Schema of the props object
 }
 
-var tagsSchema = map[string]any{
-	"type": "array", "maxItems": 20,
-	"items":       map[string]any{"type": "string", "minLength": 1, "maxLength": 40},
-	"description": "Tags, for board.layout's cluster and for search.",
-}
+//go:embed catalog.json
+var catalogJSON []byte
 
-func objectSchema(props map[string]any, required ...string) json.RawMessage {
-	s := map[string]any{"type": "object", "properties": props, "additionalProperties": false}
-	if len(required) > 0 {
-		s["required"] = required
+// catalog is catalog.json's types, in its order.
+var catalog = func() []BlockType {
+	var f struct {
+		Types []BlockType `json:"types"`
 	}
-	b, err := json.Marshal(s)
-	if err != nil {
-		panic(err)
+	if err := json.Unmarshal(catalogJSON, &f); err != nil {
+		panic("board: catalog.json: " + err.Error())
 	}
-	return b
-}
-
-var catalog = []BlockType{
-	{
-		Type:        "sticky",
-		Description: "A sticky note: a short idea in a coloured square.",
-		W:           200, H: 200,
-		Props: objectSchema(map[string]any{
-			"text":  map[string]any{"type": "string", "maxLength": 10000},
-			"color": map[string]any{"type": "string", "enum": []string{"yellow", "pink", "blue", "green", "purple", "orange", "grey"}, "description": "Default yellow."},
-			"tags":  tagsSchema,
-		}, "text"),
-	},
-	{
-		Type:        "text",
-		Description: "Free text on the board: a heading, a label or a paragraph.",
-		W:           320, H: 80,
-		Props: objectSchema(map[string]any{
-			"text":  map[string]any{"type": "string", "maxLength": 20000},
-			"size":  map[string]any{"type": "string", "enum": []string{"s", "m", "l", "xl"}, "description": "Default m; xl for a heading."},
-			"align": map[string]any{"type": "string", "enum": []string{"left", "center", "right"}},
-			"tags":  tagsSchema,
-		}, "text"),
-	},
-	{
-		Type:        "checklist",
-		Description: "A list of items people and agents tick off.",
-		W:           280, H: 200,
-		Props: objectSchema(map[string]any{
-			"title": map[string]any{"type": "string", "maxLength": 200},
-			"items": map[string]any{
-				"type": "array", "maxItems": 200,
-				"items": map[string]any{
-					"type": "object", "additionalProperties": false, "required": []string{"text"},
-					"properties": map[string]any{
-						"text": map[string]any{"type": "string", "minLength": 1, "maxLength": 1000},
-						"done": map[string]any{"type": "boolean"},
-					},
-				},
-			},
-			"tags": tagsSchema,
-		}, "items"),
-	},
-	{
-		Type:        "poll",
-		Description: "A question with options people and agents vote on.",
-		W:           300, H: 220,
-		Props: objectSchema(map[string]any{
-			"question": map[string]any{"type": "string", "minLength": 1, "maxLength": 500},
-			"multi":    map[string]any{"type": "boolean", "description": "Several options may be picked."},
-			"options": map[string]any{
-				"type": "array", "minItems": 2, "maxItems": 20,
-				"items": map[string]any{
-					"type": "object", "additionalProperties": false, "required": []string{"label"},
-					"properties": map[string]any{
-						"label": map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
-						"votes": map[string]any{"type": "integer", "minimum": 0},
-					},
-				},
-			},
-			"tags": tagsSchema,
-		}, "question", "options"),
-	},
-}
+	return f.Types
+}()
 
 // Catalog is every block type agents may place, sorted by type.
 func Catalog() []BlockType {
@@ -125,9 +64,15 @@ func LookupType(t string) (BlockType, bool) {
 // CheckProps checks a block's props against its catalog type's schema.
 func CheckProps(blockType string, props json.RawMessage) error {
 	bt, ok := LookupType(blockType)
+	if ok && bt.Region {
+		return fmt.Errorf("a %s isn't a block: add it under frames, and put blocks in it with their frame field", blockType)
+	}
 	if !ok {
 		names := make([]string, 0, len(catalog))
 		for _, c := range Catalog() {
+			if c.Region {
+				continue
+			}
 			names = append(names, c.Type)
 		}
 		return fmt.Errorf("no block type %q (board.catalog lists them: %s)", blockType, strings.Join(names, ", "))

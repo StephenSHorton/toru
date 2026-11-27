@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createAgent } from "@ui-sdk/react/agent";
 import { Button } from "@ui-sdk/react/button";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
@@ -16,59 +16,99 @@ import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
 import { CheckIcon, ChevronDownIcon, MousePointer2Icon, PenLineIcon, PlusIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
-import type { BoardBlocks, BoardLine } from "@/whiteboard/board";
+import type { BoardBlocks } from "@/whiteboard/board";
+import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
+import { blockLabel, blockType, blockTypes, newProps, type BlockType } from "@/whiteboard/catalog";
 import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
+import { sampleBoard } from "@/whiteboard/sample";
 import "@/whiteboard/toru-ui-sdk.css";
 
 // The whiteboard window (?view=whiteboard&id=<board>, WindowsService.OpenWhiteboard).
 // The board canvas (whiteboard/board.ts on UI SDK's canvas behaviors: pan,
 // zoom, select, lasso, move, resize, connect) under a toolbar of UI SDK
-// controls in Toru's theme. The whiteboard uses UI SDK only, never Toru's
-// shadcn components/ui.
+// controls in Toru's theme. Each block renders its block catalog type
+// (whiteboard/catalog.ts, blocks.tsx). The whiteboard uses UI SDK only, never
+// Toru's shadcn components/ui.
 //
-// Until the board document lives in Go (the board store and live-board
-// cards), the window opens on a sample board kept in this window only.
+// Until the board document lives in Go (the live board card), the window
+// opens on a sample board with one block of every type, kept in this window.
 
 // UI SDK's agent bridge, made before the board renders so it hears it mount.
 // `board.snapshot` hands its snapshot to agents over Toru's agent control.
 const agent = createAgent();
 
-const sampleBlocks: BoardBlocks = {
-  goal: { label: "Goal: ship the whiteboard", x: 0, y: 160, width: 200, height: 72 },
-  users: { label: "Who uses it", x: 280, y: 40, width: 160, height: 64 },
-  ideas: { label: "Ideas", x: 280, y: 200, width: 160, height: 64 },
-  sticky: { label: "Sticky notes", x: 520, y: 120, width: 152, height: 56 },
-  polls: { label: "Polls", x: 520, y: 200, width: 152, height: 56 },
-  ink: { label: "Freehand ink", x: 520, y: 280, width: 152, height: 56 },
-  risks: { label: "Risks", x: 280, y: 360, width: 160, height: 64 },
-};
-const sampleLines: BoardLine[] = [
-  { id: "goal:right->users:left", from: "goal:right", to: "users:left" },
-  { id: "goal:right->ideas:left", from: "goal:right", to: "ideas:left" },
-  { id: "ideas:right->sticky:left", from: "ideas:right", to: "sticky:left" },
-  { id: "ideas:right->polls:left", from: "ideas:right", to: "polls:left" },
-  { id: "ideas:right->ink:left", from: "ideas:right", to: "ink:left" },
-];
-
 export default function Whiteboard() {
   const id = new URLSearchParams(window.location.search).get("id") ?? "";
+  const [blocks, setBlocks] = useState<BoardBlocks>(sampleBoard.blocks);
   const [pen, setPen] = useState<PenOptions>(() => ({
     active: false,
     color: inkColors[0].token,
     width: tokenWidth(inkWidths[0].token, inkWidths[0].fallback),
   }));
 
-  useEffect(
-    () =>
-      registerAgentCommand(
-        "board.snapshot",
-        {
-          description:
-            "The open whiteboard as UI SDK's agent bridge sees it: every block by id with its label and box, every line with its name, the selection, and each component's actions.",
+  useEffect(() => {
+    const offSnapshot = registerAgentCommand(
+      "board.snapshot",
+      {
+        description:
+          "The open whiteboard as UI SDK's agent bridge sees it: every block by id with its label, type, props and box, every line with its name, the selection, and each block's controls (text areas, checkboxes, polls, ratings, table cells, tags) with their actions.",
+      },
+      () => agent.snapshot(),
+    );
+    const offAct = registerAgentCommand(
+      "board.act",
+      {
+        description:
+          "Use the open whiteboard's controls as a person would, through UI SDK's agent bridge: steps run in order, each {ref, action, args}, where ref is a control's label or ref from board.snapshot. " +
+          'Like {"ref": "Which block next?", "action": "setValue", "args": ["Timer"]} to vote, "toggle" on a checklist item, "setValue" on a sticky note, card, table cell or rating, "press" on a button.',
+        input: {
+          type: "object",
+          required: ["steps"],
+          properties: {
+            steps: {
+              type: "array",
+              minItems: 1,
+              items: {
+                type: "object",
+                required: ["ref", "action"],
+                properties: { ref: { type: "string" }, action: { type: "string" }, args: { type: "array" } },
+              },
+            },
+          },
         },
-        () => agent.snapshot(),
-      ),
-    [],
+      },
+      (input) => agent.act({ steps: (input as { steps: Parameters<typeof agent.act>[0]["steps"] }).steps }),
+    );
+    return () => {
+      offSnapshot();
+      offAct();
+    };
+  }, []);
+
+  // A block's props changed in its render, by a person or an agent
+  // (details.source). The live board card sends these to Go as board ops.
+  const setProps = useCallback((blockId: string, props: Record<string, unknown>, _details: PropsChange) => {
+    setBlocks((prev) => {
+      const block = prev[blockId];
+      if (!block?.type) return prev;
+      return { ...prev, [blockId]: { ...block, props, label: blockLabel(block.type, props) } };
+    });
+  }, []);
+
+  const renderBlock = useCallback(
+    (blockId: string, all: BoardBlocks) => {
+      const block = all[blockId];
+      if (!block.type) return block.label;
+      return (
+        <BlockBody
+          id={blockId}
+          type={block.type}
+          props={block.props ?? {}}
+          onProps={(next, details) => setProps(blockId, next, details)}
+        />
+      );
+    },
+    [setProps],
   );
 
   return (
@@ -76,15 +116,33 @@ export default function Whiteboard() {
       <Board
         aria-label={`Whiteboard ${id}`.trim()}
         className="h-full w-full"
-        defaultBlocks={sampleBlocks}
-        defaultLines={sampleLines}
+        blocks={blocks}
+        onBlocksChange={setBlocks}
+        defaultLines={sampleBoard.lines}
+        renderBlock={renderBlock}
         pen={pen}
       >
-        <SampleToolbar />
+        <SampleToolbar onAdd={(type) => setBlocks((prev) => addBlock(prev, type))} />
         <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
       </Board>
     </div>
   );
+}
+
+/** A new block of a catalog type, at its default size, below the lowest block. */
+function addBlock(blocks: BoardBlocks, type: BlockType): BoardBlocks {
+  const info = blockType(type);
+  if (!info) return blocks;
+  const all = Object.values(blocks);
+  const y = all.length ? Math.max(...all.map((b) => b.y + b.height)) + 40 : 0;
+  const x = all.length ? Math.min(...all.map((b) => b.x)) : 0;
+  let n = all.length + 1;
+  while (blocks[`${type}-${n}`]) n++;
+  const props = structuredClone(newProps[type]) as Record<string, unknown>;
+  return {
+    ...blocks,
+    [`${type}-${n}`]: { label: blockLabel(type, props), type, props, x, y, width: info.w, height: info.h },
+  };
 }
 
 // The tools down the board's left side: select or pen, then the pen's colour
@@ -151,33 +209,35 @@ function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Par
   );
 }
 
-// A sample of UI SDK controls, to see the theme next to Toru's own windows.
-// Fit works; the rest wait for the block catalog and later cards.
-function SampleToolbar() {
+// The toolbar: Add block places the chosen catalog type; Fit works. The rest
+// are samples of UI SDK controls in Toru's theme, for later cards.
+function SampleToolbar({ onAdd }: { onAdd: (type: BlockType) => void }) {
   const board = useBoard();
+  const [kind, setKind] = useState<BlockType>("sticky");
   return (
     <div
       className="frost absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-3 px-3 py-2"
       onWheel={(e) => e.stopPropagation()}
       style={{ cursor: "default" }}
     >
-      <Button data-variant="solid">
+      <Button
+        data-variant="solid"
+        onClick={() => {
+          onAdd(kind);
+          requestAnimationFrame(() => board.fit());
+        }}
+      >
         <PlusIcon aria-hidden="true" />
         Add block
       </Button>
       <Button onClick={() => board.fit()}>Fit</Button>
-      <Select defaultValue="sticky" aria-label="Block kind">
+      <Select value={kind} onValueChange={(v) => v && setKind(v as BlockType)} aria-label="Block kind">
         <SelectTrigger>
           <SelectValue />
           <ChevronDownIcon aria-hidden="true" />
         </SelectTrigger>
         <SelectContent className="frost">
-          {[
-            ["sticky", "Sticky note"],
-            ["text", "Text"],
-            ["shape", "Shape"],
-            ["image", "Image"],
-          ].map(([value, label]) => (
+          {blockTypes.map(({ type: value, label }) => (
             <SelectItem key={value} value={value}>
               {label}
               <SelectItemIndicator>

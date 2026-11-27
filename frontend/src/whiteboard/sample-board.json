@@ -1,0 +1,24 @@
+{
+  "name": "Block catalog v1",
+  "frames": [
+    { "id": "frame-ideas", "name": "Ideas", "x": -20, "y": 80, "w": 680, "h": 240, "color": "blue" }
+  ],
+  "blocks": [
+    { "id": "heading", "type": "text", "x": 0, "y": 0, "w": 640, "h": 56, "props": { "text": "Toru whiteboard: launch plan", "size": "xl" } },
+    { "id": "idea-capture", "type": "sticky", "x": 0, "y": 100, "w": 200, "h": 200, "frame": "frame-ideas", "props": { "text": "Send a screenshot straight to a board", "color": "yellow", "tags": ["capture"] } },
+    { "id": "idea-polls", "type": "sticky", "x": 220, "y": 100, "w": 200, "h": 200, "frame": "frame-ideas", "props": { "text": "Quick polls to settle small decisions", "color": "pink", "tags": ["team"] } },
+    { "id": "idea-agents", "type": "sticky", "x": 440, "y": 100, "w": 200, "h": 200, "frame": "frame-ideas", "props": { "text": "Agents fill in the tables while we talk", "color": "green", "tags": ["agents"] } },
+    { "id": "card-ship", "type": "card", "x": 700, "y": 100, "w": 300, "h": 200, "props": { "title": "Ship the block catalog", "body": "Ten block types, each from UI SDK parts, each one an agent can read and fill.", "color": "purple" } },
+    { "id": "checklist", "type": "checklist", "x": 0, "y": 360, "w": 280, "h": 230, "props": { "title": "Before launch", "items": [ { "text": "Write the catalog", "done": true }, { "text": "Render every block", "done": true }, { "text": "Agent-ready tests" } ] } },
+    { "id": "poll", "type": "poll", "x": 300, "y": 360, "w": 300, "h": 230, "props": { "question": "Which block next?", "options": [ { "label": "Kanban column", "votes": 3 }, { "label": "Timer", "votes": 1 }, { "label": "Code snippet", "votes": 2 } ] } },
+    { "id": "rating", "type": "rating", "x": 620, "y": 360, "w": 380, "h": 100, "props": { "title": "How useful is this board?", "value": 4, "max": 5 } },
+    { "id": "tags", "type": "tag-list", "x": 620, "y": 480, "w": 380, "h": 110, "props": { "title": "Themes", "items": ["speed", "agents", "sharing", "polish"] } },
+    { "id": "table", "type": "table", "x": 0, "y": 610, "w": 440, "h": 230, "props": { "title": "Owners", "columns": ["Task", "Owner", "Due"], "rows": [ ["Catalog", "Beetle", "Fri"], ["Live sync", "Agent", "Mon"], ["Export", "Stephen", "Wed"] ] } },
+    { "id": "image", "type": "image", "x": 460, "y": 610, "w": 300, "h": 230, "props": { "asset": "334fac5220a72cdbb351ea83b8e4a5d48d7bb81d438ba78bf94cd863669c346b.png", "alt": "Test card screenshot", "caption": "Library screenshot" } },
+    { "id": "image-empty", "type": "image", "x": 780, "y": 610, "w": 220, "h": 230, "props": {} }
+  ],
+  "links": [
+    { "id": "idea-agents->table", "from": "idea-agents", "to": "card-ship" },
+    { "id": "checklist->poll", "from": "checklist", "to": "poll" }
+  ]
+}
