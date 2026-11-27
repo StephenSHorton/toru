@@ -17,5 +17,6 @@ export {
     Link,
     Op,
     Source,
-    Stroke
+    Stroke,
+    Summary
 } from "./models.js";
