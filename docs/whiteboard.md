@@ -105,12 +105,12 @@ What that gives the board:
 
 Toru already has one: `toru.exe mcp` (stdio MCP) and `toru.exe ctl`, both
 reaching the running Toru over a named pipe only the current user can open.
-Off by default ("Let AI agents and scripts control Toru" in Settings). No
-network port. The whiteboard adds its commands to that registry; it opens
-nothing new.
+Always on while Toru runs: no setting; Settings > Connect your agent shows
+the commands to add it. No network port. The whiteboard adds its commands
+to that registry; it opens nothing new.
 
 ```
-claude mcp add toru -- "%LOCALAPPDATA%\Programs\Toru\toru.exe" mcp
+claude mcp add --scope user toru -- "%LOCALAPPDATA%\Programs\Toru\toru.exe" mcp
 ```
 
 **Board commands (Go, always available, window open or not).** The board

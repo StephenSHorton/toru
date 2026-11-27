@@ -7,5 +7,6 @@ export {
 };
 
 export {
+    ConnectInfo,
     WindowCommand
 } from "./models.js";

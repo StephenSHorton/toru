@@ -26,7 +26,11 @@ const listeners = new Set<() => void>();
 /** Shows theme on this page: <html data-theme>. */
 export function applyTheme(theme: BoardTheme) {
   current = theme;
-  if (typeof document !== "undefined") document.documentElement.dataset.theme = theme;
+  if (typeof document !== "undefined") {
+    document.documentElement.dataset.theme = theme;
+    // main.tsx's pre-paint canvas colour: the theme's stylesheet has it now.
+    document.body?.style.removeProperty("background");
+  }
   for (const f of listeners) f();
 }
 
