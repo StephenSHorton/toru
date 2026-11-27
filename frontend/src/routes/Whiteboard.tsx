@@ -86,16 +86,13 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   // Light (the default) or slate grey dark, saved in Go for every board.
   useWindowTheme();
   const id = live.id;
-<<<<<<< HEAD
   const [snap, setSnap] = useSnapToGrid();
   const grid = snap ? dotGrid : 1;
-=======
   // The person's own blocks (custom types), when the board is in Toru's store.
   useBlockLibrary(id, !given && (() => {
     const params = new URLSearchParams(window.location.search);
     return !!params.get("id") && params.get("link") !== "http";
   })());
->>>>>>> refs/remotes/origin/main
   const [pen, setPen] = useState<PenOptions>(() => ({
     active: false,
     color: inkColors[0].token,
@@ -465,20 +462,9 @@ function SampleToolbar({
         </Checkbox>
         Snap to grid
       </label>
-<<<<<<< HEAD
+      <ThemeSwitch />
       {/* Share does nothing yet (whiteboard#13), so agents don't see it and
           it makes no promise about who can view the board. */}
-=======
-      <Slider defaultValue={60} style={{ minWidth: "8rem" }}>
-        <SliderControl>
-          <SliderTrack>
-            <SliderIndicator />
-            <SliderThumb aria-label="Zoom" />
-          </SliderTrack>
-        </SliderControl>
-      </Slider>
-      <ThemeSwitch />
->>>>>>> refs/remotes/origin/main
       <Popover>
         <PopoverTrigger data-agent-hidden="">Share</PopoverTrigger>
         <PopoverContent className="frost" data-agent-hidden="">
