@@ -1,0 +1,344 @@
+/* Custom blocks (custom-blocks.tsx) in Toru's look: the parts of a layout
+   agents designed, drawn flat like the built-in blocks. A definition never
+   brings styles of its own; every look here is Toru's. */
+
+@layer components {
+  [data-slot="block-custom"],
+  [data-slot="block-placeholder"] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: var(--block-pad);
+    overflow: hidden;
+  }
+
+  [data-slot="custom-kind"] {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+
+    & > svg {
+      width: 14px;
+      height: 14px;
+      flex: none;
+    }
+
+    & > span:not([data-slot="custom-save"]) {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  [data-slot="custom-body"] {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+
+    /* A built-in part's heading would repeat the block's whole name (its
+       controls are named after it); the part's own label is shown above
+       instead, and the heading keeps only its count and buttons. */
+    & [data-slot="custom-builtin"] [data-slot="block-heading"] > span:first-child {
+      display: none;
+    }
+    & [data-slot="custom-builtin"] [data-slot="block-heading"] {
+      justify-content: flex-end;
+      margin-top: -24px;
+      min-height: 16px;
+    }
+
+    /* Built-in parts inside a custom block lose their own padding. */
+    & :is([data-slot="block-checklist"], [data-slot="block-poll"], [data-slot="block-rating"], [data-slot="block-table"], [data-slot="block-tags"]) {
+      padding: 0;
+      overflow: visible;
+    }
+  }
+
+  [data-slot="custom-stack"] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+
+    &[data-direction="row"] { flex-direction: row; align-items: center; }
+    &[data-gap="none"] { gap: 0; }
+    &[data-gap="s"] { gap: 6px; }
+    &[data-gap="m"] { gap: 10px; }
+    &[data-gap="l"] { gap: 16px; }
+    &[data-align="start"] { align-items: flex-start; }
+    &[data-align="center"] { align-items: center; }
+    &[data-align="end"] { align-items: flex-end; }
+    &[data-align="stretch"] { align-items: stretch; }
+    &[data-justify="start"] { justify-content: flex-start; }
+    &[data-justify="center"] { justify-content: center; }
+    &[data-justify="end"] { justify-content: flex-end; }
+    &[data-justify="between"] { justify-content: space-between; }
+    &[data-wrap] { flex-wrap: wrap; }
+    &[data-tone]:not([data-tone="plain"]) { padding: 8px; }
+    &[data-tone="muted"] { background: var(--muted); }
+    &:is([data-tone="yellow"], [data-tone="pink"], [data-tone="blue"], [data-tone="green"], [data-tone="purple"], [data-tone="orange"], [data-tone="grey"]) {
+      background: color-mix(in oklch, var(--tone-color) 14%, transparent);
+      border-inline-start: 3px solid var(--tone-color);
+    }
+    &[data-tone="yellow"] { --tone-color: oklch(0.82 0.15 95); }
+    &[data-tone="pink"] { --tone-color: oklch(0.72 0.17 0); }
+    &[data-tone="blue"] { --tone-color: oklch(0.72 0.15 248); }
+    &[data-tone="green"] { --tone-color: oklch(0.75 0.16 150); }
+    &[data-tone="purple"] { --tone-color: oklch(0.7 0.16 300); }
+    &[data-tone="orange"] { --tone-color: oklch(0.75 0.16 55); }
+    &[data-tone="grey"] { --tone-color: var(--muted-foreground); }
+  }
+
+  [data-slot="custom-heading"] {
+    font-weight: 650;
+    font-size: 15px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+
+    &[data-size="s"] { font-size: 13px; }
+    &[data-size="l"] { font-size: 19px; }
+  }
+
+  [data-slot="custom-text"] {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+
+    &[data-size="s"] { font-size: 12px; }
+    &[data-size="l"] { font-size: 16px; }
+    &[data-tone="muted"] { color: var(--muted-foreground); }
+    &[data-weight="bold"] { font-weight: 600; }
+  }
+
+  [data-slot="custom-badge"] {
+    align-self: flex-start;
+    padding: 1px 7px;
+    border: 1px solid color-mix(in oklch, var(--block-accent) 70%, transparent);
+    background: color-mix(in oklch, var(--block-accent) 18%, transparent);
+    color: var(--foreground);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  [data-slot="custom-icon"] {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    &[data-color] { color: var(--block-accent); }
+  }
+
+  [data-slot="custom-divider"] {
+    width: 100%;
+    margin: 2px 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  [data-slot="custom-label"] {
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  [data-slot="custom-field"] {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+
+    & [data-slot="input"],
+    & [data-slot="textarea"] {
+      width: 100%;
+    }
+    & [data-slot="textarea"] {
+      min-height: 56px;
+      resize: none;
+    }
+  }
+
+  /* A field inside a row takes what's left of it. */
+  [data-slot="custom-stack"][data-direction="row"] > [data-slot="custom-field"] {
+    flex: 1;
+  }
+
+  [data-slot="custom-checkbox"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  [data-slot="custom-choice"] {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    & [data-slot="radio-group"] {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 4px 12px;
+    }
+    & label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+
+    /* Segmented: the options as one row of joined buttons. */
+    &[data-style="segmented"] [data-slot="radio-group"] {
+      gap: 0;
+      flex-wrap: nowrap;
+    }
+    &[data-style="segmented"] label {
+      flex: 1;
+      justify-content: center;
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      margin-inline-start: -1px;
+      font-size: 12px;
+      cursor: default;
+
+      & [data-slot="radio"] {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+      &:has([data-checked]) {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: var(--primary-foreground);
+      }
+    }
+  }
+
+  [data-slot="custom-builtin"] {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  [data-slot="custom-counter"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    & [data-slot="button"] {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    & svg {
+      width: 14px;
+      height: 14px;
+    }
+    & [data-slot="block-count"] {
+      font-size: 15px;
+      color: var(--foreground);
+    }
+  }
+
+  [data-slot="custom-slider"],
+  [data-slot="custom-progress"] {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  [data-slot="custom-progress"] [data-slot="meter-track"] {
+    height: 6px;
+    background: var(--muted);
+  }
+  [data-slot="custom-progress"] [data-slot="meter-indicator"] {
+    height: 100%;
+    background: var(--primary);
+  }
+
+  [data-slot="custom-list"] {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    & :is(ul, ol) {
+      margin: 0;
+      padding-inline-start: 18px;
+      font-size: 13px;
+    }
+    & li > span {
+      overflow-wrap: anywhere;
+    }
+    & li [data-part="block-remove"] {
+      margin-inline-start: 6px;
+      vertical-align: middle;
+    }
+  }
+
+  [data-slot="custom-image"] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 80px;
+    margin: 0;
+    border: 1px dashed var(--border);
+    color: var(--muted-foreground);
+
+    &:not([data-empty]) { border: 0; }
+    & img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+  }
+
+  [data-slot="custom-save"] {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-transform: none;
+    letter-spacing: 0;
+
+    & [data-slot="button"] {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 1px 6px;
+      font-size: 11px;
+    }
+    & svg {
+      width: 12px;
+      height: 12px;
+    }
+  }
+
+  /* A block the window can't draw: plain, never a crash. */
+  [data-slot="block-placeholder"] {
+    align-items: flex-start;
+    justify-content: center;
+    border: 1px dashed var(--border);
+    color: var(--muted-foreground);
+    font-size: 12px;
+
+    & > svg {
+      width: 18px;
+      height: 18px;
+    }
+    & > strong {
+      color: var(--foreground);
+      font-size: 13px;
+    }
+  }
+}

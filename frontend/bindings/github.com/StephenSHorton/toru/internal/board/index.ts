@@ -10,10 +10,13 @@ export {
 
 export {
     Block,
+    BlockDef,
     Board,
+    BrokenBlock,
     Frame,
     Image,
     LibraryImage,
+    LibraryList,
     Link,
     Op,
     Source,
