@@ -75,6 +75,7 @@ cd frontend && bun run test:ink && cd ..     # the whiteboard pen; `bun scripts/
 cd frontend && bun run test:blocks && cd ..  # whiteboard blocks: agent-ready, match the Go catalog
 cd frontend && bun run test:templates && cd ..   # whiteboard templates and layout match Go's; `TORU_UPDATE_TEMPLATES=1 go test ./internal/board` rewrites the files they read
 cd frontend && bun run test:live && cd ..   # the live board: window and Go ops in sync, undo, who made what; `--write` rewrites internal/board/testdata/window-ops.json, `TORU_UPDATE_LIVE=1 go test ./internal/board -run TestLiveOpsGolden` rewrites live-ops.json
+cd frontend && bun run test:gallery && cd ..   # the whiteboard's block gallery: every catalog type, press, drag, one undo, collapse
 go build -o build/bin/toru.exe .
 ```
 

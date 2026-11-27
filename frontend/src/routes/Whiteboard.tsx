@@ -14,16 +14,16 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@ui-sdk/react/popover";
-import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
-import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PencilIcon, PlusIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PencilIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
+import { BlockGallery } from "@/whiteboard/BlockGallery";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
 import type { BoardBlocks } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
-import { blockLabel, blockType, blockTypes, newProps, type BlockType } from "@/whiteboard/catalog";
+import { blockLabel } from "@/whiteboard/catalog";
 import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
 import { layoutKinds, type LayoutKind } from "@/whiteboard/layout";
 import { boardTemplates, templateBoard } from "@/whiteboard/templates";
@@ -201,10 +201,8 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         renderBlock={renderBlock}
         pen={pen}
       >
-        <SampleToolbar
-          onAdd={(type) => live.edit({ blocks: addBlock(live.getState().view.blocks, type) })}
-          exportMenu={<ExportMenu live={live} />}
-        />
+        <SampleToolbar exportMenu={<ExportMenu live={live} />} />
+        <BlockGallery />
         <ArrangeCommand live={live} />
         <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
       </Board>
@@ -276,26 +274,6 @@ function BoardName({ name, onRename }: { name: string; onRename: (name: string) 
   );
 }
 
-/**
- * A new block of a catalog type, at its default size, below the lowest
- * block. Its id is random, so it can't meet one an agent adds meanwhile.
- */
-function addBlock(blocks: BoardBlocks, type: BlockType): BoardBlocks {
-  const info = blockType(type);
-  if (!info) return blocks;
-  const all = Object.values(blocks);
-  const y = all.length ? Math.max(...all.map((b) => b.y + b.height)) + 40 : 0;
-  const x = all.length ? Math.min(...all.map((b) => b.x)) : 0;
-  let id = "";
-  do id = `blk-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-  while (blocks[id]);
-  const props = structuredClone(newProps[type]) as Record<string, unknown>;
-  return {
-    ...blocks,
-    [id]: { label: blockLabel(type, props), type, props, x, y, width: info.w, height: info.h },
-  };
-}
-
 // The tools down the board's left side: select or pen, then the pen's colour
 // and width (Toru's --ink-* tokens).
 function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Partial<PenOptions>) => void }) {
@@ -360,47 +338,21 @@ function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Par
   );
 }
 
-// The toolbar: Add block places the chosen catalog type; Fit works. The rest
-// are samples of UI SDK controls in Toru's theme, for later cards.
-function SampleToolbar({ onAdd, exportMenu }: { onAdd: (type: BlockType) => void; exportMenu?: React.ReactNode }) {
+// The toolbar: Fit, Template, Layout and Export work. The rest are samples of
+// UI SDK controls in Toru's theme, for later cards. Blocks are added from the
+// block gallery on the left (whiteboard/BlockGallery.tsx).
+function SampleToolbar({ exportMenu }: { exportMenu?: React.ReactNode }) {
   const board = useBoard();
-  const [kind, setKind] = useState<BlockType>("sticky");
   return (
     <div
       className="frost absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-3 px-3 py-2"
       onWheel={(e) => e.stopPropagation()}
       style={{ cursor: "default" }}
     >
-      <Button
-        data-variant="solid"
-        onClick={() => {
-          onAdd(kind);
-          requestAnimationFrame(() => board.fit());
-        }}
-      >
-        <PlusIcon aria-hidden="true" />
-        Add block
-      </Button>
       <Button onClick={() => board.fit()}>Fit</Button>
       <TemplateMenu />
       <LayoutMenu />
       {exportMenu}
-      <Select value={kind} onValueChange={(v) => v && setKind(v as BlockType)} aria-label="Block kind">
-        <SelectTrigger>
-          <SelectValue />
-          <ChevronDownIcon aria-hidden="true" />
-        </SelectTrigger>
-        <SelectContent className="frost">
-          {blockTypes.map(({ type: value, label }) => (
-            <SelectItem key={value} value={value}>
-              {label}
-              <SelectItemIndicator>
-                <CheckIcon aria-hidden="true" />
-              </SelectItemIndicator>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
       <label data-slot="label" className="flex items-center gap-2 whitespace-nowrap">
         <Checkbox defaultChecked>
           <CheckboxIndicator>

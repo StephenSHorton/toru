@@ -1,0 +1,216 @@
+/* The block gallery (BlockGallery.tsx): a .frost panel down the board's left
+   side, below the board's name, collapsing to a thin rail. Toru's tokens only,
+   so it follows the window's theme. */
+
+@layer components {
+  [data-slot="block-gallery"] {
+    --block-gallery-width: 15.75rem;
+    --block-gallery-rail: 2.75rem;
+    position: absolute;
+    top: 3.75rem;
+    bottom: 0.75rem;
+    left: 0.75rem;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    width: var(--block-gallery-width);
+    cursor: default;
+    color: var(--foreground);
+
+    &:not([data-open]) {
+      width: var(--block-gallery-rail);
+    }
+  }
+
+  [data-slot="block-gallery-header"] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.375rem 0.375rem 0.375rem 0.75rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--border) 75%, transparent);
+
+    & h2 {
+      font-size: 0.8125rem;
+      font-weight: 600;
+    }
+  }
+
+  [data-slot="block-gallery-list"] {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.5rem 0.5rem 0.75rem;
+    scrollbar-width: thin;
+  }
+
+  [data-slot="block-gallery-section"] + [data-slot="block-gallery-section"] {
+    margin-top: 0.75rem;
+  }
+
+  [data-slot="block-gallery-section"] h3 {
+    margin: 0 0.125rem 0.375rem;
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  [data-slot="block-gallery-grid"] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  /* A tile: the block's preview over its name, under a UI SDK button that
+     covers the whole tile. */
+  [data-slot="block-gallery-tile"] {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid color-mix(in oklch, var(--border) 85%, transparent);
+    background: color-mix(in oklch, var(--background) 55%, transparent);
+
+    &:hover {
+      border-color: color-mix(in oklch, var(--primary) 60%, var(--border));
+      background: color-mix(in oklch, var(--muted) 70%, transparent);
+    }
+    &:has(:focus-visible) {
+      outline: 2px solid var(--ring);
+      outline-offset: 1px;
+    }
+    &[data-dragging] {
+      border-color: var(--primary);
+    }
+  }
+
+  [data-slot="button"][data-part="block-gallery-tile"] {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: stretch;
+    gap: 0;
+    height: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: grab;
+    touch-action: none;
+
+    &:hover:not([data-disabled]) {
+      background: transparent;
+    }
+    &:focus-visible {
+      outline: none;
+    }
+    &:active {
+      cursor: grabbing;
+    }
+  }
+
+  [data-slot="block-gallery-preview"] {
+    position: relative;
+    display: block;
+    height: 80px;
+    overflow: hidden;
+    pointer-events: none;
+    background:
+      radial-gradient(circle, color-mix(in oklch, var(--muted-foreground) 22%, transparent) 1px, transparent 1px) 0 0 / 10px 10px;
+
+    /* The block at its real size, scaled down about its middle. */
+    & > [data-slot="board-block"] {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      display: flex;
+      transform-origin: 50% 50%;
+    }
+    & [data-slot="board-block-body"] {
+      display: flex;
+    }
+  }
+
+  /* The name's height, under the preview, for the button to sit on. */
+  [data-slot="block-gallery-tile"]::after {
+    content: "";
+    display: block;
+    height: 1.6875rem;
+  }
+
+  [data-slot="block-gallery-name"] {
+    display: block;
+    color: var(--foreground);
+    padding: 0.3125rem 0.5rem 0.375rem;
+    border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+    overflow: hidden;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-align: start;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Collapsed: the whole rail opens it. */
+  [data-slot="button"][data-part="block-gallery-rail"] {
+    flex: 1;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    height: auto;
+    padding: 0.625rem 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+
+    &:hover {
+      background: color-mix(in oklch, var(--muted) 60%, transparent);
+      color: var(--foreground);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--ring);
+      outline-offset: -2px;
+    }
+  }
+
+  [data-slot="block-gallery-rail-label"] {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    writing-mode: vertical-rl;
+  }
+
+  /* Where a dragged block lands, at the board's zoom, under the pointer. */
+  [data-slot="block-gallery-ghost"] {
+    position: fixed;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed color-mix(in oklch, var(--muted-foreground) 70%, transparent);
+    background: color-mix(in oklch, var(--card) 40%, transparent);
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 600;
+    pointer-events: none;
+
+    &[data-over-board] {
+      border-color: var(--primary);
+      background: color-mix(in oklch, var(--primary) 14%, transparent);
+      color: var(--foreground);
+    }
+  }
+}
+
+/* Tools down the board's left side sit right of the panel. Outside the layers,
+   so it wins over the toolbar's own left-3 utility. */
+[aria-roledescription="whiteboard"]:has(> [data-slot="block-gallery"][data-open]) > [data-slot="pen-toolbar"] {
+  left: calc(0.75rem + 15.75rem + 0.5rem);
+}
+[aria-roledescription="whiteboard"]:has(> [data-slot="block-gallery"]:not([data-open])) > [data-slot="pen-toolbar"] {
+  left: calc(0.75rem + 2.75rem + 0.5rem);
+}
