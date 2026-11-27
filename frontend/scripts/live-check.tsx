@@ -456,5 +456,262 @@ ok("no error shown", live.getState().error === null, live.getState().error);
   ok("still no error shown", live.getState().error === null, live.getState().error);
 }
 
+// ── 5. The toolbar: no dead controls ──────────────────────────────────
+{
+  const snapBox = () =>
+    [...host.querySelectorAll<HTMLElement>('[role="checkbox"]')].find((c) => c.closest("label")?.textContent?.includes("Snap to grid"));
+  ok("the zoom slider is gone", !host.querySelector('[role="slider"]') && !host.querySelector('[aria-label="Zoom"]'));
+  ok("Snap to grid starts ticked", snapBox()?.getAttribute("aria-checked") === "true", snapBox()?.outerHTML.slice(0, 120));
+  const before = { ...memBlock("s1")! };
+  el("s1")!.focus();
+  key(el("s1")!, "ArrowRight", { altKey: true });
+  await settle();
+  ok("... and Alt+arrow moves a block one dot (24)", memBlock("s1")!.x === before.x + 24, [before.x, memBlock("s1")!.x]);
+  snapBox()!.click();
+  await settle();
+  ok("unticking it is saved", snapBox()?.getAttribute("aria-checked") === "false" && localStorage.getItem("toru.whiteboard.snapToGrid") === "0", localStorage.getItem("toru.whiteboard.snapToGrid"));
+  const was = memBlock("s1")!.x;
+  el("s1")!.focus();
+  key(el("s1")!, "ArrowRight", { altKey: true });
+  await settle();
+  ok("... and moves go where they're put (1 unit)", memBlock("s1")!.x === was + 1, [was, memBlock("s1")!.x]);
+  snapBox()!.click();
+  await settle();
+  ok("ticking it again is saved", localStorage.getItem("toru.whiteboard.snapToGrid") === "1");
+  const names = JSON.stringify(agent.snapshot().map((c) => [c.component, c.label]));
+  ok("agents don't see Share, which does nothing yet", !/share/i.test(names), names);
+  ok("agents don't see a zoom slider", !agent.snapshot().some((c) => c.component === "slider"), names);
+  // Open Share: its title shows, but no promise about who can view the board.
+  [...host.querySelectorAll<HTMLButtonElement>("button")].find((x) => x.textContent?.trim() === "Share")!.click();
+  await settle();
+  ok("Share opens", document.body.textContent?.includes("Share this board") === true);
+  ok("... and makes no promise about who can view the board", !document.body.textContent?.includes("Anyone with the link"));
+  key(document.activeElement ?? document.body, "Escape");
+  await settle();
+}
+
+// ── 6. The drawing bar and its tools ──────────────────────────────────
+{
+  const bar = () => host.querySelector<HTMLElement>('[data-slot="drawing-bar"]')!;
+  const toolButton = (t: string) => bar().querySelector<HTMLElement>(`[data-tool="${t}"]`)!;
+  const pressed = (t: string) => toolButton(t)?.hasAttribute("data-pressed") || toolButton(t)?.getAttribute("aria-pressed") === "true";
+  const surface = () => host.querySelector<HTMLElement>('[data-slot="tool-surface"]')!;
+  const inkNow = () => mem.board().ink;
+  const pe = (type: string, x: number, y: number, more: PointerEventInit = {}) =>
+    new PointerEvent(type, { pointerId: 3, pointerType: "mouse", clientX: x, clientY: y, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true, cancelable: true, ...more });
+  const drag = async (target: Element, from: [number, number], to: [number, number], more: PointerEventInit = {}) => {
+    target.dispatchEvent(pe("pointerdown", ...from, more));
+    for (let i = 1; i <= 4; i++) window.dispatchEvent(pe("pointermove", from[0] + ((to[0] - from[0]) * i) / 4, from[1] + ((to[1] - from[1]) * i) / 4, more));
+    window.dispatchEvent(pe("pointerup", ...to, more));
+    await settle();
+    await settle();
+  };
+
+  // A canvas point on screen, from the world's transform (the board pans to show what's focused).
+  const screenOf = (cx: number, cy: number) => {
+    const w = host.querySelector<HTMLElement>('[data-slot="board-world"]')!.getAttribute("style") ?? "";
+    const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([\d.]+)\)/.exec(w);
+    const [tx, ty, z] = m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [0, 0, 1];
+    return [tx + cx * z, ty + cy * z] as [number, number];
+  };
+
+  ok("the drawing bar is in the window, a toolbar", bar()?.getAttribute("role") === "toolbar", bar()?.outerHTML.slice(0, 80));
+  const tools = ["select", "hand", "pen", "highlighter", "eraser", "rect", "ellipse", "line", "arrow", "text", "emoji"];
+  ok("it has every tool", tools.every((t) => !!toolButton(t)), tools.filter((t) => !toolButton(t)));
+  ok("each tool's tooltip names its shortcut", tools.every((t) => /\([A-Z]\)$/.test(toolButton(t).title)), tools.map((t) => toolButton(t).title));
+  ok("nine colours", bar().querySelectorAll("[data-colour]").length === 9);
+  ok("undo and redo buttons", !!bar().querySelector('[data-part="drawing-undo"]') && !!bar().querySelector('[data-part="drawing-redo"]'));
+  ok("select is on at first", pressed("select"));
+
+  // Shortcuts pick tools, not while typing; the choice is saved.
+  key(document.body, "r");
+  await settle();
+  ok("R picks the rectangle", pressed("rect") && surface().hasAttribute("data-active"), toolButton("rect").outerHTML.slice(0, 120));
+  ok("the tool is saved", JSON.parse(localStorage.getItem("toru.whiteboard.drawing") ?? "{}").tool === "rect", localStorage.getItem("toru.whiteboard.drawing"));
+  ok("the fill toggle shows for a rectangle", !!bar().querySelector('[data-part="drawing-fill"]'));
+
+  // A rectangle: one drag, one op, one stroke of kind rect.
+  let n = sent.length;
+  const inkBefore = inkNow().length;
+  const worldStyle = () => host.querySelector<HTMLElement>('[data-slot="board-world"]')!.getAttribute("style");
+  const viewBefore = worldStyle();
+  await drag(surface(), [300, 300], [420, 380]);
+  ok("drawing a shape doesn't pan the board", worldStyle() === viewBefore, [viewBefore, worldStyle()]);
+  const rect = inkNow().at(-1)!;
+  ok("dragging draws a rectangle as one op", sent.length === n + 1 && inkNow().length === inkBefore + 1 && rect.kind === "rect" && rect.points.length === 6, { sent: sent.length - n, rect });
+  ok("... in the bar's colour and width", rect.color === "ink-white" && rect.width === 4, rect);
+  const rectBlock = () => view().blocks[rect.id];
+  ok("... and it shows on the board as a shape", !!el(rect.id) && el(rect.id)!.getAttribute("data-shape") === "rect" && !!el(rect.id)!.querySelector("rect[data-slot=board-shape-line]"));
+
+  // Every shape tool draws its shape.
+  for (const [k, t] of [["o", "ellipse"], ["l", "line"], ["a", "arrow"]] as const) {
+    key(document.body, k);
+    await settle();
+    n = sent.length;
+    await drag(surface(), [300, 420], [380, 470], { shiftKey: t === "line" });
+    ok(`${t} draws`, pressed(t) && sent.length === n + 1 && inkNow().at(-1)!.kind === t, inkNow().at(-1));
+  }
+  {
+    const l = inkNow().find((s) => s.kind === "line")!;
+    const angle = (Math.atan2(l.points[4] - l.points[1], l.points[3] - l.points[0]) * 180) / Math.PI;
+    ok("Shift keeps a line at 45°", Math.abs(angle / 45 - Math.round(angle / 45)) < 1e-6, angle);
+  }
+
+  // Text: click, type, Enter.
+  key(document.body, "t");
+  await settle();
+  surface().dispatchEvent(pe("pointerdown", 500, 500));
+  await settle();
+  const editor = host.querySelector<HTMLTextAreaElement>('[data-slot="shape-text-editor"]');
+  ok("the text tool opens a label to type", !!editor);
+  if (editor) {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "Hello board");
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    n = sent.length;
+    key(editor, "Enter");
+    await settle();
+    await settle();
+    const label = inkNow().at(-1)!;
+    ok("Enter puts the label on the board as one op", sent.length === n + 1 && label.kind === "text" && label.text === "Hello board", label);
+    ok("... and it shows as text", el(label.id)?.querySelector("text")?.textContent === "Hello board");
+  }
+
+  // Emoji: click puts the chosen emoji down.
+  key(document.body, "j");
+  await settle();
+  n = sent.length;
+  surface().dispatchEvent(pe("pointerdown", 560, 300));
+  await settle();
+  await settle();
+  ok("the emoji tool puts an emoji down", sent.length === n + 1 && inkNow().at(-1)!.kind === "emoji" && !!inkNow().at(-1)!.text, inkNow().at(-1));
+
+  // Select the rectangle: handles; drag a corner: one op, still a rect.
+  key(document.body, "Escape");
+  await settle();
+  ok("Escape goes back to select", pressed("select") && !surface().hasAttribute("data-active"));
+  // Select it as a click on its line does (the board's own selection).
+  el(rect.id)!.focus();
+  key(el(rect.id)!, " ");
+  await settle();
+  const handles = host.querySelectorAll<HTMLElement>('[data-slot="shape-handle"]');
+  ok("a selected rectangle shows its four corner handles", handles.length === 4, handles.length);
+  if (handles.length === 4) {
+    const se = host.querySelector<HTMLElement>('[data-handle="se"]')!;
+    const before = rectBlock();
+    n = sent.length;
+    const corner = screenOf(rect.points[3], rect.points[4]);
+    await drag(se, corner, [corner[0] + 60, corner[1] + 40]);
+    const after = inkNow().find((s) => s.id === rect.id)!;
+    ok("dragging a corner reshapes it as one op", sent.length === n + 1 && after.kind === "rect" && after.points[3] - after.points[0] > rect.points[3] - rect.points[0], { after, rect });
+    ok("... keeping the opposite corner", after.points[0] === rect.points[0] && after.points[1] === rect.points[1], after.points);
+    void before;
+
+    // With select, the bar's colour restyles the selection.
+    n = sent.length;
+    bar().querySelector<HTMLElement>('[data-colour="ink-red"]')!.click();
+    await settle();
+    await settle();
+    ok("a colour picked with a shape selected recolours it", sent.length === n + 1 && inkNow().find((s) => s.id === rect.id)!.color === "ink-red", inkNow().find((s) => s.id === rect.id));
+    ok("... and leaves a hollow shape hollow", !inkNow().find((s) => s.id === rect.id)!.fill);
+
+    // The fill toggle fills the selected rectangle, then takes it away: one op each.
+    const fillToggle = () => bar().querySelector<HTMLElement>('[data-part="drawing-fill"]')!;
+    n = sent.length;
+    fillToggle().click();
+    await settle();
+    await settle();
+    ok("Fill fills the selected rectangle as one op", sent.length === n + 1 && inkNow().find((s) => s.id === rect.id)!.fill === "ink-red", inkNow().find((s) => s.id === rect.id));
+    fillToggle().click();
+    await settle();
+    await settle();
+    ok("... and Fill again takes it away", sent.length === n + 2 && !("fill" in inkNow().find((s) => s.id === rect.id)!), inkNow().find((s) => s.id === rect.id));
+
+    // Backspace while typing a label deletes nothing on the board.
+    const count0 = Object.keys(view().blocks).length;
+    el(rect.id)!.focus();
+    key(el(rect.id)!, "t");
+    await settle();
+    surface().dispatchEvent(pe("pointerdown", 700, 700));
+    await settle();
+    const ed = host.querySelector<HTMLTextAreaElement>('[data-slot="shape-text-editor"]')!;
+    key(ed, "Backspace");
+    await settle();
+    ok("Backspace in a label being typed deletes nothing", Object.keys(view().blocks).length === count0 && !!el(rect.id));
+    key(ed, "Escape");
+    await settle();
+    key(document.body, "v");
+    await settle();
+    el(rect.id)!.focus();
+    key(el(rect.id)!, " ");
+    await settle();
+  }
+
+  // The eraser rubs out what it touches, as one op; undo brings it back.
+  key(document.body, "e");
+  await settle();
+  const target = inkNow().find((s) => s.kind === "emoji")!;
+  const box = view().blocks[target.id];
+  n = sent.length;
+  const count = inkNow().length;
+  ok("the eraser's ring follows it", surface().getAttribute("data-tool") === "eraser");
+  {
+    const [x, y] = screenOf(box.x + box.width / 2, box.y + box.height / 2);
+    await drag(surface(), [x - 5, y], [x + 5, y]);
+  }
+  ok("erasing is one op", sent.length === n + 1 && inkNow().length < count && !inkNow().some((s) => s.id === target.id), { ops: sent.length - n, before: count, after: inkNow().length });
+  n = sent.length;
+  bar().querySelector<HTMLElement>('[data-part="drawing-undo"]')!.click();
+  await settle();
+  await settle();
+  ok("the undo button brings it back", inkNow().some((s) => s.id === target.id), inkNow().map((s) => s.id));
+  bar().querySelector<HTMLElement>('[data-part="drawing-redo"]')!.click();
+  await settle();
+  await settle();
+  ok("the redo button rubs it out again", !inkNow().some((s) => s.id === target.id));
+
+  // The highlighter draws see-through, under the ink, through the pen.
+  key(document.body, "m");
+  await settle();
+  const penSurface = host.querySelector<HTMLElement>('[data-slot="ink-surface"]')!;
+  ok("M picks the highlighter, through the pen's surface", pressed("highlighter") && penSurface.hasAttribute("data-active"));
+  n = sent.length;
+  penSurface.dispatchEvent(pe("pointerdown", 200, 600));
+  for (const x of [220, 240, 260, 280]) penSurface.dispatchEvent(pe("pointermove", x, 600));
+  penSurface.dispatchEvent(pe("pointerup", 280, 600));
+  await settle();
+  await settle();
+  const hl = inkNow().at(-1)!;
+  ok("a highlighter stroke is saved as one", sent.length === n + 1 && hl.highlight === true && hl.width === 20 && !hl.kind, hl);
+  const order = [...host.querySelectorAll<HTMLElement>("[data-block]")].map((e) => e.dataset.block);
+  ok("... and drawn under the other ink", order.indexOf(hl.id) < order.indexOf(rect.id), order);
+
+  // The hand pans and changes nothing.
+  key(document.body, "h");
+  await settle();
+  n = sent.length;
+  const was = worldStyle();
+  await drag(surface(), [400, 400], [460, 430]);
+  const moved = (st: string | null) => /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(st ?? "")!.slice(1).map(Number);
+  const [x0, y0] = moved(was);
+  const [x1, y1] = moved(worldStyle());
+  ok("the hand pans without changing the board", pressed("hand") && sent.length === n);
+  ok("... by just as far as it dragged", x1 - x0 === 60 && y1 - y0 === 30, [x1 - x0, y1 - y0]);
+
+  // Shortcuts work with a block focused (the board is a listbox of blocks).
+  el("s1")!.focus();
+  key(el("s1")!, "r");
+  await settle();
+  ok("a shortcut works with a block focused", pressed("rect"));
+
+  // The width: presets and the fine control, per tool.
+  key(document.body, "p");
+  await settle();
+  ok("the width control names the pen's width", bar().querySelector('[data-part="drawing-width-trigger"]')!.getAttribute("title") === "Width: 2");
+  key(document.body, "v");
+  await settle();
+  ok("still no error shown after drawing", live.getState().error === null && inSync(), live.getState().error);
+}
+
 console.log(`live-check: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

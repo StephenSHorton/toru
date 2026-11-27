@@ -62,6 +62,9 @@
 //   StreamService.WatchStart(host, session) / WatchAnswer(host, session, sdp) / WatchStop  (watch window; "stream:offer", "stream:host")
 //   StreamService.ICEServers(): Promise<StreamICEServer[]>  (STUN + TURN with fresh credentials; ask before each RTCPeerConnection)
 //   StreamService.SetPeerVolume(peer, pct 0..200) -> StreamState  (per-person call volume; call.volumes)
+//   StreamService.SetTranscribe(on) / DownloadSpeechModel -> StreamState  (call.transcribe; "transcript:entry" per new line)
+//   StreamService.TranscribeSegment(at, end, pcm16 base64)  (call window: one stretch of our own speech, 16 kHz mono)
+//   TranscriptService.List / Open(id) / Rename(id, title) / Delete(id) / Copy(id) / Export(id, "md"|"txt")
 //   LanService.GetState / Enable / Disable / SetPolicy(allowServices, mdns) / Setup / Uninstall -> LanState  ("lan:state")
 import * as ExportService from "../../bindings/github.com/StephenSHorton/toru/internal/export/exportservice.js";
 import * as ScreenshotService from "../../bindings/github.com/StephenSHorton/toru/internal/shot/screenshotservice.js";
@@ -94,6 +97,14 @@ import {
   ReplayStatus,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
 import * as SettingsService from "../../bindings/github.com/StephenSHorton/toru/settingsservice.js";
+import * as TranscriptService from "../../bindings/github.com/StephenSHorton/toru/transcriptservice.js";
+import { TranscriptView } from "../../bindings/github.com/StephenSHorton/toru/models.js";
+import {
+  Meta as TranscriptMeta,
+  Line as TranscriptLine,
+  Entry as TranscriptEntryLine,
+  EngineStatus as SpeechEngineStatus,
+} from "../../bindings/github.com/StephenSHorton/toru/internal/transcript/models.js";
 import * as WhiteboardsService from "../../bindings/github.com/StephenSHorton/toru/whiteboardsservice.js";
 import { Summary as BoardSummary } from "../../bindings/github.com/StephenSHorton/toru/internal/board/models.js";
 import { Options as NotificationOptions } from "../../bindings/github.com/StephenSHorton/go-toast/models.js";
@@ -135,6 +146,8 @@ import {
   LiveInfo as StreamLiveInfo,
   Offer as StreamOffer,
   HostEvent as StreamHostEvent,
+  TranscribeState,
+  TranscriptEntry,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/stream/models.js";
 import * as ClickerService from "../../bindings/github.com/StephenSHorton/toru/internal/clicker/clickerservice.js";
 import {
@@ -221,5 +234,13 @@ export {
   LanState,
   LanPeer,
   LanInfo,
+  TranscribeState,
+  TranscriptEntry,
+  TranscriptService,
+  TranscriptView,
+  TranscriptMeta,
+  TranscriptLine,
+  TranscriptEntryLine,
+  SpeechEngineStatus,
 };
 export type { CaptureItem };

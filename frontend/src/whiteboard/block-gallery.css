@@ -205,12 +205,3 @@
     }
   }
 }
-
-/* Tools down the board's left side sit right of the panel. Outside the layers,
-   so it wins over the toolbar's own left-3 utility. */
-[aria-roledescription="whiteboard"]:has(> [data-slot="block-gallery"][data-open]) > [data-slot="pen-toolbar"] {
-  left: calc(0.75rem + 15.75rem + 0.5rem);
-}
-[aria-roledescription="whiteboard"]:has(> [data-slot="block-gallery"]:not([data-open])) > [data-slot="pen-toolbar"] {
-  left: calc(0.75rem + 2.75rem + 0.5rem);
-}

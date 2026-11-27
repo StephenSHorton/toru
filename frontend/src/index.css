@@ -48,6 +48,13 @@
   --ink-red: var(--destructive);
   --ink-yellow: oklch(0.86 0.15 92);
   --ink-green: oklch(0.76 0.15 155);
+  /* The drawing bar's extra pens (whiteboard/DrawingBar.tsx). Grey is the
+     muted text colour, so it follows the theme like white and blue; a light
+     theme should give orange, purple and pink darker values of its own. */
+  --ink-orange: oklch(0.78 0.16 60);
+  --ink-purple: oklch(0.72 0.17 300);
+  --ink-pink: oklch(0.78 0.15 350);
+  --ink-grey: var(--muted-foreground);
   --ink-width-fine: 2;
   --ink-width-medium: 4;
   --ink-width-bold: 8;

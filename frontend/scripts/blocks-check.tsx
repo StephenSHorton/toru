@@ -441,32 +441,167 @@ for (const [id, block] of Object.entries(current)) {
   ok(`after filling, ${id}'s props pass the ${block.type} schema`, err === null, err);
 }
 
-// ── pressing a control in a block uses it, not the block ──────────────
+// ── click selects a block, double-click edits its text ────────────────
+// happy-dom never focuses on a press and ignores board.css (which stops text
+// fields taking the pointer until their block edits), so a press here is
+// dispatched on the field itself, and "doesn't focus it" is read as the
+// press's mousedown being prevented with the field left unfocused.
 {
-  const textarea = document.querySelector<HTMLTextAreaElement>('[data-block="idea-polls"] textarea')!;
-  const before = { ...current["idea-polls"] };
-  textarea.focus();
-  {
-    const opts = { bubbles: true, button: 0, buttons: 1, clientX: 100, clientY: 100, pointerId: 1, pointerType: "mouse" };
-    textarea.dispatchEvent(new PointerEvent("pointerdown", opts));
-    textarea.dispatchEvent(new PointerEvent("pointermove", { ...opts, clientX: 260, clientY: 220 }));
-    textarea.dispatchEvent(new PointerEvent("pointerup", { ...opts, clientX: 260, clientY: 220, buttons: 0 }));
-  }
-  await settle();
-  ok("a drag that starts in a text area doesn't move the block", current["idea-polls"].x === before.x && current["idea-polls"].y === before.y, current["idea-polls"]);
-  ok("the text area keeps focus", document.activeElement === textarea, document.activeElement?.outerHTML.slice(0, 80));
-  ok("the block it's in is selected", document.querySelector('[data-block="idea-polls"]')?.hasAttribute("data-selected") === true);
+  const blockEl = (id: string) => document.querySelector<HTMLElement>(`[data-block="${id}"]`)!;
+  const editing = (id: string) => blockEl(id).hasAttribute("data-editing");
+  const selected = (id: string) => blockEl(id).hasAttribute("data-selected");
+  const boardEl = document.querySelector<HTMLElement>('[data-slot="board"]')!;
+  let pointerId = 10;
+  /** A mouse press on el, dragged by `by` when given; true when its mousedown was prevented. */
+  const press = async (el: Element, by?: { x: number; y: number }) => {
+    const opts = { bubbles: true, cancelable: true, button: 0, buttons: 1, clientX: 100, clientY: 100, pointerId: pointerId++, pointerType: "mouse" };
+    el.dispatchEvent(new PointerEvent("pointerdown", opts));
+    const down = new MouseEvent("mousedown", opts);
+    el.dispatchEvent(down);
+    const end = { ...opts, clientX: 100 + (by?.x ?? 0), clientY: 100 + (by?.y ?? 0), buttons: 0 };
+    if (by) {
+      window.dispatchEvent(new PointerEvent("pointermove", { ...opts, clientX: 100 + by.x / 2, clientY: 100 + by.y / 2 }));
+      el.dispatchEvent(new PointerEvent("pointermove", { ...end, buttons: 1 }));
+    }
+    window.dispatchEvent(new PointerEvent("pointerup", end));
+    el.dispatchEvent(new PointerEvent("pointerup", end));
+    el.dispatchEvent(new MouseEvent("mouseup", end));
+    if (!by) el.dispatchEvent(new MouseEvent("click", end));
+    await settle();
+    return down.defaultPrevented;
+  };
+  const dblclick = async (el: Element) => {
+    el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, button: 0, detail: 2, clientX: 100, clientY: 100 }));
+    await settle();
+  };
+  const key = async (el: Element, k: string) => {
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+    await settle();
+  };
+  const at = (id: string) => ({ x: current[id].x, y: current[id].y });
+  const moved = (id: string, was: { x: number; y: number }) => current[id].x !== was.x || current[id].y !== was.y;
 
-  // The sticky's rim, around its text area, drags it.
-  const rim = document.querySelector<HTMLElement>('[data-block="idea-polls"] [data-slot="block-sticky"]')!;
-  const opts = { bubbles: true, button: 0, buttons: 1, clientX: 100, clientY: 100, pointerId: 2, pointerType: "mouse" };
-  rim.dispatchEvent(new PointerEvent("pointerdown", opts));
-  window.dispatchEvent(new PointerEvent("pointermove", { ...opts, clientX: 180, clientY: 140 }));
-  rim.dispatchEvent(new PointerEvent("pointermove", { ...opts, clientX: 260, clientY: 220 }));
-  window.dispatchEvent(new PointerEvent("pointerup", { ...opts, clientX: 260, clientY: 220, buttons: 0 }));
-  rim.dispatchEvent(new PointerEvent("pointerup", { ...opts, clientX: 260, clientY: 220, buttons: 0 }));
-  await settle();
-  ok("a drag from the sticky's rim moves it", current["idea-polls"].x !== before.x || current["idea-polls"].y !== before.y, current["idea-polls"]);
+  // Every kind of block with text, by the field a press lands on.
+  const fields: [string, string, string][] = [
+    ["sticky", "idea-polls", "textarea"],
+    ["text", "heading", "textarea"],
+    ["card title", "card-ship", "input"],
+    ["card notes", "card-ship", "textarea"],
+    ["table cell", "table", "td input"],
+    ["checklist's new item", "checklist", '[data-slot="block-add"] input'],
+    ["tag list", "tags", '[contenteditable="true"]'],
+    ["frame name", "frame-ideas", "input"],
+  ];
+  for (const [what, id, sel] of fields) {
+    const field = blockEl(id).querySelector<HTMLElement>(sel);
+    ok(`${what}: has its text field`, !!field, sel);
+    if (!field) continue;
+    (document.activeElement as HTMLElement | null)?.blur();
+    await press(boardEl); // nothing selected, nothing editing
+
+    // One press on the text selects the block and doesn't focus the text.
+    const prevented = await press(field);
+    ok(`${what}: a click on its text selects the block`, selected(id), blockEl(id).outerHTML.slice(0, 120));
+    ok(`${what}: ...and doesn't focus the text`, prevented && document.activeElement !== field && !editing(id), document.activeElement?.outerHTML.slice(0, 80));
+    ok(`${what}: ...the block takes focus, for Enter and Delete`, document.activeElement === blockEl(id), document.activeElement?.outerHTML.slice(0, 80));
+
+    // A drag that starts on the text moves the block.
+    const was = at(id);
+    await press(field, { x: 48, y: 24 });
+    ok(`${what}: a drag from its text moves the block`, moved(id, was), [was, at(id)]);
+
+    // Double-click edits, in the field double-clicked.
+    await dblclick(field);
+    ok(`${what}: double-click edits`, editing(id) && document.activeElement === field, document.activeElement?.outerHTML.slice(0, 80));
+
+    // While editing, a drag in the text selects text: the block stays put.
+    const still = at(id);
+    const editPrevented = await press(field, { x: 60, y: 30 });
+    ok(`${what}: while editing, a drag in the text doesn't move the block`, !moved(id, still) && editing(id), [still, at(id)]);
+    ok(`${what}: ...and the press is the text's own`, !editPrevented && document.activeElement === field);
+
+    // Escape stops editing and leaves the block selected and focused.
+    await key(field, "Escape");
+    ok(`${what}: Escape stops editing, block selected`, !editing(id) && selected(id) && document.activeElement === blockEl(id), document.activeElement?.outerHTML.slice(0, 80));
+
+    // Enter on the selected block edits again.
+    await key(blockEl(id), "Enter");
+    ok(`${what}: Enter on the block edits its text`, editing(id) && !!document.activeElement && blockEl(id).contains(document.activeElement) && document.activeElement !== blockEl(id), document.activeElement?.outerHTML.slice(0, 80));
+
+    // A press outside stops editing and keeps the block selected.
+    await press(boardEl);
+    ok(`${what}: a click outside stops editing, block still selected`, !editing(id) && selected(id));
+    await press(boardEl);
+    ok(`${what}: the next click outside clears the selection`, !selected(id));
+  }
+
+  // The double-click puts the caret in the field double-clicked: the second
+  // card field, not the first.
+  {
+    const notes = blockEl("card-ship").querySelector<HTMLTextAreaElement>("textarea")!;
+    await dblclick(notes);
+    ok("double-click edits the field under the pointer", document.activeElement === notes);
+    await key(notes, "Escape");
+  }
+
+  // A double-click on a block's rim edits its first field, from the end.
+  {
+    const sticky = blockEl("idea-polls");
+    const rim = sticky.querySelector<HTMLElement>('[data-slot="block-sticky"]')!;
+    const textarea = sticky.querySelector<HTMLTextAreaElement>("textarea")!;
+    await dblclick(rim);
+    ok("double-click on a sticky's rim edits its text", editing("idea-polls") && document.activeElement === textarea);
+    ok("...with the caret at the end", textarea.selectionStart === textarea.value.length, [textarea.selectionStart, textarea.value.length]);
+    // While editing, the rim doesn't move it either.
+    const was = at("idea-polls");
+    const kept = await press(rim, { x: 80, y: 40 });
+    ok("while editing, a drag from the rim doesn't move the block", !moved("idea-polls", was), [was, at("idea-polls")]);
+    ok("...and keeps focus in the text (so Delete edits text, not the board)", kept && editing("idea-polls"));
+    await key(textarea, "Escape");
+    await press(rim, { x: 80, y: 40 });
+    ok("after Escape, a drag from the rim moves it", moved("idea-polls", was), [was, at("idea-polls")]);
+  }
+
+  // Focus reaching a field another way (Tab, an agent) edits it.
+  {
+    const textarea = blockEl("idea-capture").querySelector<HTMLTextAreaElement>("textarea")!;
+    textarea.focus();
+    await settle();
+    ok("focus in a text field (Tab) edits its block", editing("idea-capture"));
+    const was = at("idea-capture");
+    await press(textarea, { x: 50, y: 50 });
+    ok("...so a drag in it doesn't move the block", !moved("idea-capture", was));
+    ok("...and the press selects the block", selected("idea-capture"));
+    // Editing another block stops this one.
+    const other = blockEl("idea-agents").querySelector<HTMLTextAreaElement>("textarea")!;
+    await dblclick(other);
+    ok("editing another block stops the first", editing("idea-agents") && !editing("idea-capture"));
+    await key(other, "Escape");
+  }
+
+  // Quick controls still take one press.
+  {
+    const tick = blockEl("checklist").querySelector<HTMLElement>('[role="checkbox"]')!;
+    const was = props("checklist").items[0].done === true;
+    await press(tick);
+    ok("one click ticks a checklist item", (props("checklist").items[0].done === true) !== was, props("checklist").items[0]);
+    ok("...without editing the block", !editing("checklist"));
+
+    const vote = blockEl("poll").querySelector<HTMLElement>('[role="radio"]')!;
+    const votes = props("poll").options.reduce((n: number, o: { votes?: number }) => n + (o.votes ?? 0), 0);
+    await press(vote);
+    const after = props("poll").options.reduce((n: number, o: { votes?: number }) => n + (o.votes ?? 0), 0);
+    ok("one click votes in a poll", after !== votes, props("poll").options);
+
+    const star = blockEl("rating").querySelectorAll<HTMLElement>('[data-slot="rating-item"], [role="radio"]');
+    const rated = props("rating").value;
+    if (star.length) await press(star[star.length - 1]);
+    ok("one click rates", props("rating").value !== rated, [rated, props("rating").value, star.length]);
+
+    // A double-click on a quick control isn't an edit.
+    await dblclick(tick);
+    ok("a double-click on a tick doesn't edit", !editing("checklist"));
+  }
 }
 
 clearInterval(answerer);

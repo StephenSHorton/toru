@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,9 @@ func TestKindByExt(t *testing.T) {
 }
 
 func TestMediaIDStable(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	a := mediaID(`C:\Users\Me\Music\Song.mp3`)
 	if a != mediaID(`c:\users\me\music\song.mp3`) || a != mediaID(`C:\Users\Me\Music\.\Song.mp3`) {
 		t.Fatal("same file, different ids")

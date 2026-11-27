@@ -41,6 +41,7 @@ const { createRoot } = await import("react-dom/client");
 const { createAgent } = await import("@ui-sdk/react/agent");
 const { LiveBoard } = await import("../src/whiteboard/live");
 const { memoryLink } = await import("../src/whiteboard/links");
+const { dotGrid } = await import("../src/whiteboard/board");
 const { blockTypes, checkProps } = await import("../src/whiteboard/catalog");
 const { previewProps } = await import("../src/whiteboard/BlockGallery");
 const { default: Whiteboard } = await import("../src/routes/Whiteboard");
@@ -151,7 +152,9 @@ ok("no block-kind dropdown", !host.querySelector('[aria-label="Block kind"]'));
   ok("pressing a tile sends one op", sent.length === n + 1 && op.source === "person" && op.blocks?.length === 1 && !op.frames, sent.slice(n));
   ok("... of that type, with its new props", added?.type === "sticky" && (added.props as { text?: string }).text === "" && added.w === 200 && added.h === 200, added);
   const mid = toCanvas((264 + 1200) / 2, 400);
-  ok("... in the middle of the view right of the panel", !!added && Math.abs(added.x + added.w / 2 - mid.x) <= 8 && Math.abs(added.y + added.h / 2 - mid.y) <= 8, { added, mid });
+  // Snap to grid is on by default: the corner lands on the dots, so the middle is within half a dot step.
+  ok("... in the middle of the view right of the panel", !!added && Math.abs(added.x + added.w / 2 - mid.x) <= dotGrid / 2 && Math.abs(added.y + added.h / 2 - mid.y) <= dotGrid / 2, { added, mid });
+  ok("... its corner on the dots (Snap to grid)", !!added && added.x % dotGrid === 0 && added.y % dotGrid === 0, added);
   ok("... and the board has it", memAll().some((b) => b.id === added?.id));
   ok("... selected", host.querySelector(`[data-block="${added?.id}"]`)?.hasAttribute("data-selected") === true);
 
@@ -195,7 +198,7 @@ ok("no block-kind dropdown", !host.querySelector('[aria-label="Block kind"]'));
   const added = sent[n]?.blocks?.[0];
   const at = toCanvas(700, 300);
   ok("dropping on the board sends one op", sent.length === n + 1 && added?.type === "card", sent.slice(n));
-  ok("... with the block's middle where it was dropped", !!added && Math.abs(added.x + added.w / 2 - at.x) <= 8 && Math.abs(added.y + added.h / 2 - at.y) <= 8, { added, at });
+  ok("... with the block's middle where it was dropped", !!added && Math.abs(added.x + added.w / 2 - at.x) <= dotGrid / 2 && Math.abs(added.y + added.h / 2 - at.y) <= dotGrid / 2, { added, at });
   ok("... and the drag is over", !document.querySelector('[data-slot="block-gallery-ghost"]'));
   key(window, "z", { ctrlKey: true });
   await settle();

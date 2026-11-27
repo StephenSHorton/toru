@@ -15,7 +15,7 @@
 import { facing, sides, type BoardBlock, type BoardBlocks, type BoardLine } from "./board"
 import { blockLabel } from "./catalog"
 import type { BlockDef } from "./custom-types"
-import { fromDocumentStroke, toDocumentStroke } from "./ink"
+import { fromDocumentStroke, toDocumentStroke, type InkExtras } from "./ink"
 
 type Meta = { createdBy?: string; updatedBy?: string }
 type DocBlock = Meta & {
@@ -39,7 +39,7 @@ type DocLink = Meta & {
   label?: string
   props?: Record<string, unknown>
 }
-type DocStroke = Meta & { id: string; points: number[]; color: string; width: number; frame?: string }
+type DocStroke = Meta & InkExtras & { id: string; points: number[]; color: string; width: number; frame?: string }
 type DocFrame = Meta & { id: string; name: string; x: number; y: number; w: number; h: number; color?: string }
 
 /** A board as Go keeps it (`board.Board`). */
@@ -197,7 +197,11 @@ function toDocItem(id: string, b: BoardBlock, was?: DocItem): { key: ListKey; it
   if (key === "ink") {
     const s = toDocumentStroke(id, b as Parameters<typeof toDocumentStroke>[1])
     const prev = keep as DocStroke | undefined
-    return { key, item: { ...prev, ...s, ...(prev?.frame ? { frame: prev.frame } : {}) } }
+    const item: DocStroke = { ...prev, ...s, ...(prev?.frame ? { frame: prev.frame } : {}) }
+    // What makes it a shape or a highlighter is the canvas's: one it took
+    // away, like a fill, goes from the document too.
+    for (const k of ["kind", "fill", "text", "highlight"] as const) if (!(k in s)) delete item[k]
+    return { key, item }
   }
   if (key === "frames") {
     const props = b.props ?? {}

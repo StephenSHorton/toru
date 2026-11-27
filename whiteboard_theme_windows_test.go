@@ -47,7 +47,7 @@ func themeContrast(t *testing.T, path, url string) contrastReport {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
-	p, err := webprint.Open(ctx, path, webprint.Options{DataDir: filepath.Join(t.TempDir(), "webview"), URL: url, Width: 1600, Height: 1000})
+	p, err := webprint.Open(ctx, path, webprint.Options{DataDir: webViewDir(t), URL: url, Width: 1600, Height: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestWhiteboardThemeContrastInWebView2(t *testing.T) {
 	if err != nil || !bytes.Contains(page, []byte(`<script id="toru-board" type="application/json">null</script>`)) {
 		t.Skip("the board viewer isn't built into this binary (run `bun run build` in frontend)")
 	}
-	exporter.WebViewDir = filepath.Join(t.TempDir(), "export-webview")
+	exporter.WebViewDir = webViewDir(t)
 	b := themeBoard(t)
 	out := os.Getenv("TORU_THEME_OUT")
 	for _, theme := range []string{themeLight, themeDark} {

@@ -6,26 +6,18 @@ import { Input } from "@ui-sdk/react/input";
 import { Window } from "@wailsio/runtime";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
-import {
-  Popover,
-  PopoverClose,
-  PopoverContent,
-  PopoverDescription,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@ui-sdk/react/popover";
-import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
+import { Popover, PopoverClose, PopoverContent, PopoverTitle, PopoverTrigger } from "@ui-sdk/react/popover";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
-import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MoonIcon, MousePointer2Icon, PenLineIcon, PencilIcon, SunIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MoonIcon, PencilIcon, SunIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
 import { BlockGallery } from "@/whiteboard/BlockGallery";
-import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
-import type { BoardBlocks } from "@/whiteboard/board";
+import { Board, useBoard } from "@/whiteboard/BoardView";
+import { dotGrid, onGrid, type BoardBlocks } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
 import { useBlockLibrary } from "@/whiteboard/block-library";
 import { blockLabel } from "@/whiteboard/catalog";
-import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
+import { DrawingBar, useDrawingSettings } from "@/whiteboard/DrawingBar";
 import { layoutKinds, type LayoutKind } from "@/whiteboard/layout";
 import { boardTemplates, templateBoard } from "@/whiteboard/templates";
 import type { LiveBoard } from "@/whiteboard/live";
@@ -62,6 +54,31 @@ import "@/whiteboard/toru-ui-sdk.css";
 const askPerson = createAskPerson();
 const agent = createAgent({ allow: askPerson.allow });
 
+// Snap to grid: on, blocks the person drags, resizes or adds land on the
+// background dots (board.ts's dotGrid); off, they go where they're put. The
+// person's choice, kept in this computer's window storage; on until they
+// untick it. Agents placing blocks by x/y (board.add, moveBlock) are never
+// snapped.
+const snapKey = "toru.whiteboard.snapToGrid";
+function useSnapToGrid() {
+  const [snap, setSnap] = useState(() => {
+    try {
+      return window.localStorage.getItem(snapKey) !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const change = useCallback((on: boolean) => {
+    setSnap(on);
+    try {
+      window.localStorage.setItem(snapKey, on ? "1" : "0");
+    } catch {
+      // no storage: the choice lasts while the window is open
+    }
+  }, []);
+  return [snap, change] as const;
+}
+
 /** The whiteboard window. `live` is for checks: a board on a link of their own (whiteboard/links.ts). */
 export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   const [live] = useState(() => given ?? openLive());
@@ -69,16 +86,14 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   // Light (the default) or slate grey dark, saved in Go for every board.
   useWindowTheme();
   const id = live.id;
+  const [snap, setSnap] = useSnapToGrid();
+  const grid = snap ? dotGrid : 1;
   // The person's own blocks (custom types), when the board is in Toru's store.
   useBlockLibrary(id, !given && (() => {
     const params = new URLSearchParams(window.location.search);
     return !!params.get("id") && params.get("link") !== "http";
   })());
-  const [pen, setPen] = useState<PenOptions>(() => ({
-    active: false,
-    color: inkColors[0].token,
-    width: tokenWidth(inkWidths[0].token, inkWidths[0].fallback),
-  }));
+  const [drawing, setDrawing] = useDrawingSettings();
 
   useEffect(() => {
     void live.start();
@@ -208,16 +223,17 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         lines={view.lines}
         onLinesChange={(lines, details) => live.edit({ lines }, { source: sourceOf(details) })}
         renderBlock={renderBlock}
-        pen={pen}
+        drawing={drawing}
+        grid={grid}
       >
-        <SampleToolbar exportMenu={<ExportMenu live={live} />} />
-        <BlockGallery />
+        <SampleToolbar grid={grid} snap={snap} onSnap={setSnap} exportMenu={<ExportMenu live={live} />} />
+        <BlockGallery grid={grid} />
         <ArrangeCommand live={live} />
-        <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
+        <DrawingBar settings={drawing} onChange={setDrawing} onUndo={() => void live.undo()} onRedo={() => void live.redo()} />
       </Board>
       {doc && <BoardName name={doc.name} onRename={(next) => live.rename(next)} />}
       {error && (
-        <div role="alert" data-slot="board-error" className="frost absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 px-3 py-2">
+        <div role="alert" data-slot="board-error" className="frost absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-2 px-3 py-2">
           {error}
           <Button aria-label="Dismiss" onClick={() => live.dismissError()}>
             <XIcon aria-hidden="true" />
@@ -283,78 +299,22 @@ function BoardName({ name, onRename }: { name: string; onRename: (name: string) 
   );
 }
 
-// The tools down the board's left side: select or pen, then the pen's colour
-// and width (Toru's --ink-* tokens).
-// The white pen is the board's ink colour: it draws dark on a light board.
-const penName = (c: { token: string; name: string }, theme: string) => (c.token === "ink-white" && theme === "light" ? "Black" : c.name);
-
-function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Partial<PenOptions>) => void }) {
-  const theme = useBoardTheme();
-  const widths = inkWidths.map((w) => ({ ...w, value: tokenWidth(w.token, w.fallback) }));
-  const width = widths.find((w) => w.value === pen.width) ?? widths[0];
-  return (
-    <div
-      data-slot="pen-toolbar"
-      className="frost absolute top-1/2 left-3 flex -translate-y-1/2 flex-col items-center gap-2 p-1.5"
-      onWheel={(e) => e.stopPropagation()}
-      style={{ cursor: "default" }}
-    >
-      <ToggleGroup
-        aria-label="Tool"
-        orientation="vertical"
-        deselectable={false}
-        value={[pen.active ? "pen" : "select"]}
-        onValueChange={(value) => value[0] && onChange({ active: value[0] === "pen" })}
-        className="flex flex-col gap-1"
-      >
-        <Toggle value="select" aria-label="Select" title="Select">
-          <MousePointer2Icon aria-hidden="true" />
-        </Toggle>
-        <Toggle value="pen" aria-label="Pen" title="Pen">
-          <PenLineIcon aria-hidden="true" />
-        </Toggle>
-      </ToggleGroup>
-      <div data-slot="pen-toolbar-separator" />
-      <ToggleGroup
-        aria-label="Pen colour"
-        orientation="vertical"
-        deselectable={false}
-        value={[pen.color]}
-        onValueChange={(value) => value[0] && onChange({ color: value[0], active: true })}
-        className="flex flex-col gap-1"
-      >
-        {inkColors.map((c) => (
-          <Toggle key={c.token} value={c.token} aria-label={penName(c, theme)} title={penName(c, theme)} data-pen-colour={c.token}>
-            <span data-slot="pen-swatch" style={{ background: inkColor(c.token) }} />
-          </Toggle>
-        ))}
-      </ToggleGroup>
-      <div data-slot="pen-toolbar-separator" />
-      <ToggleGroup
-        aria-label="Pen width"
-        orientation="vertical"
-        deselectable={false}
-        value={[width.token]}
-        onValueChange={(value) => {
-          const w = widths.find((x) => x.token === value[0]);
-          if (w) onChange({ width: w.value, active: true });
-        }}
-        className="flex flex-col gap-1"
-      >
-        {widths.map((w) => (
-          <Toggle key={w.token} value={w.token} aria-label={`${w.name} pen`} title={`${w.name} pen`} data-pen-width={w.token}>
-            <span data-slot="pen-width" style={{ height: `${w.value}px`, background: inkColor(pen.color) }} />
-          </Toggle>
-        ))}
-      </ToggleGroup>
-    </div>
-  );
-}
-
-// The toolbar: Fit, Template, Layout and Export work. The rest are samples of
-// UI SDK controls in Toru's theme, for later cards. Blocks are added from the
-// block gallery on the left (whiteboard/BlockGallery.tsx).
-function SampleToolbar({ exportMenu }: { exportMenu?: React.ReactNode }) {
+// The toolbar: Fit, Template, Layout and Export work; Snap to grid lands
+// what the person drags, resizes and adds on the dots. Blocks are added from
+// the block gallery on the left (whiteboard/BlockGallery.tsx). Share is still
+// a sample, kept out of agents' reach (data-agent-hidden) until whiteboard#13
+// makes it share.
+function SampleToolbar({
+  grid,
+  snap,
+  onSnap,
+  exportMenu,
+}: {
+  grid: number;
+  snap: boolean;
+  onSnap: (on: boolean) => void;
+  exportMenu?: React.ReactNode;
+}) {
   const board = useBoard();
   return (
     <div
@@ -363,31 +323,24 @@ function SampleToolbar({ exportMenu }: { exportMenu?: React.ReactNode }) {
       style={{ cursor: "default" }}
     >
       <Button onClick={() => board.fit()}>Fit</Button>
-      <TemplateMenu />
+      <TemplateMenu grid={grid} />
       <LayoutMenu />
       {exportMenu}
       <label data-slot="label" className="flex items-center gap-2 whitespace-nowrap">
-        <Checkbox defaultChecked>
+        <Checkbox checked={snap} onCheckedChange={(checked) => onSnap(checked === true)}>
           <CheckboxIndicator>
             <CheckIcon aria-hidden="true" />
           </CheckboxIndicator>
         </Checkbox>
         Snap to grid
       </label>
-      <Slider defaultValue={60} style={{ minWidth: "8rem" }}>
-        <SliderControl>
-          <SliderTrack>
-            <SliderIndicator />
-            <SliderThumb aria-label="Zoom" />
-          </SliderTrack>
-        </SliderControl>
-      </Slider>
       <ThemeSwitch />
+      {/* Share does nothing yet (whiteboard#13), so agents don't see it and
+          it makes no promise about who can view the board. */}
       <Popover>
-        <PopoverTrigger>Share</PopoverTrigger>
-        <PopoverContent className="frost">
+        <PopoverTrigger data-agent-hidden="">Share</PopoverTrigger>
+        <PopoverContent className="frost" data-agent-hidden="">
           <PopoverTitle>Share this board</PopoverTitle>
-          <PopoverDescription>Anyone with the link can view it.</PopoverDescription>
           <div className="flex justify-end gap-2">
             <PopoverClose>Cancel</PopoverClose>
             <PopoverClose data-variant="solid">Copy link</PopoverClose>
@@ -424,14 +377,15 @@ function ThemeSwitch() {
 }
 
 // Template: places a brainstorm template to the right of what's on the board,
-// then fits the view to show everything.
-function TemplateMenu() {
+// its corner on the grid, then fits the view to show everything.
+function TemplateMenu({ grid }: { grid: number }) {
   const board = useBoard();
   const place = (name: string) => {
     const blocks = board.blocks();
     const all = Object.values(blocks);
-    const x = all.length ? Math.max(...all.map((b) => b.x + b.width)) + 160 : 0;
-    const y = all.length ? Math.min(...all.map((b) => b.y)) : 0;
+    const right = all.length ? Math.max(...all.map((b) => b.x + b.width)) + 160 : 0;
+    const x = grid > 1 ? Math.ceil(right / grid) * grid : right;
+    const y = onGrid(all.length ? Math.min(...all.map((b) => b.y)) : 0, grid);
     let n = 1;
     while (Object.keys(blocks).some((id) => id.startsWith(`t${n}-`))) n++;
     const t = templateBoard(name, { prefix: `t${n}-`, x, y });

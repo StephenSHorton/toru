@@ -65,44 +65,41 @@
     cursor: grabbing;
   }
 
+  /* A highlighter stroke is see-through, as is its draft. The element's
+     opacity, not the stroke's, so where the line crosses itself it doesn't
+     darken. */
+  [data-slot="board-ink"][data-highlight] [data-slot="board-ink-line"],
+  [data-slot="ink-draft"][data-highlight] {
+    opacity: 0.42;
+  }
+
+  /* Shapes (shapes.ts, InkView.tsx ShapeLine). */
+  [data-slot="board-shape-line"],
+  [data-slot="board-shape-head"] {
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  [data-slot="board-shape-line"][data-fill] {
+    fill-opacity: 0.28;
+  }
+
+  [data-slot="board-shape-text"],
+  [data-slot="board-shape-emoji"] {
+    font-family: inherit;
+    white-space: pre;
+    user-select: none;
+  }
+
+  /* A filled shape, a text label or an emoji takes presses across its inside. */
+  [data-slot="board-ink-hit"][data-fill] {
+    fill: transparent;
+    pointer-events: all;
+  }
+
   /* While the pen is on, strokes and blocks under it don't show hover. */
   [data-slot="board"]:has([data-slot="ink-surface"][data-active]) [data-slot="board-port"] {
     opacity: 0;
   }
 
-  /* The pen toolbar down the board's left side (routes/Whiteboard.tsx). */
-  [data-slot="pen-toolbar"] {
-    & [data-slot="toggle"] {
-      display: grid;
-      place-items: center;
-      width: 32px;
-      height: 32px;
-      padding: 0;
-
-      & svg {
-        width: 16px;
-        height: 16px;
-      }
-    }
-  }
-
-  [data-slot="pen-toolbar-separator"] {
-    width: 20px;
-    height: 1px;
-    background: var(--border);
-  }
-
-  [data-slot="pen-swatch"] {
-    display: block;
-    width: 16px;
-    height: 16px;
-    border: 1px solid color-mix(in oklch, var(--foreground) 25%, transparent);
-    border-radius: 50%;
-  }
-
-  [data-slot="pen-width"] {
-    display: block;
-    width: 18px;
-    border-radius: 999px;
-  }
 }

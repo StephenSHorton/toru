@@ -42,6 +42,27 @@ export function CreateRoom(): $CancellablePromise<$models.State> {
 }
 
 /**
+ * DownloadSpeechGPU downloads the GPU build of this PC's speech model
+ * (whisper on an NVIDIA GPU; the call page shows its size first), so
+ * transcribing costs the CPU less. Once it is here whisper runs on the GPU.
+ */
+export function DownloadSpeechGPU(): $CancellablePromise<$models.State> {
+    return $Call.ByID(1277730557).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
+ * DownloadSpeechModel downloads this PC's speech model (whisper), so its
+ * own speech is transcribed too while transcription is on.
+ */
+export function DownloadSpeechModel(): $CancellablePromise<$models.State> {
+    return $Call.ByID(487018642).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
  * EncoderSupport reports which codecs this PC can stream (hardware encoder
  * present). The first call probes (~1s); results are cached.
  */
@@ -202,6 +223,17 @@ export function SetSettings($in: $models.Settings): $CancellablePromise<$models.
 }
 
 /**
+ * SetTranscribe turns transcription on or off for everyone in the call.
+ * Turning it on downloads the speech model (about 70 MB, once) if this PC
+ * doesn't have it yet.
+ */
+export function SetTranscribe(on: boolean): $CancellablePromise<$models.State> {
+    return $Call.ByID(779149342, on).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
  * SetVoice saves the voice preferences: the noise suppression mode
  * (NoiseOff, NoiseStandard or NoiseAI) and devices. The call window applies
  * them at once.
@@ -219,6 +251,15 @@ export function StopLive(): $CancellablePromise<$models.State> {
     return $Call.ByID(105867237).then(($result: any) => {
         return $$createType0($result);
     });
+}
+
+/**
+ * TranscribeSegment (call window) hands over one stretch of our own speech:
+ * 16 kHz mono 16-bit little-endian samples, base64, said from at to end
+ * (unix ms). It is transcribed in the background and sent to the room.
+ */
+export function TranscribeSegment(at: number, end: number, pcm: string): $CancellablePromise<void> {
+    return $Call.ByID(2950497281, at, end, pcm);
 }
 
 /**

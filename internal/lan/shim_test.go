@@ -321,7 +321,13 @@ func TestShimIncomingTrailingBytes(t *testing.T) {
 }
 
 func TestShimRateLimit(t *testing.T) {
+	// The buckets refill with the clock. On a busy machine a burst of 300
+	// writes can take long enough for real time to refill a few, so the
+	// bursts run on a stopped clock and only the refill moves it.
+	clock := time.Now()
+	stopped := func() time.Time { return clock }
 	s, f := newTestShim(t, api.Policy{}, tPeer1, tPeer2)
+	s.now = stopped
 	w1 := wrapFrom(tPeer1, udp4(tPeer1, limitedBcast, 1, 6112, []byte("x")))
 	w2 := wrapFrom(tPeer2, udp4(tPeer2, limitedBcast, 1, 6112, []byte("x")))
 	delivered := 0
@@ -339,6 +345,7 @@ func TestShimRateLimit(t *testing.T) {
 	}
 	// The byte budget binds with big broadcasts.
 	s, f = newTestShim(t, api.Policy{}, tPeer1)
+	s.now = stopped
 	inner := udp4(tPeer1, limitedBcast, 1, 6112, make([]byte, 4000))
 	bigW := wrapFrom(tPeer1, inner)
 	delivered = 0
@@ -353,7 +360,7 @@ func TestShimRateLimit(t *testing.T) {
 	// Exhaust, then refill: 50 ms buys about 10 packets.
 	for writeShim(t, s, f, w1) != nil {
 	}
-	time.Sleep(50 * time.Millisecond)
+	clock = clock.Add(50 * time.Millisecond)
 	if writeShim(t, s, f, w1) == nil {
 		t.Fatal("budget never refilled")
 	}

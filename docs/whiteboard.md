@@ -91,6 +91,17 @@ What that gives the board:
   or in use. Every remove control carries `data-agent-confirm`, so an
   agent's removal waits for the person (and fails with "Needs a person"
   while the window's bridge has no `allow`).
+- **Click selects, double-click edits (whiteboard#30):** a press or drag
+  anywhere on a block, its text fields included, selects and moves it.
+  Double-click (or Enter on the focused block) edits its text, with the
+  caret where you double-clicked; Escape or a press outside stops editing
+  and leaves the block selected. While a block edits, presses and drags in
+  it go to its text and never move it. Quick controls (ticks, votes, stars,
+  buttons, swatches) still take one press. The rule is the board's, by
+  selector (`blockTextFields` in `board.ts`), so a new block type gets it
+  for free; `board.css` stops text fields taking the pointer until their
+  block edits, and the hover cursor is "move" on blocks and "text" only in
+  a field being edited. Agents fill fields through the bridge as before.
 - **Images** are copied into `%AppData%\toru\boards\images`, named by their
   SHA-256, from a chosen or dropped file or a Library screenshot
   (`board.ImageService`, served at `/__board/image/<name>`). Agents import one
@@ -125,6 +136,7 @@ window, and the window shows each change live when it is open:
 | `board.add`, `board.update`, `board.move`, `board.group` | Place and change blocks, many in one call |
 | `board.connect`, `board.disconnect` | Lines between blocks |
 | `board.draw` | Freehand ink: strokes through points, in a pen colour token and width |
+| `board.shape` | Shapes on the ink layer: rectangles, ellipses, lines, arrows, text labels and emoji, each from one point to another, which the person can then select, move and reshape |
 | `board.layout` | Arrange blocks (grid, tree, cluster by tag) |
 | `board.delete` | Destructive: needs `"confirm": true` |
 | `board.export`, `board.import` | Any format in section 3, to a path; a `.toruboard` back in |

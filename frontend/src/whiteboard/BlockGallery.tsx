@@ -17,7 +17,7 @@ import { createPortal } from "react-dom";
 import { Button } from "@ui-sdk/react/button";
 import { PanelLeftCloseIcon, PanelLeftOpenIcon } from "lucide-react";
 import { useBoard } from "./BoardView";
-import type { BoardBlock } from "./board";
+import { onGrid, type BoardBlock } from "./board";
 import { BlockBody } from "./blocks";
 import { blockLabel, blockTypes, newProps, type BlockType } from "./catalog";
 import "./block-gallery.css";
@@ -81,8 +81,8 @@ function catalogSections(): GallerySection[] {
 }
 
 const openKey = "toru.whiteboard.gallery.open";
-const grid = 8;
-const snap = (v: number) => Math.round(v / grid) * grid;
+// How far a repeat press shifts the new block off the last one, when there's no grid.
+const nudgeStep = 24;
 // Pixels a press moves before it's a drag and not a click.
 const dragFrom = 4;
 // The preview area in a tile, in pixels (block-gallery.css).
@@ -116,8 +116,8 @@ type Drag = {
   cancelled?: boolean;
 };
 
-/** The gallery panel. Render it inside <Board>. */
-function BlockGallery({ sections = catalogSections() }: { sections?: GallerySection[] }) {
+/** The gallery panel. Render it inside <Board>. grid: the board's snap grid (1: no snapping). */
+function BlockGallery({ sections = catalogSections(), grid = 1 }: { sections?: GallerySection[]; grid?: number }) {
   const board = useBoard();
   const [open, setOpen] = React.useState(readOpen);
   const [drag, setDrag] = React.useState<Drag | null>(null);
@@ -148,13 +148,15 @@ function BlockGallery({ sections = catalogSections() }: { sections?: GallerySect
   /** Puts the item's block on the board with its middle at a canvas point. */
   const place = (item: GalleryItem, cx: number, cy: number, nudge: boolean) => {
     const blocks = board.blocks();
-    let x = snap(cx - item.w / 2);
-    let y = snap(cy - item.h / 2);
+    // On the dots while Snap to grid is on (grid > 1); exactly where it's dropped when off.
+    let x = onGrid(cx - item.w / 2, grid);
+    let y = onGrid(cy - item.h / 2, grid);
+    const step = grid > 1 ? grid : nudgeStep;
     // Pressing a tile again doesn't stack the new block exactly on the last.
     if (nudge) {
       while (Object.values(blocks).some((b) => b.x === x && b.y === y)) {
-        x += grid * 3;
-        y += grid * 3;
+        x += step;
+        y += step;
       }
     }
     const props = structuredClone(item.props);

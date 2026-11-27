@@ -1,0 +1,109 @@
+{
+  "source": "person",
+  "ink": [
+    {
+      "id": "shp-rect",
+      "points": [
+        10,
+        20,
+        0.5,
+        110,
+        80,
+        0.5
+      ],
+      "color": "ink-blue",
+      "width": 4,
+      "kind": "rect",
+      "fill": "ink-blue"
+    },
+    {
+      "id": "shp-ellipse",
+      "points": [
+        140,
+        20,
+        0.5,
+        260,
+        100,
+        0.5
+      ],
+      "color": "ink-purple",
+      "width": 2,
+      "kind": "ellipse"
+    },
+    {
+      "id": "shp-line",
+      "points": [
+        10,
+        140,
+        0.5,
+        120,
+        200,
+        0.5
+      ],
+      "color": "ink-green",
+      "width": 8,
+      "kind": "line"
+    },
+    {
+      "id": "shp-arrow",
+      "points": [
+        140,
+        140,
+        0.5,
+        260,
+        200,
+        0.5
+      ],
+      "color": "ink-orange",
+      "width": 4,
+      "kind": "arrow"
+    },
+    {
+      "id": "shp-text",
+      "points": [
+        10,
+        240,
+        0.5,
+        130,
+        300,
+        0.5
+      ],
+      "color": "ink-white",
+      "width": 4,
+      "kind": "text",
+      "text": "Two\nlines"
+    },
+    {
+      "id": "shp-emoji",
+      "points": [
+        160,
+        240,
+        0.5,
+        208,
+        288,
+        0.5
+      ],
+      "color": "ink-white",
+      "width": 4,
+      "kind": "emoji",
+      "text": "🎉"
+    },
+    {
+      "id": "shp-highlight",
+      "points": [
+        10,
+        330,
+        0.5,
+        130,
+        334,
+        0.5,
+        250,
+        330,
+        0.5
+      ],
+      "color": "ink-yellow",
+      "width": 20,
+      "highlight": true
+    }
+  ]
+}

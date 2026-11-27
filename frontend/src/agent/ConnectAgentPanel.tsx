@@ -53,6 +53,14 @@ export function ConnectAgentPanel() {
       </span>
 
       <span className="text-xs text-muted-foreground">
+        Agents can read your call transcripts too: list them, read one, search them all and follow the call in
+        progress as people talk (<code className="font-mono">transcript.list</code>,{" "}
+        <code className="font-mono">transcript.read</code>, <code className="font-mono">transcript.search</code>,{" "}
+        <code className="font-mono">transcript.live</code>), and delete one when you ask. Only people in the call
+        can turn transcription on.
+      </span>
+
+      <span className="text-xs text-muted-foreground">
         Scripts can run the same commands with <code className="font-mono">toru.exe ctl list</code> and{" "}
         <code className="font-mono">toru.exe ctl &lt;command&gt;</code>.
       </span>
