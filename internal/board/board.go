@@ -55,7 +55,10 @@ type Board struct {
 	Blocks []Block  `json:"blocks"`
 	Links  []Link   `json:"links"`
 	Ink    []Stroke `json:"ink"`
-<<<<<<< HEAD
+	// Types are the custom block types the board's blocks use (BlockDef),
+	// copied in when a block of one is first placed, so the board renders
+	// on any Toru, in shared boards and in exports. Left out when none.
+	Types []BlockDef `json:"types,omitempty"`
 	// MirrorOf is set on this Toru's copy of a board someone else shares
 	// in the room (internal/boardshare): whose board it is. While they
 	// share it, every change goes to them and theirs come back; after,
@@ -73,12 +76,6 @@ type MirrorOf struct {
 	// past it was changed here after it stopped following, so joining
 	// again never replaces it.
 	Rev int `json:"rev"`
-=======
-	// Types are the custom block types the board's blocks use (BlockDef),
-	// copied in when a block of one is first placed, so the board renders
-	// on any Toru, in shared boards and in exports. Left out when none.
-	Types []BlockDef `json:"types,omitempty"`
->>>>>>> refs/remotes/origin/main
 }
 
 // Meta says who made an item and who last changed it, as Sources. Apply

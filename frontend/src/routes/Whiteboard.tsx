@@ -22,12 +22,8 @@ import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
 import { layoutKinds, type LayoutKind } from "@/whiteboard/layout";
 import { boardTemplates, templateBoard } from "@/whiteboard/templates";
 import type { LiveBoard } from "@/whiteboard/live";
-<<<<<<< HEAD
-import { agentSource, httpBase, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
-=======
 import { boardThemes, parseTheme, setBoardTheme, useBoardTheme, useWindowTheme } from "@/whiteboard/theme";
-import { agentSource, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
->>>>>>> refs/remotes/origin/main
+import { agentSource, httpBase, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
 import "@/whiteboard/toru-ui-sdk.css";
 
 // The whiteboard window (?view=whiteboard&id=<board>, WindowsService.OpenWhiteboard).
@@ -66,18 +62,15 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   // Light (the default) or slate grey dark, saved in Go for every board.
   useWindowTheme();
   const id = live.id;
-<<<<<<< HEAD
   const [shareApi] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("link") === "http" ? httpShare(httpBase(params)) : goShare;
   });
-=======
   // The person's own blocks (custom types), when the board is in Toru's store.
   useBlockLibrary(id, !given && (() => {
     const params = new URLSearchParams(window.location.search);
     return !!params.get("id") && params.get("link") !== "http";
   })());
->>>>>>> refs/remotes/origin/main
   const [pen, setPen] = useState<PenOptions>(() => ({
     active: false,
     color: inkColors[0].token,
@@ -435,22 +428,8 @@ function SampleToolbar({ onAdd, exportMenu, share }: { onAdd: (type: BlockType) 
           </SliderTrack>
         </SliderControl>
       </Slider>
-<<<<<<< HEAD
-      {share}
-=======
       <ThemeSwitch />
-      <Popover>
-        <PopoverTrigger>Share</PopoverTrigger>
-        <PopoverContent className="frost">
-          <PopoverTitle>Share this board</PopoverTitle>
-          <PopoverDescription>Anyone with the link can view it.</PopoverDescription>
-          <div className="flex justify-end gap-2">
-            <PopoverClose>Cancel</PopoverClose>
-            <PopoverClose data-variant="solid">Copy link</PopoverClose>
-          </div>
-        </PopoverContent>
-      </Popover>
->>>>>>> refs/remotes/origin/main
+      {share}
     </div>
   );
 }

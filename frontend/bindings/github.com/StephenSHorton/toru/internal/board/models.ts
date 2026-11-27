@@ -222,20 +222,19 @@ export class Board {
     "ink": Stroke[];
 
     /**
-<<<<<<< HEAD
+     * Types are the custom block types the board's blocks use (BlockDef),
+     * copied in when a block of one is first placed, so the board renders
+     * on any Toru, in shared boards and in exports. Left out when none.
+     */
+    "types"?: BlockDef[];
+
+    /**
      * MirrorOf is set on this Toru's copy of a board someone else shares
      * in the room (internal/boardshare): whose board it is. While they
      * share it, every change goes to them and theirs come back; after,
      * it stays here as a copy.
      */
     "mirrorOf"?: MirrorOf | null;
-=======
-     * Types are the custom block types the board's blocks use (BlockDef),
-     * copied in when a block of one is first placed, so the board renders
-     * on any Toru, in shared boards and in exports. Left out when none.
-     */
-    "types"?: BlockDef[];
->>>>>>> refs/remotes/origin/main
 
     /** Creates a new Board instance. */
     constructor($$source: Partial<Board> = {}) {
@@ -285,6 +284,7 @@ export class Board {
         const $$createField9_0 = $$createType5;
         const $$createField10_0 = $$createType7;
         const $$createField11_0 = $$createType9;
+        const $$createField12_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("frames" in $$parsedSource) {
             $$parsedSource["frames"] = $$createField7_0($$parsedSource["frames"]);
@@ -298,13 +298,11 @@ export class Board {
         if ("ink" in $$parsedSource) {
             $$parsedSource["ink"] = $$createField10_0($$parsedSource["ink"]);
         }
-<<<<<<< HEAD
-        if ("mirrorOf" in $$parsedSource) {
-            $$parsedSource["mirrorOf"] = $$createField11_0($$parsedSource["mirrorOf"]);
-=======
         if ("types" in $$parsedSource) {
             $$parsedSource["types"] = $$createField11_0($$parsedSource["types"]);
->>>>>>> refs/remotes/origin/main
+        }
+        if ("mirrorOf" in $$parsedSource) {
+            $$parsedSource["mirrorOf"] = $$createField12_0($$parsedSource["mirrorOf"]);
         }
         return new Board($$parsedSource as Partial<Board>);
     }
@@ -496,7 +494,7 @@ export class LibraryList {
      */
     static createFrom($$source: any = {}): LibraryList {
         const $$createField0_0 = $$createType9;
-        const $$createField1_0 = $$createType11;
+        const $$createField1_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("blocks" in $$parsedSource) {
             $$parsedSource["blocks"] = $$createField0_0($$parsedSource["blocks"]);
@@ -559,6 +557,13 @@ export class MirrorOf {
     "hostName": string;
     "board": string;
 
+    /**
+     * Rev is the host's rev this copy last had. A copy whose own Rev is
+     * past it was changed here after it stopped following, so joining
+     * again never replaces it.
+     */
+    "rev": number;
+
     /** Creates a new MirrorOf instance. */
     constructor($$source: Partial<MirrorOf> = {}) {
         if (!("host" in $$source)) {
@@ -569,6 +574,9 @@ export class MirrorOf {
         }
         if (!("board" in $$source)) {
             this["board"] = "";
+        }
+        if (!("rev" in $$source)) {
+            this["rev"] = 0;
         }
 
         Object.assign(this, $$source);
@@ -640,22 +648,14 @@ export class Op {
      * Creates a new Op instance from a string or object.
      */
     static createFrom($$source: any = {}): Op {
-<<<<<<< HEAD
-        const $$createField5_0 = $$createType10;
-=======
-        const $$createField5_0 = $$createType12;
->>>>>>> refs/remotes/origin/main
+        const $$createField5_0 = $$createType14;
         const $$createField6_0 = $$createType1;
         const $$createField7_0 = $$createType3;
         const $$createField8_0 = $$createType7;
         const $$createField9_0 = $$createType5;
-<<<<<<< HEAD
-        const $$createField10_0 = $$createType11;
-=======
-        const $$createField10_0 = $$createType13;
+        const $$createField10_0 = $$createType15;
         const $$createField11_0 = $$createType9;
-        const $$createField12_0 = $$createType12;
->>>>>>> refs/remotes/origin/main
+        const $$createField12_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("delete" in $$parsedSource) {
             $$parsedSource["delete"] = $$createField5_0($$parsedSource["delete"]);
@@ -736,11 +736,7 @@ export class Stroke {
      * Creates a new Stroke instance from a string or object.
      */
     static createFrom($$source: any = {}): Stroke {
-<<<<<<< HEAD
-        const $$createField1_0 = $$createType12;
-=======
-        const $$createField1_0 = $$createType14;
->>>>>>> refs/remotes/origin/main
+        const $$createField1_0 = $$createType16;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("points" in $$parsedSource) {
             $$parsedSource["points"] = $$createField1_0($$parsedSource["points"]);
@@ -791,7 +787,7 @@ export class Summary {
      * Creates a new Summary instance from a string or object.
      */
     static createFrom($$source: any = {}): Summary {
-        const $$createField5_0 = $$createType9;
+        const $$createField5_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("mirrorOf" in $$parsedSource) {
             $$parsedSource["mirrorOf"] = $$createField5_0($$parsedSource["mirrorOf"]);
@@ -809,18 +805,12 @@ const $$createType4 = Link.createFrom;
 const $$createType5 = $Create.Array($$createType4);
 const $$createType6 = Stroke.createFrom;
 const $$createType7 = $Create.Array($$createType6);
-<<<<<<< HEAD
-const $$createType8 = MirrorOf.createFrom;
-const $$createType9 = $Create.Nullable($$createType8);
-const $$createType10 = $Create.Array($Create.Any);
-const $$createType11 = $Create.Map($Create.Any, $Create.Any);
-const $$createType12 = $Create.Array($Create.Any);
-=======
 const $$createType8 = BlockDef.createFrom;
 const $$createType9 = $Create.Array($$createType8);
-const $$createType10 = BrokenBlock.createFrom;
-const $$createType11 = $Create.Array($$createType10);
-const $$createType12 = $Create.Array($Create.Any);
-const $$createType13 = $Create.Map($Create.Any, $Create.Any);
+const $$createType10 = MirrorOf.createFrom;
+const $$createType11 = $Create.Nullable($$createType10);
+const $$createType12 = BrokenBlock.createFrom;
+const $$createType13 = $Create.Array($$createType12);
 const $$createType14 = $Create.Array($Create.Any);
->>>>>>> refs/remotes/origin/main
+const $$createType15 = $Create.Map($Create.Any, $Create.Any);
+const $$createType16 = $Create.Array($Create.Any);
