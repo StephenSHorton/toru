@@ -30,6 +30,45 @@ export class EngineStatus {
     "running": boolean;
     "language": string;
 
+    /**
+     * Device is where whisper runs: DeviceGPU or DeviceCPU (while it runs,
+     * what the server said it uses; otherwise what it would start on).
+     */
+    "device": string;
+
+    /**
+     * GPU is this PC's NVIDIA GPU that whisper can run on ("" for none).
+     */
+    "gpu": string;
+
+    /**
+     * GPUReady: the GPU build is downloaded.
+     */
+    "gpuReady": boolean;
+
+    /**
+     * GPUFetching: the GPU build is downloading (GPUDone of GPUTotal bytes),
+     * or warming up right after.
+     */
+    "gpuFetching": boolean;
+    "gpuDone": number;
+
+    /**
+     * the GPU build's download size, shown before it starts
+     */
+    "gpuTotal": number;
+
+    /**
+     * GPUError says why the GPU build didn't download, or didn't work this
+     * session (whisper then runs on the CPU).
+     */
+    "gpuError": string;
+
+    /**
+     * GPUFailed: the GPU build didn't work this session, so the CPU build runs.
+     */
+    "gpuFailed": boolean;
+
     /** Creates a new EngineStatus instance. */
     constructor($$source: Partial<EngineStatus> = {}) {
         if (!("phase" in $$source)) {
@@ -55,6 +94,30 @@ export class EngineStatus {
         }
         if (!("language" in $$source)) {
             this["language"] = "";
+        }
+        if (!("device" in $$source)) {
+            this["device"] = "";
+        }
+        if (!("gpu" in $$source)) {
+            this["gpu"] = "";
+        }
+        if (!("gpuReady" in $$source)) {
+            this["gpuReady"] = false;
+        }
+        if (!("gpuFetching" in $$source)) {
+            this["gpuFetching"] = false;
+        }
+        if (!("gpuDone" in $$source)) {
+            this["gpuDone"] = 0;
+        }
+        if (!("gpuTotal" in $$source)) {
+            this["gpuTotal"] = 0;
+        }
+        if (!("gpuError" in $$source)) {
+            this["gpuError"] = "";
+        }
+        if (!("gpuFailed" in $$source)) {
+            this["gpuFailed"] = false;
         }
 
         Object.assign(this, $$source);

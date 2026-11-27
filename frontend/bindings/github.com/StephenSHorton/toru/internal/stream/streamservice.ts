@@ -42,6 +42,17 @@ export function CreateRoom(): $CancellablePromise<$models.State> {
 }
 
 /**
+ * DownloadSpeechGPU downloads the GPU build of this PC's speech model
+ * (whisper on an NVIDIA GPU; the call page shows its size first), so
+ * transcribing costs the CPU less. Once it is here whisper runs on the GPU.
+ */
+export function DownloadSpeechGPU(): $CancellablePromise<$models.State> {
+    return $Call.ByID(1277730557).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
  * DownloadSpeechModel downloads this PC's speech model (whisper), so its
  * own speech is transcribed too while transcription is on.
  */

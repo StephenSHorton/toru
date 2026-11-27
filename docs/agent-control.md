@@ -244,7 +244,8 @@ Call transcripts (Go, `agent_commands_transcripts.go`; `internal/transcript`,
 transcription on for the whole call from the Call card (agents can't: it is
 the people in the call's choice); everyone in the call then sees a
 Transcribing notice and a toast, and each person's Toru transcribes its own
-mic on that PC (whisper.cpp, downloaded on first use) and sends only the text
+mic on that PC (whisper.cpp, downloaded on first use; on a PC with an NVIDIA
+GPU the call page offers whisper's GPU build, so it costs the CPU far less) and sends only the text
 to the room. Every Toru in the call saves all the lines as one transcript per
 call in `%APPDATA%	oru	ranscripts`. Agents read them:
 
