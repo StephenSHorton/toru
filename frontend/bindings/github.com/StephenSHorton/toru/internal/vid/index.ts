@@ -33,5 +33,6 @@ export {
     TextStyleJSON,
     TrackJSON,
     TrackLevel,
-    TransformJSON
+    TransformJSON,
+    TransitionJSON
 } from "./models.js";

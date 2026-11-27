@@ -1,5 +1,7 @@
 import { defineConfig, type Plugin } from "vite";
 import { fileURLToPath, URL } from "node:url";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import wails from "@wailsio/runtime/plugins/vite";
@@ -45,6 +47,23 @@ function stripWasmCustomSections(): Plugin {
   };
 }
 
+// keepDistPlaceholder puts back the empty dist/.gitkeep that Vite's emptyOutDir
+// removes. Git tracks that file so `go test ./...` compiles on a fresh clone:
+// main.go's //go:embed all:frontend/dist needs at least one file there.
+function keepDistPlaceholder(): Plugin {
+  let outDir = "";
+  return {
+    name: "toru-keep-dist-placeholder",
+    apply: "build",
+    configResolved(c) {
+      outDir = join(c.root, c.build.outDir);
+    },
+    closeBundle() {
+      writeFileSync(join(outDir, ".gitkeep"), "");
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   resolve: {
@@ -60,5 +79,5 @@ export default defineConfig({
     // the dev server may serve files from the whole repo.
     fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] },
   },
-  plugins: [react(), tailwindcss(), wails("./bindings"), stripWasmCustomSections()],
+  plugins: [react(), tailwindcss(), wails("./bindings"), stripWasmCustomSections(), keepDistPlaceholder()],
 });

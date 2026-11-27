@@ -206,6 +206,11 @@ export class ClipJSON {
      */
     "blendFrames"?: string;
 
+    /**
+     * with the clip before it (transitions.go)
+     */
+    "transition"?: TransitionJSON | null;
+
     /** Creates a new ClipJSON instance. */
     constructor($$source: Partial<ClipJSON> = {}) {
         if (!("id" in $$source)) {
@@ -259,6 +264,7 @@ export class ClipJSON {
         const $$createField14_0 = $$createType7;
         const $$createField15_0 = $$createType10;
         const $$createField16_0 = $$createType12;
+        const $$createField20_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("levels" in $$parsedSource) {
             $$parsedSource["levels"] = $$createField10_0($$parsedSource["levels"]);
@@ -280,6 +286,9 @@ export class ClipJSON {
         }
         if ("speedCurve" in $$parsedSource) {
             $$parsedSource["speedCurve"] = $$createField16_0($$parsedSource["speedCurve"]);
+        }
+        if ("transition" in $$parsedSource) {
+            $$parsedSource["transition"] = $$createField20_0($$parsedSource["transition"]);
         }
         return new ClipJSON($$parsedSource as Partial<ClipJSON>);
     }
@@ -352,11 +361,11 @@ export class EditRequest {
      * Creates a new EditRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): EditRequest {
-        const $$createField0_0 = $$createType13;
-        const $$createField1_0 = $$createType15;
-        const $$createField2_0 = $$createType17;
+        const $$createField0_0 = $$createType15;
+        const $$createField1_0 = $$createType17;
+        const $$createField2_0 = $$createType19;
         const $$createField3_0 = $$createType1;
-        const $$createField4_0 = $$createType19;
+        const $$createField4_0 = $$createType21;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("sources" in $$parsedSource) {
             $$parsedSource["sources"] = $$createField0_0($$parsedSource["sources"]);
@@ -426,7 +435,7 @@ export class EffectJSON {
      * Creates a new EffectJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): EffectJSON {
-        const $$createField3_0 = $$createType20;
+        const $$createField3_0 = $$createType22;
         const $$createField4_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("params" in $$parsedSource) {
@@ -464,8 +473,8 @@ export class ExportCapabilities {
      * Creates a new ExportCapabilities instance from a string or object.
      */
     static createFrom($$source: any = {}): ExportCapabilities {
-        const $$createField0_0 = $$createType13;
-        const $$createField1_0 = $$createType21;
+        const $$createField0_0 = $$createType15;
+        const $$createField1_0 = $$createType23;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("formats" in $$parsedSource) {
             $$parsedSource["formats"] = $$createField0_0($$parsedSource["formats"]);
@@ -562,7 +571,7 @@ export class ExportOptions {
      * Creates a new ExportOptions instance from a string or object.
      */
     static createFrom($$source: any = {}): ExportOptions {
-        const $$createField13_0 = $$createType22;
+        const $$createField13_0 = $$createType24;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("gif" in $$parsedSource) {
             $$parsedSource["gif"] = $$createField13_0($$parsedSource["gif"]);
@@ -834,7 +843,7 @@ export class MediaInfo {
      * Creates a new MediaInfo instance from a string or object.
      */
     static createFrom($$source: any = {}): MediaInfo {
-        const $$createField5_0 = $$createType24;
+        const $$createField5_0 = $$createType26;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tracks" in $$parsedSource) {
             $$parsedSource["tracks"] = $$createField5_0($$parsedSource["tracks"]);
@@ -926,7 +935,7 @@ export class MediaJSON {
      * Creates a new MediaJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): MediaJSON {
-        const $$createField9_0 = $$createType24;
+        const $$createField9_0 = $$createType26;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tracks" in $$parsedSource) {
             $$parsedSource["tracks"] = $$createField9_0($$parsedSource["tracks"]);
@@ -975,8 +984,8 @@ export class ProjectExport {
      * Creates a new ProjectExport instance from a string or object.
      */
     static createFrom($$source: any = {}): ProjectExport {
-        const $$createField0_0 = $$createType25;
-        const $$createField5_0 = $$createType27;
+        const $$createField0_0 = $$createType27;
+        const $$createField5_0 = $$createType29;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("project" in $$parsedSource) {
             $$parsedSource["project"] = $$createField0_0($$parsedSource["project"]);
@@ -1043,11 +1052,11 @@ export class ProjectJSON {
      * Creates a new ProjectJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): ProjectJSON {
-        const $$createField3_0 = $$createType28;
-        const $$createField4_0 = $$createType30;
-        const $$createField5_0 = $$createType32;
-        const $$createField6_0 = $$createType34;
-        const $$createField7_0 = $$createType17;
+        const $$createField3_0 = $$createType30;
+        const $$createField4_0 = $$createType32;
+        const $$createField5_0 = $$createType34;
+        const $$createField6_0 = $$createType36;
+        const $$createField7_0 = $$createType19;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("canvas" in $$parsedSource) {
             $$parsedSource["canvas"] = $$createField3_0($$parsedSource["canvas"]);
@@ -1190,7 +1199,7 @@ export class SpeedCurveJSON {
      * Creates a new SpeedCurveJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): SpeedCurveJSON {
-        const $$createField0_0 = $$createType36;
+        const $$createField0_0 = $$createType38;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("points" in $$parsedSource) {
             $$parsedSource["points"] = $$createField0_0($$parsedSource["points"]);
@@ -1331,8 +1340,8 @@ export class TextJSON {
      * Creates a new TextJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): TextJSON {
-        const $$createField9_0 = $$createType38;
-        const $$createField10_0 = $$createType40;
+        const $$createField9_0 = $$createType40;
+        const $$createField10_0 = $$createType42;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("style" in $$parsedSource) {
             $$parsedSource["style"] = $$createField9_0($$parsedSource["style"]);
@@ -1492,7 +1501,7 @@ export class TrackJSON {
      * Creates a new TrackJSON instance from a string or object.
      */
     static createFrom($$source: any = {}): TrackJSON {
-        const $$createField5_0 = $$createType42;
+        const $$createField5_0 = $$createType44;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("clips" in $$parsedSource) {
             $$parsedSource["clips"] = $$createField5_0($$parsedSource["clips"]);
@@ -1587,6 +1596,41 @@ export class TransformJSON {
     }
 }
 
+/**
+ * TransitionJSON is a clip's incoming transition.
+ */
+export class TransitionJSON {
+    /**
+     * one of TransitionTypes
+     */
+    "type": string;
+
+    /**
+     * ms, whole: half before the cut, half after
+     */
+    "duration": number;
+
+    /** Creates a new TransitionJSON instance. */
+    constructor($$source: Partial<TransitionJSON> = {}) {
+        if (!("type" in $$source)) {
+            this["type"] = "";
+        }
+        if (!("duration" in $$source)) {
+            this["duration"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TransitionJSON instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TransitionJSON {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TransitionJSON($$parsedSource as Partial<TransitionJSON>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = TrackLevel.createFrom;
 const $$createType1 = $Create.Array($$createType0);
@@ -1601,33 +1645,35 @@ const $$createType9 = $Create.Array($$createType8);
 const $$createType10 = $Create.Map($Create.Any, $$createType9);
 const $$createType11 = SpeedCurveJSON.createFrom;
 const $$createType12 = $Create.Nullable($$createType11);
-const $$createType13 = $Create.Array($Create.Any);
-const $$createType14 = Segment.createFrom;
-const $$createType15 = $Create.Array($$createType14);
-const $$createType16 = capture$0.Rect.createFrom;
-const $$createType17 = $Create.Nullable($$createType16);
-const $$createType18 = TextOverlay.createFrom;
-const $$createType19 = $Create.Array($$createType18);
-const $$createType20 = $Create.Map($Create.Any, $Create.Any);
-const $$createType21 = $Create.Map($Create.Any, $$createType13);
-const $$createType22 = GIFOptions.createFrom;
-const $$createType23 = AudioTrack.createFrom;
-const $$createType24 = $Create.Array($$createType23);
-const $$createType25 = ProjectJSON.createFrom;
-const $$createType26 = ExportOptions.createFrom;
-const $$createType27 = $Create.Nullable($$createType26);
-const $$createType28 = CanvasJSON.createFrom;
-const $$createType29 = MediaJSON.createFrom;
-const $$createType30 = $Create.Array($$createType29);
-const $$createType31 = TrackJSON.createFrom;
+const $$createType13 = TransitionJSON.createFrom;
+const $$createType14 = $Create.Nullable($$createType13);
+const $$createType15 = $Create.Array($Create.Any);
+const $$createType16 = Segment.createFrom;
+const $$createType17 = $Create.Array($$createType16);
+const $$createType18 = capture$0.Rect.createFrom;
+const $$createType19 = $Create.Nullable($$createType18);
+const $$createType20 = TextOverlay.createFrom;
+const $$createType21 = $Create.Array($$createType20);
+const $$createType22 = $Create.Map($Create.Any, $Create.Any);
+const $$createType23 = $Create.Map($Create.Any, $$createType15);
+const $$createType24 = GIFOptions.createFrom;
+const $$createType25 = AudioTrack.createFrom;
+const $$createType26 = $Create.Array($$createType25);
+const $$createType27 = ProjectJSON.createFrom;
+const $$createType28 = ExportOptions.createFrom;
+const $$createType29 = $Create.Nullable($$createType28);
+const $$createType30 = CanvasJSON.createFrom;
+const $$createType31 = MediaJSON.createFrom;
 const $$createType32 = $Create.Array($$createType31);
-const $$createType33 = TextJSON.createFrom;
+const $$createType33 = TrackJSON.createFrom;
 const $$createType34 = $Create.Array($$createType33);
-const $$createType35 = SpeedPointJSON.createFrom;
+const $$createType35 = TextJSON.createFrom;
 const $$createType36 = $Create.Array($$createType35);
-const $$createType37 = TextStyleJSON.createFrom;
-const $$createType38 = $Create.Nullable($$createType37);
-const $$createType39 = TextImageJSON.createFrom;
+const $$createType37 = SpeedPointJSON.createFrom;
+const $$createType38 = $Create.Array($$createType37);
+const $$createType39 = TextStyleJSON.createFrom;
 const $$createType40 = $Create.Nullable($$createType39);
-const $$createType41 = ClipJSON.createFrom;
-const $$createType42 = $Create.Array($$createType41);
+const $$createType41 = TextImageJSON.createFrom;
+const $$createType42 = $Create.Nullable($$createType41);
+const $$createType43 = ClipJSON.createFrom;
+const $$createType44 = $Create.Array($$createType43);
