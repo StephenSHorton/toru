@@ -49,6 +49,8 @@ type LineLook = {
   end?: "arrow" | "none";
   dash?: "solid" | "dashed" | "dotted";
   color?: string;
+  /** A locked line has no disconnect button. */
+  locked?: boolean;
 };
 
 /** The pen: on or off, and its colour (a token name like `ink-blue`) and width. */
@@ -114,20 +116,75 @@ function Board({ renderBlock, children, className, pen: penOptions, lineLook, se
                 />
               );
             })}
-            {onLinePress &&
-              lines.map((line) => (
-                <parts.LineHit
-                  key={line.id}
-                  value={line.id}
-                  strokeWidth={14}
-                  data-line={line.id}
-                  onPointerDown={(e: React.PointerEvent) => {
-                    if (e.button === 0) onLinePress(line.id);
-                  }}
-                />
-              ))}
             <parts.Wire strokeWidth={2} strokeDasharray="6 4" />
           </svg>
+          {(() => {
+            // Each block, as its part.
+            const draw = (id: string) => {
+              const block = blocks[id];
+              // A freehand stroke shows its line, with no ports or resize handles.
+              if (block.ink) {
+                return (
+                  <BoardBlock key={id} value={id} data-block={id} data-by={block.createdBy} title={madeBy(block)}>
+                    <InkLine stroke={block.ink} width={block.width} height={block.height} />
+                    {block.locked && <Locked />}
+                  </BoardBlock>
+                );
+              }
+              return (
+                <BoardBlock key={id} value={id} data-block={id} data-type={block.type} data-by={block.createdBy}>
+                  {block.createdBy && (
+                    <span data-slot="board-block-by" data-agent={block.createdBy.startsWith("agent:") ? "" : undefined} title={madeBy(block)}>
+                      {who(block.createdBy)}
+                    </span>
+                  )}
+                  {renderBlock ? (
+                    <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
+                  ) : (
+                    <span data-slot="board-block-label">{block.label}</span>
+                  )}
+                  {block.locked && <Locked />}
+                  {sides.map((side) => (
+                    <BoardPart key={side} slot="port" value={`${id}:${side}`} />
+                  ))}
+                  {/* A locked block doesn't resize. */}
+                  {!block.locked &&
+                    handles.map((h) => (
+                      <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
+                    ))}
+                </BoardBlock>
+              );
+            };
+            // Lines' press targets go above the frames, so a line in a frame can be
+            // pressed, and below the other blocks, so they never cover a port.
+            const hits = onLinePress && (
+              <svg key="board-line-hits" data-slot="board-lines" width="1" height="1">
+                {lines.map((line) => (
+                  <parts.LineHit
+                    key={line.id}
+                    value={line.id}
+                    strokeWidth={14}
+                    data-line={line.id}
+                    onPointerDown={(e: React.PointerEvent) => {
+                      if (e.button === 0) onLinePress(line.id);
+                    }}
+                  />
+                ))}
+              </svg>
+            );
+            const ids = frameFirst(blocks);
+            const frames = ids.filter((id) => blocks[id].type === "frame");
+            // Each line's disconnect button, over its press target.
+            const unlinks = lines.map((line) =>
+              lineLook?.(line.id)?.locked ? null : (
+                <parts.Unlink key={`unlink:${line.id}`} value={line.id}>
+                  <XIcon aria-hidden="true" />
+                </parts.Unlink>
+              ),
+            );
+            return [...frames.map(draw), hits, ...unlinks, ...ids.slice(frames.length).map(draw)];
+          })()}
+          {/* Line labels, above the blocks. */}
           {lines.map((line) => {
             const text = lineLook?.(line.id)?.label;
             return text ? (
@@ -135,46 +192,6 @@ function Board({ renderBlock, children, className, pen: penOptions, lineLook, se
                 {text}
               </parts.LineLabel>
             ) : null;
-          })}
-          {lines.map((line) => (
-            <parts.Unlink key={line.id} value={line.id}>
-              <XIcon aria-hidden="true" />
-            </parts.Unlink>
-          ))}
-          {frameFirst(blocks).map((id) => {
-            const block = blocks[id];
-            // A freehand stroke shows its line, with no ports or resize handles.
-            if (block.ink) {
-              return (
-                <BoardBlock key={id} value={id} data-block={id} data-by={block.createdBy} title={madeBy(block)}>
-                  <InkLine stroke={block.ink} width={block.width} height={block.height} />
-                  {block.locked && <Locked />}
-                </BoardBlock>
-              );
-            }
-            return (
-              <BoardBlock key={id} value={id} data-block={id} data-type={block.type} data-by={block.createdBy}>
-                {block.createdBy && (
-                  <span data-slot="board-block-by" data-agent={block.createdBy.startsWith("agent:") ? "" : undefined} title={madeBy(block)}>
-                    {who(block.createdBy)}
-                  </span>
-                )}
-                {renderBlock ? (
-                  <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
-                ) : (
-                  <span data-slot="board-block-label">{block.label}</span>
-                )}
-                {block.locked && <Locked />}
-                {sides.map((side) => (
-                  <BoardPart key={side} slot="port" value={`${id}:${side}`} />
-                ))}
-                {/* A locked block doesn't resize. */}
-                {!block.locked &&
-                  handles.map((h) => (
-                    <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
-                  ))}
-              </BoardBlock>
-            );
           })}
           {/* The stroke being drawn, above the blocks. */}
           <svg data-slot="board-lines" width="1" height="1">

@@ -68,15 +68,13 @@ function PropsPanel({ live, doc, selected, link, onPickLink, onSelect, source }:
   const last = React.useRef<Target[]>([]);
   if (open) last.current = targets;
   const shown = open ? targets : last.current;
-  const send = React.useCallback(
-    (patches: DocPatch[]) => live.update(patches, { source: source?.() ?? "person" }),
-    [live, source],
-  );
+  const send = React.useCallback<Send>((build) => live.update(build, { source: source?.() ?? "person" }), [live, source]);
   return (
     <aside
       data-slot="props-panel"
       className="frost"
       aria-label="Properties"
+      aria-keyshortcuts="F6"
       data-open={open ? "" : undefined}
       inert={!open}
       onWheel={(e) => e.stopPropagation()}
@@ -97,7 +95,19 @@ function PropsPanel({ live, doc, selected, link, onPickLink, onSelect, source }:
   );
 }
 
-type Send = (patches: DocPatch[]) => Promise<boolean>;
+/**
+ * Sends one change. It's built from the board as it is when it goes, after
+ * what's pending (typing in a block, an edit just before), never from the
+ * board as the panel last drew it, so it can't put back what changed since.
+ */
+type Send = (build: (doc: BoardDoc) => DocPatch[]) => Promise<boolean>;
+
+/** Each target as the document has it now; gone ones are left out. */
+const now = (doc: BoardDoc, targets: Target[]): Target[] =>
+  targets.flatMap((t) => {
+    const found = findItem(doc, t.id);
+    return found ? [{ id: t.id, key: found.key, item: found.item }] : [];
+  });
 
 type BodyProps = {
   doc: BoardDoc;
@@ -112,18 +122,25 @@ function PanelBody({ doc, targets, send, onPickLink, onSelect }: BodyProps) {
   const kinds = new Set(targets.map((t) => t.key));
   const kind = kinds.size === 1 ? targets[0].key : null;
   const one = targets.length === 1 ? targets[0] : null;
-  const run: Send = async (patches) => {
+  const run: Send = async (build) => {
     setError(null);
-    return send(patches);
+    try {
+      return await send(build);
+    } catch (err) {
+      // A change the schema refuses isn't sent; say why.
+      setError(err instanceof Error ? err.message : String(err));
+      return false;
+    }
   };
   return (
     <>
       <header data-slot="props-panel-header">
         <h2>{title(targets)}</h2>
         {targets.length > 1 && <p>Changes go to all {targets.length}.</p>}
+        <p>F6 moves between the board and here.</p>
       </header>
       {(kind === "blocks" || kind === "frames") && (
-        <SchemaSection targets={targets} send={run} onError={setError} />
+        <SchemaSection targets={targets} send={run} />
       )}
       {kind === "links" && one && <LinkSection doc={doc} link={one.item as DocLink} send={run} onSelect={onSelect} />}
       {kind === "ink" && <InkSection targets={targets} send={run} />}
@@ -217,7 +234,7 @@ function propsPatch(t: Target, props: Record<string, unknown>): DocPatch {
   return { id: t.id, props };
 }
 
-function SchemaSection({ targets, send, onError }: { targets: Target[]; send: Send; onError: (e: string | null) => void }) {
+function SchemaSection({ targets, send }: { targets: Target[]; send: Send }) {
   const fields = sharedFields(targets);
   const required = new Set(targets.flatMap((t) => blockType(typeOf(t))?.props.required ?? []));
   if (!fields.length) {
@@ -228,23 +245,18 @@ function SchemaSection({ targets, send, onError }: { targets: Target[]; send: Se
     );
   }
   // Sets one field on every target, each from its own value, checked against its schema first.
-  const set = (key: string, next: (was: unknown) => unknown) => {
-    const patches: DocPatch[] = [];
-    for (const t of targets) {
-      const props = { ...propsOf(t) };
-      const v = next(props[key]);
-      if (v === undefined) delete props[key];
-      else props[key] = v;
-      const err = checkProps(typeOf(t), props);
-      if (err) {
-        onError(`${blockLabel(typeOf(t), propsOf(t))}: ${err.replace(/^props\./, "")}`);
-        return Promise.resolve(false);
-      }
-      patches.push(propsPatch(t, props));
-    }
-    onError(null);
-    return send(patches);
-  };
+  const set = (key: string, next: (was: unknown) => unknown) =>
+    send((doc) =>
+      now(doc, targets).map((t) => {
+        const props = { ...propsOf(t) };
+        const v = next(props[key]);
+        if (v === undefined) delete props[key];
+        else props[key] = v;
+        const err = checkProps(typeOf(t), props);
+        if (err) throw new Error(`${blockLabel(typeOf(t), propsOf(t))}: ${err.replace(/^props\./, "")}`);
+        return propsPatch(t, props);
+      }),
+    );
   const label = targets.length === 1 ? blockLabel(typeOf(targets[0]), propsOf(targets[0])) : "selection";
   return (
     <section data-slot="props-panel-section" aria-label="Props">
@@ -802,7 +814,7 @@ function BoxSection({ targets, send }: { targets: Target[]; send: Send }) {
       value={shared(boxes.map((b) => (key === "rotation" ? ((b as DocBlock).rotation ?? 0) : b[key])))}
       min={min}
       max={max}
-      onSet={(n) => send(targets.map((t) => ({ id: t.id, [key]: key === "rotation" && n === 0 ? undefined : n })))}
+      onSet={(n) => send(() => targets.map((t) => ({ id: t.id, [key]: key === "rotation" && n === 0 ? undefined : n })))}
     />
   );
   return (
@@ -858,7 +870,7 @@ function FrameSection({ doc, targets, send }: { doc: BoardDoc; targets: Target[]
           label="Frame it sits in"
           value={value === MIXED ? "" : value || NONE}
           options={[{ value: NONE, label: "No frame" }, ...doc.frames.map((f) => ({ value: f.id, label: f.name || f.id }))]}
-          onPick={(v) => void send(targets.map((t) => ({ id: t.id, frame: v === NONE ? undefined : v })))}
+          onPick={(v) => void send(() => targets.map((t) => ({ id: t.id, frame: v === NONE ? undefined : v })))}
         />
       </Row>
     </section>
@@ -874,7 +886,7 @@ function LockSection({ targets, send }: { targets: Target[]; send: Send }) {
           aria-label="Locked"
           aria-description="A locked item can't be moved, resized or deleted on the canvas until it's unlocked."
           checked={value === MIXED ? "indeterminate" : value}
-          onCheckedChange={(checked) => void send(targets.map((t) => ({ id: t.id, locked: checked === true ? true : undefined })))}
+          onCheckedChange={(checked) => void send(() => targets.map((t) => ({ id: t.id, locked: checked === true ? true : undefined })))}
         >
           <CheckboxIndicator>
             <CheckIcon aria-hidden="true" />
@@ -901,7 +913,7 @@ function InkSection({ targets, send }: { targets: Target[]; send: Send }) {
           aria-label="Ink colour"
           data-slot="props-panel-ink"
           value={color === MIXED ? null : color}
-          onValueChange={(c) => c != null && void send(targets.map((t) => ({ id: t.id, color: String(c) })))}
+          onValueChange={(c) => c != null && void send(() => targets.map((t) => ({ id: t.id, color: String(c) })))}
         >
           {inkColors.map((c) => (
             <Radio key={c.token} value={c.token} aria-label={c.name} title={c.name} style={{ background: inkColor(c.token) }} />
@@ -916,7 +928,7 @@ function InkSection({ targets, send }: { targets: Target[]; send: Send }) {
             ...widths.map((w) => ({ value: String(w.value), label: `${w.name} (${w.value})` })),
             ...(width !== MIXED && !widths.some((w) => w.value === width) ? [{ value: String(width), label: String(width) }] : []),
           ]}
-          onPick={(v) => void send(targets.map((t) => ({ id: t.id, width: Number(v) })))}
+          onPick={(v) => void send(() => targets.map((t) => ({ id: t.id, width: Number(v) })))}
         />
       </Row>
     </section>
@@ -928,12 +940,15 @@ type LinkStyle = { start?: string; end?: string; dash?: string; color?: string }
 
 function LinkSection({ doc, link, send, onSelect }: { doc: BoardDoc; link: DocLink; send: Send; onSelect: (ids: string[]) => void }) {
   const style = (link.props ?? {}) as LinkStyle;
-  const setStyle = (key: keyof LinkStyle, v: string | undefined) => {
-    const props: Record<string, unknown> = { ...style };
-    if (v === undefined) delete props[key];
-    else props[key] = v;
-    return send([{ id: link.id, props: Object.keys(props).length ? props : undefined }]);
-  };
+  const setStyle = (key: keyof LinkStyle, v: string | undefined) =>
+    send((doc) => {
+      const was = findItem(doc, link.id)?.item as DocLink | undefined;
+      if (!was) return [];
+      const props: Record<string, unknown> = { ...was.props };
+      if (v === undefined) delete props[key];
+      else props[key] = v;
+      return [{ id: link.id, props: Object.keys(props).length ? props : undefined }];
+    });
   const end = (id: string) => {
     const found = findItem(doc, id);
     if (!found) return id;
@@ -942,7 +957,7 @@ function LinkSection({ doc, link, send, onSelect }: { doc: BoardDoc; link: DocLi
     return id;
   };
   const labelId = useId();
-  const draft = useDraft(link.label ?? "", (text) => void send([{ id: link.id, label: text.trim() ? text : undefined }]));
+  const draft = useDraft(link.label ?? "", (text) => void send(() => [{ id: link.id, label: text.trim() ? text : undefined }]));
   return (
     <section data-slot="props-panel-section" aria-label="Line">
       <div data-slot="props-panel-ends">
@@ -1108,6 +1123,23 @@ function usePropsSelection(doc: BoardDoc | null) {
         setSelected(ids);
       },
     },
+    // F6 hops from the board to the panel and back, so the keyboard reaches it
+    // without tabbing past every block.
+    onKeyDownCapture: (e: React.KeyboardEvent) => {
+      if (e.key !== "F6" || e.altKey || e.ctrlKey || e.metaKey) return;
+      const root = e.currentTarget as HTMLElement;
+      const panel = root.querySelector<HTMLElement>('[data-slot="props-panel"]');
+      if (!panel?.hasAttribute("data-open")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (panel.contains(e.target as Node)) {
+        const back =
+          root.querySelector<HTMLElement>('[data-slot="board-block"][data-selected]') ?? root.querySelector<HTMLElement>('[data-slot="board"]');
+        back?.focus();
+      } else {
+        panel.querySelector<HTMLElement>(focusable)?.focus();
+      }
+    },
     onPointerDownCapture: (e: React.PointerEvent) => {
       const t = e.target as Element;
       if (link && t.closest?.('[data-slot="board"]') && !t.closest('[data-slot="board-line-hit"]')) setLink(null);
@@ -1115,16 +1147,20 @@ function usePropsSelection(doc: BoardDoc | null) {
   };
 }
 
+/** What can take focus in the panel, in order. */
+const focusable = 'input:not([disabled]), textarea:not([disabled]), button:not([disabled]):not([tabindex="-1"]), [role="radio"][tabindex="0"], [tabindex="0"]';
+
 /** How a link's line looks on the canvas: its label and style. */
 function lineLook(l: DocLink): LineLook | undefined {
   const s = (l.props ?? {}) as LinkStyle;
-  if (!l.label && !l.props) return undefined;
+  if (!l.label && !l.props && !l.locked) return undefined;
   return {
     label: l.label,
     start: s.start === "arrow" ? "arrow" : undefined,
     end: s.end === "arrow" ? "arrow" : undefined,
     dash: s.dash === "dashed" || s.dash === "dotted" ? s.dash : undefined,
     color: typeof s.color === "string" && blockColors.includes(s.color) ? s.color : undefined,
+    locked: l.locked || undefined,
   };
 }
 

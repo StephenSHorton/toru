@@ -1,0 +1,794 @@
+{
+  "note": "Written by frontend/scripts/props-panel-check.tsx --write: ops as the whiteboard window's properties panel sent them, and the board the window's store ended on. Go's TestPanelOps applies them. Don't edit by hand.",
+  "start": {
+    "format": "toruboard",
+    "version": 1,
+    "id": "props",
+    "name": "Props",
+    "rev": 0,
+    "frames": [
+      {
+        "id": "frm-plan",
+        "name": "Plan",
+        "x": -20,
+        "y": 260,
+        "w": 480,
+        "h": 260,
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "s1",
+        "type": "sticky",
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "First idea",
+          "tags": [
+            "a"
+          ]
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "s2",
+        "type": "sticky",
+        "x": 320,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "Second",
+          "color": "pink",
+          "tags": [
+            "a",
+            "b"
+          ]
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "c1",
+        "type": "card",
+        "x": 640,
+        "y": 0,
+        "w": 240,
+        "h": 160,
+        "props": {
+          "title": "A card",
+          "color": "blue"
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "k1",
+        "type": "checklist",
+        "x": 0,
+        "y": 600,
+        "w": 240,
+        "h": 200,
+        "props": {
+          "title": "Todo",
+          "items": [
+            {
+              "text": "One"
+            },
+            {
+              "text": "Two",
+              "done": true
+            }
+          ]
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "links": [
+      {
+        "id": "lnk-12",
+        "from": "s1",
+        "to": "s2",
+        "fromPort": "right",
+        "toPort": "left",
+        "label": "leads to",
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "ink": [
+      {
+        "id": "ink-1",
+        "points": [
+          240,
+          340,
+          0.5,
+          330,
+          400,
+          0.7,
+          420,
+          360,
+          0.5
+        ],
+        "color": "ink-blue",
+        "width": 4,
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ]
+  },
+  "ops": [
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 0,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Edited in the panel",
+            "tags": [
+              "a"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 0,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "a"
+            ],
+            "color": "blue"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 0,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "a",
+              "new"
+            ],
+            "color": "blue"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 0,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "k1",
+          "type": "checklist",
+          "x": 0,
+          "y": 600,
+          "w": 240,
+          "h": 200,
+          "props": {
+            "title": "Todo",
+            "items": [
+              {
+                "text": "One",
+                "done": true
+              },
+              {
+                "text": "Two",
+                "done": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "k1",
+          "type": "checklist",
+          "x": 0,
+          "y": 600,
+          "w": 240,
+          "h": 200,
+          "props": {
+            "title": "Todo",
+            "items": [
+              {
+                "text": "One",
+                "done": true
+              },
+              {
+                "text": "Two",
+                "done": true
+              },
+              {
+                "text": "New"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "k1",
+          "type": "checklist",
+          "x": 0,
+          "y": 600,
+          "w": 240,
+          "h": 200,
+          "props": {
+            "title": "Todo",
+            "items": [
+              {
+                "text": "One",
+                "done": true
+              },
+              {
+                "text": "Two",
+                "done": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          },
+          "rotation": 10
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          },
+          "rotation": 10,
+          "locked": true
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          },
+          "rotation": 10
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "green"
+          },
+          "rotation": 10
+        },
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Second",
+            "color": "green",
+            "tags": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "id": "c1",
+          "type": "card",
+          "x": 640,
+          "y": 0,
+          "w": 240,
+          "h": 160,
+          "props": {
+            "title": "A card",
+            "color": "green"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new",
+              "shared"
+            ],
+            "color": "green"
+          },
+          "rotation": 10
+        },
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Second",
+            "color": "green",
+            "tags": [
+              "a",
+              "b",
+              "shared"
+            ]
+          }
+        },
+        {
+          "id": "c1",
+          "type": "card",
+          "x": 640,
+          "y": 0,
+          "w": 240,
+          "h": 160,
+          "props": {
+            "title": "A card",
+            "color": "green",
+            "tags": [
+              "shared"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "source": "person",
+      "links": [
+        {
+          "id": "lnk-12",
+          "from": "s1",
+          "to": "s2",
+          "fromPort": "right",
+          "toPort": "left",
+          "label": "depends on"
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "links": [
+        {
+          "id": "lnk-12",
+          "from": "s1",
+          "to": "s2",
+          "fromPort": "right",
+          "toPort": "left",
+          "label": "depends on",
+          "props": {
+            "color": "purple"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "source": "person",
+      "links": [
+        {
+          "id": "lnk-12",
+          "from": "s1",
+          "to": "s2",
+          "fromPort": "right",
+          "toPort": "left",
+          "label": "depends on",
+          "locked": true
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "source": "person",
+      "ink": [
+        {
+          "id": "ink-1",
+          "points": [
+            240,
+            340,
+            0.5,
+            330,
+            400,
+            0.7,
+            420,
+            360,
+            0.5
+          ],
+          "color": "ink-red",
+          "width": 4
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Typed in place",
+            "color": "pink",
+            "tags": [
+              "a",
+              "b"
+            ]
+          },
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Typed in place",
+            "color": "orange",
+            "tags": [
+              "a",
+              "b"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Typed in place",
+            "color": "yellow",
+            "tags": [
+              "a",
+              "b"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Typed in place",
+            "color": "yellow",
+            "tags": [
+              "a",
+              "b",
+              "quick"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "end": {
+    "format": "toruboard",
+    "version": 1,
+    "id": "props",
+    "name": "Props",
+    "rev": 27,
+    "frames": [
+      {
+        "id": "frm-plan",
+        "name": "Plan",
+        "x": -20,
+        "y": 260,
+        "w": 480,
+        "h": 260,
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "s1",
+        "type": "sticky",
+        "x": 40,
+        "y": 0,
+        "w": 260,
+        "h": 200,
+        "props": {
+          "text": "First idea",
+          "tags": [
+            "new"
+          ],
+          "color": "blue"
+        },
+        "rotation": 10,
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "s2",
+        "type": "sticky",
+        "x": 320,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "Typed in place",
+          "color": "yellow",
+          "tags": [
+            "a",
+            "b",
+            "quick"
+          ]
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "person"
+      },
+      {
+        "id": "c1",
+        "type": "card",
+        "x": 640,
+        "y": 0,
+        "w": 240,
+        "h": 160,
+        "props": {
+          "title": "A card",
+          "color": "blue"
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "k1",
+        "type": "checklist",
+        "x": 0,
+        "y": 600,
+        "w": 240,
+        "h": 200,
+        "props": {
+          "title": "Todo",
+          "items": [
+            {
+              "text": "One",
+              "done": true
+            },
+            {
+              "text": "Two",
+              "done": true
+            }
+          ]
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "links": [
+      {
+        "id": "lnk-12",
+        "from": "s1",
+        "to": "s2",
+        "fromPort": "right",
+        "toPort": "left",
+        "label": "depends on",
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "ink": [
+      {
+        "id": "ink-1",
+        "points": [
+          240,
+          340,
+          0.5,
+          330,
+          400,
+          0.7,
+          420,
+          360,
+          0.5
+        ],
+        "color": "ink-red",
+        "width": 4,
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ]
+  }
+}

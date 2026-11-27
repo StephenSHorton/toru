@@ -86,7 +86,7 @@ func RunCtl(ctx context.Context, args []string, env Env) int {
 			sayln(env.Stderr, "toru ctl:", err)
 			return exitUnreachable
 		case errors.Is(err, errUnreachable):
-			sayln(env.Stderr, "toru ctl:", unreachableMessage(env, "run `toru.exe ctl app.start`"))
+			sayln(env.Stderr, "toru ctl:", unreachableMessage("run `toru.exe ctl app.start`"))
 			return exitUnreachable
 		}
 		sayln(env.Stderr, "toru ctl:", err)

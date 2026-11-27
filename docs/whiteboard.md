@@ -105,12 +105,12 @@ What that gives the board:
 
 Toru already has one: `toru.exe mcp` (stdio MCP) and `toru.exe ctl`, both
 reaching the running Toru over a named pipe only the current user can open.
-Off by default ("Let AI agents and scripts control Toru" in Settings). No
-network port. The whiteboard adds its commands to that registry; it opens
-nothing new.
+Always on while Toru runs: no setting; Settings > Connect your agent shows
+the commands to add it. No network port. The whiteboard adds its commands
+to that registry; it opens nothing new.
 
 ```
-claude mcp add toru -- "%LOCALAPPDATA%\Programs\Toru\toru.exe" mcp
+claude mcp add --scope user toru -- "%LOCALAPPDATA%\Programs\Toru\toru.exe" mcp
 ```
 
 **Board commands (Go, always available, window open or not).** The board
@@ -176,8 +176,8 @@ window commands time out (30 s default).
 
 - **Down the right side, over the canvas** (`frontend/src/whiteboard/PropsPanel.tsx`,
   `props-panel.css`): it shows what's selected and slides away (inert) when
-  nothing is; the canvas never moves or shrinks. Tab reaches it after the
-  board.
+  nothing is; the canvas never moves or shrinks. F6 hops from the board
+  to the panel and back to the selected block.
 - **A form from the schema.** A block's props are fields made from its
   catalog type's JSON Schema keywords (enum, items, properties, required,
   min/max, lengths), so a type added to the catalog later (or an AI-built
@@ -196,16 +196,23 @@ window commands time out (30 s default).
   words (tags) adds or removes the word on each, keeping their own.
 - **One change, one undo:** every edit is one `LiveBoard.update`: one op to
   Go's store, the store `board.update` changes, so Ctrl+Z takes it back.
+  The op is built from the board as it is once what's pending is sent, so
+  it never puts back a value that changed meanwhile.
   Text and numbers are sent when the field is left or on Enter, never per
   key; while a field has unsent typing, Ctrl+Z is the field's own.
 - **Lock** (`locked` on blocks, frames, strokes and links; `board.update`
-  sets it): the person can't move, resize, arrange or delete a locked item
-  in the window; it still selects, so it can be unlocked. Agents' commands
-  aren't stopped by it.
+  sets it): on the canvas a locked item can't be dragged, resized, arranged
+  or deleted, by the person or by an agent using the window (`board.act`,
+  `board.arrange`); it still selects, so it can be unlocked, and the
+  panel's X and Y still move it. Go's board commands (`board.move`,
+  `board.update`, `board.delete`) aren't stopped by it. A locked line has
+  no disconnect button.
 - **Rotation** is drawn (CSS `rotate`); moving, resizing, lassoing and
   ports still use the unturned box.
 - **Checks:** `bun run test:props-panel` drives the real window against a
-  store in the page.
+  store in the page and writes the ops it sent to
+  `internal/board/testdata/panel-ops.json` (`--write`), which Go's
+  `TestPanelOps` applies through the real store.
 
 **Rules.**
 

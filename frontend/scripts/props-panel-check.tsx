@@ -16,10 +16,17 @@
 //   6. Ink: colour and width.
 //   7. A schema the window has never seen (as an AI-built block type would
 //      bring) still gets a field for every keyword.
+//   8. A panel change made while typing in a block is still waiting, or
+//      right after another panel change, builds on it and never puts the
+//      old value back. F6 hops between the board and the panel.
+//   9. The ops the panel sent go to internal/board/testdata/panel-ops.json,
+//      which Go's TestPanelOps applies through the real store.
 //
-//   bun scripts/props-panel-check.tsx            the checks
+//   bun scripts/props-panel-check.tsx            the checks, and that panel-ops.json is current
+//   bun scripts/props-panel-check.tsx --write    also rewrite panel-ops.json
 //   bun scripts/props-panel-check.tsx --verbose  print every check
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { readFileSync, writeFileSync } from "node:fs";
 
 GlobalRegistrator.register({ url: "http://127.0.0.1/" });
 declare global {
@@ -63,7 +70,7 @@ const settle = () => wait(40);
 
 const meta = { createdBy: "person", updatedBy: "person" };
 const start: BoardDoc = {
-  format: "toru-board",
+  format: "toruboard",
   version: 1,
   id: "props",
   name: "Props",
@@ -81,11 +88,24 @@ const start: BoardDoc = {
 
 const mem = memoryLink(start);
 const sent: BoardOp[] = [];
+// Every op the store applied, undo and redo too: what Go must replay.
+const log: BoardOp[] = [];
 const store: BoardLink = {
   ...mem,
   apply: async (id, op) => {
     sent.push(structuredClone(op));
+    log.push(structuredClone(op));
     return mem.apply(id, op);
+  },
+  undo: async (id) => {
+    const r = await mem.undo(id);
+    if (r) log.push({ kind: "undo", source: "person" });
+    return r;
+  },
+  redo: async (id) => {
+    const r = await mem.redo(id);
+    if (r) log.push({ kind: "redo", source: "person" });
+    return r;
   },
 };
 const live = new LiveBoard(start.id, store, { typingMs: 60, gapMs: 80 });
@@ -280,6 +300,11 @@ ok("its colour is one op", item("lnk-12").props?.color === "purple" && $('[data-
 ok("the link keeps its ends", item("lnk-12").from === "s1" && item("lnk-12").fromPort === "right");
 await undo();
 ok("Ctrl+Z takes the colour back", !item("lnk-12").props?.color, item("lnk-12"));
+click(byLabel("Locked")!);
+await settle();
+ok("a locked line has no disconnect button", item("lnk-12").locked === true && !$('[data-slot="board-unlink"]'), item("lnk-12"));
+await undo();
+ok("... and gets it back when unlocked", !item("lnk-12").locked && !!$('[data-slot="board-unlink"]'));
 key(panel(), "Escape");
 
 // A press on a line picks it.
@@ -301,6 +326,44 @@ n = sent.length;
 click(byLabel("Red")!);
 await settle();
 ok("its colour is one op", sent.length === n + 1 && item("ink-1").color === "ink-red", item("ink-1"));
+
+// 8. Changes that land close together.
+await none();
+press(block("s2"));
+await settle();
+// Typing in the block itself waits for a pause; a swatch pressed meanwhile keeps it.
+const inPlace = block("s2").querySelector("textarea")!;
+inPlace.focus();
+Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(inPlace, "Typed in place");
+inPlace.dispatchEvent(new Event("input", { bubbles: true }));
+click(byLabel("Orange")!);
+await wait(150);
+ok("a panel change while typing in the block waits keeps the typing", item("s2").props.text === "Typed in place" && item("s2").props.color === "orange", item("s2").props);
+// Two panel changes before the first is answered: both stay.
+click(byLabel("Yellow")!);
+const tagNow = byLabel<HTMLInputElement>(/^Add to Tags of /)!;
+tagNow.focus();
+Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(tagNow, "quick");
+tagNow.dispatchEvent(new Event("input", { bubbles: true }));
+await wait(0);
+key(tagNow, "Enter");
+await wait(150);
+ok("two quick panel changes both stay", item("s2").props.color === "yellow" && (item("s2").props.tags as string[]).includes("quick"), item("s2").props);
+
+// F6 hops between the board and the panel.
+block("s2").focus();
+key(block("s2"), "F6");
+await settle();
+ok("F6 from the board goes into the panel", panel().contains(document.activeElement), document.activeElement?.outerHTML.slice(0, 80));
+key(document.activeElement!, "F6");
+await settle();
+ok("F6 from the panel goes back to the selected block", document.activeElement === block("s2"), document.activeElement?.outerHTML.slice(0, 80));
+
+// Lines can be pressed over a frame: their targets sit above frames, below other blocks.
+const hits = $('[data-slot="board-line-hit"]')!.closest("svg")!;
+const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+ok("line targets are above frames", before(block("frm-plan"), hits));
+ok("... and below other blocks", before(hits, block("s1")));
 
 // 1b. Escape lets go, and the panel hides.
 block("ink-1").focus();
@@ -353,6 +416,32 @@ key(lvl, "Enter");
 await settle();
 ok("a number is kept to its schema's maximum", (got as { level?: number })?.level === 5, got);
 madeRoot.unmount();
+
+// 9. The panel's ops, for Go.
+{
+  const panelFile = new URL("../../internal/board/testdata/panel-ops.json", import.meta.url);
+  const strip = (v: unknown) =>
+    JSON.parse(JSON.stringify(v, (k, x) => (k === "at" || k === "createdAt" || k === "updatedAt" ? undefined : x)));
+  const file = {
+    note: "Written by frontend/scripts/props-panel-check.tsx --write: ops as the whiteboard window's properties panel sent them, and the board the window's store ended on. Go's TestPanelOps applies them. Don't edit by hand.",
+    start: strip(start),
+    ops: strip(log),
+    end: strip(mem.board()),
+  };
+  const text = JSON.stringify(file, null, 2) + "\n";
+  if (process.argv.includes("--write")) {
+    writeFileSync(panelFile, text);
+    console.log("wrote", panelFile.pathname);
+  } else {
+    let have = "";
+    try {
+      have = readFileSync(panelFile, "utf8");
+    } catch {
+      /* missing */
+    }
+    ok("panel-ops.json is current (run with --write)", have === text, have ? undefined : "missing");
+  }
+}
 
 console.log(`props-panel-check: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

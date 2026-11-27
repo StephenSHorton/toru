@@ -195,7 +195,7 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   );
 
   return (
-    <div className="relative h-full overflow-hidden" onPointerDownCapture={pick.onPointerDownCapture}>
+    <div className="relative h-full overflow-hidden" onPointerDownCapture={pick.onPointerDownCapture} onKeyDownCapture={pick.onKeyDownCapture}>
       <Board
         {...pick.board}
         aria-label={doc ? `Whiteboard ${doc.name}` : `Whiteboard ${id}`}

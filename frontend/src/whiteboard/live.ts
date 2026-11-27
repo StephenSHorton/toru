@@ -369,13 +369,16 @@ class LiveBoard {
    * one op after what's pending: one change, one undo, through the same
    * store Go's board.update changes. Each patch names an item by id and
    * sets fields on it; a field set to undefined is removed. Items that
-   * wouldn't change are left out. Resolves to whether Go took it (true when
+   * wouldn't change are left out. Given a function, the patches are made
+   * from the board as it is once what's pending has gone, so they build on
+   * it; a throw there rejects. Resolves to whether Go took it (true when
    * there was nothing to change).
    */
-  update(patches: DocPatch[], opts: { source?: string } = {}): Promise<boolean> {
+  update(patches: DocPatch[] | ((doc: BoardDoc) => DocPatch[]), opts: { source?: string } = {}): Promise<boolean> {
     void this.flush()
     const run = this.chain.then(async () => {
       if (this.stopped || !this.doc) return false
+      if (typeof patches === "function") patches = patches(this.doc)
       const op: BoardOp = { source: opts.source ?? "person" }
       let any = false
       for (const patch of patches) {
@@ -399,7 +402,10 @@ class LiveBoard {
         return false
       }
     })
-    this.chain = run.then(() => undefined)
+    this.chain = run.then(
+      () => undefined,
+      () => undefined,
+    )
     return run
   }
 
