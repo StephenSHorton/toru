@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -157,6 +158,7 @@ func buildDemo(ctx context.Context, reg *agentctl.Registry, id string) error {
 		{"board.add", `{"blocks":[{"id":"i2","type":"sticky","x":670,"y":130,"w":220,"h":170,"frame":"ideas","props":{"text":"Ctrl+Z undoes anyone's change","color":"pink"}}]}`},
 		{"board.add", `{"blocks":[{"id":"i3","type":"sticky","x":920,"y":130,"w":220,"h":170,"frame":"ideas","props":{"text":"Every block shows who made it","color":"blue"}}]}`},
 		{"board.connect", `{"links":[{"from":"goal","to":"i1","fromPort":"right","toPort":"left"}]}`},
+		{"board.draw", `{"strokes":[` + demoLoop(230, 195, 145, 118) + `,{"points":[[430,320],[560,326],[700,322],[860,328],[1000,324],[1130,330]],"color":"ink-green","width":"bold"}]}`},
 		{"board.add", `{"blocks":[{"id":"vote","type":"poll","x":420,"y":400,"w":300,"h":230,"props":{"question":"Which first?","options":[{"label":"Live sync","votes":2},{"label":"Export"},{"label":"Templates"}]}}]}`},
 		{"board.add", `{"blocks":[{"id":"todo","type":"checklist","x":760,"y":400,"w":280,"h":230,"props":{"title":"Next","items":[{"text":"Sync window and Go","done":true},{"text":"Shared undo","done":true},{"text":"Who made what"}]}}]}`},
 		{"board.connect", `{"links":[{"from":"vote","to":"todo","fromPort":"right","toPort":"left"}]}`},
@@ -176,7 +178,19 @@ func buildDemo(ctx context.Context, reg *agentctl.Registry, id string) error {
 	return nil
 }
 
-// clearDemo takes the agent's blocks and frame off the board again, in one
+// demoLoop is a hand-drawn ring round (cx, cy), as board.draw takes a
+// stroke: a little more than one turn, wobbling, in the yellow pen.
+func demoLoop(cx, cy, rx, ry float64) string {
+	var pts []string
+	for i := 0; i <= 52; i++ {
+		a := -2.2 + float64(i)/48*2*math.Pi
+		w := 1 + 0.04*math.Sin(3*a)
+		pts = append(pts, fmt.Sprintf("[%.1f,%.1f,%.2f]", cx+rx*w*math.Cos(a), cy+ry*w*math.Sin(a), 0.4+0.3*math.Sin(a/2)*math.Sin(a/2)))
+	}
+	return `{"points":[` + strings.Join(pts, ",") + `],"color":"ink-yellow","width":"medium"}`
+}
+
+// clearDemo takes the agent's blocks, frame and ink off the board again, in one
 // change (their lines go with them), leaving what the person made.
 func clearDemo(ctx context.Context, reg *agentctl.Registry, store *board.Store, id string) error {
 	b, err := store.Load(id)
@@ -190,6 +204,11 @@ func clearDemo(ctx context.Context, reg *agentctl.Registry, store *board.Store, 
 		}
 	}
 	for _, x := range b.Frames {
+		if x.CreatedBy.IsAgent() {
+			items = append(items, x.ID)
+		}
+	}
+	for _, x := range b.Ink {
 		if x.CreatedBy.IsAgent() {
 			items = append(items, x.ID)
 		}

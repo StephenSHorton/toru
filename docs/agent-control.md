@@ -187,6 +187,14 @@ board windows as a `board:op` event:
   frame takes what's in it; `z: front/back`), `board.group` (group,
   ungroup, or put blocks in a frame).
 - `board.connect` / `board.disconnect` (lines between blocks or frames).
+- `board.draw` (`agent_commands_board_ink.go`): freehand ink, many strokes
+  in one change. Each stroke is `points` (`[x, y]` or `[x, y, pressure]`,
+  pressure 0.5 when left out), `color` (a pen token: `ink-white`,
+  `ink-blue`, `ink-red`, `ink-yellow`, `ink-green`, or the colour's name
+  alone; white when left out), `width` (`fine`, `medium`, `bold` or a
+  number; fine when left out) and an optional `frame`. The pen in the
+  window has no agent action (its parts are `aria-hidden`), so agents draw
+  here; strokes come off with `board.delete`.
 - `board.layout`: `grid`, `tree` (follows the lines) or `cluster` (by a
   block's first `props.tags` entry). The window's Layout menu and its
   `board.arrange` window command give the same positions on the board open

@@ -110,6 +110,7 @@ func TestCtlBuildsABoard(t *testing.T) {
 	ctl("board.move", "--json", `{"id":"`+id+`","moves":[{"id":"bugs","dx":0,"dy":40}]}`)
 	ctl("board.layout", "--json", `{"id":"`+id+`","kind":"tree","blocks":["bugs","next"],"direction":"down"}`)
 	ctl("board.disconnect", "--json", `{"id":"`+id+`","from":"goal","to":"went-well"}`)
+	ctl("board.draw", "--json", `{"id":"`+id+`","strokes":[{"points":[[0,320],[260,330],[520,320]],"color":"ink-yellow","width":"medium"}]}`)
 	md := ctl("board.read", "--json", `{"id":"`+id+`","format":"markdown"}`)["markdown"].(string)
 	for _, want := range []string{"## Went well", "- Shipped on time #good", "- Poll: Ship weekly?", "  - Yes (3)", "  - [ ] Bug bash before release", "- Too many late bugs → Next: fix with"} {
 		if !strings.Contains(md, want) {
@@ -131,6 +132,9 @@ func TestCtlBuildsABoard(t *testing.T) {
 			t.Errorf("block %s: created %q updated %q", x.ID, x.CreatedBy, x.UpdatedBy)
 		}
 	}
+	if len(b.Ink) != 1 || b.Ink[0].Color != "ink-yellow" || b.Ink[0].Width != 4 || b.Ink[0].CreatedBy != "agent:toru-ctl" {
+		t.Errorf("ink = %+v", b.Ink)
+	}
 	if len(b.Blocks) != 5 || len(b.Links) != 1 || len(b.Frames) != 1 {
 		t.Errorf("board has %d blocks, %d links, %d frames", len(b.Blocks), len(b.Links), len(b.Frames))
 	}
@@ -148,7 +152,7 @@ func TestCtlBuildsABoard(t *testing.T) {
 		t.Fatalf("boards left: %v", boards)
 	}
 	fmt.Println()
-	fmt.Println("Built: 1 frame, 5 blocks (text, 2 stickies, poll, checklist), 2 lines then 1 removed,")
+	fmt.Println("Built: 1 frame, 5 blocks (text, 2 stickies, poll, checklist), 2 lines then 1 removed, 1 stroke,")
 	fmt.Println("props merged, a group moved and laid out, read as Markdown, exported, deleted with confirm.")
 }
 
@@ -209,6 +213,16 @@ func TestMCPTagsChangesWithClientName(t *testing.T) {
 	fmt.Printf("MCP client \"claude-code\" added block %v: createdBy %v\n", got["id"], got["createdBy"])
 	if got["createdBy"] != "agent:claude-code" {
 		t.Fatalf("createdBy = %v", got["createdBy"])
+	}
+	// Ink through MCP: a pen width by name and by number both pass the
+	// tool's input schema.
+	drawn := callTool("board.draw", `{"id":"`+id+`","strokes":[
+		{"points":[[0,0],[50,30],[100,0]],"color":"ink-blue","width":"bold"},
+		{"points":[[0,60],[100,60,0.8]],"color":"green","width":3}]}`)
+	ink := callTool("board.read", `{"id":"`+id+`"}`)["board"].(map[string]any)["ink"].([]any)
+	fmt.Printf("MCP client \"claude-code\" drew strokes %v\n", drawn["strokes"])
+	if len(ink) != 2 || ink[0].(map[string]any)["width"] != 8.0 || ink[1].(map[string]any)["color"] != "ink-green" || ink[0].(map[string]any)["createdBy"] != "agent:claude-code" {
+		t.Fatalf("ink = %v", ink)
 	}
 	_ = cs.Close()
 	_ = inW.Close()
