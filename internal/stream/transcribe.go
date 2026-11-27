@@ -163,6 +163,19 @@ func (s *StreamService) DownloadSpeechModel() State {
 	return s.GetState()
 }
 
+// DownloadSpeechGPU downloads the GPU build of this PC's speech model
+// (whisper on an NVIDIA GPU; the call page shows its size first), so
+// transcribing costs the CPU less. Once it is here whisper runs on the GPU.
+func (s *StreamService) DownloadSpeechGPU() State {
+	s.mu.Lock()
+	engine := s.tx.engine
+	s.mu.Unlock()
+	if engine != nil {
+		engine.DownloadGPU()
+	}
+	return s.GetState()
+}
+
 func (s *StreamService) nameLocked() string {
 	if n := clipName(s.settings.Name); n != "" {
 		return n

@@ -34,7 +34,9 @@ func fakeWhisperZip(t *testing.T) []byte {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	for _, name := range []string{"Release/whisper-server.exe", "Release/whisper.dll", "Release/ggml-cpu-haswell.dll",
-		"Release/ggml.dll", "Release/SDL2.dll", "Release/whisper-cli.exe", "Release/llama.dll"} {
+		"Release/ggml.dll", "Release/SDL2.dll", "Release/whisper-cli.exe", "Release/llama.dll",
+		"Release/ggml-cuda.dll", "Release/cudart64_12.dll", "Release/cublas64_12.dll", "Release/cublasLt64_12.dll",
+		"Release/nvrtc64_120_0.dll", "Release/nvblas64_12.dll"} {
 		w, err := zw.Create(name)
 		if err != nil {
 			t.Fatal(err)
@@ -74,14 +76,14 @@ func TestFetchZipKeepsOnlyTheServer(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	if strings.Join(names, ",") != "ggml-cpu-haswell.dll,ggml.dll,whisper-server.exe,whisper.dll" {
+	if strings.Join(names, ",") != "cublas64_12.dll,cublasLt64_12.dll,cudart64_12.dll,ggml-cpu-haswell.dll,ggml-cuda.dll,ggml.dll,whisper-server.exe,whisper.dll" {
 		t.Errorf("unpacked %v", names)
 	}
 }
 
 func TestEnginePhases(t *testing.T) {
 	root := t.TempDir()
-	e := newEngineAt(root, nil)
+	e := NewEngineAt(root, nil)
 	if st := e.Status(); st.Phase != PhaseMissing || st.Total != DownloadBytes || st.Threads < 1 || st.Threads > 4 {
 		t.Fatalf("status %+v", st)
 	}
@@ -92,10 +94,10 @@ func TestEnginePhases(t *testing.T) {
 	_ = os.MkdirAll(filepath.Dir(e.modelPath()), 0o755)
 	_ = os.WriteFile(e.serverPath(), []byte("x"), 0o644)
 	_ = os.WriteFile(e.modelPath(), []byte("x"), 0o644)
-	if newEngineAt(root, nil).Status().Phase != PhaseReady {
+	if NewEngineAt(root, nil).Status().Phase != PhaseReady {
 		t.Error("downloaded files not seen as ready")
 	}
-	if newEngineAt("", nil).Status().Phase != PhaseUnsupported {
+	if NewEngineAt("", nil).Status().Phase != PhaseUnsupported {
 		t.Error("no root should be unsupported")
 	}
 }

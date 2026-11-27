@@ -33,6 +33,13 @@ import (
 // loopback port at below-normal priority with a few threads, so a call's
 // audio and a game keep the CPU first, and it is stopped when transcription
 // ends. One segment is transcribed at a time.
+//
+// On a PC with an NVIDIA GPU (gpu.go) whisper can run on the GPU instead,
+// so a call costs the CPU far less while a game runs. That build is big
+// (CUDA's libraries), so it is not part of the first download: the call
+// page offers it with its size, and it is fetched only when the person asks.
+// Once it is on disk it is used; if it won't start, or starts without the
+// GPU, the CPU build runs instead for the rest of the session.
 
 // The whisper.cpp build (CPU, x64, runtime-picked SIMD) and the model:
 // whisper base, multilingual, 5-bit quantized (~60 MB), from the
@@ -51,6 +58,22 @@ const (
 
 	// DownloadBytes is everything the first use downloads.
 	DownloadBytes = whisperBytes + modelBytes
+
+	// The CUDA 12.4 build of the same release, for NVIDIA GPUs. It ships
+	// CUDA's runtime and cuBLAS next to whisper, so nothing else needs
+	// installing beyond the NVIDIA driver.
+	gpuBuild  = whisperBuild + "-cuda12"
+	gpuURL    = "https://github.com/ggml-org/whisper.cpp/releases/download/" + whisperBuild + "/whisper-bin-win-cuda-12.4.0-x64.zip"
+	gpuSHA256 = "34f872ce724ca1ff0a4afca481853e5ee74250f8cb22153e499f953562846039"
+
+	// GPUDownloadBytes is the GPU build's download.
+	GPUDownloadBytes = 735571214
+)
+
+// Devices whisper runs on (EngineStatus.Device).
+const (
+	DeviceCPU = "cpu"
+	DeviceGPU = "gpu"
 )
 
 // SampleRate is the rate Transcribe takes: 16 kHz mono, as whisper wants.
@@ -75,6 +98,24 @@ type EngineStatus struct {
 	Threads  int    `json:"threads"`
 	Running  bool   `json:"running"` // the server process is up
 	Language string `json:"language"`
+
+	// Device is where whisper runs: DeviceGPU or DeviceCPU (while it runs,
+	// what the server said it uses; otherwise what it would start on).
+	Device string `json:"device"`
+	// GPU is this PC's NVIDIA GPU that whisper can run on ("" for none).
+	GPU string `json:"gpu"`
+	// GPUReady: the GPU build is downloaded.
+	GPUReady bool `json:"gpuReady"`
+	// GPUFetching: the GPU build is downloading (GPUDone of GPUTotal bytes),
+	// or warming up right after.
+	GPUFetching bool  `json:"gpuFetching"`
+	GPUDone     int64 `json:"gpuDone"`
+	GPUTotal    int64 `json:"gpuTotal"` // the GPU build's download size, shown before it starts
+	// GPUError says why the GPU build didn't download, or didn't work this
+	// session (whisper then runs on the CPU).
+	GPUError string `json:"gpuError"`
+	// GPUFailed: the GPU build didn't work this session, so the CPU build runs.
+	GPUFailed bool `json:"gpuFailed"`
 }
 
 // Engine downloads, runs and talks to whisper-server.
@@ -88,6 +129,15 @@ type Engine struct {
 	errText  string
 	fetching bool
 	running  bool // the server process is up (mirrors cmd, readable without srvMu)
+
+	probe     func() GPU
+	gpuKnown  chan struct{} // closed once probe has answered
+	gpu       GPU
+	gpuFetch  bool   // the GPU build is downloading or warming up
+	gpuDone   int64  // its bytes so far
+	gpuErr    string // why it didn't download or didn't work
+	gpuFailed bool   // it didn't work this session: run the CPU build
+	device    string // what the running server uses ("" when none runs)
 
 	srvMu sync.Mutex // one transcription (and one server start) at a time
 	cmd   *exec.Cmd
@@ -104,23 +154,58 @@ func NewEngine(onChange func()) *Engine {
 			root = filepath.Join(cache, "toru", "whisper")
 		}
 	}
-	return newEngineAt(root, onChange)
+	return newEngineAt(root, onChange, probeGPU)
 }
 
 // NewEngineAt is NewEngine rooted at root ("" = unsupported: nothing is
-// ever downloaded or run). For tests.
-func NewEngineAt(root string, onChange func()) *Engine { return newEngineAt(root, onChange) }
+// ever downloaded or run), on a PC with no GPU. For tests.
+func NewEngineAt(root string, onChange func()) *Engine {
+	return newEngineAt(root, onChange, func() GPU { return GPU{} })
+}
 
-func newEngineAt(root string, onChange func()) *Engine {
-	e := &Engine{root: root, onChange: onChange}
+// newEngineAt asks probe for this PC's GPU in the background (it runs a
+// program), and says so through onChange when it answers.
+func newEngineAt(root string, onChange func(), probe func() GPU) *Engine {
+	e := &Engine{root: root, onChange: onChange, probe: probe, gpuKnown: make(chan struct{})}
 	e.phase = e.diskPhase()
+	if root == "" {
+		close(e.gpuKnown)
+		return e
+	}
+	go func() {
+		g := probe()
+		e.mu.Lock()
+		e.gpu = g
+		e.mu.Unlock()
+		close(e.gpuKnown)
+		if g.Name != "" {
+			logf("whisper can run on %s (driver %s)", g.Name, g.Driver)
+			e.changed()
+		}
+	}()
 	return e
 }
 
 func (e *Engine) binDir() string    { return filepath.Join(e.root, whisperBuild) }
+func (e *Engine) gpuDir() string    { return filepath.Join(e.root, gpuBuild) }
 func (e *Engine) modelPath() string { return filepath.Join(e.root, "models", modelName) }
 func (e *Engine) serverPath() string {
 	return filepath.Join(e.binDir(), "whisper-server.exe")
+}
+func (e *Engine) gpuServerPath() string {
+	return filepath.Join(e.gpuDir(), "whisper-server.exe")
+}
+
+// useGPU reports whether the next server start uses the GPU build: this PC
+// has a GPU, the build is downloaded, and it hasn't failed this session.
+func (e *Engine) useGPU() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.useGPULocked()
+}
+
+func (e *Engine) useGPULocked() bool {
+	return e.gpu.Name != "" && !e.gpuFailed && fileExists(e.gpuServerPath())
 }
 
 func (e *Engine) diskPhase() string {
@@ -148,7 +233,18 @@ func threads() int {
 func (e *Engine) Status() EngineStatus {
 	e.mu.Lock()
 	st := EngineStatus{Phase: e.phase, Done: e.done, Total: DownloadBytes, Error: e.errText,
-		Model: "whisper base (multilingual)", Threads: threads(), Language: "auto", Running: e.running}
+		Model: "whisper base (multilingual)", Threads: threads(), Language: "auto", Running: e.running,
+		GPU: e.gpu.Name, GPUFetching: e.gpuFetch, GPUDone: e.gpuDone, GPUTotal: GPUDownloadBytes,
+		GPUError: e.gpuErr, GPUFailed: e.gpuFailed, Device: e.device}
+	if e.root != "" && e.gpu.Name != "" {
+		st.GPUReady = fileExists(e.gpuServerPath())
+	}
+	if st.Device == "" {
+		st.Device = DeviceCPU
+		if e.useGPULocked() {
+			st.Device = DeviceGPU
+		}
+	}
 	e.mu.Unlock()
 	return st
 }
@@ -196,6 +292,72 @@ func (e *Engine) Download() {
 	}()
 }
 
+// DownloadGPU fetches the GPU build in the background (the call page shows
+// its size first), then warms it up once if the model is here: the first
+// run on a GPU newer than the build compiles whisper's GPU code for it
+// (about half a minute on an RTX 50), and the driver keeps the result. It
+// does nothing on a PC without a GPU, once downloaded, or while it runs.
+func (e *Engine) DownloadGPU() {
+	e.mu.Lock()
+	if e.root == "" || e.gpu.Name == "" || e.gpuFetch || fileExists(e.gpuServerPath()) {
+		e.mu.Unlock()
+		return
+	}
+	e.gpuFetch, e.gpuDone, e.gpuErr, e.gpuFailed = true, 0, "", false
+	e.mu.Unlock()
+	e.changed()
+	go func() {
+		last := time.Time{}
+		err := fetchZip(context.Background(), gpuURL, gpuSHA256, GPUDownloadBytes, e.gpuDir(), extractWhisper, func(done, _ int64) {
+			e.mu.Lock()
+			e.gpuDone = done
+			e.mu.Unlock()
+			if time.Since(last) > 200*time.Millisecond {
+				last = time.Now()
+				e.changed()
+			}
+		})
+		if err != nil {
+			logf("whisper GPU download: %v", err)
+			e.mu.Lock()
+			e.gpuErr = err.Error()
+			e.mu.Unlock()
+		} else {
+			e.changed()
+			e.warmGPU()
+		}
+		e.mu.Lock()
+		e.gpuFetch = false
+		e.mu.Unlock()
+		e.changed()
+	}()
+}
+
+// warmGPU starts the GPU build once and transcribes a second of silence, so
+// its one-time GPU code compile happens now and not on someone's first
+// sentence. A CPU server already running (mid-call) is stopped first, so
+// the call's next segment runs on the GPU.
+func (e *Engine) warmGPU() {
+	if !e.Ready() {
+		return
+	}
+	e.srvMu.Lock()
+	defer e.srvMu.Unlock()
+	was := e.cmd != nil
+	e.stopLocked()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := e.startLocked(ctx); err != nil {
+		return
+	}
+	if _, err := e.inferLocked(ctx, make([]int16, SampleRate)); err != nil {
+		logf("whisper GPU warm-up: %v", err)
+	}
+	if !was {
+		e.stopLocked()
+	}
+}
+
 func (e *Engine) fetchAll(ctx context.Context) error {
 	var base int64
 	last := time.Time{}
@@ -212,7 +374,7 @@ func (e *Engine) fetchAll(ctx context.Context) error {
 		if err := fetchZip(ctx, whisperURL, whisperSHA256, whisperBytes, e.binDir(), extractWhisper, progress); err != nil {
 			return err
 		}
-		pruneOthers(e.root, whisperBuild, "models")
+		pruneOthers(e.root, whisperBuild, gpuBuild, "models")
 	}
 	base = whisperBytes
 	if !fileExists(e.modelPath()) {
@@ -303,8 +465,9 @@ func fetchZip(ctx context.Context, url, sum string, size int64, dir string, extr
 }
 
 // extractWhisper copies whisper-server.exe and the DLLs it loads (whisper,
-// ggml and ggml's per-CPU backends) flat into dst; the archive's other tools
-// are skipped.
+// ggml and ggml's per-CPU backends; in the GPU build also ggml's CUDA
+// backend and the CUDA runtime and cuBLAS it links) flat into dst; the
+// archive's other tools are skipped.
 func extractWhisper(archive, dst string) error {
 	zr, err := zip.OpenReader(archive)
 	if err != nil {
@@ -322,7 +485,8 @@ func extractWhisper(archive, dst string) error {
 		name := path.Base(f.Name)
 		lower := strings.ToLower(name)
 		keep := lower == "whisper-server.exe" || lower == "whisper.dll" ||
-			(strings.HasPrefix(lower, "ggml") && strings.HasSuffix(lower, ".dll"))
+			(strings.HasPrefix(lower, "ggml") && strings.HasSuffix(lower, ".dll")) ||
+			cudaDLLs[lower]
 		if !keep {
 			continue
 		}
@@ -336,6 +500,9 @@ func extractWhisper(archive, dst string) error {
 	}
 	return nil
 }
+
+// cudaDLLs are the CUDA libraries ggml-cuda.dll loads (lower case).
+var cudaDLLs = map[string]bool{"cudart64_12.dll": true, "cublas64_12.dll": true, "cublaslt64_12.dll": true}
 
 func extractZipFile(f *zip.File, out string) error {
 	rc, err := f.Open()
@@ -404,7 +571,11 @@ func (e *Engine) Transcribe(ctx context.Context, pcm []int16) (string, error) {
 	}
 	text, err := e.inferLocked(ctx, pcm)
 	if err != nil && !e.aliveLocked() {
-		// It died mid-request: start it again once.
+		// It died mid-request: start it again once (on the CPU if it
+		// was the GPU build that died).
+		if e.deviceNow() == DeviceGPU {
+			e.failGPU(fmt.Errorf("it stopped mid-sentence: %w", err))
+		}
 		e.stopLocked()
 		if err2 := e.startLocked(ctx); err2 != nil {
 			return "", err2
@@ -426,16 +597,57 @@ func (e *Engine) aliveLocked() bool {
 	}
 }
 
+// startLocked starts the server if it isn't running: the GPU build when it
+// should be used, else (or if that fails) the CPU build.
 func (e *Engine) startLocked(ctx context.Context) error {
 	if e.aliveLocked() {
 		return nil
 	}
 	e.stopLocked()
+	if e.useGPU() {
+		err := e.launchLocked(ctx, true)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return err // given up on, not a GPU failure
+		}
+		e.failGPU(err)
+	}
+	return e.launchLocked(ctx, false)
+}
+
+// failGPU gives up on the GPU build for this session: whisper runs on the
+// CPU build until Toru restarts (or the GPU build is downloaded again).
+func (e *Engine) failGPU(err error) {
+	logf("whisper GPU build failed, using the CPU: %v", err)
+	e.mu.Lock()
+	e.gpuFailed = true
+	e.gpuErr = err.Error()
+	e.mu.Unlock()
+	e.changed()
+}
+
+func (e *Engine) deviceNow() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.device
+}
+
+// launchLocked starts one build's server and waits until it answers. The
+// GPU build must also say it put the model on the GPU (it carries ggml's
+// CPU backends too, so with an unusable GPU it would quietly run on the
+// CPU with more DLLs than the CPU build needs).
+func (e *Engine) launchLocked(ctx context.Context, gpu bool) error {
 	port, err := freePort()
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(e.serverPath(),
+	dir, exe := e.binDir(), e.serverPath()
+	if gpu {
+		dir, exe = e.gpuDir(), e.gpuServerPath()
+	}
+	cmd := exec.Command(exe,
 		"-m", e.modelPath(),
 		"--host", "127.0.0.1", "--port", strconv.Itoa(port),
 		"-t", strconv.Itoa(threads()),
@@ -443,9 +655,11 @@ func (e *Engine) startLocked(ctx context.Context) error {
 		"-nt",            // no timestamps in the text
 		"--suppress-nst", // no [music] / (coughs) tokens
 		"-nth", "0.6",    // skip segments whisper thinks are not speech
-		"--public", e.binDir(), // no web page to serve
+		"--public", dir, // no web page to serve
 	)
-	cmd.Dir = e.binDir()
+	cmd.Dir = dir
+	slog := &serverLog{}
+	cmd.Stderr = slog
 	configureProc(cmd)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start whisper: %w", err)
@@ -457,7 +671,6 @@ func (e *Engine) startLocked(ctx context.Context) error {
 		close(exit)
 	}()
 	e.cmd, e.port, e.exit = cmd, port, exit
-	e.setRunning(true)
 	// Wait until it answers (the model loads in about a second).
 	deadline := time.Now().Add(30 * time.Second)
 	for {
@@ -476,8 +689,57 @@ func (e *Engine) startLocked(ctx context.Context) error {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
+	device := DeviceCPU
+	if gpu {
+		// The line is written before the server listens; give the copy
+		// from its stderr a moment to catch up.
+		for i := 0; i < 20 && !slog.onGPU(); i++ {
+			time.Sleep(50 * time.Millisecond)
+		}
+		if !slog.onGPU() {
+			e.stopLocked()
+			return errors.New("the GPU build started without the GPU")
+		}
+		device = DeviceGPU
+	}
+	e.setRunning(true, device)
 	e.changed()
 	return nil
+}
+
+// serverLog reads whisper-server's stderr as it is written, watching for
+// the line saying the model went on the GPU ("whisper_backend_init_gpu:
+// using CUDA0 backend").
+type serverLog struct {
+	mu   sync.Mutex
+	tail []byte // the unfinished last line
+	gpu  bool
+}
+
+func (l *serverLog) Write(b []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.tail = append(l.tail, b...)
+	for {
+		i := bytes.IndexByte(l.tail, '\n')
+		if i < 0 {
+			break
+		}
+		if bytes.Contains(l.tail[:i], []byte("whisper_backend_init_gpu: using CUDA")) {
+			l.gpu = true
+		}
+		l.tail = l.tail[i+1:]
+	}
+	if len(l.tail) > 4096 {
+		l.tail = l.tail[len(l.tail)-4096:]
+	}
+	return len(b), nil
+}
+
+func (l *serverLog) onGPU() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.gpu
 }
 
 // Stop ends the server process (the download stays). It waits for a
@@ -504,12 +766,12 @@ func (e *Engine) stopLocked() {
 	case <-time.After(3 * time.Second):
 	}
 	e.cmd, e.port, e.exit = nil, 0, nil
-	e.setRunning(false)
+	e.setRunning(false, "")
 }
 
-func (e *Engine) setRunning(on bool) {
+func (e *Engine) setRunning(on bool, device string) {
 	e.mu.Lock()
-	e.running = on
+	e.running, e.device = on, device
 	e.mu.Unlock()
 }
 

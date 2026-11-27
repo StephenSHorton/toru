@@ -18,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardHead } from "@/clicker/cardParts";
 import { StreamService, TranscriptService } from "@/lib/api";
-import type { StreamState, TranscriptEntry, TranscriptEntryLine, TranscriptLine, TranscriptMeta } from "@/lib/api";
+import type { SpeechEngineStatus, StreamState, TranscriptEntry, TranscriptEntryLine, TranscriptLine, TranscriptMeta } from "@/lib/api";
 import { errText } from "@/transfer/useTransfer";
 import { cn } from "@/lib/utils";
 
@@ -139,6 +139,10 @@ export function TranscribeBar({ state, onState }: { state: StreamState; onState:
         />
       ) : null}
 
+      {tx.on && engine.phase === "ready" && engine.gpu ? (
+        <GpuNote engine={engine} busy={busy} onDownload={() => void run(() => StreamService.DownloadSpeechGPU())} />
+      ) : null}
+
       {tx.on || entries.length > 0 ? (
         <div
           ref={scroller}
@@ -231,6 +235,52 @@ function SpeechModelNote({
       <Button size="sm" variant="secondary" disabled={busy} onClick={onDownload}>
         <Download />
         {phase === "error" ? "Try again" : "Download"}
+      </Button>
+    </div>
+  );
+}
+
+// GpuNote is whisper on this PC's NVIDIA GPU: offered with its download
+// size (it only downloads when asked), its progress, what it runs on once
+// it's here, and why it fell back to the CPU if it didn't work.
+function GpuNote({ engine, busy, onDownload }: { engine: SpeechEngineStatus; busy: boolean; onDownload: () => void }) {
+  if (engine.gpuFetching) {
+    const pct = engine.gpuTotal > 0 ? Math.min(100, Math.round((engine.gpuDone / engine.gpuTotal) * 100)) : 0;
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="speech-gpu">
+        <Loader2 className="size-3.5 animate-spin" />
+        {engine.gpuDone < engine.gpuTotal
+          ? `Getting the GPU build (${mb(engine.gpuDone)} of ${mb(engine.gpuTotal)}): until then your speech is transcribed on the CPU.`
+          : `Setting up the GPU build on your ${engine.gpu} (once, up to a minute).`}
+        <span className="ml-auto tabular-nums">{pct}%</span>
+      </div>
+    );
+  }
+  if (engine.gpuReady && engine.gpuFailed) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="speech-gpu">
+        The GPU build didn't work on your {engine.gpu} ({engine.gpuError}), so your speech is transcribed on the CPU until Toru
+        restarts.
+      </p>
+    );
+  }
+  if (engine.gpuReady) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="speech-gpu">
+        Your speech is transcribed on your {engine.gpu}.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-testid="speech-gpu">
+      <span className="flex-1">
+        {engine.gpuError ? `The GPU build didn't download: ${engine.gpuError}. ` : null}
+        Your {engine.gpu} can transcribe your speech, so it costs your CPU much less while you play. That needs the GPU
+        build: {mb(engine.gpuTotal)} to download, once (about 1.3 GB on disk).
+      </span>
+      <Button size="sm" variant="secondary" disabled={busy} onClick={onDownload} data-testid="speech-gpu-download">
+        <Download />
+        {engine.gpuError ? "Try again" : `Use the GPU (${mb(engine.gpuTotal)})`}
       </Button>
     </div>
   );
