@@ -117,6 +117,9 @@ function memoryLink(start: BoardDoc): MemoryLink {
       for (const sent of (op[key] as DocItem[] | undefined) ?? []) {
         const x = structuredClone(sent)
         if (!x.id) x.id = newId(prefixes[key])
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(x.id)) throw new Error(`bad id "${x.id}"`)
+        if (key === "blocks" && !/^[a-z][a-z0-9-]{0,39}$/.test((x as { type: string }).type)) throw new Error(`block "${x.id}" has a bad type`)
+        if (key === "links" && (x as { from: string }).from === (x as { to: string }).to) throw new Error(`link "${x.id}" goes to itself`)
         if (items.some((y) => y.id === x.id)) throw new Error(`the change puts "${x.id}" twice`)
         const was = (b[key] as DocItem[]).find((y) => y.id === x.id)
         const other = findItem(b, x.id)

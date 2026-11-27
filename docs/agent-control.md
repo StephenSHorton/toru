@@ -62,12 +62,13 @@ registered by that window while it's open:
 
 ```ts
 // frontend/src/lib/agent.ts
-registerAgentCommand(name, { description, input /* JSON Schema */, destructive? }, handler: (input) => Promise<unknown>)
+registerAgentCommand(name, { description, input /* JSON Schema */, destructive? }, handler: (input, { caller }) => Promise<unknown>)
 ```
 
 On mount it calls `AgentService.RegisterWindowCommands(windowId, specs)`;
 Go adds them to the registry as proxies that emit `agent:call`
-`{id, name, input}` to that window and wait (30s timeout) for
+`{id, name, input, caller}` to that window (`caller` is the MCP client's
+name, or `toru-ctl`, so a window can say which agent did what) and wait (30s timeout) for
 `AgentService.Respond(id, result, error)`. On unmount they are removed.
 If several editor windows are open, editor commands take an optional
 `window` input (from `editor.list`); default is the most recently focused.
@@ -162,8 +163,12 @@ or closed. Every change is one board op tagged `agent:<client>`, goes
 through the board's undo history like a person's, and is sent to open
 board windows as a `board:op` event:
 
-- `board.list`, `board.create` (`open: true` also shows it), `board.open`
-  (shows the board's window).
+- `board.list`, `board.create` (`open: true` also shows it; `template`
+  starts it ready to fill), `board.open` (shows the board's window).
+- `board.templates`: the brainstorm templates `board.create` takes
+  (`mind-map`, `affinity`, `retro`, `pros-cons`, `kanban`, `swot`). They
+  live in `internal/board/templates.go`; the board window's Template menu
+  places the same ones.
 - `board.read`: the board as JSON, or `format: "markdown"` for an outline
   (frames as headings, checklists as `- [ ]`, tables as tables, links as
   `A → B`).
@@ -183,7 +188,10 @@ board windows as a `board:op` event:
   ungroup, or put blocks in a frame).
 - `board.connect` / `board.disconnect` (lines between blocks or frames).
 - `board.layout`: `grid`, `tree` (follows the lines) or `cluster` (by a
-  block's first `props.tags` entry).
+  block's first `props.tags` entry). The window's Layout menu and its
+  `board.arrange` window command give the same positions on the board open
+  in the window (`frontend/src/whiteboard/layout.ts`, checked against Go by
+  `bun run test:templates`).
 - `board.delete` (destructive, needs `confirm: true`): items, or the whole
   board when `items` is left out.
 - `board.export`: `toruboard` or `markdown` to a path; an existing file is
@@ -193,7 +201,15 @@ board windows as a `board:op` event:
 `board.snapshot` and `board.act` (the window's live controls, through UI
 SDK's `createAgent`) are the board window's own commands while it is open:
 `board.act` fills its blocks as a person would (type in a sticky, tick a
-checklist item, vote in a poll, set a table cell or a rating).
+checklist item, vote in a poll, set a table cell or a rating). Their
+changes are saved as board ops under the agent's name (`agent:<caller>`),
+before the command answers, like `board.arrange`'s.
+
+Every change to a board, from these commands, the window's live controls
+or the person, reaches open board windows as one `board:op` event
+`{board, op}`, sent by the store in rev order (`board.Store.OnOp`), and
+goes into the board's one undo history: Ctrl+Z in the window undoes an
+agent's change as well as the person's.
 
 ## Work split (cards under #1)
 

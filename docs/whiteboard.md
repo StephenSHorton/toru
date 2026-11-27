@@ -124,6 +124,42 @@ checklist or move a slider exactly as a person would. Board commands carry
 the heavy lifting because the bridge's snapshot stops at 100 components and
 window commands time out (30 s default).
 
+### Live board (built, whiteboard#9)
+
+- **Go owns the board; the window keeps a copy.** `board.Service`
+  (`internal/board/service.go`, bound to the window) loads a board and
+  takes the window's changes, undo and redo. The store sends every change
+  from anyone as one `board:op` event, in rev order (`Store.OnOp`, wired in
+  `main.go`). The window (`frontend/src/whiteboard/live.ts`) applies each
+  op once, by its rev: an op it has is skipped, one after a gap waits, and
+  a gap that doesn't fill reloads the board.
+- **The person's changes show at once** and are sent as ops: a move,
+  resize, delete (with its lines), template or layout is one op; typing is
+  gathered until a pause. An edit stays on screen until Go's copy has it,
+  so an agent's op landing in between never takes it away. A refused op is
+  dropped and the board reloads.
+- **Mapping** (`document.ts`): frames are canvas blocks of type `frame`,
+  strokes are blocks with `ink`, links are lines between `block:side`
+  ports. What the canvas doesn't carry (a block's frame, group, rotation; a
+  link's label and props) is kept from Go's item.
+- **Undo:** Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z in the window go to Go's one
+  history for the board, the person's and agents' changes alike, inside a
+  block's text too.
+- **Who made it:** each block and frame shows "You" or the agent's name
+  above it (`createdBy`); its tooltip adds who changed it last. Changes an
+  agent makes through `board.act` or `board.arrange` carry its name
+  (`agent:call` now says who called).
+- **Checks:** `bun run test:live` replays Go's ops
+  (`testdata/live-ops.json`, written by Go) shuffled, doubled and with a
+  gap, and drives the real window against a store in the page; the ops the
+  window sent go to `testdata/window-ops.json`, which Go's `TestWindowOps`
+  applies through the real store.
+- **Demo in a browser:** `cd frontend && bun x vite --mode board-demo
+  --port 47801`, then `/?view=whiteboard&id=brd-demo&link=http`. Vite
+  starts Go's real store and board commands (`board_live_demo_test.go`) on
+  a temporary folder, and while a window watches, an agent named Claude
+  Code builds a board, clears what it made and builds it again.
+
 **Rules.**
 
 - Every agent change is a board op tagged with its source (`agent:<name>`

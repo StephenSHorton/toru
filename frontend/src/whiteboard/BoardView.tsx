@@ -80,18 +80,23 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
               <XIcon aria-hidden="true" />
             </parts.Unlink>
           ))}
-          {Object.keys(blocks).map((id) => {
+          {frameFirst(blocks).map((id) => {
             const block = blocks[id];
             // A freehand stroke shows its line, with no ports or resize handles.
             if (block.ink) {
               return (
-                <BoardBlock key={id} value={id} data-block={id}>
+                <BoardBlock key={id} value={id} data-block={id} data-by={block.createdBy} title={madeBy(block)}>
                   <InkLine stroke={block.ink} width={block.width} height={block.height} />
                 </BoardBlock>
               );
             }
             return (
-              <BoardBlock key={id} value={id} data-block={id} data-type={block.type}>
+              <BoardBlock key={id} value={id} data-block={id} data-type={block.type} data-by={block.createdBy}>
+                {block.createdBy && (
+                  <span data-slot="board-block-by" data-agent={block.createdBy.startsWith("agent:") ? "" : undefined} title={madeBy(block)}>
+                    {who(block.createdBy)}
+                  </span>
+                )}
                 {renderBlock ? (
                   <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
                 ) : (
@@ -133,6 +138,26 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
   return <BoardContext.Provider value={handle}>{root}</BoardContext.Provider>;
 }
 
+/** Block ids with frames first, so frames sit behind the blocks in them. */
+function frameFirst(blocks: BoardBlocks) {
+  const ids = Object.keys(blocks);
+  return [...ids.filter((id) => blocks[id].type === "frame"), ...ids.filter((id) => blocks[id].type !== "frame")];
+}
+
+/** Who a source is, for people: "You" for the person, else the agent's name. */
+function who(source: string) {
+  if (source === "person") return "You";
+  return source.startsWith("agent:") ? source.slice("agent:".length) : source;
+}
+
+/** "Made by …", and who changed it last when that's someone else. */
+function madeBy(block: { createdBy?: string; updatedBy?: string }) {
+  if (!block.createdBy) return undefined;
+  const made = `Made by ${who(block.createdBy) === "You" ? "you" : who(block.createdBy)}`;
+  if (!block.updatedBy || block.updatedBy === block.createdBy) return made;
+  return `${made}, last changed by ${who(block.updatedBy) === "You" ? "you" : who(block.updatedBy)}`;
+}
+
 function BoardBlock({ value, ...props }: { value: string } & PartProps<"div", BoardBlockState>) {
   return usePart(board, "block", { value }, props);
 }
@@ -142,4 +167,4 @@ function BoardPart({ slot, value, ...props }: { slot: "port" | "handle"; value: 
   return usePart(board, slot, { value }, props, "span");
 }
 
-export { Board, useBoard, type BoardProps, type PenOptions };
+export { Board, madeBy, useBoard, who, type BoardProps, type PenOptions };

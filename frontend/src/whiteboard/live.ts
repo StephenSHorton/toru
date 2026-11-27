@@ -16,7 +16,7 @@
 // refuses an op, its edits are dropped and the board reloads.
 //
 // Undo and redo are Go's: one history for the person and agents alike.
-import type { BoardBlock, BoardBlocks, BoardLine } from "./board"
+import { nameLines, type BoardBlock, type BoardBlocks, type BoardLine } from "./board"
 import {
   applyOp,
   findItem,
@@ -101,8 +101,10 @@ class LiveBoard {
     this.opts = { gapMs: opts.gapMs ?? 400, typingMs: opts.typingMs ?? 700 }
   }
 
-  /** Listens first, then loads, so no op falls between the two. */
+  /** Listens first, then loads, so no op falls between the two. Starting again after stop (React's dev mode does) carries on. */
   async start() {
+    this.stopped = false
+    this.off?.()
     this.off = this.link.subscribe(this.id, (op) => this.receive(op))
     await this.reload()
   }
@@ -165,7 +167,8 @@ class LiveBoard {
       lines = [...byId.values()]
     }
     const ends = (l: BoardLine) => !!blocks[l.from.slice(0, l.from.lastIndexOf(":"))] && !!blocks[l.to.slice(0, l.to.lastIndexOf(":"))]
-    lines = lines.filter(ends)
+    // Named as the canvas names them, so handing them to it changes nothing.
+    lines = nameLines(blocks, lines.filter(ends))
     this.set({ doc: this.doc, view: { blocks, lines } })
   }
 
@@ -223,6 +226,8 @@ class LiveBoard {
       if (this.state.error?.startsWith("Couldn't open")) this.set({ error: null })
     } catch (err) {
       this.set({ error: `Couldn't open the board: ${message(err)}` })
+      // Never opened: try again, as Go may still be starting.
+      if (!this.doc && !this.stopped) setTimeout(() => void this.reload(), 1500)
     }
   }
 
@@ -343,6 +348,9 @@ class LiveBoard {
       if (p.kind !== "line" || !p.value) continue
       const was = findItem(doc, id)?.item as DocLink | undefined
       const link = toDocLink(p.value as BoardLine, was)
+      // A line drawn on the canvas is named for its ports ("a:right->b:left"),
+      // which Go's ids don't allow; it goes to Go under an id made from that.
+      link.id = docId(link.id)
       if (!has(link.from) || !has(link.to)) continue
       if (was && sameItem(link, was)) continue
       ;(lists.links ??= []).push(link)
@@ -379,6 +387,16 @@ class LiveBoard {
   }
 }
 
+const idPattern = /^[A-Za-z0-9_-]{1,64}$/
+
+/** An id Go takes: the id itself if it can be one, else "lnk-" and a hash of it. */
+function docId(id: string) {
+  if (idPattern.test(id)) return id
+  let h = 2166136261
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619) >>> 0
+  return `lnk-${h.toString(36)}${id.length.toString(36)}`
+}
+
 function sameBlock(a: BoardBlock, b: BoardBlock) {
   return sameItem(a, b) && a.createdBy === b.createdBy && a.updatedBy === b.updatedBy
 }
@@ -387,4 +405,4 @@ function message(err: unknown) {
   return err instanceof Error ? err.message : String(err)
 }
 
-export { LiveBoard, type BoardLink, type LiveOptions, type LiveState, type View }
+export { docId, LiveBoard, type BoardLink, type LiveOptions, type LiveState, type View }

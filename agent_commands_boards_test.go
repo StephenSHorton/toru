@@ -17,7 +17,7 @@ import (
 
 // boardCommands is every board command docs/whiteboard.md section 2 lists.
 var boardCommands = []string{
-	"board.list", "board.create", "board.open", "board.read", "board.catalog",
+	"board.list", "board.create", "board.templates", "board.open", "board.read", "board.catalog",
 	"board.add", "board.update", "board.move", "board.group",
 	"board.connect", "board.disconnect", "board.layout", "board.delete", "board.export",
 }
@@ -297,4 +297,49 @@ func TestBoardCommandsBuildAndArrange(t *testing.T) {
 func jsonString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+// An agent starts a board from each template, reads it, and lays it out
+// every way over the same commands an MCP client uses.
+func TestBoardTemplatesOverCommands(t *testing.T) {
+	reg, _ := newBoardRegistry(t)
+	list := call(t, reg, "claude-code", "board.templates", `{}`)["templates"].([]any)
+	if len(list) < 5 {
+		t.Fatalf("%d templates, want at least 5", len(list))
+	}
+	for _, x := range list {
+		name := x.(map[string]any)["name"].(string)
+		made := call(t, reg, "claude-code", "board.create", fmt.Sprintf(`{"name":"Q3 %s","template":%q}`, name, name))
+		id := made["id"].(string)
+		if made["template"] != name || made["blocks"].(float64) < 4 {
+			t.Fatalf("%s: %v", name, made)
+		}
+		b := call(t, reg, "claude-code", "board.read", fmt.Sprintf(`{"id":%q}`, id))["board"].(map[string]any)
+		blocks := b["blocks"].([]any)
+		if len(blocks) != int(made["blocks"].(float64)) {
+			t.Fatalf("%s: board has %d blocks, create said %v", name, len(blocks), made["blocks"])
+		}
+		if by := blocks[0].(map[string]any)["createdBy"]; by != "agent:claude-code" {
+			t.Errorf("%s: made by %v, want the agent", name, by)
+		}
+		md := call(t, reg, "claude-code", "board.read", fmt.Sprintf(`{"id":%q,"format":"markdown"}`, id))["markdown"].(string)
+		if !strings.Contains(md, "Q3 "+name) {
+			t.Errorf("%s: the board's name doesn't head it:\n%s", name, md)
+		}
+		for _, kind := range []string{"grid", "tree", "cluster"} {
+			res, err := reg.Call(agentctl.WithCaller(context.Background(), "claude-code"), "board.layout", json.RawMessage(fmt.Sprintf(`{"id":%q,"kind":%q}`, id, kind)))
+			// A layout that changes nothing is refused; every other must work.
+			if err != nil && !strings.Contains(err.Error(), "already laid out") {
+				t.Errorf("%s %s: %v", name, kind, err)
+			}
+			_ = res
+		}
+	}
+	if msg := callErr(t, reg, "board.create", `{"name":"x","template":"nope"}`); !strings.Contains(msg, "template") {
+		t.Errorf("bad template: %s", msg)
+	}
+	boards := call(t, reg, "claude-code", "board.list", `{}`)["boards"].([]any)
+	if len(boards) != len(list) {
+		t.Errorf("a bad template made a board: %d boards", len(boards))
+	}
 }

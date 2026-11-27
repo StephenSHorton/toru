@@ -1,0 +1,795 @@
+{
+  "note": "Written by frontend/scripts/live-check.tsx --write: ops as the whiteboard window sent them (and the agent's, in between), and the board the window's store ended on. Go's TestWindowOps applies them. Don't edit by hand.",
+  "start": {
+    "format": "toruboard",
+    "version": 1,
+    "id": "brd-window",
+    "name": "Window check",
+    "rev": 0,
+    "frames": [
+      {
+        "id": "frm-plan",
+        "name": "Plan",
+        "x": -20,
+        "y": 260,
+        "w": 480,
+        "h": 260,
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "s1",
+        "type": "sticky",
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "First idea",
+          "color": "yellow"
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "s2",
+        "type": "sticky",
+        "x": 320,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "Second idea",
+          "color": "pink"
+        },
+        "group": "g",
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "s3",
+        "type": "sticky",
+        "x": 0,
+        "y": 300,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "In the plan",
+          "color": "green"
+        },
+        "frame": "frm-plan",
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      }
+    ],
+    "links": [
+      {
+        "id": "lnk-12",
+        "from": "s1",
+        "to": "s2",
+        "fromPort": "right",
+        "toPort": "left",
+        "label": "leads to",
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "ink": [
+      {
+        "id": "ink-1",
+        "points": [
+          240,
+          340,
+          0.5,
+          330,
+          400,
+          0.7,
+          420,
+          360,
+          0.5
+        ],
+        "color": "ink-blue",
+        "width": 4,
+        "frame": "frm-plan",
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ]
+  },
+  "ops": [
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "a1",
+          "type": "sticky",
+          "x": 600,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "From the agent",
+            "color": "blue"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 8,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "color": "yellow"
+          },
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 8,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea, typed",
+            "color": "yellow"
+          },
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "kind": "redo",
+      "source": "person"
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "kind": "redo",
+      "source": "person"
+    },
+    {
+      "kind": "redo",
+      "source": "person"
+    },
+    {
+      "kind": "redo",
+      "source": "person"
+    },
+    {
+      "source": "person",
+      "delete": [
+        "lnk-12",
+        "s2"
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "s3",
+          "type": "sticky",
+          "x": 0,
+          "y": 300,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "In the plan, edited by the agent",
+            "color": "green"
+          },
+          "frame": "frm-plan",
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "ink": [
+        {
+          "id": "ink-1",
+          "points": [
+            250.56,
+            338.56,
+            0.5,
+            340.56,
+            398.56,
+            0.7,
+            430.56,
+            358.56,
+            0.5
+          ],
+          "color": "ink-blue",
+          "width": 4,
+          "frame": "frm-plan",
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "frames": [
+        {
+          "id": "frm-plan",
+          "name": "Plan",
+          "x": -16,
+          "y": 272,
+          "w": 480,
+          "h": 260,
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "frames": [
+        {
+          "id": "frm-plan",
+          "name": "Plan, renamed",
+          "x": -16,
+          "y": 272,
+          "w": 480,
+          "h": 260,
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "links": [
+        {
+          "id": "lnk-1xs9czxh",
+          "from": "s3",
+          "to": "a1",
+          "fromPort": "right",
+          "toPort": "left"
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Second idea, as the agent wrote it",
+            "color": "pink"
+          },
+          "group": "g",
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "b0",
+          "type": "sticky",
+          "x": 900,
+          "y": 300,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "Agent note 0",
+            "color": "yellow"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 8,
+          "y": 8,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea, typed",
+            "color": "yellow"
+          },
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "b1",
+          "type": "sticky",
+          "x": 940,
+          "y": 300,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "Agent note 1",
+            "color": "yellow"
+          }
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "b2",
+          "type": "sticky",
+          "x": 980,
+          "y": 300,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "Agent note 2",
+            "color": "yellow"
+          }
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "b3",
+          "type": "sticky",
+          "x": 1020,
+          "y": 300,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "Agent note 3",
+            "color": "yellow"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 8,
+          "y": 16,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea, typed",
+            "color": "yellow"
+          },
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "b4",
+          "type": "sticky",
+          "x": 1060,
+          "y": 300,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "Agent note 4",
+            "color": "yellow"
+          }
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "b5",
+          "type": "sticky",
+          "x": 1100,
+          "y": 300,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "Agent note 5",
+            "color": "yellow"
+          }
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "b6",
+          "type": "sticky",
+          "x": 1140,
+          "y": 300,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "Agent note 6",
+            "color": "yellow"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 8,
+          "y": 24,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea, typed",
+            "color": "yellow"
+          },
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "b7",
+          "type": "sticky",
+          "x": 1180,
+          "y": 300,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "Agent note 7",
+            "color": "yellow"
+          }
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "lost",
+          "type": "sticky",
+          "x": 0,
+          "y": 600,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "Its event was lost",
+            "color": "yellow"
+          }
+        }
+      ]
+    },
+    {
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "after",
+          "type": "sticky",
+          "x": 160,
+          "y": 600,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "After it",
+            "color": "yellow"
+          }
+        }
+      ]
+    }
+  ],
+  "end": {
+    "format": "toruboard",
+    "version": 1,
+    "id": "brd-window",
+    "name": "Window check",
+    "rev": 32,
+    "frames": [
+      {
+        "id": "frm-plan",
+        "name": "Plan, renamed",
+        "x": -16,
+        "y": 272,
+        "w": 480,
+        "h": 260,
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "s1",
+        "type": "sticky",
+        "x": 8,
+        "y": 24,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "First idea, typed",
+          "color": "yellow"
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "s2",
+        "type": "sticky",
+        "x": 320,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "Second idea, as the agent wrote it",
+          "color": "pink"
+        },
+        "group": "g",
+        "createdBy": "person",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "s3",
+        "type": "sticky",
+        "x": 0,
+        "y": 300,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "In the plan, edited by the agent",
+          "color": "green"
+        },
+        "frame": "frm-plan",
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "a1",
+        "type": "sticky",
+        "x": 600,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "From the agent",
+          "color": "blue"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "b0",
+        "type": "sticky",
+        "x": 900,
+        "y": 300,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "Agent note 0",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "b1",
+        "type": "sticky",
+        "x": 940,
+        "y": 300,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "Agent note 1",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "b2",
+        "type": "sticky",
+        "x": 980,
+        "y": 300,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "Agent note 2",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "b3",
+        "type": "sticky",
+        "x": 1020,
+        "y": 300,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "Agent note 3",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "b4",
+        "type": "sticky",
+        "x": 1060,
+        "y": 300,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "Agent note 4",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "b5",
+        "type": "sticky",
+        "x": 1100,
+        "y": 300,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "Agent note 5",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "b6",
+        "type": "sticky",
+        "x": 1140,
+        "y": 300,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "Agent note 6",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "b7",
+        "type": "sticky",
+        "x": 1180,
+        "y": 300,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "Agent note 7",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "lost",
+        "type": "sticky",
+        "x": 0,
+        "y": 600,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "Its event was lost",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "after",
+        "type": "sticky",
+        "x": 160,
+        "y": 600,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "After it",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      }
+    ],
+    "links": [
+      {
+        "id": "lnk-12",
+        "from": "s1",
+        "to": "s2",
+        "fromPort": "right",
+        "toPort": "left",
+        "label": "leads to",
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "lnk-1xs9czxh",
+        "from": "s3",
+        "to": "a1",
+        "fromPort": "right",
+        "toPort": "left",
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      }
+    ],
+    "ink": [
+      {
+        "id": "ink-1",
+        "points": [
+          250.56,
+          338.56,
+          0.5,
+          340.56,
+          398.56,
+          0.7,
+          430.56,
+          358.56,
+          0.5
+        ],
+        "color": "ink-blue",
+        "width": 4,
+        "frame": "frm-plan",
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ]
+  }
+}

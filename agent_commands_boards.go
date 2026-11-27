@@ -126,28 +126,60 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 
 	reg.Register(agentctl.Command{
 		Name:        "board.create",
-		Description: "Make a new, empty whiteboard. Returns its id. Give open: true to show it in a window so the person can watch it fill.",
+		Description: "Make a new whiteboard: empty, or ready to fill from a brainstorm template (board.templates lists them; the board's name heads it). " +
+			"Returns its id. Give open: true to show it in a window so the person can watch it fill.",
 		Input: schema(map[string]any{
-			"name": map[string]any{"type": "string", "minLength": 1, "maxLength": board.MaxNameLen},
-			"open": map[string]any{"type": "boolean", "description": "Also open the board's window."},
+			"name":     map[string]any{"type": "string", "minLength": 1, "maxLength": board.MaxNameLen},
+			"template": map[string]any{"type": "string", "enum": board.TemplateNames(), "description": "Start from this template instead of an empty board."},
+			"open":     map[string]any{"type": "boolean", "description": "Also open the board's window."},
 		}, "name"),
-		Handler: func(_ context.Context, in json.RawMessage) (any, error) {
+		Handler: func(ctx context.Context, in json.RawMessage) (any, error) {
 			v, err := decode[struct {
-				Name string `json:"name"`
-				Open bool   `json:"open"`
+				Name     string `json:"name"`
+				Template string `json:"template"`
+				Open     bool   `json:"open"`
 			}](in)
 			if err != nil {
 				return nil, err
+			}
+			var tplOp board.Op
+			if v.Template != "" {
+				// Checked before the board is made, so a bad name makes nothing.
+				if tplOp, err = board.TemplateOp(v.Template, v.Name); err != nil {
+					return nil, err
+				}
 			}
 			b, err := d.boards.Create(v.Name)
 			if err != nil {
 				return nil, err
 			}
+			blocks := 0
+			if v.Template != "" {
+				// The template goes on as the caller's first change, so it is
+				// theirs in who-did-what and can be undone like any other.
+				if _, err := change(ctx, b.ID, func(board.Board, board.Source) (board.Op, error) { return tplOp, nil }); err != nil {
+					_ = d.boards.Delete(b.ID)
+					return nil, fmt.Errorf("template %s: %w", v.Template, err)
+				}
+				blocks = len(tplOp.Blocks)
+			}
 			emit(evBoardsChanged, nil)
 			if v.Open && d.open != nil {
 				d.open(b.ID)
 			}
-			return map[string]any{"id": b.ID, "name": b.Name, "opened": v.Open && d.open != nil}, nil
+			out := map[string]any{"id": b.ID, "name": b.Name, "opened": v.Open && d.open != nil}
+			if v.Template != "" {
+				out["template"], out["blocks"] = v.Template, blocks
+			}
+			return out, nil
+		},
+	})
+
+	reg.Register(agentctl.Command{
+		Name:        "board.templates",
+		Description: "The brainstorm templates board.create can start a board from: name, title and what each lays out.",
+		Handler: func(context.Context, json.RawMessage) (any, error) {
+			return map[string]any{"templates": board.Templates()}, nil
 		},
 	})
 

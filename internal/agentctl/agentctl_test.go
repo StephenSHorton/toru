@@ -287,3 +287,27 @@ func TestWindowCommandOwnTimeout(t *testing.T) {
 		t.Fatalf("default timeout after re-register: %v", err)
 	}
 }
+
+// TestWindowCallCaller: a window command's call says who called (the
+// request's client, as an MCP client's name reaches it), so a window can
+// tag what the command changes, like the whiteboard's "agent:<caller>".
+func TestWindowCallCaller(t *testing.T) {
+	svc, fw := newBridge(t)
+	fw.alive["board-a"] = true
+	fw.answer = func(c WindowCall) (any, string, bool) { return map[string]any{"caller": c.Caller}, "", true }
+	if err := svc.RegisterWindowCommands("board-a", []WindowCommand{{Name: "board.act"}}); err != nil {
+		t.Fatal(err)
+	}
+	resp := handle(context.Background(), svc.Registry(), Request{Method: "call", Name: "board.act", Client: "Claude Code", Input: json.RawMessage(`{}`)})
+	if resp.Error != nil {
+		t.Fatal(resp.Error.Message)
+	}
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+	if len(fw.calls) != 1 || fw.calls[0].Caller != "Claude Code" {
+		t.Fatalf("calls = %+v", fw.calls)
+	}
+	if resp.Result.(map[string]any)["caller"] != "Claude Code" {
+		t.Fatalf("result = %+v", resp.Result)
+	}
+}
