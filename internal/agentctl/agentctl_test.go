@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -105,8 +103,6 @@ type fakeWindows struct {
 func newBridge(t *testing.T) (*Service, *fakeWindows) {
 	t.Helper()
 	svc := New(NewRegistry())
-	dir := t.TempDir()
-	svc.configPath = func() (string, error) { return filepath.Join(dir, "agent.json"), nil }
 	fw := &fakeWindows{svc: svc, alive: map[string]bool{}}
 	svc.windowAlive = func(name string) bool {
 		fw.mu.Lock()
@@ -243,21 +239,34 @@ func TestRegisterWindowCommandsChecks(t *testing.T) {
 	}
 }
 
-func TestEnabledReadsUserConfig(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("APPDATA", dir) // os.UserConfigDir on Windows
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	if Enabled() {
-		t.Fatal("enabled with no config file")
-	}
-	if err := saveConfig(defaultConfigPath, config{Enabled: true}); err != nil {
+// Settings > Connect your agent: the Claude Code command and the JSON
+// config both name this install's toru.exe, quoted and escaped so they
+// work when pasted.
+func TestConnectInfo(t *testing.T) {
+	svc := New(NewRegistry())
+	exe := `C:\Users\Ada Lovelace\AppData\Local\Programs\Toru\toru.exe`
+	svc.exePath = func() (string, error) { return exe, nil }
+	got, err := svc.GetConnectInfo()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !Enabled() {
-		t.Fatal("not enabled after saving on")
+	if got.Exe != exe {
+		t.Errorf("exe = %q", got.Exe)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "toru", "agent.json")); err != nil {
-		t.Fatalf(`config not at %%AppData%%\toru\agent.json: %v`, err)
+	if want := `claude mcp add --scope user toru -- "` + exe + `" mcp`; got.ClaudeCommand != want {
+		t.Errorf("claude command = %q, want %q", got.ClaudeCommand, want)
+	}
+	var cfg struct {
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal([]byte(got.MCPConfig), &cfg); err != nil {
+		t.Fatalf("config isn't JSON: %v\n%s", err, got.MCPConfig)
+	}
+	if s := cfg.MCPServers["toru"]; s.Command != exe || len(s.Args) != 1 || s.Args[0] != "mcp" {
+		t.Errorf("config = %s", got.MCPConfig)
 	}
 }
 
