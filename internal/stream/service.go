@@ -108,8 +108,10 @@ type StreamService struct {
 	deafened  bool
 	speaking  map[string]bool   // call peers talking now (call window reports)
 	callPeers map[string]string // call peer → connection state
+	callAudio map[string]PeerAudio
 	quit      chan struct{}
-	relay     *relay // the shared ICE list (ice.go)
+	relay     *relay  // the shared ICE list (ice.go)
+	tx        txState // call transcription (transcribe.go)
 
 	// LAN (lan.go): the LAN side, what our presence says about it, and the
 	// last address collision we asked the service to move off.
@@ -236,6 +238,7 @@ func (s *StreamService) Shutdown() {
 		}
 	}
 	s.relay.stop()
+	s.txShutdown()
 	if bc != nil {
 		bc.stop()
 	}
@@ -438,7 +441,7 @@ func (s *StreamService) send(to, typ string, body any) error {
 func (s *StreamService) announce() {
 	s.mu.Lock()
 	room := s.room
-	body := presenceBody{Name: s.settings.Name, InCall: s.inCall, Muted: s.muted || s.deafened, Deafened: s.deafened, Lan: s.lanSelf}
+	body := presenceBody{Name: s.settings.Name, InCall: s.inCall, Muted: s.muted || s.deafened, Deafened: s.deafened, Lan: s.lanSelf, Tx: s.txPresenceLocked()}
 	if s.bc != nil {
 		info := s.bc.Info()
 		body.Live = &info
@@ -527,6 +530,9 @@ func (s *StreamService) onMessage(env Envelope) {
 		if notify {
 			s.notifyLive(env.From, name)
 		}
+		if p.Tx != nil && p.InCall {
+			s.applyTx(*p.Tx, env.From, false) // a toggle we missed, or the call's state as we join
+		}
 		s.emitState()
 
 	case msgLeave:
@@ -589,6 +595,12 @@ func (s *StreamService) onMessage(env Envelope) {
 
 	case msgCall:
 		s.onCallMessage(env)
+
+	case msgTx:
+		s.onTxMessage(env)
+
+	case msgTxLine:
+		s.onTxLine(env)
 
 	case msgOffer:
 		o, err := decodeBody[offerBody](env)
