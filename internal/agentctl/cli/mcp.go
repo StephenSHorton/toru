@@ -49,7 +49,7 @@ func newMCPServer(env Env) *mcpServer {
 	s.srv.AddTool(toolFor(appStartInfo), func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		res, err := appStart(ctx, s.client, s.env)
 		if errors.Is(err, errUnreachable) {
-			return errorResult(unreachableMessage(s.env, "start it from the Start menu")), nil
+			return errorResult(unreachableMessage("start it from the Start menu")), nil
 		}
 		if err != nil {
 			return errorResult(err.Error()), nil
@@ -67,10 +67,9 @@ func newMCPServer(env Env) *mcpServer {
 				// A window command registered since the last list.
 				if r, ok := req.(*mcp.CallToolRequest); ok && r.Params != nil && !s.known(r.Params.Name) {
 					// A client with an older tool list calls a command while
-					// Toru is down or agent control is off: say so instead of
-					// "unknown tool".
+					// Toru is down: say so instead of "unknown tool".
 					if err := s.sync(ctx); errors.Is(err, errUnreachable) {
-						return errorResult(unreachableMessage(s.env, "call the app.start tool")), nil
+						return errorResult(unreachableMessage("call the app.start tool")), nil
 					}
 				}
 			}
@@ -163,7 +162,7 @@ func (s *mcpServer) forward(name string) mcp.ToolHandler {
 				return errorResult(cmdErr.Message), nil
 			}
 			if errors.Is(err, errUnreachable) {
-				return errorResult(unreachableMessage(s.env, "call the app.start tool")), nil
+				return errorResult(unreachableMessage("call the app.start tool")), nil
 			}
 			return errorResult(err.Error()), nil
 		}

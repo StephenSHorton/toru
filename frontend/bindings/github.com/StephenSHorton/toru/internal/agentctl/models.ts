@@ -6,6 +6,50 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * ConnectInfo is what Settings > Connect your agent shows: this install's
+ * toru.exe and the two ways to add it to an MCP client.
+ */
+export class ConnectInfo {
+    /**
+     * Exe is the full path of this toru.exe.
+     */
+    "exe": string;
+
+    /**
+     * ClaudeCommand adds Toru to Claude Code for every project.
+     */
+    "claudeCommand": string;
+
+    /**
+     * MCPConfig is the mcpServers JSON other MCP clients take.
+     */
+    "mcpConfig": string;
+
+    /** Creates a new ConnectInfo instance. */
+    constructor($$source: Partial<ConnectInfo> = {}) {
+        if (!("exe" in $$source)) {
+            this["exe"] = "";
+        }
+        if (!("claudeCommand" in $$source)) {
+            this["claudeCommand"] = "";
+        }
+        if (!("mcpConfig" in $$source)) {
+            this["mcpConfig"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConnectInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConnectInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ConnectInfo($$parsedSource as Partial<ConnectInfo>);
+    }
+}
+
+/**
  * WindowCommand is a command a window registers (frontend/src/lib/agent.ts).
  */
 export class WindowCommand {
