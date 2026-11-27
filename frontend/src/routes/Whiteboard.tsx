@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createAgent } from "@ui-sdk/react/agent";
 import { Button } from "@ui-sdk/react/button";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
@@ -12,10 +12,12 @@ import {
 } from "@ui-sdk/react/popover";
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
-import { CheckIcon, ChevronDownIcon, PlusIcon } from "lucide-react";
+import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
+import { CheckIcon, ChevronDownIcon, MousePointer2Icon, PenLineIcon, PlusIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
-import { Board, useBoard } from "@/whiteboard/BoardView";
+import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
 import type { BoardBlocks, BoardLine } from "@/whiteboard/board";
+import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
 import "@/whiteboard/toru-ui-sdk.css";
 
 // The whiteboard window (?view=whiteboard&id=<board>, WindowsService.OpenWhiteboard).
@@ -50,6 +52,11 @@ const sampleLines: BoardLine[] = [
 
 export default function Whiteboard() {
   const id = new URLSearchParams(window.location.search).get("id") ?? "";
+  const [pen, setPen] = useState<PenOptions>(() => ({
+    active: false,
+    color: inkColors[0].token,
+    width: tokenWidth(inkWidths[0].token, inkWidths[0].fallback),
+  }));
 
   useEffect(
     () =>
@@ -71,9 +78,75 @@ export default function Whiteboard() {
         className="h-full w-full"
         defaultBlocks={sampleBlocks}
         defaultLines={sampleLines}
+        pen={pen}
       >
         <SampleToolbar />
+        <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
       </Board>
+    </div>
+  );
+}
+
+// The tools down the board's left side: select or pen, then the pen's colour
+// and width (Toru's --ink-* tokens).
+function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Partial<PenOptions>) => void }) {
+  const widths = inkWidths.map((w) => ({ ...w, value: tokenWidth(w.token, w.fallback) }));
+  const width = widths.find((w) => w.value === pen.width) ?? widths[0];
+  return (
+    <div
+      data-slot="pen-toolbar"
+      className="frost absolute top-1/2 left-3 flex -translate-y-1/2 flex-col items-center gap-2 p-1.5"
+      onWheel={(e) => e.stopPropagation()}
+      style={{ cursor: "default" }}
+    >
+      <ToggleGroup
+        aria-label="Tool"
+        orientation="vertical"
+        deselectable={false}
+        value={[pen.active ? "pen" : "select"]}
+        onValueChange={(value) => value[0] && onChange({ active: value[0] === "pen" })}
+        className="flex flex-col gap-1"
+      >
+        <Toggle value="select" aria-label="Select" title="Select">
+          <MousePointer2Icon aria-hidden="true" />
+        </Toggle>
+        <Toggle value="pen" aria-label="Pen" title="Pen">
+          <PenLineIcon aria-hidden="true" />
+        </Toggle>
+      </ToggleGroup>
+      <div data-slot="pen-toolbar-separator" />
+      <ToggleGroup
+        aria-label="Pen colour"
+        orientation="vertical"
+        deselectable={false}
+        value={[pen.color]}
+        onValueChange={(value) => value[0] && onChange({ color: value[0], active: true })}
+        className="flex flex-col gap-1"
+      >
+        {inkColors.map((c) => (
+          <Toggle key={c.token} value={c.token} aria-label={c.name} title={c.name} data-pen-colour={c.token}>
+            <span data-slot="pen-swatch" style={{ background: inkColor(c.token) }} />
+          </Toggle>
+        ))}
+      </ToggleGroup>
+      <div data-slot="pen-toolbar-separator" />
+      <ToggleGroup
+        aria-label="Pen width"
+        orientation="vertical"
+        deselectable={false}
+        value={[width.token]}
+        onValueChange={(value) => {
+          const w = widths.find((x) => x.token === value[0]);
+          if (w) onChange({ width: w.value, active: true });
+        }}
+        className="flex flex-col gap-1"
+      >
+        {widths.map((w) => (
+          <Toggle key={w.token} value={w.token} aria-label={`${w.name} pen`} title={`${w.name} pen`} data-pen-width={w.token}>
+            <span data-slot="pen-width" style={{ height: `${w.value}px`, background: inkColor(pen.color) }} />
+          </Toggle>
+        ))}
+      </ToggleGroup>
     </div>
   );
 }

@@ -71,6 +71,7 @@ golangci-lint run ./internal/... ./cmd/...   # v2.12.2
 cd frontend && bun install --frozen-lockfile && bun run build && cd ..   # tsc + vite
 cd frontend && bun run test:frost && cd ..   # .frost keeps its blur in the built CSS
 cd frontend && bun run test:board && cd ..   # the whiteboard canvas (happy-dom)
+cd frontend && bun run test:ink && cd ..     # the whiteboard pen; `bun scripts/ink-check.ts` rewrites its Go fixture
 go build -o build/bin/toru.exe .
 ```
 

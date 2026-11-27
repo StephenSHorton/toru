@@ -1,0 +1,102 @@
+/* Freehand ink (ink.ts, InkView.tsx) in Toru's look. The pen colours and
+   widths are Toru's --ink-* tokens in index.css. */
+
+@layer components {
+  /* The pen's surface over the board: a crosshair while the pen is on. */
+  [data-slot="ink-surface"][data-active] {
+    cursor: crosshair;
+  }
+
+  [data-slot="ink-draft"],
+  [data-slot="board-ink-line"] {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* A stroke's block has no card, border or padding: only its line shows,
+     and only the line takes presses. */
+  [data-slot="board-block"][data-ink] {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    pointer-events: none;
+
+    &[data-lassoed],
+    &[data-selected] {
+      background: none;
+      outline: 1px dashed var(--primary);
+      outline-offset: 2px;
+    }
+
+    &:focus-visible {
+      box-shadow: none;
+      outline: 2px solid var(--ring);
+      outline-offset: 2px;
+    }
+
+    &:is([data-dragging], [data-resizing]) {
+      box-shadow: none;
+    }
+  }
+
+  [data-slot="board-ink"] {
+    display: block;
+    overflow: visible;
+  }
+
+  [data-slot="board-ink-hit"] {
+    fill: none;
+    stroke: transparent;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: stroke;
+    cursor: default;
+  }
+
+  [data-slot="board-block"][data-ink][data-dragging] [data-slot="board-ink-hit"] {
+    cursor: grabbing;
+  }
+
+  /* While the pen is on, strokes and blocks under it don't show hover. */
+  [data-slot="board"]:has([data-slot="ink-surface"][data-active]) [data-slot="board-port"] {
+    opacity: 0;
+  }
+
+  /* The pen toolbar down the board's left side (routes/Whiteboard.tsx). */
+  [data-slot="pen-toolbar"] {
+    & [data-slot="toggle"] {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+
+      & svg {
+        width: 16px;
+        height: 16px;
+      }
+    }
+  }
+
+  [data-slot="pen-toolbar-separator"] {
+    width: 20px;
+    height: 1px;
+    background: var(--border);
+  }
+
+  [data-slot="pen-swatch"] {
+    display: block;
+    width: 16px;
+    height: 16px;
+    border: 1px solid color-mix(in oklch, var(--foreground) 25%, transparent);
+    border-radius: 50%;
+  }
+
+  [data-slot="pen-width"] {
+    display: block;
+    width: 18px;
+    border-radius: 999px;
+  }
+}
