@@ -156,7 +156,7 @@ func (s *mcpServer) forward(name string) mcp.ToolHandler {
 		if req.Params != nil && len(bytes.TrimSpace(req.Params.Arguments)) > 0 && !bytes.Equal(bytes.TrimSpace(req.Params.Arguments), []byte("null")) {
 			input = req.Params.Arguments
 		}
-		raw, err := s.client.Call(ctx, name, input)
+		raw, err := s.client.CallAs(ctx, mcpClientName(req), name, input)
 		if err != nil {
 			var cmdErr *CommandError
 			if errors.As(err, &cmdErr) {
@@ -188,4 +188,17 @@ func toolResult(raw json.RawMessage) *mcp.CallToolResult {
 
 func errorResult(msg string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: msg}}}
+}
+
+// mcpClientName is the name the MCP client gave in its initialize request
+// (clientInfo.name, like "claude-code"), or "" if it gave none.
+func mcpClientName(req *mcp.CallToolRequest) string {
+	if req == nil || req.Session == nil {
+		return ""
+	}
+	p := req.Session.InitializeParams()
+	if p == nil || p.ClientInfo == nil {
+		return ""
+	}
+	return p.ClientInfo.Name
 }

@@ -84,6 +84,13 @@ request per line, one JSON response per line:
 → {"id":2,"result":{...}}  or  {"id":2,"error":{"message":"..."}}
 ```
 
+A call may carry `"client"`: who is calling. `toru.exe mcp` sends the MCP
+client's own name from its `initialize` request (`clientInfo.name`, like
+`claude-code`); `toru.exe ctl` sends `toru-ctl`. Go commands read it with
+`agentctl.Caller(ctx)`. The board commands tag every change with it as
+`agent:<client>` (characters a tag can't hold become `-`; no name is
+`agent:unknown`), so the board shows which agent placed what.
+
 Results that are images (preview frames, screenshots) come back as
 `{"image":{"mime":"image/png","base64":"..."}}` or a file path, so MCP
 can return image content.
@@ -148,6 +155,45 @@ library's saved styles, presets of kind "text"), `preset.rename`,
 filters and text styles; an imported file keeps its kind),
 `preset.luts`, `preset.importLut` (a `.cube` file; returns the id a `lut`
 effect takes) and `preset.deleteLut` (destructive).
+
+Whiteboards (Go, `agent_commands_boards.go`; docs/whiteboard.md section 2).
+The board document lives in Go, so these work with the board window open
+or closed. Every change is one board op tagged `agent:<client>`, goes
+through the board's undo history like a person's, and is sent to open
+board windows as a `board:op` event:
+
+- `board.list`, `board.create` (`open: true` also shows it), `board.open`
+  (shows the board's window).
+- `board.read`: the board as JSON, or `format: "markdown"` for an outline
+  (frames as headings, checklists as `- [ ]`, tables as tables, links as
+  `A → B`).
+- `board.catalog`: every block type with its props as JSON Schema, from
+  `internal/board/catalog.json` (the window reads the same file): `sticky`,
+  `text`, `card`, `checklist`, `poll`, `rating`, `table`, `tag-list`,
+  `image`, and `frame`, which is placed under `frames`, not as a block.
+  Props are checked against it on add and update.
+- `board.image.import` (`agent_commands_board_images.go`): copies a picture
+  file or a Library screenshot (`libraryId` from `library.list`) into the
+  board images and returns the `asset` an image block's props take.
+- `board.add` (blocks and frames, many in one call; ids of your own are
+  allowed; blocks without x, y go in rows below what's there),
+  `board.update` (props merged key by key, `null` removes; frames; the
+  board's name), `board.move` (x, y or dx, dy; a group moves together, a
+  frame takes what's in it; `z: front/back`), `board.group` (group,
+  ungroup, or put blocks in a frame).
+- `board.connect` / `board.disconnect` (lines between blocks or frames).
+- `board.layout`: `grid`, `tree` (follows the lines) or `cluster` (by a
+  block's first `props.tags` entry).
+- `board.delete` (destructive, needs `confirm: true`): items, or the whole
+  board when `items` is left out.
+- `board.export`: `toruboard` or `markdown` to a path; an existing file is
+  replaced only with `confirm: true`. PNG, PDF and HTML come with the
+  export card.
+
+`board.snapshot` and `board.act` (the window's live controls, through UI
+SDK's `createAgent`) are the board window's own commands while it is open:
+`board.act` fills its blocks as a person would (type in a sticky, tick a
+checklist item, vote in a poll, set a table cell or a rating).
 
 ## Work split (cards under #1)
 

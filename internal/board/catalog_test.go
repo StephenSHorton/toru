@@ -200,3 +200,32 @@ func TestSampleBoardMatchesCatalog(t *testing.T) {
 		}
 	}
 }
+
+// board.read's Markdown outline shows what every type holds.
+func TestMarkdownShowsEveryType(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "frontend", "src", "whiteboard", "sample-board.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b Board
+	if err := json.Unmarshal(data, &b); err != nil {
+		t.Fatal(err)
+	}
+	md := Markdown(b)
+	for _, want := range []string{
+		"Toru whiteboard: launch plan",
+		"- Ship the block catalog\n  Ten block types",
+		"  - [x] Write the catalog",
+		"  - [ ] Agent-ready tests",
+		"- Poll: Which block next?",
+		"- Rating: How useful is this board?: 4/5",
+		"- Themes: speed, agents, sharing, polish",
+		"  | Task | Owner | Due |\n  | --- | --- | --- |\n  | Catalog | Beetle | Fri |",
+		"- Image: Test card screenshot (Library screenshot)",
+		"- Image: (empty)",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("outline lacks %q:\n%s", want, md)
+		}
+	}
+}

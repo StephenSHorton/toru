@@ -311,6 +311,16 @@ func main() {
 		presets: presetSvc,
 		emit:    func(name string, data any) { app.Event.Emit(name, data) },
 	})
+	// Whiteboards: the board document lives in Go, so agents build boards
+	// with the window open or closed (agent_commands_boards.go).
+	// boardStore is the one store of whiteboards: the board window's service
+	// must share it, so agents and the person share one undo history.
+	boardStore := board.NewStore()
+	registerBoardAgentCommands(agentReg, boardAgentDeps{
+		boards: boardStore,
+		open:   windowsSvc.OpenWhiteboard,
+		emit:   func(name string, data any) { app.Event.Emit(name, data) },
+	})
 	registerBoardImageAgentCommands(agentReg, boardImageSvc) // agent_commands_board_images.go
 	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in

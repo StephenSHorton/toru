@@ -384,7 +384,7 @@ func TestUndoRedo(t *testing.T) {
 		t.Error("disk and memory differ after undo/redo")
 	}
 	// A new change clears redo.
-	s.Undo(b.ID, Person)
+	_, _ = s.Undo(b.ID, Person)
 	step(Op{Source: Person, Name: &n})
 	if _, err := s.Redo(b.ID, Person); !errors.Is(err, ErrNothingToRedo) {
 		t.Errorf("redo after a new change = %v", err)
