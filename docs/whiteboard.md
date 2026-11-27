@@ -66,6 +66,30 @@ What that gives the board:
   drag session, drawing SVG paths, so the board stays UI SDK only. Toru's
   existing konva editor is not used here.
 
+### Block catalog v1 (built, whiteboard#6)
+
+- **One file, two readers.** `internal/board/catalog.json` lists every block
+  type with its label, default size and props as JSON Schema. Go embeds it
+  (`internal/board/catalog.go`: `board.catalog`, and `CheckProps` for what
+  agents send); the window imports it (`frontend/src/whiteboard/catalog.ts`).
+  Schemas use only the keywords Go checks; a Go test fails on any other.
+- **Types:** `sticky`, `text`, `card`, `checklist`, `poll`, `rating`,
+  `table`, `tag-list`, `image`, `frame`. `frame` is listed for its schema but
+  stays the board file's `frames` list, not a block.
+- **Renders:** `frontend/src/whiteboard/blocks.tsx`, one per type, from UI SDK
+  parts (Textarea, Input, Checkbox, RadioGroup, Rating, TokenInput, FileInput,
+  Popover, Button). Every control is named after its block, like
+  "Rate How useful is this board?" or "Owners row 2 Owner".
+- **Images** are copied into `%AppData%\toru\boards\images`, named by their
+  SHA-256, from a chosen or dropped file or a Library screenshot
+  (`board.ImageService`, served at `/__board/image/<name>`). Agents import one
+  with `board.image.import` and place it as `{"asset": …}`.
+- **Checks:** `bun run test:blocks` renders the sample board (one block of
+  every type, `sample-board.json`) and has an agent fill every type through
+  UI SDK's bridge; Go's catalog test checks every sample block against the
+  catalog. A new type is a catalog entry, a render, a sample block and its
+  `act` steps in that check.
+
 ## 2. How people's agents connect over MCP
 
 Toru already has one: `toru.exe mcp` (stdio MCP) and `toru.exe ctl`, both

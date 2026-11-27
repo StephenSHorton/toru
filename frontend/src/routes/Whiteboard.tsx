@@ -39,18 +39,44 @@ export default function Whiteboard() {
   const id = new URLSearchParams(window.location.search).get("id") ?? "";
   const [blocks, setBlocks] = useState<BoardBlocks>(sampleBoard.blocks);
 
-  useEffect(
-    () =>
-      registerAgentCommand(
-        "board.snapshot",
-        {
-          description:
-            "The open whiteboard as UI SDK's agent bridge sees it: every block by id with its label, type, props and box, every line with its name, the selection, and each block's controls (text areas, checkboxes, polls, ratings, table cells, tags) with their actions.",
+  useEffect(() => {
+    const offSnapshot = registerAgentCommand(
+      "board.snapshot",
+      {
+        description:
+          "The open whiteboard as UI SDK's agent bridge sees it: every block by id with its label, type, props and box, every line with its name, the selection, and each block's controls (text areas, checkboxes, polls, ratings, table cells, tags) with their actions.",
+      },
+      () => agent.snapshot(),
+    );
+    const offAct = registerAgentCommand(
+      "board.act",
+      {
+        description:
+          "Use the open whiteboard's controls as a person would, through UI SDK's agent bridge: steps run in order, each {ref, action, args}, where ref is a control's label or ref from board.snapshot. " +
+          'Like {"ref": "Which block next?", "action": "setValue", "args": ["Timer"]} to vote, "toggle" on a checklist item, "setValue" on a sticky note, card, table cell or rating, "press" on a button.',
+        input: {
+          type: "object",
+          required: ["steps"],
+          properties: {
+            steps: {
+              type: "array",
+              minItems: 1,
+              items: {
+                type: "object",
+                required: ["ref", "action"],
+                properties: { ref: { type: "string" }, action: { type: "string" }, args: { type: "array" } },
+              },
+            },
+          },
         },
-        () => agent.snapshot(),
-      ),
-    [],
-  );
+      },
+      (input) => agent.act({ steps: (input as { steps: Parameters<typeof agent.act>[0]["steps"] }).steps }),
+    );
+    return () => {
+      offSnapshot();
+      offAct();
+    };
+  }, []);
 
   // A block's props changed in its render, by a person or an agent
   // (details.source). The live board card sends these to Go as board ops.

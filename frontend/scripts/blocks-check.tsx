@@ -78,10 +78,23 @@ const images: BoardImages = {
 // The bridge is made before the board renders, as the window makes it.
 const agent = createAgent();
 const changes: { id: string; source?: string }[] = [];
-let current: Blocks = sampleBoard.blocks;
+// The sample board, and a poll that takes several picks.
+const startBlocks: Blocks = {
+  ...sampleBoard.blocks,
+  "poll-multi": {
+    label: "Poll: Which days work?",
+    type: "poll",
+    props: { question: "Which days work?", multi: true, options: [{ label: "Mon" }, { label: "Tue", votes: 1 }] },
+    x: 1040,
+    y: 360,
+    width: 300,
+    height: 230,
+  },
+};
+let current: Blocks = startBlocks;
 
 function Harness() {
-  const [blocks, setBlocks] = React.useState<Blocks>(sampleBoard.blocks);
+  const [blocks, setBlocks] = React.useState<Blocks>(startBlocks);
   current = blocks;
   return (
     <BoardImagesContext.Provider value={images}>
@@ -146,10 +159,10 @@ const props = (id: string) => current[id].props as Record<string, any>;
 }
 
 // ── act fills every type ──────────────────────────────────────────────
-async function run(name: string, steps: { ref: string; action: string; args?: unknown[] }[]) {
+async function run(name: string, steps: { ref: string; action: string; args?: unknown[] }[], expectOk = true) {
   const res = await agent.act({ steps });
   await settle();
-  ok(`act: ${name}`, !!res?.ok, res?.error?.message);
+  ok(`act: ${name}`, !!res?.ok === expectOk, res?.error?.message ?? res);
 }
 
 changes.length = 0;
@@ -179,6 +192,15 @@ await run("poll vote", [{ ref: "Which block next?", action: "setValue", args: ["
 ok("poll vote counted", props("poll").options[1].votes === 2, props("poll").options);
 await run("poll change of mind", [{ ref: "Which block next?", action: "setValue", args: ["Kanban column"] }]);
 ok("poll vote moved", props("poll").options[1].votes === 1 && props("poll").options[0].votes === 4, props("poll").options);
+await run("multi-choice poll", [
+  { ref: "Vote Mon in Which days work?", action: "toggle" },
+  { ref: "Vote Tue in Which days work?", action: "toggle" },
+]);
+ok("multi-choice poll counts each pick", props("poll-multi").options[0].votes === 1 && props("poll-multi").options[1].votes === 2, props("poll-multi").options);
+
+// Props Go would refuse don't reach the board: a card title over 200 characters.
+await run("a card title too long for the catalog is refused", [{ ref: "Card title: Ship it", action: "setValue", args: ["x".repeat(201)] }], false);
+ok("the card keeps its title", props("card-ship").title === "Ship it", props("card-ship").title.length);
 
 await run("rating", [{ ref: "Rate How useful", action: "setValue", args: [2.5] }]);
 ok("rating set", props("rating").value === 2.5, props("rating"));
@@ -245,6 +267,17 @@ for (const [id, block] of Object.entries(current)) {
   ok("a drag that starts in a text area doesn't move the block", current["idea-polls"].x === before.x && current["idea-polls"].y === before.y, current["idea-polls"]);
   ok("the text area keeps focus", document.activeElement === textarea, document.activeElement?.outerHTML.slice(0, 80));
   ok("the block it's in is selected", document.querySelector('[data-block="idea-polls"]')?.hasAttribute("data-selected") === true);
+
+  // The sticky's rim, around its text area, drags it.
+  const rim = document.querySelector<HTMLElement>('[data-block="idea-polls"] [data-slot="block-sticky"]')!;
+  const opts = { bubbles: true, button: 0, buttons: 1, clientX: 100, clientY: 100, pointerId: 2, pointerType: "mouse" };
+  rim.dispatchEvent(new PointerEvent("pointerdown", opts));
+  window.dispatchEvent(new PointerEvent("pointermove", { ...opts, clientX: 180, clientY: 140 }));
+  rim.dispatchEvent(new PointerEvent("pointermove", { ...opts, clientX: 260, clientY: 220 }));
+  window.dispatchEvent(new PointerEvent("pointerup", { ...opts, clientX: 260, clientY: 220, buttons: 0 }));
+  rim.dispatchEvent(new PointerEvent("pointerup", { ...opts, clientX: 260, clientY: 220, buttons: 0 }));
+  await settle();
+  ok("a drag from the sticky's rim moves it", current["idea-polls"].x !== before.x || current["idea-polls"].y !== before.y, current["idea-polls"]);
 }
 
 root.unmount();

@@ -16,6 +16,7 @@ import { TokenInput, TokenInputEditor, type TokenInputValue } from "@ui-sdk/reac
 import { ArrowDownIcon, ArrowUpIcon, CheckIcon, ImageIcon, PlusIcon, StarIcon } from "lucide-react";
 import {
   blockLabel,
+  checkProps,
   type BlockPropsByType,
   type BlockType,
   type CardProps,
@@ -40,7 +41,8 @@ type BlockRenderProps<P> = {
   /** The block's name, from blockLabel. */
   label: string;
   props: P;
-  onProps: (next: P, details: PropsChange) => void;
+  /** False when the change was refused, as props the catalog's schema doesn't allow. */
+  onProps: (next: P, details: PropsChange) => boolean;
 };
 
 const changeOf = (details: unknown): PropsChange => {
@@ -49,14 +51,13 @@ const changeOf = (details: unknown): PropsChange => {
 };
 
 /** A text a schema needs non-empty: shown as typed, kept only once it has words. */
-function useRequiredText(value: string, commit: (next: string, details: PropsChange) => void) {
+function useRequiredText(value: string, commit: (next: string, details: PropsChange) => boolean) {
   const [draft, setDraft] = React.useState(value);
   React.useEffect(() => setDraft(value), [value]);
   return {
     value: draft,
     onValueChange: (next: string, details: unknown) => {
-      setDraft(next);
-      if (next.trim()) commit(next, changeOf(details));
+      if (!next.trim() || commit(next, changeOf(details))) setDraft(next);
     },
     onBlur: () => setDraft(value),
   };
@@ -67,6 +68,7 @@ function Sticky({ label, props, onProps }: BlockRenderProps<StickyProps>) {
     <div data-slot="block-sticky" data-color={props.color ?? "yellow"}>
       <Textarea
         aria-label={label}
+        maxLength={10000}
         placeholder="Write an idea"
         value={props.text}
         onValueChange={(text, details) => onProps({ ...props, text }, changeOf(details))}
@@ -80,6 +82,7 @@ function Text({ label, props, onProps }: BlockRenderProps<TextProps>) {
     <div data-slot="block-text" data-size={props.size ?? "m"} data-align={props.align ?? "left"}>
       <Textarea
         aria-label={label}
+        maxLength={20000}
         placeholder="Write something"
         value={props.text}
         onValueChange={(text, details) => onProps({ ...props, text }, changeOf(details))}
@@ -93,10 +96,11 @@ function Card({ props, onProps }: BlockRenderProps<CardProps>) {
   return (
     <div data-slot="block-card" data-color={props.color ?? "grey"}>
       <div data-slot="block-card-title">
-        <Input aria-label={`Card title: ${props.title}`} {...title} />
+        <Input aria-label={`Card title: ${props.title}`} maxLength={200} {...title} />
       </div>
       <Textarea
         aria-label={`Card notes: ${props.title}`}
+        maxLength={5000}
         placeholder="Notes"
         value={props.body ?? ""}
         onValueChange={(body, details) => onProps({ ...props, body }, changeOf(details))}
@@ -110,9 +114,8 @@ function Checklist({ id, props, onProps }: BlockRenderProps<ChecklistProps>) {
   const [draft, setDraft] = React.useState("");
   const add = (details: PropsChange) => {
     const text = draft.trim();
-    if (!text || props.items.length >= 200) return;
-    onProps({ ...props, items: [...props.items, { text }] }, details);
-    setDraft("");
+    if (!text) return;
+    if (onProps({ ...props, items: [...props.items, { text }] }, details)) setDraft("");
   };
   const done = props.items.filter((item) => item.done).length;
   return (
@@ -148,6 +151,7 @@ function Checklist({ id, props, onProps }: BlockRenderProps<ChecklistProps>) {
       <div data-slot="block-add">
         <Input
           aria-label={`New item for ${name}`}
+          maxLength={1000}
           placeholder="Add an item"
           value={draft}
           onValueChange={(v) => setDraft(v)}
@@ -173,8 +177,7 @@ function Poll({ id, props, onProps }: BlockRenderProps<PollProps>) {
       const now = picked.includes(o.label);
       return was === now ? o : { ...o, votes: Math.max(0, (o.votes ?? 0) + (now ? 1 : -1)) };
     });
-    setMine(picked);
-    onProps({ ...props, options }, details);
+    if (onProps({ ...props, options }, details)) setMine(picked);
   };
   const bar = (votes = 0) => (
     <span data-slot="block-poll-bar" aria-hidden="true" style={{ "--share": total ? votes / total : 0 } as React.CSSProperties} />
@@ -194,6 +197,7 @@ function Poll({ id, props, onProps }: BlockRenderProps<PollProps>) {
             <li key={`${id}-${o.label}`}>
               <label>
                 <Checkbox
+                  aria-label={`Vote ${o.label} in ${props.question}`}
                   checked={mine.includes(o.label)}
                   onCheckedChange={(checked, details) =>
                     vote(checked === true ? [...mine, o.label] : mine.filter((m) => m !== o.label), changeOf(details))
@@ -213,7 +217,7 @@ function Poll({ id, props, onProps }: BlockRenderProps<PollProps>) {
       ) : (
         <RadioGroup
           aria-label={props.question}
-          data-slot="block-poll-options"
+          data-part="block-poll-options"
           value={mine[0] ?? null}
           onValueChange={(value, details) => vote(value == null ? [] : [String(value)], changeOf(details))}
         >
@@ -313,6 +317,7 @@ function Table({ id, props, onProps }: BlockRenderProps<TableProps>) {
                 <td key={`${id}-r${r}c${c}`}>
                   <Input
                     aria-label={`${name} row ${r + 1} ${col}`}
+                    maxLength={1000}
                     value={rows[r][c] ?? ""}
                     onValueChange={(v, details) => setCell(r, c, v, changeOf(details))}
                   />
@@ -432,7 +437,7 @@ function ImageBlock({ props, onProps }: BlockRenderProps<ImageProps>) {
         }}
         onReject={() => setError("That file isn't a PNG, JPEG, GIF or WebP picture under 32 MB.")}
       >
-        <FileInputDropzone data-slot="block-image-drop">
+        <FileInputDropzone data-part="block-image-drop">
           <ImageIcon aria-hidden="true" />
           <span>Drop a picture here</span>
           <FileInputTrigger>Choose picture file</FileInputTrigger>
@@ -449,7 +454,7 @@ function ImageBlock({ props, onProps }: BlockRenderProps<ImageProps>) {
         }}
       >
         <PopoverTrigger>Pick from Library</PopoverTrigger>
-        <PopoverContent className="frost" data-slot="block-library">
+        <PopoverContent className="frost" data-part="block-library">
           <PopoverTitle>Library screenshots</PopoverTitle>
           {shots === null ? (
             <p>Loading…</p>
@@ -478,7 +483,7 @@ function ImageBlock({ props, onProps }: BlockRenderProps<ImageProps>) {
 }
 
 function Frame({ props, onProps }: BlockRenderProps<FrameProps>) {
-  const name = useRequiredText(props.name, (n, d) => onProps({ ...props, name: n.slice(0, 120) }, d));
+  const name = useRequiredText(props.name, (n, d) => onProps({ ...props, name: n }, d));
   return (
     <div data-slot="block-frame" data-color={props.color ?? "grey"}>
       <div data-slot="block-frame-name">
@@ -519,7 +524,14 @@ function BlockBody({
     | ((p: BlockRenderProps<Record<string, unknown>>) => React.ReactNode)
     | undefined;
   if (!Render) return <span data-slot="board-block-label">{blockLabel(type, props)}</span>;
-  return <Render id={id} label={blockLabel(type, props)} props={props} onProps={onProps} />;
+  // Props Go would refuse never leave the block: the control keeps its value,
+  // and the agent bridge reports the step didn't take.
+  const keep = (next: Record<string, unknown>, details: PropsChange) => {
+    if (checkProps(type, next) !== null) return false;
+    onProps(next, details);
+    return true;
+  };
+  return <Render id={id} label={blockLabel(type, props)} props={props} onProps={keep} />;
 }
 
 export { BlockBody, blockRenderers, tokenize, type PropsChange };

@@ -73,12 +73,15 @@
     }
   }
 
+  /* The rim around the text area is where the block is dragged from. */
   [data-slot="block-sticky"] {
+    padding: 8px;
     background: var(--block-color);
     color: oklch(0.2 0.01 264);
     box-shadow: 0 6px 18px oklch(0 0 0 / 0.35);
 
     & [data-slot="textarea"] {
+      padding: 2px;
       font-size: 15px;
       line-height: 1.35;
 
@@ -99,8 +102,12 @@
     border-color: var(--primary);
   }
 
-  [data-slot="block-text"] [data-slot="textarea"] {
-    padding: 4px;
+  [data-slot="block-text"] {
+    padding: 6px;
+
+    & [data-slot="textarea"] {
+      padding: 2px;
+    }
   }
   [data-slot="block-text"][data-size="s"] [data-slot="textarea"] { font-size: 12px; }
   [data-slot="block-text"][data-size="m"] [data-slot="textarea"] { font-size: 15px; }
@@ -144,7 +151,8 @@
   }
 
   [data-slot="block-checklist-items"],
-  [data-slot="block-poll-options"] {
+  [data-slot="block-poll-options"],
+  [data-part="block-poll-options"] {
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -315,7 +323,7 @@
     }
   }
 
-  [data-slot="block-image-drop"] {
+  [data-part="block-image-drop"] {
     display: flex;
     flex: 1;
     flex-direction: column;
@@ -338,7 +346,7 @@
     }
   }
 
-  [data-slot="block-library"] ul {
+  [data-part="block-library"] ul {
     display: grid;
     grid-template-columns: repeat(3, 96px);
     gap: 6px;
