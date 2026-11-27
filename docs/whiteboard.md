@@ -1,0 +1,210 @@
+# Whiteboard (plan)
+
+Status: plan, whiteboard#1, 2026-11-27. No code yet.
+
+A whiteboard and brainstorming tool inside Toru. Every piece of it is built
+from Vercel's UI SDK (`@ui-sdk/core` + `@ui-sdk/react`, github.com/vercel-labs/ui),
+so agents can read it, compose it and drive it. People's agents connect over
+Toru's existing MCP entry point and build boards with the person watching.
+
+Toru is a **Wails v3** app (Go + WebView2 + React/Vite), not Tauri. Everything
+below is planned for Wails.
+
+## What was read
+
+- UI SDK at `0.1.0-beta.18` (Apache-2.0): `packages/core` (components,
+  foundation behaviors, `page/agent`, `page/history`), the `ui-sdk` skill and
+  its references (`agent-ready.md`, `styles.md`), and the canvas experiments
+  in `examples/experiments/react/` (`canvas.tsx`, `board.tsx`, `edge-path.ts`).
+- `ui-sdk-glass` (Stephen's fork of Liquid Glass UI): every control is a WebGL
+  lens with spring physics on top of UI SDK `beta.17`. Used as a reference for
+  how UI SDK was wired before, not for the look.
+- Toru: `docs/agent-control.md` and `internal/agentctl` (the MCP/CLI
+  registry), `frontend/src/lib/agent.ts` (window commands), `windows.go` and
+  `App.tsx` (one Wails window per `?view=`), `frontend/src/index.css` (the
+  design tokens), `internal/presets` (an `%AppData%\toru\…` JSON store).
+
+## 1. What UI SDK's generative UI gives a whiteboard
+
+UI SDK has no "generative UI" renderer or JSON spec. What it has is the
+three things that make UI composable by an agent, and that is what this
+whiteboard is built on:
+
+1. **Behaviors and unstyled components.** 50 components (checkbox, select,
+   slider, rating, tabs, tree, token input, toolbar, menu, popover, dialog,
+   toast, color picker, timeline…) and the behaviors under them (focus,
+   selection, drag and drop, direct manipulation). Every block on a board is
+   one of these, so it has real keyboard, focus and ARIA for free.
+2. **Canvas behaviors built for whiteboards.** `@ui-sdk/core` ships
+   `createViewport` (pan/zoom one world layer, screen↔canvas points, fit,
+   reveal), `createConnect` (drag a line from port to port, keyboard too),
+   `createMove`, `createResize`, `createLasso`, `createSelection` and
+   `spatialMove`. The `canvas.tsx` and `board.tsx` experiments are a working
+   node canvas and a free-position board made from them. All of these are
+   `@experimental`.
+3. **An agent bridge.** `createAgent()` gives `snapshot()` (every component,
+   its label, state and actions), `act({ steps })` (run steps by label, like
+   `{ ref: "Vote", action: "press" }`) and `query()`. Changes made through it
+   arrive with `details.source === "agent"` and can be refused;
+   `data-agent-confirm` makes a person approve a step. `createHistory`
+   records every change with who made it, for undo and rewind.
+
+What that gives the board:
+
+- **Blocks are live UI, not pictures.** A sticky note is text; a poll is a
+  real radio group people and agents vote in; a checklist ticks; a table
+  sorts; a slider scores ideas. An agent fills and presses them the same way
+  a person does, and Toru sees which was which.
+- **A fixed block catalog, rendered from board data.** Agents compose boards
+  by placing typed blocks (`{ type: "poll", props: {...}, x, y, w, h }`), not
+  by sending markup. Toru renders each type with UI SDK parts. The board
+  window holds Wails bindings, so agent-sent HTML or scripts never run in
+  it. New block types are added as code: an agent with the `ui-sdk` skill
+  writes a primitive in the repo, and it ships with Toru.
+- **Freehand ink is Toru's own primitive.** UI SDK has no ink or stroke
+  behavior. A pen block is written as a `definePrimitive` on UI SDK's pointer
+  drag session, drawing SVG paths, so the board stays UI SDK only. Toru's
+  existing konva editor is not used here.
+
+## 2. How people's agents connect over MCP
+
+Toru already has one: `toru.exe mcp` (stdio MCP) and `toru.exe ctl`, both
+reaching the running Toru over a named pipe only the current user can open.
+Off by default ("Let AI agents and scripts control Toru" in Settings). No
+network port. The whiteboard adds its commands to that registry; it opens
+nothing new.
+
+```
+claude mcp add toru -- "%LOCALAPPDATA%\Programs\Toru\toru.exe" mcp
+```
+
+**Board commands (Go, always available, window open or not).** The board
+document lives in Go, so an agent can build a whole board without the
+window, and the window shows each change live when it is open:
+
+| Command | Does |
+| --- | --- |
+| `board.list`, `board.create`, `board.open` | Find, make, show a board |
+| `board.read` | The board as JSON, or as a Markdown outline for reading |
+| `board.catalog` | Every block type with its props schema, so an agent knows what it can place |
+| `board.add`, `board.update`, `board.move`, `board.group` | Place and change blocks, many in one call |
+| `board.connect`, `board.disconnect` | Lines between blocks |
+| `board.layout` | Arrange blocks (grid, tree, cluster by tag) |
+| `board.delete` | Destructive: needs `"confirm": true` |
+| `board.export` | Any format in section 3, to a path |
+
+**Live controls (window commands, while the board is open).**
+`board.snapshot` and `board.act` pass straight through to UI SDK's
+`createAgent` in the board window, so an agent can vote in a poll, tick a
+checklist or move a slider exactly as a person would. Board commands carry
+the heavy lifting because the bridge's snapshot stops at 100 components and
+window commands time out (30 s default).
+
+**Rules.**
+
+- Every agent change is a board op tagged with its source (`agent:<name>`
+  from the MCP client name, or a person). The window shows who placed each
+  block and an agent's changes go through the same undo history as a
+  person's.
+- Deleting blocks or boards and overwriting an export need confirmation
+  (`confirm: true` from the CLI; `data-agent-confirm` in the window).
+- **Other people's agents** (a friend's Claude building on your board) is
+  not in the build list by default: it needs boards shared between Toru
+  installs. Planned as its own card held for Stephen: each person's agent
+  talks to their own Toru over its own pipe, and Toru syncs the board over
+  the room connection Toru already uses for Call and LAN. No MCP port is
+  opened to the network.
+
+## 3. Export formats
+
+| Format | How it is made | For |
+| --- | --- | --- |
+| `.toruboard` | The board document as JSON (blocks, positions, links, ink, images inlined or beside it). Import reads it back | Native save, sending a board to someone, version control |
+| PNG | Rasterized inside the board window: the world layer at fit bounds drawn to a canvas at 2× through an SVG `foreignObject` (reliable in WebView2's Chromium; a small library such as `modern-screenshot`). Works for boards larger than the screen | Pasting into chat, docs |
+| PDF | WebView2's `PrintToPdf` on a print view of the board: vector text and lines. Wails alpha.98 and its `go-webview2` don't expose it, so the card adds that one COM call (`ICoreWebView2_7`) in Go; until then Wails' `Print()` with Microsoft Print to PDF | Printing, sharing a readable copy |
+| HTML | One standalone file: the board JSON, Toru's UI SDK theme CSS and a bundled UI SDK web-components build inlined. Opens offline in any browser, still live (polls, checklists work) | Sharing a living board without Toru |
+| Markdown | Outline: frames as headings, stickies and text as bullets, checklists as `- [ ]`, tables as tables, links as "A → B" lines | Notes, handing a board to an agent, issues |
+
+Copy to clipboard (PNG and Markdown) goes on the same menu. SVG is not
+planned: a DOM board has no faithful SVG path (`foreignObject` breaks in
+most viewers).
+
+## 4. Theming UI SDK with Toru's design system
+
+UI SDK components render no styles. `@ui-sdk/core/web.css` is an optional
+default look themed entirely by `--ui-*` tokens. The Glass look came from
+the fork's WebGL lenses, not from UI SDK, so none of it comes along.
+
+The plan is a **Toru UI SDK theme**: one stylesheet,
+`frontend/src/whiteboard/toru-ui-sdk.css`, that loads `web.css` and maps
+Toru's tokens onto it:
+
+```css
+@layer ui-sdk;            /* top of index.css, above @import "tailwindcss" */
+
+:root {
+  --ui-background: var(--background);
+  --ui-foreground: var(--foreground);
+  --ui-muted: var(--muted);
+  --ui-muted-foreground: var(--muted-foreground);
+  --ui-border: var(--border);
+  --ui-input: var(--input);
+  --ui-primary: var(--primary);
+  --ui-primary-foreground: var(--primary-foreground);
+  --ui-destructive: var(--destructive);
+  --ui-ring: var(--ring);
+  --ui-ring-border: var(--ring);
+  --ui-radius: 0;                         /* Toru is sharp-edged */
+  --ui-font-sans: "Inter", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+}
+```
+
+- Toru's tokens stay the one source: change `index.css` and the whiteboard
+  follows. Dark only, like the rest of Toru.
+- Popups and toolbars take Toru's existing `.frost` (CSS blur, 1px border),
+  not WebGL glass. Board blocks sit flat on the canvas.
+- Icons swap to lucide (Toru's icon set) through the `--ui-icon-*` tokens or
+  inline `<svg>`.
+- Contrast pairs from `styles.md` are checked in a real WebView2, not jsdom.
+- The theme file is written so it can later move out into its own package
+  for any Toru-styled UI SDK app. The whiteboard uses none of Toru's
+  shadcn `components/ui` files.
+
+## 5. Where it sits in Toru's Wails app
+
+- **Window:** a new Wails window, `/?view=whiteboard&id=<board>`, opened by
+  `WindowsService.OpenWhiteboard(id)` in `windows.go`; `App.tsx` routes it to
+  `routes/Whiteboard.tsx`. One window per open board.
+- **Front end:** `frontend/src/whiteboard/` holds the canvas primitive,
+  block catalog, ink primitive, theme CSS and the window's agent commands.
+  `@ui-sdk/core` and `@ui-sdk/react` pinned to exactly `0.1.0-beta.18`
+  (canvas behaviors are experimental and may change between betas).
+- **Go:** `internal/board` (document, op log, undo, `%AppData%\toru\boards\
+  <id>.toruboard`, like `internal/presets`), `agent_commands_boards.go`
+  (the board commands), a `BoardService` bound to the window that streams
+  ops both ways.
+- **Ways in:** a Whiteboards page in the main Toru window (list, new, open,
+  import), "New whiteboard" in the tray, and a "Send to whiteboard" action on
+  Library screenshots so a capture lands on a board as an image block.
+
+## 6. Build, split into cards
+
+In order. Cards 1 and 2 start when this plan is done; the rest wait on the
+card named.
+
+| # | Card | Waits for |
+| --- | --- | --- |
+| 1 | Whiteboard window and Toru's UI SDK theme | — |
+| 2 | Board document and store in Go | — |
+| 3 | Board canvas: pan, zoom, select, move, resize, connect | 1 |
+| 4 | Block catalog v1 | 3 |
+| 5 | Freehand ink block | 3 |
+| 6 | Board commands for agents over MCP | 2 |
+| 7 | Live board: window and Go in sync, undo, who-did-what | 4 |
+| 8 | Export and import | 7 |
+| 9 | Whiteboards page, tray entry and Send to whiteboard | 7 |
+| 10 | Brainstorm templates and auto-layout | 6 |
+| 11 | Shared boards between Toru installs | Stephen |
+
+Not built in this plan: agent-sent markup or custom code at runtime, SVG
+export, a light theme, an MCP port on the network.
