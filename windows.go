@@ -420,6 +420,22 @@ func (w *WindowsService) OpenWhiteboard(id string) {
 	win.Center()
 }
 
+// CloseWhiteboard closes board id's window if it is open (the board was
+// deleted).
+//
+//wails:ignore
+func (w *WindowsService) CloseWhiteboard(id string) {
+	if w.app == nil || id == "" {
+		return
+	}
+	name := "toru-whiteboard-" + id
+	for _, win := range w.app.Window.GetAll() {
+		if win.Name() == name {
+			win.Close()
+		}
+	}
+}
+
 // OpenClipEditor opens a saved instant-replay clip in the same editor
 // (play, trim, save, share). Clips live outside the /__file dirs, so the
 // player gets the replay service's served URL instead.

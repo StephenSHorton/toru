@@ -1,7 +1,9 @@
 import * as React from "react";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createAgent } from "@ui-sdk/react/agent";
 import { Button } from "@ui-sdk/react/button";
+import { Input } from "@ui-sdk/react/input";
+import { Window } from "@wailsio/runtime";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
 import {
@@ -15,7 +17,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
-import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PlusIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PencilIcon, PlusIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
@@ -86,6 +88,8 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      // The board's name field keeps its own text undo.
+      if ((event.target as Element | null)?.closest?.('[data-slot="board-name"]')) return;
       const key = event.key.toLowerCase();
       if (key === "z" && !event.shiftKey) {
         event.preventDefault();
@@ -98,6 +102,16 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
     window.addEventListener("keydown", keydown, true);
     return () => window.removeEventListener("keydown", keydown, true);
   }, [live]);
+
+  // The window's title follows the board's name.
+  const name = doc?.name;
+  useEffect(() => {
+    if (!name) return;
+    document.title = `Toru — ${name}`;
+    void Promise.resolve()
+      .then(() => Window.SetTitle(`Toru — ${name}`))
+      .catch(() => {}); // no Wails window (a check, or Vite alone)
+  }, [name]);
 
   useEffect(() => {
     const offSnapshot = registerAgentCommand(
@@ -194,6 +208,7 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         <ArrangeCommand live={live} />
         <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
       </Board>
+      {doc && <BoardName name={doc.name} onRename={(next) => live.rename(next)} />}
       {error && (
         <div role="alert" data-slot="board-error" className="frost absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 px-3 py-2">
           {error}
@@ -203,6 +218,60 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         </div>
       )}
       <AskPerson api={askPerson} />
+    </div>
+  );
+}
+
+/**
+ * The board's name, top left. Its pencil (or a click on the name) turns it
+ * into a field: Enter or leaving it renames the board, as one undoable
+ * change; Escape keeps the old name.
+ */
+function BoardName({ name, onRename }: { name: string; onRename: (name: string) => Promise<boolean> }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const finish = (save: boolean) => {
+    if (draft === null) return;
+    const next = draft.trim();
+    setDraft(null);
+    if (save && next && next !== name) void onRename(next);
+  };
+  return (
+    <div
+      data-slot="board-name"
+      className="frost absolute top-3 left-3 flex max-w-[22rem] items-center gap-1 py-1 pr-1 pl-3"
+      onWheel={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      style={{ cursor: "default" }}
+    >
+      {draft === null ? (
+        <>
+          <h1
+            className="min-w-0 truncate text-sm font-semibold"
+            title={`${name} (click to rename)`}
+            onDoubleClick={() => setDraft(name)}
+          >
+            {name}
+          </h1>
+          <Button aria-label="Rename board" title="Rename board" onClick={() => setDraft(name)}>
+            <PencilIcon aria-hidden="true" />
+          </Button>
+        </>
+      ) : (
+        <Input
+          autoFocus
+          aria-label="Board name"
+          maxLength={120}
+          value={draft}
+          onValueChange={(v: string) => setDraft(v)}
+          onFocus={(e: FocusEvent<HTMLInputElement>) => e.target.select()}
+          onBlur={() => finish(true)}
+          onKeyDown={(e: ReactKeyboardEvent<HTMLInputElement>) => {
+            e.stopPropagation();
+            if (e.key === "Enter") finish(true);
+            if (e.key === "Escape") finish(false);
+          }}
+        />
+      )}
     </div>
   );
 }

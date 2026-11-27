@@ -174,3 +174,44 @@ func TestWhiteboardsSendScreenshot(t *testing.T) {
 		t.Errorf("%d boards, want 2", len(list))
 	}
 }
+
+// Renaming is the person's undoable op; deleting removes the file and
+// closes the board's window; both tell windows the boards changed.
+func TestWhiteboardsRenameAndDelete(t *testing.T) {
+	s, _, events := newWhiteboards(t)
+	var closed []string
+	s.close = func(id string) { closed = append(closed, id) }
+	b, err := s.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	*events = nil
+	if _, err := s.Rename(b.ID, "   "); err == nil {
+		t.Error("an empty name was taken")
+	}
+	got, err := s.Rename(b.ID, "  Sprint plan ")
+	if err != nil || got.Name != "Sprint plan" {
+		t.Fatalf("Rename = %+v, %v", got, err)
+	}
+	if _, err := s.boards.Undo(b.ID, board.Person); err != nil {
+		t.Fatal(err)
+	}
+	if back, _ := s.boards.Load(b.ID); back.Name != "Untitled whiteboard" {
+		t.Errorf("after undo the name is %q", back.Name)
+	}
+	if err := s.Delete(b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := s.List(); len(list) != 0 {
+		t.Errorf("after delete the boards are %v", list)
+	}
+	if !slices.Equal(closed, []string{b.ID}) {
+		t.Errorf("closed %v, want the board's window", closed)
+	}
+	if !slices.Equal(*events, []string{evBoardsChanged, evBoardsChanged}) {
+		t.Errorf("events %v, want boards:changed after rename and delete", *events)
+	}
+	if err := s.Delete(b.ID); err == nil {
+		t.Error("deleting a deleted board worked")
+	}
+}

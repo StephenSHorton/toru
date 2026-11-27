@@ -25,6 +25,14 @@ export function Create(name: string): $CancellablePromise<board$0.Summary> {
 }
 
 /**
+ * Delete removes a board and its file for good, closing its window if it
+ * is open. The Whiteboards page asks the person first.
+ */
+export function Delete(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3203529794, id);
+}
+
+/**
  * List is every board, most recently changed first. A board whose file
  * can't be read is listed with its error.
  */
@@ -50,6 +58,16 @@ export function PickImport(): $CancellablePromise<[board$0.Summary, boolean]> {
     return $Call.ByID(2491885693).then(($result: any) => {
         $result[0] = $$createType0($result[0]);
         return $result;
+    });
+}
+
+/**
+ * Rename gives a board a new name, as the person. It is an op like any
+ * other, so an open board window shows it and it can be undone there.
+ */
+export function Rename(id: string, name: string): $CancellablePromise<board$0.Summary> {
+    return $Call.ByID(392613819, id, name).then(($result: any) => {
+        return $$createType0($result);
     });
 }
 

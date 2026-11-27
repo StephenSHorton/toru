@@ -360,6 +360,26 @@ class LiveBoard {
     return del.length || Object.keys(lists).length ? op : null
   }
 
+  /**
+   * Gives the board a new name, as the person: one op, after what's
+   * pending, so it undoes like any other change. Resolves to whether Go took it.
+   */
+  rename(name: string): Promise<boolean> {
+    const run = this.chain.then(async () => {
+      name = name.trim()
+      if (this.stopped || !this.doc || !name || name === this.doc.name) return false
+      try {
+        this.receive(await this.link.apply(this.id, { source: "person", name }))
+        return true
+      } catch (err) {
+        this.set({ error: `Couldn't rename the board: ${message(err)}` })
+        return false
+      }
+    })
+    this.chain = run.then(() => undefined)
+    return run
+  }
+
   /** Takes back the board's latest change, whoever made it, after sending what's pending. */
   undo() {
     return this.step("undo")

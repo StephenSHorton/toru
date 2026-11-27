@@ -29,7 +29,9 @@ type WhiteboardsService struct {
 	boards *board.Store
 	images *board.ImageService
 	open   func(id string)
-	emit   func(name string, data any)
+	// close shuts a board's window if it is open (after a delete).
+	close func(id string)
+	emit  func(name string, data any)
 }
 
 // List is every board, most recently changed first. A board whose file
@@ -57,6 +59,37 @@ func (s *WhiteboardsService) Open(id string) {
 	if s.open != nil {
 		s.open(id)
 	}
+}
+
+// Rename gives a board a new name, as the person. It is an op like any
+// other, so an open board window shows it and it can be undone there.
+func (s *WhiteboardsService) Rename(id, name string) (board.Summary, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return board.Summary{}, errors.New("a board needs a name")
+	}
+	if _, err := s.boards.Rename(id, name, board.Person); err != nil {
+		return board.Summary{}, err
+	}
+	b, err := s.boards.Load(id)
+	if err != nil {
+		return board.Summary{}, err
+	}
+	s.changed()
+	return summary(b), nil
+}
+
+// Delete removes a board and its file for good, closing its window if it
+// is open. The Whiteboards page asks the person first.
+func (s *WhiteboardsService) Delete(id string) error {
+	if err := s.boards.Delete(id); err != nil {
+		return err
+	}
+	if s.close != nil {
+		s.close(id)
+	}
+	s.changed()
+	return nil
 }
 
 // PickImport asks for a .toruboard file, adds it as a board and opens it.
@@ -191,8 +224,8 @@ func (s *WhiteboardsService) freeName() string {
 	return name
 }
 
-// changed tells windows a board was made (boards:changed), as the agents'
-// board.create does.
+// changed tells windows a board was made, renamed or deleted
+// (boards:changed), as the agents' board.create and board.delete do.
 func (s *WhiteboardsService) changed() {
 	if s.emit != nil {
 		s.emit(evBoardsChanged, nil)
