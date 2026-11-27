@@ -6,6 +6,7 @@
 import * as React from "react";
 import { Button } from "@ui-sdk/react/button";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
 import { FileInput, FileInputDropzone, FileInputTrigger } from "@ui-sdk/react/file-input";
 import { Input } from "@ui-sdk/react/input";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@ui-sdk/react/popover";
@@ -13,10 +14,22 @@ import { Radio, RadioGroup, RadioIndicator } from "@ui-sdk/react/radio";
 import { Rating, RatingItem } from "@ui-sdk/react/rating";
 import { Textarea } from "@ui-sdk/react/textarea";
 import { TokenInput, TokenInputEditor, type TokenInputValue } from "@ui-sdk/react/token-input";
-import { ArrowDownIcon, ArrowUpIcon, CheckIcon, ImageIcon, PlusIcon, StarIcon } from "lucide-react";
 import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CheckIcon,
+  ImageIcon,
+  PencilIcon,
+  PlusIcon,
+  StarIcon,
+  XIcon,
+} from "lucide-react";
+import {
+  blockColors,
   blockLabel,
   checkProps,
+  excerpt,
+  type BlockColor,
   type BlockPropsByType,
   type BlockType,
   type CardProps,
@@ -50,22 +63,127 @@ const changeOf = (details: unknown): PropsChange => {
   return { source: d.source, reason: d.reason };
 };
 
-/** A text a schema needs non-empty: shown as typed, kept only once it has words. */
-function useRequiredText(value: string, commit: (next: string, details: PropsChange) => boolean) {
+/**
+ * A text a schema needs non-empty: shown as typed, kept only once it has
+ * words. `held` names other texts that show as typed but aren't kept, like a
+ * poll option that, half typed, matches another option.
+ */
+function useRequiredText(
+  value: string,
+  commit: (next: string, details: PropsChange) => boolean,
+  held?: (next: string) => boolean,
+) {
   const [draft, setDraft] = React.useState(value);
   React.useEffect(() => setDraft(value), [value]);
   return {
     value: draft,
     onValueChange: (next: string, details: unknown) => {
-      if (!next.trim() || commit(next, changeOf(details))) setDraft(next);
+      if (!next.trim() || held?.(next) || commit(next, changeOf(details))) setDraft(next);
     },
     onBlur: () => setDraft(value),
   };
 }
 
+/** One input for a name a schema needs non-empty, like a poll option or a column. */
+function NameInput({
+  label,
+  value,
+  maxLength,
+  taken,
+  commit,
+}: {
+  label: string;
+  value: string;
+  maxLength: number;
+  /** Names already used by its neighbours: typed, shown, not kept. */
+  taken: string[];
+  commit: (next: string, details: PropsChange) => boolean;
+}) {
+  const text = useRequiredText(value, commit, (next) => taken.includes(nameKey(next)));
+  return <Input aria-label={label} maxLength={maxLength} {...text} />;
+}
+
+/** A name typed into a field and added with Enter or its button, like a new poll option. */
+function AddField({
+  inputLabel,
+  buttonLabel,
+  placeholder,
+  maxLength,
+  disabled,
+  add,
+}: {
+  inputLabel: string;
+  buttonLabel: string;
+  placeholder: string;
+  maxLength: number;
+  disabled?: boolean;
+  /** True when the name was added. */
+  add: (text: string, details: PropsChange) => boolean;
+}) {
+  const [draft, setDraft] = React.useState("");
+  const submit = (details: PropsChange) => {
+    const text = draft.trim();
+    if (text && add(text, details)) setDraft("");
+  };
+  return (
+    <div data-slot="block-add">
+      <Input
+        aria-label={inputLabel}
+        maxLength={maxLength}
+        placeholder={placeholder}
+        disabled={disabled}
+        value={draft}
+        onValueChange={(v) => setDraft(v)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") submit({ source: "person" });
+        }}
+      />
+      <Button aria-label={buttonLabel} onClick={() => submit({})} disabled={disabled || !draft.trim()}>
+        <PlusIcon aria-hidden="true" />
+      </Button>
+    </div>
+  );
+}
+
+/** Two names that differ only in case or spacing at the ends name the same thing. */
+const nameKey = (name: string) => name.trim().toLowerCase();
+
+const colorName = (c: string) => c.charAt(0).toUpperCase() + c.slice(1);
+
+/** The catalog's colours as a row of swatches; it shows while the block is selected or hovered. */
+function ColorSwatches({
+  label,
+  value,
+  onColor,
+}: {
+  label: string;
+  value: string;
+  onColor: (color: BlockColor, details: PropsChange) => boolean;
+}) {
+  return (
+    <RadioGroup
+      aria-label={label}
+      data-part="block-swatches"
+      value={value}
+      onValueChange={(next, details) => {
+        if (next != null) onColor(String(next) as BlockColor, changeOf(details));
+      }}
+    >
+      {blockColors.map((c) => (
+        <Radio key={c} value={c} aria-label={colorName(c)} title={colorName(c)} data-color={c} />
+      ))}
+    </RadioGroup>
+  );
+}
+
 function Sticky({ label, props, onProps }: BlockRenderProps<StickyProps>) {
   return (
     <div data-slot="block-sticky" data-color={props.color ?? "yellow"}>
+      <ColorSwatches
+        label={`Sticky colour: ${excerpt(props.text)}`}
+        value={props.color ?? "yellow"}
+        onColor={(color, d) => onProps({ ...props, color }, d)}
+      />
       <Textarea
         aria-label={label}
         maxLength={10000}
@@ -104,6 +222,11 @@ function Card({ props, onProps }: BlockRenderProps<CardProps>) {
         placeholder="Notes"
         value={props.body ?? ""}
         onValueChange={(body, details) => onProps({ ...props, body }, changeOf(details))}
+      />
+      <ColorSwatches
+        label={`Card colour: ${props.title}`}
+        value={props.color ?? "grey"}
+        onColor={(color, d) => onProps({ ...props, color }, d)}
       />
     </div>
   );
@@ -145,6 +268,14 @@ function Checklist({ id, props, onProps }: BlockRenderProps<ChecklistProps>) {
               </Checkbox>
               <span>{item.text}</span>
             </label>
+            <Button
+              aria-label={`Remove item ${i + 1} from ${name}`}
+              data-part="block-remove"
+              data-agent-confirm={`Removes "${item.text}" from ${name}`}
+              onClick={() => onProps({ ...props, items: props.items.filter((_, j) => j !== i) }, {})}
+            >
+              <XIcon aria-hidden="true" />
+            </Button>
           </li>
         ))}
       </ul>
@@ -179,18 +310,70 @@ function Poll({ id, props, onProps }: BlockRenderProps<PollProps>) {
     });
     if (onProps({ ...props, options }, details)) setMine(picked);
   };
+  const others = (i: number) => props.options.filter((_, j) => j !== i).map((o) => nameKey(o.label));
+  const renameOption = (i: number, label: string, details: PropsChange) => {
+    const was = props.options[i].label;
+    if (others(i).includes(nameKey(label))) return false;
+    const ok = onProps({ ...props, options: props.options.map((o, j) => (j === i ? { ...o, label } : o)) }, details);
+    if (ok) setMine((m) => m.map((l) => (l === was ? label : l)));
+    return ok;
+  };
+  const addOption = (label: string, details: PropsChange) =>
+    !others(-1).includes(nameKey(label)) && onProps({ ...props, options: [...props.options, { label }] }, details);
+  const removeOption = (i: number) => {
+    const was = props.options[i].label;
+    if (onProps({ ...props, options: props.options.filter((_, j) => j !== i) }, {})) setMine((m) => m.filter((l) => l !== was));
+  };
   const bar = (votes = 0) => (
     <span data-slot="block-poll-bar" aria-hidden="true" style={{ "--share": total ? votes / total : 0 } as React.CSSProperties} />
   );
   const count = (votes = 0) => <span data-slot="block-count">{votes}</span>;
   return (
     <div data-slot="block-poll">
-      <div data-slot="block-heading">
-        <span>{props.question}</span>
-        <span data-slot="block-count">
-          {total} {total === 1 ? "vote" : "votes"}
-        </span>
-      </div>
+      <Collapsible data-part="block-edit">
+        <div data-slot="block-heading">
+          <span>{props.question}</span>
+          <span data-slot="block-count">
+            {total} {total === 1 ? "vote" : "votes"}
+          </span>
+          <CollapsibleTrigger aria-label={`Edit options of ${props.question}`}>
+            <PencilIcon aria-hidden="true" />
+            Options
+          </CollapsibleTrigger>
+        </div>
+        <CollapsiblePanel>
+          <ul data-slot="block-edit-list">
+            {props.options.map((o, i) => (
+              <li key={`${id}-edit-${i}`}>
+                <NameInput
+                  label={`Option ${i + 1} text in ${props.question}`}
+                  value={o.label}
+                  maxLength={200}
+                  taken={others(i)}
+                  commit={(label, d) => renameOption(i, label, d)}
+                />
+                <Button
+                  aria-label={`Remove option ${i + 1} from ${props.question}`}
+                  data-part="block-remove"
+                  data-agent-confirm={`Removes the option "${o.label}" and its ${o.votes ?? 0} ${o.votes === 1 ? "vote" : "votes"} from the poll "${props.question}"`}
+                  disabled={props.options.length <= 2}
+                  onClick={() => removeOption(i)}
+                >
+                  <XIcon aria-hidden="true" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <AddField
+            inputLabel={`New option for ${props.question}`}
+            buttonLabel={`Add option to ${props.question}`}
+            placeholder="Add an option"
+            maxLength={200}
+            disabled={props.options.length >= 20}
+            add={addOption}
+          />
+        </CollapsiblePanel>
+      </Collapsible>
       {props.multi ? (
         <ul data-slot="block-poll-options" aria-label={props.question}>
           {props.options.map((o) => (
@@ -216,7 +399,7 @@ function Poll({ id, props, onProps }: BlockRenderProps<PollProps>) {
         </ul>
       ) : (
         <RadioGroup
-          aria-label={props.question}
+          aria-label={`Vote in ${props.question}`}
           data-part="block-poll-options"
           value={mine[0] ?? null}
           onValueChange={(value, details) => vote(value == null ? [] : [String(value)], changeOf(details))}
@@ -288,11 +471,61 @@ function Table({ id, props, onProps }: BlockRenderProps<TableProps>) {
     });
     onProps({ ...props, rows: next }, details);
   };
+  // Each column names its cells and its sort button, so no two share a name.
+  const otherColumns = (c: number) => props.columns.filter((_, j) => j !== c).map(nameKey);
+  const renameColumn = (c: number, col: string, details: PropsChange) =>
+    !otherColumns(c).includes(nameKey(col)) &&
+    onProps({ ...props, columns: props.columns.map((x, j) => (j === c ? col : x)) }, details);
+  const addColumn = (col: string, details: PropsChange) =>
+    !otherColumns(-1).includes(nameKey(col)) && onProps({ ...props, columns: [...props.columns, col] }, details);
+  const removeColumn = (c: number) => {
+    const next: TableProps = { ...props, columns: props.columns.filter((_, j) => j !== c) };
+    if (props.rows) next.rows = rows.map((row) => row.filter((_, j) => j !== c));
+    if (onProps(next, {})) setSort(null);
+  };
   return (
     <div data-slot="block-table">
-      <div data-slot="block-heading">
-        <span>{name}</span>
-      </div>
+      <Collapsible data-part="block-edit">
+        <div data-slot="block-heading">
+          <span>{name}</span>
+          <CollapsibleTrigger aria-label={`Edit columns of ${name}`}>
+            <PencilIcon aria-hidden="true" />
+            Columns
+          </CollapsibleTrigger>
+        </div>
+        <CollapsiblePanel>
+          <ul data-slot="block-edit-list">
+            {props.columns.map((col, c) => (
+              <li key={`${id}-col-${c}`}>
+                <NameInput
+                  label={`Column ${c + 1} name in ${name}`}
+                  value={col}
+                  maxLength={80}
+                  taken={otherColumns(c)}
+                  commit={(next, d) => renameColumn(c, next, d)}
+                />
+                <Button
+                  aria-label={`Remove column ${c + 1} from ${name}`}
+                  data-part="block-remove"
+                  data-agent-confirm={`Removes the column "${col}" and every cell in it from ${name}`}
+                  disabled={props.columns.length <= 1}
+                  onClick={() => removeColumn(c)}
+                >
+                  <XIcon aria-hidden="true" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <AddField
+            inputLabel={`New column for ${name}`}
+            buttonLabel={`Add column to ${name}`}
+            placeholder="Add a column"
+            maxLength={80}
+            disabled={props.columns.length >= 12}
+            add={addColumn}
+          />
+        </CollapsiblePanel>
+      </Collapsible>
       <table>
         <thead>
           <tr>
@@ -400,48 +633,52 @@ function TagList({ props, onProps }: BlockRenderProps<TagListProps>) {
   );
 }
 
-function ImageBlock({ props, onProps }: BlockRenderProps<ImageProps>) {
+/** Where a picture comes from: a chosen or dropped file, or a Library screenshot. */
+function PicturePicker({
+  fileLabel,
+  libraryLabel,
+  drop,
+  onPicture,
+  onError,
+}: {
+  /** The file button's text, which names it for agents. */
+  fileLabel: string;
+  libraryLabel: string;
+  /** Show a drop zone around the file button (the empty block). */
+  drop: boolean;
+  onPicture: (load: () => Promise<BoardImage>, alt: string, details: PropsChange) => void;
+  onError: (message: string) => void;
+}) {
   const images = useBoardImages();
-  const [error, setError] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
   const [shots, setShots] = React.useState<LibraryShot[] | null>(null);
-  const place = async (load: () => Promise<BoardImage>, alt: string, details: PropsChange) => {
-    setBusy(true);
-    setError("");
-    try {
-      const img = await load();
-      onProps({ ...props, asset: img.asset, alt: props.alt || alt }, details);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (props.asset) {
-    return (
-      <figure data-slot="block-image" data-fit={props.fit ?? "contain"}>
-        <img src={images.url(props.asset)} alt={props.alt ?? ""} draggable={false} />
-        {props.caption && <figcaption>{props.caption}</figcaption>}
-      </figure>
-    );
-  }
+  // On a filled block the buttons sit over the picture, so they show a short
+  // word and carry their full name for agents and screen readers.
+  const trigger = drop ? (
+    <FileInputTrigger>{fileLabel}</FileInputTrigger>
+  ) : (
+    <FileInputTrigger aria-label={fileLabel}>Replace</FileInputTrigger>
+  );
   return (
-    <div data-slot="block-image-empty" aria-busy={busy || undefined}>
+    <>
       <FileInput
         accept={["image/png", "image/jpeg", "image/gif", "image/webp"]}
         maxSize={32 << 20}
         value={[]}
         onValueChange={(files, details) => {
           const file = files[0];
-          if (file) void place(() => images.importFile(file), file.name.replace(/\.[^.]+$/, ""), changeOf(details));
+          if (file) onPicture(() => images.importFile(file), file.name.replace(/\.[^.]+$/, ""), changeOf(details));
         }}
-        onReject={() => setError("That file isn't a PNG, JPEG, GIF or WebP picture under 32 MB.")}
+        onReject={() => onError("That file isn't a PNG, JPEG, GIF or WebP picture under 32 MB.")}
       >
-        <FileInputDropzone data-part="block-image-drop">
-          <ImageIcon aria-hidden="true" />
-          <span>Drop a picture here</span>
-          <FileInputTrigger>Choose picture file</FileInputTrigger>
-        </FileInputDropzone>
+        {drop ? (
+          <FileInputDropzone data-part="block-image-drop">
+            <ImageIcon aria-hidden="true" />
+            <span>Drop a picture here</span>
+            {trigger}
+          </FileInputDropzone>
+        ) : (
+          trigger
+        )}
       </FileInput>
       <Popover
         onOpenChange={(open) => {
@@ -449,11 +686,15 @@ function ImageBlock({ props, onProps }: BlockRenderProps<ImageProps>) {
           setShots(null);
           images.library().then(setShots, (err) => {
             setShots([]);
-            setError(err instanceof Error ? err.message : "The Library isn't available here.");
+            onError(err instanceof Error ? err.message : "The Library isn't available here.");
           });
         }}
       >
-        <PopoverTrigger>Pick from Library</PopoverTrigger>
+        {drop ? (
+          <PopoverTrigger>{libraryLabel}</PopoverTrigger>
+        ) : (
+          <PopoverTrigger aria-label={libraryLabel}>Library</PopoverTrigger>
+        )}
         <PopoverContent className="frost" data-part="block-library">
           <PopoverTitle>Library screenshots</PopoverTitle>
           {shots === null ? (
@@ -466,7 +707,7 @@ function ImageBlock({ props, onProps }: BlockRenderProps<ImageProps>) {
                 <li key={s.id}>
                   <Button
                     aria-label={`Use screenshot ${s.label || s.id}`}
-                    onClick={() => void place(() => images.importLibrary(s.id), s.label, {})}
+                    onClick={() => onPicture(() => images.importLibrary(s.id), s.label, {})}
                   >
                     <img src={s.url} alt="" />
                     <span>{s.label}</span>
@@ -477,6 +718,58 @@ function ImageBlock({ props, onProps }: BlockRenderProps<ImageProps>) {
           )}
         </PopoverContent>
       </Popover>
+    </>
+  );
+}
+
+function ImageBlock({ props, onProps }: BlockRenderProps<ImageProps>) {
+  const images = useBoardImages();
+  const [error, setError] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const place = async (load: () => Promise<BoardImage>, alt: string, details: PropsChange) => {
+    setBusy(true);
+    setError("");
+    try {
+      const img = await load();
+      // A new picture in a filled block takes the new picture's name as its
+      // description, since the old one described the old picture.
+      const next = { ...props, asset: img.asset, alt: props.asset ? alt || props.alt : props.alt || alt };
+      if (!next.alt) delete next.alt;
+      onProps(next, details);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (props.asset) {
+    const what = props.alt?.trim() || props.caption?.trim() || "image";
+    return (
+      <figure data-slot="block-image" data-fit={props.fit ?? "contain"} aria-busy={busy || undefined}>
+        <img src={images.url(props.asset)} alt={props.alt ?? ""} draggable={false} />
+        {props.caption && <figcaption>{props.caption}</figcaption>}
+        <div data-slot="block-image-replace">
+          <PicturePicker
+            fileLabel={`New picture file for ${excerpt(what)}`}
+            libraryLabel={`New picture from Library for ${excerpt(what)}`}
+            drop={false}
+            onPicture={(load, alt, d) => void place(load, alt, d)}
+            onError={setError}
+          />
+        </div>
+        {error && <p data-slot="block-error">{error}</p>}
+      </figure>
+    );
+  }
+  return (
+    <div data-slot="block-image-empty" aria-busy={busy || undefined}>
+      <PicturePicker
+        fileLabel="Choose picture file"
+        libraryLabel="Pick from Library"
+        drop
+        onPicture={(load, alt, d) => void place(load, alt, d)}
+        onError={setError}
+      />
       {error && <p data-slot="block-error">{error}</p>}
     </div>
   );
@@ -488,6 +781,11 @@ function Frame({ props, onProps }: BlockRenderProps<FrameProps>) {
     <div data-slot="block-frame" data-color={props.color ?? "grey"}>
       <div data-slot="block-frame-name">
         <Input aria-label={`Frame name: ${props.name}`} maxLength={120} {...name} />
+        <ColorSwatches
+          label={`Frame colour: ${props.name}`}
+          value={props.color ?? "grey"}
+          onColor={(color, d) => onProps({ ...props, color }, d)}
+        />
       </div>
     </div>
   );

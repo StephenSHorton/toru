@@ -75,8 +75,18 @@ const images: BoardImages = {
   },
 };
 
-// The bridge is made before the board renders, as the window makes it.
-const agent = createAgent();
+// The bridge is made before the board renders, as the window makes it. Its
+// allow stands in for the person: a step on a control marked
+// data-agent-confirm runs only while personSays is true.
+let personSays = false;
+const asked: string[] = [];
+const agent = createAgent({
+  allow: (step) => {
+    if (!step.confirm) return true;
+    asked.push(step.confirm);
+    return personSays;
+  },
+});
 const changes: { id: string; source?: string }[] = [];
 // The sample board, and a poll that takes several picks.
 const startBlocks: Blocks = {
@@ -145,17 +155,72 @@ const props = (id: string) => current[id].props as Record<string, any>;
     sticky: ["Sticky note: Send a screenshot straight to a board", "Sticky note: Quick polls to settle small decisions"],
     text: ["Text: Toru whiteboard: launch plan"],
     card: ["Card title: Ship the block catalog", "Card notes: Ship the block catalog"],
-    checklist: ["Write the catalog", "Agent-ready tests", "New item for Before launch", "Add to Before launch"],
-    poll: ["Which block next?"],
+    checklist: ["Write the catalog", "Agent-ready tests", "New item for Before launch", "Add to Before launch", "Remove item 3 from Before launch"],
+    poll: ["Vote in Which block next?", "Edit options of Which block next?"],
     rating: ["Rate How useful is this board?"],
-    table: ["Owners row 1 Task", "Owners row 3 Due", "Sort Owners by Owner", "Add row to Owners"],
+    table: ["Owners row 1 Task", "Owners row 3 Due", "Sort Owners by Owner", "Add row to Owners", "Edit columns of Owners"],
     "tag-list": ["Tags in Themes"],
-    image: ["Choose picture file", "Pick from Library"],
-    frame: ["Frame name: Ideas"],
+    image: ["Choose picture file", "Pick from Library", "New picture file for Test card screenshot", "New picture from Library for Test card screenshot"],
+    frame: ["Frame name: Ideas", "Frame colour: Ideas"],
+    colour: ["Sticky colour: Send a screenshot straight to a board", "Card colour: Ship the block catalog"],
   };
   for (const [type, names] of Object.entries(want)) {
     for (const name of names) ok(`snapshot names the ${type} control "${name}"`, labels.includes(name), labels);
   }
+  // The bridge finds a control by whole words of its name, so no control's
+  // words may all be in another's.
+  const words = (l: string) => new Set(l.toLowerCase().split(/[^\p{L}\p{N}-]+/u).filter(Boolean));
+  const controls = snap.filter((c) => c.label && c.component !== "board");
+  for (const a of controls) {
+    for (const b of controls) {
+      if (a === b) continue;
+      const wb = words(b.label!);
+      ok(`"${a.label}" isn't inside "${b.label}"`, ![...words(a.label!)].every((w) => wb.has(w)));
+    }
+  }
+}
+
+// ── with the edit panels open, the names still hold ──────────────────
+{
+  await agent.act({
+    steps: [
+      { ref: "Edit options of Which block next?", action: "press" },
+      { ref: "Edit options of Which days work?", action: "press" },
+      { ref: "Edit columns of Owners", action: "press" },
+    ],
+  });
+  await settle();
+  const snap = snapshot();
+  ok("with the panels open the snapshot still fits the bridge", !snap.some((c) => c.component === "more"), snap.length);
+  const labels = snap.map((c) => c.label);
+  for (const name of [
+    "Option 1 text in Which block next?",
+    "Remove option 3 from Which block next?",
+    "New option for Which block next?",
+    "Add option to Which block next?",
+    "Option 2 text in Which days work?",
+    "Column 1 name in Owners",
+    "Remove column 3 from Owners",
+    "New column for Owners",
+    "Add column to Owners",
+  ]) {
+    ok(`an open panel shows "${name}"`, labels.includes(name), labels);
+  }
+  const words = (l: string) => new Set(l.toLowerCase().split(/[^\p{L}\p{N}-]+/u).filter(Boolean));
+  const controls = snap.filter((c) => c.label && c.component !== "board");
+  for (const a of controls) {
+    for (const b of controls) {
+      if (a === b) continue;
+      const wb = words(b.label!);
+      ok(`open: "${a.label}" isn't inside "${b.label}"`, ![...words(a.label!)].every((w) => wb.has(w)));
+    }
+  }
+  const removes = snap.filter((c) => /^Remove /.test(c.label ?? ""));
+  ok(
+    "every remove control (3 items, 5 options, 3 columns) is marked for a person",
+    removes.length === 11 && removes.every((c) => !!c.confirm),
+    removes.map((c) => [c.label, c.confirm]),
+  );
 }
 
 // ── act fills every type ──────────────────────────────────────────────
@@ -188,15 +253,72 @@ ok(
   props("checklist"),
 );
 
-await run("poll vote", [{ ref: "Which block next?", action: "setValue", args: ["Timer"] }]);
+await run("poll vote", [{ ref: "Vote in Which block next?", action: "setValue", args: ["Timer"] }]);
 ok("poll vote counted", props("poll").options[1].votes === 2, props("poll").options);
-await run("poll change of mind", [{ ref: "Which block next?", action: "setValue", args: ["Kanban column"] }]);
+await run("poll change of mind", [{ ref: "Vote in Which block next?", action: "setValue", args: ["Kanban column"] }]);
 ok("poll vote moved", props("poll").options[1].votes === 1 && props("poll").options[0].votes === 4, props("poll").options);
 await run("multi-choice poll", [
   { ref: "Vote Mon in Which days work?", action: "toggle" },
   { ref: "Vote Tue in Which days work?", action: "toggle" },
 ]);
 ok("multi-choice poll counts each pick", props("poll-multi").options[0].votes === 1 && props("poll-multi").options[1].votes === 2, props("poll-multi").options);
+
+// ── poll options: add, rename, remove ──────────────────────────────────
+await run("poll option added", [
+  { ref: "New option for Which block next?", action: "setValue", args: ["Timer v2"] },
+  { ref: "Add option to Which block next?", action: "press" },
+]);
+ok("poll has a fourth option", props("poll").options.length === 4 && props("poll").options[3].label === "Timer v2", props("poll").options);
+await run("poll option renamed", [{ ref: "Option 2 text in Which block next?", action: "setValue", args: ["Countdown timer"] }]);
+ok("poll option renamed, votes kept", props("poll").options[1].label === "Countdown timer" && props("poll").options[1].votes === 1, props("poll").options);
+// Another option's name shows as typed (so typing "Timer 2" past "Timer"
+// doesn't stick) but isn't kept, like an emptied one.
+await run("typing another option's name", [{ ref: "Option 4 text in Which block next?", action: "setValue", args: ["Kanban column"] }]);
+ok("another option's name isn't kept", props("poll").options[3].label === "Timer v2", props("poll").options);
+await run("adding an option the poll has is refused", [
+  { ref: "New option for Which block next?", action: "setValue", args: ["timer v2"] },
+  { ref: "Add option to Which block next?", action: "press" },
+]);
+ok("no second Timer v2", props("poll").options.length === 4, props("poll").options);
+await run("clear the refused new option", [{ ref: "New option for Which block next?", action: "setValue", args: [""] }]);
+// An emptied name shows as typed but isn't kept, as with a card title.
+await run("emptying a poll option", [{ ref: "Option 4 text in Which block next?", action: "setValue", args: [""] }]);
+ok("the refused names left the poll alone", props("poll").options[3].label === "Timer v2", props("poll").options);
+asked.length = 0;
+await run("removing a poll option needs the person", [{ ref: "Remove option 4 from Which block next?", action: "press" }], false);
+ok("the person was asked about the option", asked.length === 1 && asked[0].includes('"Timer v2"'), asked);
+ok("a refused removal keeps the option", props("poll").options.length === 4, props("poll").options);
+personSays = true;
+await run("poll option removed with the person's yes", [{ ref: "Remove option 4 from Which block next?", action: "press" }]);
+personSays = false;
+ok("poll back to three options", props("poll").options.map((o: any) => o.label).join() === "Kanban column,Countdown timer,Code snippet", props("poll").options);
+await run("a vote still lands after renaming", [{ ref: "Vote in Which block next?", action: "setValue", args: ["Countdown timer"] }]);
+ok("vote moved to the renamed option", props("poll").options[1].votes === 2 && props("poll").options[0].votes === 3, props("poll").options);
+
+// ── checklist items: remove, with the person's yes ─────────────────────
+asked.length = 0;
+await run("removing a checklist item needs the person", [{ ref: "Remove item 2 from Before launch", action: "press" }], false);
+ok("the person was asked about the item", asked.length === 1 && asked[0].includes('"Render every block"'), asked);
+ok("a refused removal keeps the item", props("checklist").items.length === 4, props("checklist").items);
+personSays = true;
+await run("checklist item removed with the person's yes", [{ ref: "Remove item 2 from Before launch", action: "press" }]);
+personSays = false;
+ok(
+  "checklist lost only that item",
+  props("checklist").items.map((i: any) => i.text).join() === "Write the catalog,Agent-ready tests,Write the docs",
+  props("checklist").items,
+);
+
+// ── colours: sticky, card, frame ──────────────────────────────────────
+await run("sticky colour", [{ ref: "Sticky colour: Quick polls", action: "setValue", args: ["blue"] }]);
+ok("sticky is blue", props("idea-polls").color === "blue", props("idea-polls"));
+ok("sticky shows blue", document.querySelector('[data-block="idea-polls"] [data-slot="block-sticky"]')?.getAttribute("data-color") === "blue");
+await run("card colour by name", [{ ref: "Card colour: Ship it", action: "setValue", args: ["Orange"] }]);
+ok("card is orange", props("card-ship").color === "orange", props("card-ship"));
+await run("frame colour", [{ ref: "Frame colour: Ideas", action: "setValue", args: ["green"] }]);
+ok("frame is green", props("frame-ideas").color === "green", props("frame-ideas"));
+await run("a colour outside the catalog is refused", [{ ref: "Frame colour: Ideas", action: "setValue", args: ["red"] }], false);
+ok("frame stays green", props("frame-ideas").color === "green", props("frame-ideas"));
 
 // Props Go would refuse don't reach the board: a card title over 200 characters.
 await run("a card title too long for the catalog is refused", [{ ref: "Card title: Ship it", action: "setValue", args: ["x".repeat(201)] }], false);
@@ -217,6 +339,36 @@ ok(
   props("table").rows,
 );
 ok("sorting leaves the stored rows alone", props("table").rows[0][0] === "Catalog", props("table").rows);
+
+// ── table columns: add, rename, remove ─────────────────────────────────
+await run("table column added", [
+  { ref: "New column for Owners", action: "setValue", args: ["Status"] },
+  { ref: "Add column to Owners", action: "press" },
+  { ref: "Owners row 1 Status", action: "setValue", args: ["Done"] },
+]);
+ok(
+  "table has a Status column",
+  props("table").columns.join() === "Task,Owner,Due,Status" && props("table").rows[0][3] === "Done",
+  props("table"),
+);
+await run("table column renamed", [{ ref: "Column 3 name in Owners", action: "setValue", args: ["Deadline"] }]);
+ok("column renamed, cells kept", props("table").columns[2] === "Deadline" && props("table").rows[0][2] === "Fri", props("table"));
+await run("emptying a column name", [{ ref: "Column 3 name in Owners", action: "setValue", args: [""] }]);
+await run("typing another column's name", [{ ref: "Column 3 name in Owners", action: "setValue", args: ["Task"] }]);
+ok("an emptied column name isn't kept", props("table").columns[2] === "Deadline", props("table").columns);
+asked.length = 0;
+await run("removing a column needs the person", [{ ref: "Remove column 2 from Owners", action: "press" }], false);
+ok("the person was asked about the column", asked.length === 1 && asked[0].includes('"Owner"'), asked);
+personSays = true;
+await run("column removed with the person's yes", [{ ref: "Remove column 2 from Owners", action: "press" }]);
+personSays = false;
+ok(
+  "the column and its cells are gone",
+  props("table").columns.join() === "Task,Deadline,Status" &&
+    props("table").rows[0].join() === "Catalog,Fri,Done" &&
+    props("table").rows[1].join() === "Live sync,Mon",
+  props("table"),
+);
 
 await run("tag list", [{ ref: "Tags in Themes", action: "setValue", args: [["speed, agents, ux"]] }]);
 ok("tags set from text", JSON.stringify(props("tags").items) === '["speed","agents","ux"]', props("tags"));
@@ -240,6 +392,20 @@ ok(
   props("image-empty"),
 );
 ok("images imported through the service", imported.join() === "file:whiteboard shot.png,library:shot1", imported);
+
+// A filled image block takes a new picture, from a file...
+const png2 = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "editor timeline.png", { type: "image/png" });
+await run("new picture from a file", [{ ref: "New picture file for Test card screenshot", action: "addFiles", args: [[png2]] }]);
+ok(
+  "the filled block shows the new file",
+  props("image").asset === picture.asset && props("image").alt === "editor timeline" && props("image").caption === "Library screenshot",
+  props("image"),
+);
+// ...or from the Library.
+await run("open the Library picker on a filled block", [{ ref: "New picture from Library for editor timeline", action: "press" }]);
+await run("new picture from the Library", [{ ref: "Use screenshot Shot of the editor", action: "press" }]);
+ok("the filled block shows the Library shot", props("image").asset === `${"b".repeat(64)}.png` && props("image").alt === "Shot of the editor", props("image"));
+ok("replacements imported through the service", imported.slice(2).join() === "file:editor timeline.png,library:shot1", imported);
 
 // A button's press carries no change details; every control that has them says "agent".
 ok(

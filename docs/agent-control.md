@@ -193,7 +193,10 @@ board windows as a `board:op` event:
 `board.snapshot` and `board.act` (the window's live controls, through UI
 SDK's `createAgent`) are the board window's own commands while it is open:
 `board.act` fills its blocks as a person would (type in a sticky, tick a
-checklist item, vote in a poll, set a table cell or a rating).
+checklist item, vote in a poll, set a table cell or a rating, change a
+colour, rename or add poll options and table columns, give an image block a
+new picture). Removing a checklist item, poll option or table column is
+marked `data-agent-confirm`: it needs the person.
 
 ## Work split (cards under #1)
 
