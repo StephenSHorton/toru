@@ -5,7 +5,7 @@
 // synthetic input only: it never moves the real mouse or takes focus.
 //
 //   bunx vite --host 127.0.0.1 --port 47830          # in another terminal
-//   bun scripts/board-perf.ts --cdp 9339 --board <file.toruboard> [--url http://127.0.0.1:47830] [--runs 3] [--only pan,zoom] [--no-profile] [--json out.json]
+//   bun scripts/board-perf.ts --cdp 9339 --board <file.toruboard> [--url http://127.0.0.1:47830] [--runs 3] [--only pan,zoom] [--no-profile] [--theme light|dark] [--json out.json]
 //
 // --cdp is the port of a WebView2 (or Edge) started with
 // --remote-debugging-port. For WebView2, a tiny Wails app with that browser
@@ -29,6 +29,8 @@ const base = arg("url", "http://127.0.0.1:47830")!.replace(/\/$/, "");
 const boardFile = arg("board");
 const runs = Number(arg("runs", "3"));
 const jsonOut = arg("json");
+// The whiteboard theme to measure in (light, the default, or dark).
+const theme = arg("theme");
 const only = arg("only")?.split(",");
 // The CPU profiler's sampling can itself cost a frame now and then; leave it
 // off for clean frame times.
@@ -85,7 +87,7 @@ if (boardFile) {
 // Opens the board afresh, fitted to the window, as each action starts.
 async function load() {
   const loaded = new Promise<void>((ok) => listeners.push((m) => m === "Page.loadEventFired" && ok()));
-  await send("Page.navigate", { url: `${base}/board-perf.html` });
+  await send("Page.navigate", { url: `${base}/board-perf.html${theme ? `?theme=${theme}` : ""}` });
   await loaded;
   // The board fits itself to the window once it has a size; let it settle.
   for (let i = 0; i < 50 && !(await evaluate<boolean>(`!!document.querySelector('[data-slot="board-block"]')`)); i++) await sleep(100);
@@ -93,7 +95,8 @@ async function load() {
 }
 await load();
 
-const info = await evaluate<{ w: number; h: number; dpr: number; blocks: number; lines: number; ink: number }>(`({
+const info = await evaluate<{ w: number; h: number; dpr: number; blocks: number; lines: number; ink: number; theme?: string }>(`({
+  theme: document.documentElement.dataset.theme,
   w: innerWidth, h: innerHeight, dpr: devicePixelRatio,
   blocks: document.querySelectorAll('[data-slot="board-block"]:not([data-ink])').length,
   lines: document.querySelectorAll('path[data-slot="board-line"]').length,
@@ -103,7 +106,7 @@ const info = await evaluate<{ w: number; h: number; dpr: number; blocks: number;
 const idle = await evaluate<number[]>(`(async () => { __perf.start(); await new Promise(r => setTimeout(r, 1000)); return __perf.stop(); })()`);
 const refresh = median(idle);
 console.log(
-  `board: ${info.blocks} blocks, ${info.lines} links, ${info.ink} ink strokes; window ${info.w}×${info.h} at ${info.dpr}×; refresh ${(1000 / refresh).toFixed(0)} Hz (${refresh.toFixed(2)} ms)`,
+  `board: ${info.blocks} blocks, ${info.lines} links, ${info.ink} ink strokes; ${info.theme ?? "no"} theme; window ${info.w}×${info.h} at ${info.dpr}×; refresh ${(1000 / refresh).toFixed(0)} Hz (${refresh.toFixed(2)} ms)`,
 );
 
 // ── Where to press ───────────────────────────────────────────────────────

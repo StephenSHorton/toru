@@ -411,15 +411,19 @@ dark look.
 Measured on a copy of "Boxes Inc: the game on one board" (8 frames, 45
 blocks, 15 links, 15 ink strokes; 2,270 elements in the board), in WebView2
 on DESKTOP-STEPHEN, window 1384×861, monitor at 238 Hz (4.2 ms a frame),
-production build. Time between frames over three 2.5 s runs of each action:
+production build, after the Light/Dark themes (whiteboard#25) and custom
+blocks (whiteboard#27) merged in. Time between frames over three 2.5 s runs
+of each action, main before this change and after it, in each theme:
 
-| Action | Before: fps, p95, worst | After: fps, p95, worst |
-| --- | --- | --- |
-| Pan (drag empty space) | 59 fps, 37.5 ms, 46 ms | 240 fps, 4.3 ms, 8 ms |
-| Scroll (wheel pans) | 83 fps, 33.3 ms, 46 ms | 239 fps, 4.3 ms, 8 ms |
-| Zoom (Ctrl and wheel) | 133 fps, 37.5 ms, 50 ms | 240 fps, 4.3 ms, 13 ms |
-| Drag a block and drop it | 55 fps, 37.5 ms, 167 ms | 237 fps, 4.3 ms, 75 ms |
-| Click one block after another | 201 fps, 4.3 ms, 96 ms | 235 fps, 4.3 ms, 17 ms |
+| Action | Before, light | Before, dark | After, light | After, dark |
+| --- | --- | --- | --- | --- |
+| Pan (drag empty space) | 68 fps, p95 37.5 ms, worst 50 ms | 55 fps, 41.6 ms, 50 ms | 239 fps, 4.3 ms, 13 ms | 239 fps, 4.3 ms, 25 ms |
+| Scroll (wheel pans) | 76 fps, 37.5 ms, 46 ms | 78 fps, 37.5 ms, 46 ms | 238 fps, 4.3 ms, 17 ms | 240 fps, 4.3 ms, 4 ms |
+| Zoom (Ctrl and wheel) | 134 fps, 41.6 ms, 63 ms | 128 fps, 37.5 ms, 54 ms | 240 fps, 4.3 ms, 8 ms | 240 fps, 4.3 ms, 5 ms |
+| Drag a block and drop it | 55 fps, 41.7 ms, 183 ms | 55 fps, 41.7 ms, 192 ms | 234 fps, 4.3 ms, 67 ms | 238 fps, 4.3 ms, 75 ms |
+| Click one block after another | 200 fps, 4.3 ms, 100 ms | 200 fps, 4.3 ms, 92 ms | 234 fps, 4.3 ms, 13 ms | 235 fps, 4.3 ms, 17 ms |
+
+The themes change no costs: both measure the same, before and after.
 
 What cost the frames, found in Chrome DevTools traces (style invalidation
 tracking): style recalculation of the whole board, 35–60 ms a frame.
@@ -485,7 +489,7 @@ _ = app.Run()
 ```sh
 cd frontend && bunx vite --host 127.0.0.1 --port 47830
 host.exe http://127.0.0.1:47830/board-perf.html <profile dir>
-bun scripts/board-perf.ts --cdp 9339 --board <copy.toruboard> --no-profile
+bun scripts/board-perf.ts --cdp 9339 --board <copy.toruboard> --no-profile --theme dark
 ```
 
 Export the board to `.toruboard` first and measure the file; the page keeps
