@@ -45,8 +45,10 @@ func sampleBoard(t *testing.T) board.Board {
 	b.Ink = append(b.Ink, board.Stroke{ID: "ink-1", Points: []float64{1060, 120, 0.5, 1120, 180, 0.6, 1180, 130, 0.5, 1240, 200, 0.5}, Color: "ink-blue", Width: 4, Meta: board.Meta{CreatedBy: board.Person}})
 	b.Blocks = append(b.Blocks,
 		board.Block{ID: "far-note", Type: "sticky", X: 2600, Y: 1500, W: 220, H: 200, Props: json.RawMessage(`{"text":"Far corner: the board is bigger than the screen","color":"blue"}`), Meta: board.Meta{CreatedBy: board.Person}},
-		board.Block{ID: "tricky", Type: "sticky", X: 1060, Y: 360, W: 220, H: 200, Props: json.RawMessage(`{"text":"A note saying </script><b>not bold</b> & more","color":"orange"}`), Meta: board.Meta{CreatedBy: board.Person}},
+		board.Block{ID: "tricky", Type: "sticky", X: 1060, Y: 360, W: 220, H: 200, Rotation: -12, Props: json.RawMessage(`{"text":"A note saying </script><b>not bold</b> & more","color":"orange"}`), Meta: board.Meta{CreatedBy: board.Person}},
 	)
+	// A styled, labelled line: the exports draw its label, arrow end, dash and colour.
+	b.Links = append(b.Links, board.Link{ID: "lnk-ship-tricky", From: "card-ship", To: "tricky", FromPort: "right", ToPort: "top", Label: "watch out", Props: json.RawMessage(`{"end":"arrow","dash":"dashed","color":"pink"}`), Meta: board.Meta{CreatedBy: board.Person}})
 	if err := b.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -186,6 +188,17 @@ func TestHTML(t *testing.T) {
 	if len(p.Board.Blocks) != len(b.Blocks) || len(p.Images) != 1 {
 		t.Errorf("%d blocks, %d images", len(p.Board.Blocks), len(p.Images))
 	}
+	// A line's label and style and a block's turn reach the page, which draws them.
+	for _, l := range p.Board.Links {
+		if l.ID == "lnk-ship-tricky" && (l.Label != "watch out" || !strings.Contains(string(l.Props), `"dash":"dashed"`)) {
+			t.Errorf("the styled line came through as %+v", l)
+		}
+	}
+	for _, x := range p.Board.Blocks {
+		if x.ID == "tricky" && x.Rotation != -12 {
+			t.Errorf("the turned block came through at %v degrees", x.Rotation)
+		}
+	}
 }
 
 // stripScripts drops inline scripts' bodies, which hold code, not tags.
@@ -210,7 +223,7 @@ func TestToruboardAndMarkdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	sample(t, "launch-plan.md", md)
-	for _, want := range []string{"# Launch plan", "## Ideas", "- [x] Write the catalog", "| Task | Owner | Due |", "## Links", " → "} {
+	for _, want := range []string{"# Launch plan", "## Ideas", "- [x] Write the catalog", "| Task | Owner | Due |", "## Links", " → ", "→ A note saying </script><b>not bold</b> & more: watch out"} {
 		if !bytes.Contains(md, []byte(want)) {
 			t.Errorf("markdown lacks %q", want)
 		}

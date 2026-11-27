@@ -11,7 +11,7 @@
 // for a still copy of the whole board at zoom 1 (whiteboard/snapshot.ts),
 // says "ready:{width,height}", and toruExport.png(scale) sends the picture
 // back as "tile:" messages and a "png:" message.
-import React, { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import ReactDOM from "react-dom/client";
 import { Button } from "@ui-sdk/react/button";
 import "../index.css";
@@ -24,6 +24,7 @@ import type { BoardDoc } from "@/whiteboard/document";
 import { BoardImagesContext, type BoardImages } from "@/whiteboard/images";
 import { emptyBoard, memoryLink } from "@/whiteboard/links";
 import { LiveBoard } from "@/whiteboard/live";
+import { lineLook } from "@/whiteboard/PropsPanel";
 import { rasterize, snapshotBoard, type Snapshot } from "@/whiteboard/snapshot";
 import { applyTheme, parseTheme } from "@/whiteboard/theme";
 import sample from "@/whiteboard/sample-board.json";
@@ -87,6 +88,10 @@ function ExportedBoard({ data, print }: { data: Payload; print: boolean }) {
     },
     [setProps],
   );
+  // Each line's label, arrow ends, dash and colour, as the board window draws them.
+  const links = doc?.links;
+  const looks = useMemo(() => new Map((links ?? []).map((l) => [l.id, lineLook(l)])), [links]);
+  const look = useCallback((id: string) => looks.get(id), [looks]);
 
   return (
     <div className="relative h-full overflow-hidden">
@@ -98,6 +103,7 @@ function ExportedBoard({ data, print }: { data: Payload; print: boolean }) {
         lines={view.lines}
         onLinesChange={(lines) => live.edit({ lines })}
         renderBlock={renderBlock}
+        lineLook={look}
       >
         {!print && <Header name={data.board.name} exportedAt={data.exportedAt} />}
       </Board>
