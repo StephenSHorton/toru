@@ -82,6 +82,21 @@ export function SendScreenshot(boardID: string, libraryID: string): $Cancellable
     });
 }
 
+/**
+ * SetTheme saves the whiteboard's theme ("light" or "dark") and tells every
+ * open board window.
+ */
+export function SetTheme(theme: string): $CancellablePromise<void> {
+    return $Call.ByID(3599130852, theme);
+}
+
+/**
+ * Theme is the whiteboard's theme: "light" (the default) or "dark".
+ */
+export function Theme(): $CancellablePromise<string> {
+    return $Call.ByID(42619146);
+}
+
 // Private type creation functions
 const $$createType0 = board$0.Summary.createFrom;
 const $$createType1 = $Create.Array($$createType0);

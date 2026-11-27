@@ -2,7 +2,7 @@
 // window's own canvas and blocks, built into a single file with nothing to
 // fetch (vite.board-export.config.ts), and the board and its pictures in the
 // page's #toru-board script, which Go's board export fills
-// (internal/boardexport). Opened in any browser, offline, it stays live:
+// (internal/boardexport), with the whiteboard theme it's drawn in. Opened in any browser, offline, it stays live:
 // polls vote, checklists tick, notes take typing, blocks move. Changes stay in
 // the page (memoryLink); nothing reaches Toru.
 //
@@ -25,10 +25,11 @@ import { BoardImagesContext, type BoardImages } from "@/whiteboard/images";
 import { emptyBoard, memoryLink } from "@/whiteboard/links";
 import { LiveBoard } from "@/whiteboard/live";
 import { rasterize, snapshotBoard, type Snapshot } from "@/whiteboard/snapshot";
+import { applyTheme, parseTheme } from "@/whiteboard/theme";
 import sample from "@/whiteboard/sample-board.json";
 import "./board-export.css";
 
-type Payload = { board: BoardDoc; images?: Record<string, string>; exportedAt?: string };
+type Payload = { board: BoardDoc; images?: Record<string, string>; theme?: string; exportedAt?: string };
 
 declare global {
   interface Window {
@@ -163,6 +164,9 @@ function Printer({ blocks }: { blocks: BoardBlocks }) {
 const data = payload();
 const print = window.location.hash === "#print";
 document.title = data.board.name;
+// The whiteboard theme the board was exported in (Go's saved choice); light
+// for a page from before themes.
+applyTheme(parseTheme(data.theme) ?? "light");
 if (print) {
   const box = document.createElement("div");
   box.id = "print";
