@@ -45,7 +45,7 @@ type BoardProps = BoardOptions & {
   /** The freehand pen (ink.ts). While it's on, presses on the board draw. */
   pen?: PenOptions;
   className?: string;
-  /** What each block shows. Defaults to its label. */
+  /** What each block shows, like its catalog type's render. Defaults to its label. */
   renderBlock?: (id: string, blocks: BoardBlocks) => React.ReactNode;
   /** Controls drawn over the board, which can call `useBoard()`. */
   children?: React.ReactNode;
@@ -90,13 +90,16 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
                 </BoardBlock>
               );
             }
-            const color = typeof block.props?.color === "string" ? block.props.color : undefined;
             return (
-              <BoardBlock key={id} value={id} data-block={id} data-type={block.type} data-color={color} data-size={typeof block.props?.size === "string" ? block.props.size : undefined}>
-                <span data-slot="board-block-label">{renderBlock ? renderBlock(id, blocks) : block.label}</span>
-                {/* A frame is a region, not something lines join. */}
-                {block.type !== "frame" &&
-                  sides.map((side) => <BoardPart key={side} slot="port" value={`${id}:${side}`} />)}
+              <BoardBlock key={id} value={id} data-block={id} data-type={block.type}>
+                {renderBlock ? (
+                  <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
+                ) : (
+                  <span data-slot="board-block-label">{block.label}</span>
+                )}
+                {sides.map((side) => (
+                  <BoardPart key={side} slot="port" value={`${id}:${side}`} />
+                ))}
                 {handles.map((h) => (
                   <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
                 ))}

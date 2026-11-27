@@ -72,6 +72,7 @@ cd frontend && bun install --frozen-lockfile && bun run build && cd ..   # tsc +
 cd frontend && bun run test:frost && cd ..   # .frost keeps its blur in the built CSS
 cd frontend && bun run test:board && cd ..   # the whiteboard canvas (happy-dom)
 cd frontend && bun run test:ink && cd ..     # the whiteboard pen; `bun scripts/ink-check.ts` rewrites its Go fixture
+cd frontend && bun run test:blocks && cd ..  # whiteboard blocks: agent-ready, match the Go catalog
 cd frontend && bun run test:templates && cd ..   # whiteboard templates and layout match Go's; `TORU_UPDATE_TEMPLATES=1 go test ./internal/board` rewrites the files they read
 go build -o build/bin/toru.exe .
 ```

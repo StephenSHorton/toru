@@ -47,13 +47,12 @@ import type { InkStroke } from "./ink"
 import { layout, type LayoutKind, type LayoutOptions } from "./layout"
 
 /**
- * A block on the board: its name, and its box in canvas units. A freehand
- * stroke (ink.ts) is a block with `ink`: it selects, lassos, moves and
- * deletes like any block, but has no ports and doesn't resize.
- *
- * `type` and `props` are its block catalog entry and that entry's props, as
- * in Go's board document (a frame is type "frame" with props name and
- * color). The canvas carries them along; only arrange reads props.tags.
+ * A block on the board: its name, and its box in canvas units. `type` and
+ * `props` are its block catalog entry and that entry's props (catalog.ts);
+ * the canvas carries them along, and only arrange reads them (props.tags,
+ * for cluster). A frame is type "frame". A freehand stroke
+ * (ink.ts) is a block with `ink`: it selects, lassos, moves and deletes like
+ * any block, but has no ports and doesn't resize.
  */
 type BoardBlock = {
   label: string
@@ -61,9 +60,9 @@ type BoardBlock = {
   y: number
   width: number
   height: number
-  ink?: InkStroke
   type?: string
   props?: Record<string, unknown>
+  ink?: InkStroke
 }
 
 /** Every block, by id. Ids don't contain ":". */
@@ -142,6 +141,13 @@ const handleNames: Record<string, string> = {
   w: "left",
   nw: "top left",
 }
+
+/**
+ * Controls inside a block: pressing one uses it, and selects the block
+ * without starting a move.
+ */
+const blockControls =
+  'input, textarea, select, button, a[href], label, [contenteditable], [role="checkbox"], [role="radio"], [role="slider"], [role="textbox"], [data-slot="rating"], [data-slot="file-input-dropzone"]'
 
 /** The block a port or handle key belongs to: everything before its last ":". */
 const blockOf = (key: string) => key.slice(0, key.lastIndexOf(":"))
@@ -752,10 +758,18 @@ const board = /* @__PURE__ */ definePrimitive({
           return
         }
         event.stopPropagation()
+        const target = event.target as Element | null
+        const control =
+          target && target !== el && el.contains(target)
+            ? target.closest(blockControls)
+            : null
         if (event.shiftKey || event.metaKey || event.ctrlKey) {
           selection.toggle(key, { reason: "item-press", event })
         } else if (!store.get().selected.includes(key)) {
           selection.choose(key, { reason: "item-press", event })
+        }
+        if (control && el.contains(control)) {
+          return
         }
         move.pointerdown(event, key, el)
       },
@@ -1060,6 +1074,7 @@ const boardInstructions =
   "Plus and minus zoom, 0 goes back to 100%, 1 fits the board. Drag empty space to pan, Shift and drag to select an area."
 
 export {
+  blockControls,
   blockOf,
   board,
   boardInstructions,

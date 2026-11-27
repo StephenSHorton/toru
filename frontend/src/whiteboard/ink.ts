@@ -124,9 +124,173 @@ function inkPath(points: number[]) {
 }
 
 /**
+ * How much a point's pressure widens or thins the line: 1 at 0.5, the
+ * pressure a mouse gives, so the pen's width is the width at an even press.
+ */
+function pressureScale(pressure: number) {
+  const p = pressure >= 0 && pressure <= 1 ? pressure : 0.5
+  return 0.3 + 1.4 * p
+}
+
+/** Whether a stroke's pressure changes along it, as a stylus's does. A mouse's never does. */
+function hasPressure(points: number[]) {
+  for (let i = 5; i < points.length; i += 3) {
+    if (points[i] !== points[2]) {
+      return true
+    }
+  }
+  return false
+}
+
+/** The widest a stroke gets, as a share of its pen's width. */
+function maxPressureScale(points: number[]) {
+  if (!hasPressure(points)) {
+    return 1
+  }
+  let most = 0
+  for (let i = 2; i < points.length; i += 3) {
+    most = Math.max(most, pressureScale(points[i]))
+  }
+  return most
+}
+
+/** A circle as one closed SVG subpath, drawn the same way round as `segmentOutline`'s. */
+function circlePath(x: number, y: number, r: number) {
+  return (
+    `M${num(x + r)},${num(y)}` +
+    ` A${num(r)},${num(r)} 0 1 0 ${num(x - r)},${num(y)}` +
+    ` A${num(r)},${num(r)} 0 1 0 ${num(x + r)},${num(y)}Z`
+  )
+}
+
+/**
+ * One piece of a pressure stroke: the outline around two circles, the line's
+ * width at each end, so the piece tapers from one to the other with round
+ * ends. All pieces wind the same way, so with the default fill rule their
+ * overlaps fill and the pieces join into one smooth line with round joins.
+ */
+function segmentOutline(x1: number, y1: number, r1: number, x2: number, y2: number, r2: number) {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const d = Math.hypot(dx, dy)
+  // One circle holds the other: the piece is the bigger circle.
+  if (d <= Math.abs(r1 - r2) || d < 1e-6) {
+    return r1 >= r2 ? circlePath(x1, y1, r1) : circlePath(x2, y2, r2)
+  }
+  const along = Math.atan2(dy, dx)
+  // The angle, from the line's direction, where the outline leaves each circle.
+  const a = Math.acos((r1 - r2) / d)
+  const at = (x: number, y: number, r: number, angle: number) =>
+    `${num(x + r * Math.cos(angle))},${num(y + r * Math.sin(angle))}`
+  const far = 2 * a > Math.PI ? 1 : 0
+  const back = 2 * a < Math.PI ? 1 : 0
+  return (
+    `M${at(x1, y1, r1, along + a)}` +
+    ` L${at(x2, y2, r2, along + a)}` +
+    ` A${num(r2)},${num(r2)} 0 ${far} 0 ${at(x2, y2, r2, along - a)}` +
+    ` L${at(x1, y1, r1, along - a)}` +
+    ` A${num(r1)},${num(r1)} 0 ${back} 0 ${at(x1, y1, r1, along + a)}Z`
+  )
+}
+
+/**
+ * Points along a stroke's smooth line (the curves `inkPath` draws), close
+ * enough together that straight pieces between them look curved, each with
+ * its pressure. Pressure is evened out over neighbouring points first, so a
+ * stylus's small jitters don't show as lumps.
+ */
+function inkSamples(points: number[]) {
+  const n = Math.floor(points.length / 3)
+  const x = (i: number) => points[i * 3]
+  const y = (i: number) => points[i * 3 + 1]
+  const raw = (i: number) => points[i * 3 + 2]
+  const p = (i: number) => {
+    const a = raw(Math.max(0, i - 1))
+    const c = raw(Math.min(n - 1, i + 1))
+    return (a + 2 * raw(i) + c) / 4
+  }
+  const out: number[] = [x(0), y(0), p(0)]
+  if (n === 1) {
+    return out
+  }
+  // Each curve runs from one midpoint to the next, bending at the point between.
+  const curve = (
+    x0: number, y0: number, p0: number,
+    cx: number, cy: number, cp: number,
+    x1: number, y1: number, p1: number
+  ) => {
+    const length = Math.hypot(cx - x0, cy - y0) + Math.hypot(x1 - cx, y1 - cy)
+    const steps = Math.max(1, Math.min(16, Math.ceil(length / 2)))
+    for (let s = 1; s <= steps; s++) {
+      const t = s / steps
+      const u = 1 - t
+      out.push(
+        u * u * x0 + 2 * u * t * cx + t * t * x1,
+        u * u * y0 + 2 * u * t * cy + t * t * y1,
+        u * u * p0 + 2 * u * t * cp + t * t * p1
+      )
+    }
+  }
+  let sx = x(0)
+  let sy = y(0)
+  let sp = p(0)
+  for (let i = 1; i < n - 1; i++) {
+    const mx = (x(i) + x(i + 1)) / 2
+    const my = (y(i) + y(i + 1)) / 2
+    const mp = (p(i) + p(i + 1)) / 2
+    curve(sx, sy, sp, x(i), y(i), p(i), mx, my, mp)
+    sx = mx
+    sy = my
+    sp = mp
+  }
+  const ex = x(n - 1)
+  const ey = y(n - 1)
+  const ep = p(n - 1)
+  curve(sx, sy, sp, (sx + ex) / 2, (sy + ey) / 2, (sp + ep) / 2, ex, ey, ep)
+  return out
+}
+
+/**
+ * A stroke with pressure as a filled SVG outline: the smooth line `inkPath`
+ * draws, `width` wide where the pressure is 0.5 and wider or thinner as the
+ * stylus pressed harder or lighter. Draw it with `fill`, not `stroke`.
+ */
+function inkOutline(points: number[], width: number) {
+  const n = Math.floor(points.length / 3)
+  if (!n) {
+    return ""
+  }
+  const s = inkSamples(points)
+  const r = (i: number) => (width / 2) * pressureScale(s[i * 3 + 2])
+  const count = s.length / 3
+  if (count === 1) {
+    return circlePath(s[0], s[1], r(0))
+  }
+  const pieces: string[] = []
+  for (let i = 0; i < count - 1; i++) {
+    pieces.push(
+      segmentOutline(s[i * 3], s[i * 3 + 1], r(i), s[i * 3 + 3], s[i * 3 + 4], r(i + 1))
+    )
+  }
+  return pieces.join(" ")
+}
+
+/**
+ * How a stroke is drawn in SVG. A stroke whose pressure changes along it, as
+ * a stylus's does, is a filled outline that thickens and thins with the
+ * pressure. One with even pressure, as every mouse stroke has, is today's
+ * line of one width: the smooth path, stroked.
+ */
+function inkShape(points: number[], width: number) {
+  return hasPressure(points)
+    ? { filled: true, d: inkOutline(points, width) }
+    : { filled: false, d: inkPath(points) }
+}
+
+/**
  * A finished stroke as a board block: its box is the line's bounds, widened by
- * half its width so the whole line sits inside, and its points move to be
- * relative to that box. `points` are absolute canvas x, y, pressure triples.
+ * half its widest width so the whole line sits inside, and its points move to
+ * be relative to that box. `points` are absolute canvas x, y, pressure triples.
  */
 function strokeBlock(points: number[], color: string, width: number): InkBlock {
   let left = Infinity
@@ -139,7 +303,7 @@ function strokeBlock(points: number[], color: string, width: number): InkBlock {
     top = Math.min(top, points[i + 1])
     bottom = Math.max(bottom, points[i + 1])
   }
-  const pad = width / 2
+  const pad = (width / 2) * maxPressureScale(points)
   const x = left - pad
   const y = top - pad
   const relative = points.map((v, i) =>
@@ -149,8 +313,8 @@ function strokeBlock(points: number[], color: string, width: number): InkBlock {
     label: "Ink stroke",
     x,
     y,
-    width: right - left + width,
-    height: bottom - top + width,
+    width: right - left + 2 * pad,
+    height: bottom - top + 2 * pad,
     ink: { points: relative, color, width },
   }
 }
@@ -319,11 +483,17 @@ const ink = /* @__PURE__ */ definePrimitive({
     draft: slot({
       // Round caps and joins come from ink.css.
       attrs: () => ({ fill: "none", "aria-hidden": "true" }),
-      live: live<InkState, any, {}>((state) => ({
-        d: state.draft ? inkPath(state.draft) : "",
-        stroke: inkColor(state.color),
-        "stroke-width": String(state.width),
-      })),
+      // A stylus's draft is filled, like its finished stroke (`inkShape`).
+      live: live<InkState, any, {}>((state) => {
+        const shape = state.draft ? inkShape(state.draft, state.width) : { filled: false, d: "" }
+        return {
+          d: shape.d,
+          "data-filled": shape.filled ? "" : undefined,
+          fill: shape.filled ? inkColor(state.color) : "none",
+          stroke: shape.filled ? "none" : inkColor(state.color),
+          "stroke-width": String(state.width),
+        }
+      }),
     }),
   }),
 })
@@ -333,9 +503,13 @@ export {
   ink,
   inkColor,
   inkColors,
+  inkOutline,
   inkPath,
+  inkShape,
   inkWidths,
+  maxPressureScale,
   maxPoints,
+  pressureScale,
   strokeBlock,
   strokeId,
   toDocumentStroke,

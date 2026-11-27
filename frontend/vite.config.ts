@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from "vite";
 import { fileURLToPath, URL } from "node:url";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -64,6 +64,27 @@ function keepDistPlaceholder(): Plugin {
   };
 }
 
+// boardImagesWithoutGo serves the whiteboard's sample picture at
+// /__board/image/<name> from internal/board/testdata/images when the page runs
+// on Vite alone (no Go behind it, as for a screenshot of the sample board).
+// Under Wails, Go's board.ImageService answers these paths first.
+function boardImagesWithoutGo(): Plugin {
+  const dir = fileURLToPath(new URL("../internal/board/testdata/images", import.meta.url));
+  return {
+    name: "toru-board-images-without-go",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/__board/image/", (req, res, next) => {
+        const name = decodeURIComponent((req.url ?? "").replace(/^\//, "").split("?")[0]);
+        const file = join(dir, name);
+        if (!/^[0-9a-f]{64}\.png$/.test(name) || !existsSync(file)) return next();
+        res.setHeader("Content-Type", "image/png");
+        res.end(readFileSync(file));
+      });
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   resolve: {
@@ -79,5 +100,5 @@ export default defineConfig({
     // the dev server may serve files from the whole repo.
     fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] },
   },
-  plugins: [react(), tailwindcss(), wails("./bindings"), stripWasmCustomSections(), keepDistPlaceholder()],
+  plugins: [react(), tailwindcss(), wails("./bindings"), stripWasmCustomSections(), keepDistPlaceholder(), boardImagesWithoutGo()],
 });

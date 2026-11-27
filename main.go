@@ -175,6 +175,9 @@ func main() {
 	})
 	overlaySvc.SetHistory(hist)
 	histSvc := history.NewService(hist)
+	// Pictures for the whiteboard's image blocks: chosen files and Library
+	// screenshots, served at /__board/ (internal/board/images.go).
+	boardImageSvc := board.NewImageService(boardLibrary(hist))
 
 	// App-level preferences ("launch at Windows login", notifications). Launch
 	// at login is backed by Wails' AutostartManager; app is injected after
@@ -226,6 +229,7 @@ func main() {
 			application.NewService(hotkeySvc),
 			application.NewService(settingsSvc),
 			application.NewService(histSvc),
+			application.NewService(boardImageSvc),
 			application.NewService(replaySvc),
 			application.NewService(uploadSvc),
 			application.NewService(transferSvc),
@@ -238,7 +242,7 @@ func main() {
 			// Overlay backdrops + served captures, then instant-replay thumbnails,
 			// then the video editor's imported media.
 			Middleware: func(next http.Handler) http.Handler {
-				return overlaySvc.ShotMiddleware()(replaySvc.ClipMiddleware()(mediaSvc.Middleware()(next)))
+				return overlaySvc.ShotMiddleware()(replaySvc.ClipMiddleware()(mediaSvc.Middleware()(boardImageSvc.Middleware(next))))
 			},
 		},
 		// Closing every overlay window (Cancel/Esc/commit) drops the live window
@@ -317,6 +321,7 @@ func main() {
 		open:   windowsSvc.OpenWhiteboard,
 		emit:   func(name string, data any) { app.Event.Emit(name, data) },
 	})
+	registerBoardImageAgentCommands(agentReg, boardImageSvc) // agent_commands_board_images.go
 	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in
 	// the recorder.

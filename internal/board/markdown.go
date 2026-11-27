@@ -70,15 +70,26 @@ type blockProps struct {
 	Text     string `json:"text"`
 	Title    string `json:"title"`
 	Question string `json:"question"`
-	Items    []struct {
-		Text string `json:"text"`
-		Done bool   `json:"done"`
-	} `json:"items"`
+	// Items is a checklist's items ({text, done}) or a tag list's tags.
+	Items   json.RawMessage `json:"items"`
 	Options []struct {
 		Label string `json:"label"`
 		Votes int    `json:"votes"`
 	} `json:"options"`
-	Tags []string `json:"tags"`
+	Tags    []string   `json:"tags"`
+	Body    string     `json:"body"`
+	Value   *float64   `json:"value"`
+	Max     int        `json:"max"`
+	Columns []string   `json:"columns"`
+	Rows    [][]string `json:"rows"`
+	Alt     string     `json:"alt"`
+	Caption string     `json:"caption"`
+	Asset   string     `json:"asset"`
+}
+
+type checklistItem struct {
+	Text string `json:"text"`
+	Done bool   `json:"done"`
 }
 
 func blockPropsOf(x Block) blockProps {
@@ -86,6 +97,9 @@ func blockPropsOf(x Block) blockProps {
 	_ = json.Unmarshal(x.Props, &p)
 	return p
 }
+
+// cell is a table cell's text for a Markdown table: one line, pipes escaped.
+func cell(s string) string { return strings.ReplaceAll(oneLine(s), "|", `\|`) }
 
 // blockLabel is a block's name in a link line: its text, title or question,
 // cut short, else its type and id.
@@ -115,7 +129,9 @@ func writeBlock(sb *strings.Builder, x Block) {
 			head = "Checklist"
 		}
 		fmt.Fprintf(sb, "- %s%s\n", head, tags)
-		for _, it := range p.Items {
+		var items []checklistItem
+		_ = json.Unmarshal(p.Items, &items)
+		for _, it := range items {
 			box := " "
 			if it.Done {
 				box = "x"
@@ -127,6 +143,59 @@ func writeBlock(sb *strings.Builder, x Block) {
 		for _, o := range p.Options {
 			fmt.Fprintf(sb, "  - %s (%d)\n", oneLine(o.Label), o.Votes)
 		}
+	case "card":
+		fmt.Fprintf(sb, "- %s%s\n", oneLine(p.Title), tags)
+		if body := oneLine(p.Body); body != "" {
+			fmt.Fprintf(sb, "  %s\n", body)
+		}
+	case "rating":
+		max := p.Max
+		if max == 0 {
+			max = 5
+		}
+		score := "not rated"
+		if p.Value != nil {
+			score = fmt.Sprintf("%g/%d", *p.Value, max)
+		}
+		fmt.Fprintf(sb, "- Rating: %s: %s%s\n", oneLine(p.Title), score, tags)
+	case "tag-list":
+		var items []string
+		_ = json.Unmarshal(p.Items, &items)
+		fmt.Fprintf(sb, "- %s: %s%s\n", oneLine(p.Title), strings.Join(items, ", "), tags)
+	case "table":
+		head := oneLine(p.Title)
+		if head == "" {
+			head = "Table"
+		}
+		fmt.Fprintf(sb, "- %s%s\n\n", head, tags)
+		cols := make([]string, len(p.Columns))
+		for i, c := range p.Columns {
+			cols[i] = cell(c)
+		}
+		fmt.Fprintf(sb, "  | %s |\n  |%s\n", strings.Join(cols, " | "), strings.Repeat(" --- |", len(cols)))
+		for _, row := range p.Rows {
+			cells := make([]string, len(cols))
+			for i := range cells {
+				if i < len(row) {
+					cells[i] = cell(row[i])
+				}
+			}
+			fmt.Fprintf(sb, "  | %s |\n", strings.Join(cells, " | "))
+		}
+		sb.WriteString("\n")
+	case "image":
+		what := oneLine(p.Alt)
+		if what == "" {
+			what = "(no description)"
+		}
+		if p.Asset == "" {
+			what = "(empty)"
+		}
+		fmt.Fprintf(sb, "- Image: %s", what)
+		if c := oneLine(p.Caption); c != "" {
+			fmt.Fprintf(sb, " (%s)", c)
+		}
+		fmt.Fprintf(sb, "%s\n", tags)
 	default:
 		fmt.Fprintf(sb, "- %s%s\n", blockLabelFull(x, p), tags)
 	}

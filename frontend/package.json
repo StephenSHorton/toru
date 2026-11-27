@@ -27,6 +27,7 @@
     "test:frost": "bun scripts/frost-check.ts",
     "test:board": "bun scripts/board-check.ts",
     "test:ink": "bun scripts/ink-check.ts --check",
+    "test:blocks": "bun scripts/blocks-check.tsx",
     "test:templates": "bun scripts/templates-check.ts"
   },
   "dependencies": {

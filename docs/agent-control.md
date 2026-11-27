@@ -169,10 +169,16 @@ board windows as a `board:op` event:
   live in `internal/board/templates.go`; the board window's Template menu
   places the same ones.
 - `board.read`: the board as JSON, or `format: "markdown"` for an outline
-  (frames as headings, checklists as `- [ ]`, links as `A → B`).
-- `board.catalog`: every block type with its props as JSON Schema
-  (`sticky`, `text`, `checklist`, `poll` so far; the block catalog card
-  adds more). Props are checked against it on add and update.
+  (frames as headings, checklists as `- [ ]`, tables as tables, links as
+  `A → B`).
+- `board.catalog`: every block type with its props as JSON Schema, from
+  `internal/board/catalog.json` (the window reads the same file): `sticky`,
+  `text`, `card`, `checklist`, `poll`, `rating`, `table`, `tag-list`,
+  `image`, and `frame`, which is placed under `frames`, not as a block.
+  Props are checked against it on add and update.
+- `board.image.import` (`agent_commands_board_images.go`): copies a picture
+  file or a Library screenshot (`libraryId` from `library.list`) into the
+  board images and returns the `asset` an image block's props take.
 - `board.add` (blocks and frames, many in one call; ids of your own are
   allowed; blocks without x, y go in rows below what's there),
   `board.update` (props merged key by key, `null` removes; frames; the
@@ -192,7 +198,9 @@ board windows as a `board:op` event:
   export card.
 
 `board.snapshot` and `board.act` (the window's live controls, through UI
-SDK's `createAgent`) are window commands and come with the live board card.
+SDK's `createAgent`) are the board window's own commands while it is open:
+`board.act` fills its blocks as a person would (type in a sticky, tick a
+checklist item, vote in a poll, set a table cell or a rating).
 
 ## Work split (cards under #1)
 
