@@ -28,7 +28,7 @@
 //   VideoService.SaveProject(json) / LoadProject(id) / ListProjects() / DeleteProject(id)  (v2 editor projects in %AppData%/toru/projects)
 //   WindowsService.OpenEditProject(id)  (reopen a saved project in an editor window)
 //   MediaService.Register(paths) / PickMedia(): Promise<BinMedia[]>  (editor media bin; served at /__media/<id>/<name>, "media:dropped" from the edit window)
-//   AgentService.GetEnabled / SetEnabled(on)  (agent control: the per-user pipe exists only while on)
+//   AgentService.GetConnectInfo(): {exe, claudeCommand, mcpConfig}  (Settings > Connect your agent; the per-user pipe is open whenever Toru runs)
 //   AgentService.RegisterWindowCommands(window, cmds) / UnregisterWindowCommands / TouchWindow / Respond(id, result, err)  (use @/lib/agent)
 //   MediaService.Thumbnail(id): Promise<string>  (JPEG URL for video, the image itself, "" for audio)
 //   PresetService.List / Get / Save(json) / Rename / Delete / Import(path) / Export(id, path) / PickImport / PickExport(id)  (saved filters, %AppData%/toru/presets; "presets:changed")

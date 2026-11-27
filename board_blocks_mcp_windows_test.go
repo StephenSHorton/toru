@@ -65,7 +65,7 @@ func TestMCPBuildsCustomBlocks(t *testing.T) {
 	outR, outW := io.Pipe()
 	done := make(chan error, 1)
 	go func() {
-		done <- cli.RunMCP(ctx, cli.Env{Dial: dial, Enabled: func() bool { return true }, Stdin: inR, Stdout: outW, Stderr: io.Discard})
+		done <- cli.RunMCP(ctx, cli.Env{Dial: dial, Stdin: inR, Stdout: outW, Stderr: io.Discard})
 		_ = outW.Close()
 	}()
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "claude-code", Version: "2.0"}, nil).

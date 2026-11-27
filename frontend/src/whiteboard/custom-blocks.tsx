@@ -261,8 +261,9 @@ function PartInner({ node, c, path }: { node: unknown; c: Ctx; path: string }): 
               if (next != null) c.set(prop, String(next), changeOf(details));
             }}
           >
+            {/* The whole option picks it: the segmented style hides the radio itself. */}
             {options.map((o) => (
-              <label key={o}>
+              <label key={o} onClick={() => { if (value !== o) c.set(prop, o, { source: "person" }); }}>
                 <Radio value={o} aria-label={o}>
                   <RadioIndicator />
                 </Radio>
@@ -541,6 +542,10 @@ function CustomBlock({
   footer?: React.ReactNode;
 }) {
   const schema = ((def.props as Schema).properties ?? {}) as Record<string, Schema>;
+  // Changes build on the latest props, not this render's: two quick changes
+  // (a click on Vote right after one on a status) each keep the other.
+  const latest = React.useRef(props);
+  latest.current = props;
   const c: Ctx = {
     id,
     def,
@@ -550,10 +555,12 @@ function CustomBlock({
     builtins,
     set: (key, value, details) => {
       if (!key || !(key in schema)) return false;
-      const next = { ...props };
+      const next = { ...latest.current };
       if (value === undefined) delete next[key];
       else next[key] = value;
-      return onProps(next, details);
+      const kept = onProps(next, details);
+      if (kept) latest.current = next;
+      return kept;
     },
   };
   return (

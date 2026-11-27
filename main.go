@@ -149,7 +149,7 @@ func main() {
 	mediaSvc := media.New()
 	presetSvc := presets.NewService()
 	// Agent control: one registry of commands for AI agents and scripts,
-	// served over a per-user named pipe while the setting is on.
+	// served over a per-user named pipe whenever Toru runs.
 	agentReg := agentctl.NewRegistry()
 	agentSvc := agentctl.New(agentReg)
 	windowsSvc := &WindowsService{cap: capturer}
@@ -571,7 +571,7 @@ func main() {
 		// Auto clicker: load settings, arm its hotkeys.
 		go clickerSvc.Init()
 
-		// Agent control: open the pipe if the user turned it on.
+		// Agent control: open the per-user pipe (always on).
 		go func() { _ = agentSvc.Start() }()
 
 		// Stream: rejoin the saved room so friends see we're around; then

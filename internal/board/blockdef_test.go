@@ -386,3 +386,22 @@ func TestCheckBlockProps(t *testing.T) {
 		t.Fatal("an unknown type passed")
 	}
 }
+
+// A custom block's image part keeps its picture in exports.
+func TestCustomImageAssets(t *testing.T) {
+	d := libDef(t, 0)
+	d.Type = "shot-note"
+	d.Props = json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"shot":{"type":"string"}}}`)
+	d.Defaults = json.RawMessage(`{"title":"x"}`)
+	d.Layout = json.RawMessage(`{"part":"stack","children":[{"part":"field","prop":"title"},{"part":"image","prop":"shot"}]}`)
+	if err := d.Check(); err != nil {
+		t.Fatal(err)
+	}
+	asset := strings.Repeat("c", 64) + ".png"
+	b := New("brd-i", "Pictures", now())
+	b.Types = []BlockDef{d}
+	b.Blocks = []Block{{ID: "s", Type: "shot-note", W: 10, H: 10, Props: json.RawMessage(`{"title":"x","shot":"` + asset + `"}`)}}
+	if got := Assets(b); len(got) != 1 || got[0] != asset {
+		t.Fatalf("Assets = %v", got)
+	}
+}

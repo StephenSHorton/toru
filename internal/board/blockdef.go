@@ -709,3 +709,32 @@ func CheckBlockProps(b *Board, blockType string, props json.RawMessage) error {
 	}
 	return CheckProps(blockType, props)
 }
+
+// ImageProps are the props the definition's image parts show, so exports
+// carry those pictures.
+func (d *BlockDef) ImageProps() []string {
+	var root any
+	if json.Unmarshal(d.Layout, &root) != nil {
+		return nil
+	}
+	var out []string
+	var walk func(v any)
+	walk = func(v any) {
+		n, ok := v.(map[string]any)
+		if !ok {
+			return
+		}
+		if n["part"] == "image" {
+			if p, ok := n["prop"].(string); ok && !inList(out, p) {
+				out = append(out, p)
+			}
+		}
+		if kids, ok := n["children"].([]any); ok {
+			for _, k := range kids {
+				walk(k)
+			}
+		}
+	}
+	walk(root)
+	return out
+}
