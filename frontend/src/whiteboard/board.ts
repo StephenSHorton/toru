@@ -44,13 +44,19 @@ import {
 } from "@ui-sdk/core"
 import { edgePath, type EdgeSide } from "./edge-path"
 
-/** A block on the board: its name, and its box in canvas units. */
+/**
+ * A block on the board: its name, and its box in canvas units. `type` and
+ * `props` are its block catalog entry and that entry's props (catalog.ts);
+ * the canvas carries them along and never reads them.
+ */
 type BoardBlock = {
   label: string
   x: number
   y: number
   width: number
   height: number
+  type?: string
+  props?: Record<string, unknown>
 }
 
 /** Every block, by id. Ids don't contain ":". */
@@ -125,6 +131,13 @@ const handleNames: Record<string, string> = {
   w: "left",
   nw: "top left",
 }
+
+/**
+ * Controls inside a block: pressing one uses it, and selects the block
+ * without starting a move.
+ */
+const blockControls =
+  'input, textarea, select, button, a[href], label, [contenteditable], [role="checkbox"], [role="radio"], [role="slider"], [role="textbox"], [data-slot="rating"], [data-slot="file-input-dropzone"]'
 
 /** The block a port or handle key belongs to: everything before its last ":". */
 const blockOf = (key: string) => key.slice(0, key.lastIndexOf(":"))
@@ -556,10 +569,18 @@ const board = /* @__PURE__ */ definePrimitive({
           return
         }
         event.stopPropagation()
+        const target = event.target as Element | null
+        const control =
+          target && target !== el && el.contains(target)
+            ? target.closest(blockControls)
+            : null
         if (event.shiftKey || event.metaKey || event.ctrlKey) {
           selection.toggle(key, { reason: "item-press", event })
         } else if (!store.get().selected.includes(key)) {
           selection.choose(key, { reason: "item-press", event })
+        }
+        if (control && el.contains(control)) {
+          return
         }
         move.pointerdown(event, key, el)
       },
@@ -860,6 +881,7 @@ const boardInstructions =
   "Plus and minus zoom, 0 goes back to 100%, 1 fits the board. Drag empty space to pan, Shift and drag to select an area."
 
 export {
+  blockControls,
   blockOf,
   board,
   boardInstructions,

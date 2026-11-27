@@ -1,0 +1,288 @@
+{
+  "version": 1,
+  "colors": ["yellow", "pink", "blue", "green", "purple", "orange", "grey"],
+  "types": [
+    {
+      "type": "sticky",
+      "label": "Sticky note",
+      "description": "A sticky note: a short idea in a coloured square.",
+      "w": 200,
+      "h": 200,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "maxLength": 10000 },
+          "color": {
+            "type": "string",
+            "enum": ["yellow", "pink", "blue", "green", "purple", "orange", "grey"],
+            "description": "Default yellow."
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "description": "Tags, for board.layout's cluster and for search."
+          }
+        }
+      }
+    },
+    {
+      "type": "text",
+      "label": "Text",
+      "description": "Free text on the board: a heading, a label or a paragraph.",
+      "w": 320,
+      "h": 80,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "maxLength": 20000 },
+          "size": { "type": "string", "enum": ["s", "m", "l", "xl"], "description": "Default m; xl for a heading." },
+          "align": { "type": "string", "enum": ["left", "center", "right"] },
+          "tags": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "description": "Tags, for board.layout's cluster and for search."
+          }
+        }
+      }
+    },
+    {
+      "type": "card",
+      "label": "Card",
+      "description": "A card: a title with a few lines under it, like a task, a person or a decision.",
+      "w": 280,
+      "h": 180,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "body": { "type": "string", "maxLength": 5000 },
+          "color": {
+            "type": "string",
+            "enum": ["yellow", "pink", "blue", "green", "purple", "orange", "grey"],
+            "description": "The colour of the card's edge. Default grey."
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "description": "Tags, for board.layout's cluster and for search."
+          }
+        }
+      }
+    },
+    {
+      "type": "checklist",
+      "label": "Checklist",
+      "description": "A list of items people and agents tick off.",
+      "w": 280,
+      "h": 200,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "title": { "type": "string", "maxLength": 200 },
+          "items": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["text"],
+              "properties": {
+                "text": { "type": "string", "minLength": 1, "maxLength": 1000 },
+                "done": { "type": "boolean" }
+              }
+            }
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "description": "Tags, for board.layout's cluster and for search."
+          }
+        }
+      }
+    },
+    {
+      "type": "poll",
+      "label": "Poll",
+      "description": "A question with options people and agents vote on.",
+      "w": 300,
+      "h": 220,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "options"],
+        "properties": {
+          "question": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "multi": { "type": "boolean", "description": "Several options may be picked." },
+          "options": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["label"],
+              "properties": {
+                "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+                "votes": { "type": "integer", "minimum": 0 }
+              }
+            }
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "description": "Tags, for board.layout's cluster and for search."
+          }
+        }
+      }
+    },
+    {
+      "type": "rating",
+      "label": "Rating",
+      "description": "A score out of a few stars, to rate an idea or an option.",
+      "w": 260,
+      "h": 110,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 200, "description": "What is being rated." },
+          "value": { "type": "number", "minimum": 0, "maximum": 10, "description": "The score, in steps of 0.5; leave out for none yet." },
+          "max": { "type": "integer", "minimum": 1, "maximum": 10, "description": "How many stars. Default 5." },
+          "tags": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "description": "Tags, for board.layout's cluster and for search."
+          }
+        }
+      }
+    },
+    {
+      "type": "table",
+      "label": "Table",
+      "description": "A small table of text: named columns and rows of cells.",
+      "w": 420,
+      "h": 220,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["columns"],
+        "properties": {
+          "title": { "type": "string", "maxLength": 200 },
+          "columns": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "items": { "type": "string", "minLength": 1, "maxLength": 80 }
+          },
+          "rows": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "array",
+              "maxItems": 12,
+              "items": { "type": "string", "maxLength": 1000 },
+              "description": "One row's cells, in column order. A short row leaves its last cells empty."
+            }
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "description": "Tags, for board.layout's cluster and for search."
+          }
+        }
+      }
+    },
+    {
+      "type": "tag-list",
+      "label": "Tag list",
+      "description": "A titled list of short tags, like themes, labels or keywords.",
+      "w": 280,
+      "h": 120,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "items"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "items": {
+            "type": "array",
+            "maxItems": 50,
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "description": "The tags the block shows."
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "description": "Tags, for board.layout's cluster and for search."
+          }
+        }
+      }
+    },
+    {
+      "type": "image",
+      "label": "Image",
+      "description": "A picture: an image file or a Toru Library screenshot, copied into the board's images. Leave asset out for an empty image block a person fills.",
+      "w": 320,
+      "h": 240,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "asset": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "The board image's name, as board.image.import returns it."
+          },
+          "alt": { "type": "string", "maxLength": 500, "description": "What the picture shows, for people who can't see it and for agents." },
+          "caption": { "type": "string", "maxLength": 500 },
+          "fit": { "type": "string", "enum": ["contain", "cover"], "description": "Default contain." },
+          "tags": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "description": "Tags, for board.layout's cluster and for search."
+          }
+        }
+      }
+    },
+    {
+      "type": "frame",
+      "label": "Frame",
+      "description": "A named region that holds blocks, like a section of the board. Frames are the board's frames list, not blocks: board.add takes them under frames, and a block joins one with its frame field.",
+      "region": true,
+      "w": 640,
+      "h": 420,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "color": {
+            "type": "string",
+            "enum": ["yellow", "pink", "blue", "green", "purple", "orange", "grey"],
+            "description": "Default grey."
+          }
+        }
+      }
+    }
+  ]
+}

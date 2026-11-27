@@ -39,7 +39,7 @@ function useBoard() {
 type BoardProps = BoardOptions & {
   "aria-label": string;
   className?: string;
-  /** What each block shows. Defaults to its label. */
+  /** What each block shows, like its catalog type's render. Defaults to its label. */
   renderBlock?: (id: string, blocks: BoardBlocks) => React.ReactNode;
   /** Controls drawn over the board, which can call `useBoard()`. */
   children?: React.ReactNode;
@@ -65,8 +65,12 @@ function Board({ renderBlock, children, className, "aria-label": label, ...optio
             </parts.Unlink>
           ))}
           {Object.keys(blocks).map((id) => (
-            <BoardBlock key={id} value={id} data-block={id}>
-              <span data-slot="board-block-label">{renderBlock ? renderBlock(id, blocks) : blocks[id].label}</span>
+            <BoardBlock key={id} value={id} data-block={id} data-type={blocks[id].type}>
+              {renderBlock ? (
+                <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
+              ) : (
+                <span data-slot="board-block-label">{blocks[id].label}</span>
+              )}
               {sides.map((side) => (
                 <BoardPart key={side} slot="port" value={`${id}:${side}`} />
               ))}
