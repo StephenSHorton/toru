@@ -1,0 +1,251 @@
+/* The whiteboard canvas (BoardView.tsx) in Toru's look: sharp edges, Toru's
+   tokens from index.css, blocks flat on a dotted canvas. Adapted from UI SDK
+   0.1.0-beta.18's examples/experiments/experiments.css (canvas and board
+   sections; Apache-2.0, Copyright Vercel, Inc.). Data-slot names come from the
+   board primitive: board, board-world, board-block, board-port, ... */
+
+@layer components {
+  [data-slot="board"] {
+    --board-dot: color-mix(in oklch, var(--muted-foreground) 35%, transparent);
+    --board-line: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
+    box-sizing: border-box;
+    background-color: var(--background);
+    background-image: radial-gradient(circle, var(--board-dot) 1px, transparent 1.5px);
+    background-size: calc(24px * var(--board-zoom, 1)) calc(24px * var(--board-zoom, 1));
+    cursor: grab;
+    outline: none;
+
+    &:active {
+      cursor: grabbing;
+    }
+
+    &[data-connecting] {
+      cursor: crosshair;
+    }
+
+    &:focus-visible {
+      box-shadow: inset 0 0 0 2px var(--ring);
+    }
+  }
+
+  [data-slot="board-lines"] {
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  [data-slot="board-line"] {
+    stroke: var(--board-line);
+  }
+
+  [data-slot="board-wire"] {
+    stroke: var(--primary);
+
+    &[data-snapped] {
+      stroke-dasharray: none;
+    }
+  }
+
+  [data-slot="board-unlink"] {
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--muted-foreground);
+    opacity: 0;
+    transition: opacity 120ms;
+
+    &:is(:hover, :focus-visible) {
+      color: var(--foreground);
+      opacity: 1;
+    }
+
+    & svg {
+      width: 12px;
+      height: 12px;
+    }
+  }
+
+  [data-slot="board-block"] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--card-foreground);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    cursor: default;
+    outline: none;
+
+    &[data-lassoed] {
+      background: color-mix(in oklch, var(--primary) 12%, var(--card));
+    }
+
+    &[data-selected] {
+      border-color: var(--primary);
+      background: color-mix(in oklch, var(--primary) 12%, var(--card));
+    }
+
+    &:focus-visible {
+      box-shadow: 0 0 0 2px var(--ring);
+    }
+
+    &:is([data-dragging], [data-resizing]) {
+      box-shadow: 0 8px 30px oklch(0 0 0 / 0.45);
+    }
+
+    &[data-dragging] {
+      cursor: grabbing;
+    }
+  }
+
+  [data-slot="board-block-label"] {
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  /* Ports: a dot in the middle of each side, shown on hover, focus and while connecting. */
+  [data-slot="board-port"] {
+    position: absolute;
+    box-sizing: border-box;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--card);
+    border-radius: 50%;
+    background: var(--board-line);
+    translate: -50% -50%;
+    opacity: 0;
+    cursor: crosshair;
+    transition-property: scale, background-color, opacity;
+    transition-duration: 120ms;
+
+    &[data-side="top"] {
+      left: 50%;
+      top: 0;
+    }
+    &[data-side="right"] {
+      left: 100%;
+      top: 50%;
+    }
+    &[data-side="bottom"] {
+      left: 50%;
+      top: 100%;
+    }
+    &[data-side="left"] {
+      left: 0;
+      top: 50%;
+    }
+
+    &:hover {
+      scale: 1.5;
+    }
+
+    &[data-connect="candidate"] {
+      background: color-mix(in oklch, var(--primary) 60%, var(--card));
+    }
+
+    &:is([data-connect="source"], [data-connect="target"]) {
+      background: var(--primary);
+    }
+  }
+
+  [data-slot="board-block"]:is(:hover, :focus-visible, [data-selected]) [data-slot="board-port"],
+  [data-slot="board"][data-connecting] [data-slot="board-port"] {
+    opacity: 1;
+  }
+
+  /* Resize handles: small squares on the corners and edges of a selected block. */
+  [data-slot="board-handle"] {
+    position: absolute;
+    box-sizing: border-box;
+    width: 8px;
+    height: 8px;
+    border: 1px solid var(--primary);
+    background: var(--background);
+    translate: -50% -50%;
+    display: none;
+
+    &[data-resize-handle="nw"] { left: 0; top: 0; }
+    &[data-resize-handle="n"] { left: 50%; top: 0; }
+    &[data-resize-handle="ne"] { left: 100%; top: 0; }
+    &[data-resize-handle="e"] { left: 100%; top: 50%; }
+    &[data-resize-handle="se"] { left: 100%; top: 100%; }
+    &[data-resize-handle="s"] { left: 50%; top: 100%; }
+    &[data-resize-handle="sw"] { left: 0; top: 100%; }
+    &[data-resize-handle="w"] { left: 0; top: 50%; }
+
+    /* Edge handles sit under the ports; keep the ports on top. */
+    &:is([data-resize-handle="n"], [data-resize-handle="e"], [data-resize-handle="s"], [data-resize-handle="w"]) {
+      width: 6px;
+      height: 6px;
+    }
+  }
+
+  [data-slot="board-block"][data-selected] [data-slot="board-handle"] {
+    display: block;
+  }
+
+  [data-slot="board-port"] {
+    z-index: 1;
+  }
+
+  [data-slot="board-lasso"] {
+    border: 1px solid var(--primary);
+    background: color-mix(in oklch, var(--primary) 10%, transparent);
+  }
+
+  [data-slot="board-controls"] {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
+    cursor: default;
+
+    & button {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--muted-foreground);
+
+      &:hover {
+        background: var(--accent);
+        color: var(--foreground);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: -2px;
+      }
+
+      & svg {
+        width: 14px;
+        height: 14px;
+      }
+    }
+  }
+
+  [data-slot="board-zoom"] {
+    min-width: 3.5em;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+  }
+}
