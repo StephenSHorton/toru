@@ -46,6 +46,8 @@ type trayController struct {
 	openClicker func()
 	// openVideoEditor opens the hub's Video Editor page.
 	openVideoEditor func()
+	// newWhiteboard makes an empty whiteboard and opens its window.
+	newWhiteboard func()
 }
 
 // rebuildMenu constructs a fresh tray menu and installs it. Safe to call from
@@ -55,6 +57,11 @@ func (t *trayController) rebuildMenu() {
 	if t == nil || t.tray == nil || t.app == nil {
 		return
 	}
+	t.tray.SetMenu(t.buildMenu())
+}
+
+// buildMenu is the tray's right-click menu as things stand.
+func (t *trayController) buildMenu() *application.Menu {
 	menu := application.NewMenu()
 
 	// A downloaded update sits at the top until the user restarts (or quits,
@@ -90,6 +97,12 @@ func (t *trayController) rebuildMenu() {
 	menu.Add("Video editor").OnClick(func(*application.Context) {
 		if t.openVideoEditor != nil {
 			t.openVideoEditor()
+		}
+	})
+
+	menu.Add("New whiteboard").OnClick(func(*application.Context) {
+		if t.newWhiteboard != nil {
+			go t.newWhiteboard()
 		}
 	})
 
@@ -132,8 +145,7 @@ func (t *trayController) rebuildMenu() {
 	menu.Add("Quit Toru").OnClick(func(*application.Context) {
 		t.app.Quit()
 	})
-
-	t.tray.SetMenu(menu)
+	return menu
 }
 
 // restartToUpdate is the one install path for the tray item and the update

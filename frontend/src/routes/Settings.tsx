@@ -20,6 +20,7 @@ import {
   Pencil,
   Plus,
   TriangleAlert,
+  Presentation,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -31,6 +32,7 @@ import { NotificationsPanel } from "@/notifications/NotificationsPanel";
 import SendFiles from "@/transfer/SendFiles";
 import ClickerPage from "@/clicker/ClickerPage";
 import StreamPage from "@/stream/StreamPage";
+import { SendToWhiteboard, WhiteboardsPage } from "@/whiteboard/WhiteboardsPage";
 import { errText, reportLocalSendError } from "@/transfer/useTransfer";
 import {
   TransferService,
@@ -51,8 +53,8 @@ import { cn } from "@/lib/utils";
 // recent screenshots & recordings; Settings is a navigable panel (shortcuts,
 // launch-at-login, freeze, updater).
 
-type Page = "library" | "send" | "stream" | "clicker" | "editor" | "settings";
-const PAGES: readonly Page[] = ["library", "send", "stream", "clicker", "editor", "settings"];
+type Page = "library" | "whiteboards" | "send" | "stream" | "clicker" | "editor" | "settings";
+const PAGES: readonly Page[] = ["library", "whiteboards", "send", "stream", "clicker", "editor", "settings"];
 
 // initialPage honours `?page=` so the tray's "Send files…" can open the hub
 // straight onto Send Files (windows.go OpenSendFiles); anything else lands on Library.
@@ -103,6 +105,12 @@ export default function Settings() {
           icon={LayoutGrid}
           label="Library"
           onClick={() => setPage("library")}
+        />
+        <NavBtn
+          active={page === "whiteboards"}
+          icon={Presentation}
+          label="Whiteboards"
+          onClick={() => setPage("whiteboards")}
         />
         <NavBtn
           active={page === "send"}
@@ -159,6 +167,8 @@ export default function Settings() {
         <UpdateBanner />
         {page === "library" ? (
           <LibraryPage onSendItem={sendItem} />
+        ) : page === "whiteboards" ? (
+          <WhiteboardsPage />
         ) : page === "send" ? (
           <SendFiles />
         ) : page === "stream" ? (
@@ -230,6 +240,8 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
   const [pendingClip, setPendingClip] = useState<ReplayClip | null>(null);
   const [sessions, setSessions] = useState<RecordingSession[]>([]);
   const [pendingSession, setPendingSession] = useState<RecordingSession | null>(null);
+  // The screenshot whose Send to whiteboard chooser is open.
+  const [boardShot, setBoardShot] = useState<CaptureItem | null>(null);
   // Errors from opening/acting on clips and recordings (never fail silently).
   const [libNote, setLibNote] = useState("");
   useEffect(() => {
@@ -599,6 +611,7 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
                 onOpen={() => void HistoryService.Open(e.item.id)}
                 onEdit={() => void WindowsService.OpenEditVideo(e.item.path)}
                 onSend={() => onSendItem(e.item)}
+                onSendToBoard={() => setBoardShot(e.item)}
                 onDelete={() => setPendingDelete([e.item])}
               />
             ) : (
@@ -614,6 +627,8 @@ function LibraryPage({ onSendItem }: { onSendItem: (item: CaptureItem) => void }
           )}
         </div>
       )}
+
+      <SendToWhiteboard shot={boardShot} onClose={() => setBoardShot(null)} />
 
       {pendingSession ? (
         <ConfirmDialog
@@ -1257,13 +1272,14 @@ function ConfirmDialog({
   );
 }
 
-function CaptureCard({
+export function CaptureCard({
   item,
   selected,
   onToggleSelect,
   onOpen,
   onEdit,
   onSend,
+  onSendToBoard,
   onDelete,
 }: {
   item: CaptureItem;
@@ -1272,6 +1288,7 @@ function CaptureCard({
   onOpen: () => void;
   onEdit: () => void;
   onSend: () => void;
+  onSendToBoard: () => void;
   onDelete: () => void;
 }) {
   const isVideo = item.kind === "video";
@@ -1357,7 +1374,21 @@ function CaptureCard({
           >
             <SquarePen className="size-3.5" />
           </Button>
-        ) : null}
+        ) : (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7 shrink-0 opacity-60 hover:opacity-100"
+            title="Send to whiteboard"
+            aria-label="Send to whiteboard"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSendToBoard();
+            }}
+          >
+            <Presentation className="size-3.5" />
+          </Button>
+        )}
         <Button
           size="icon"
           variant="ghost"

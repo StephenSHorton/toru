@@ -34,6 +34,7 @@
 //   PresetService.List / Get / Save(json) / Rename / Delete / Import(path) / Export(id, path) / PickImport / PickExport(id)  (saved filters, %AppData%/toru/presets; "presets:changed")
 //   PresetService.ListTextStyles / ImportTextStyle(path) / PickImportTextStyle  (saved text styles: presets of kind "text"; Save/Rename/Delete/PickExport work on them too)
 //   PresetService.ListLuts / ImportLut(path) / PickLut / ReadLut(id) / DeleteLut(id)  (imported .cube LUTs, %AppData%/toru/luts)
+//   WhiteboardsService.List / Create(name) / Open(id) / PickImport / SendScreenshot(boardId, libraryId)  (Whiteboards page, Send to whiteboard; "boards:changed", "board:op")
 //   SettingsService.GetLaunchAtLogin(): Promise<boolean>
 //   SettingsService.SetLaunchAtLogin(enabled: boolean): Promise<void>  (registry Run key; --startup => silent-to-tray)
 //   SettingsService.GetNotifications / SetNotifications(o) -> NotificationOptions  (enabled, sound, volume 0..1, corner)
@@ -93,6 +94,8 @@ import {
   ReplayStatus,
 } from "../../bindings/github.com/StephenSHorton/toru/internal/capture/models.js";
 import * as SettingsService from "../../bindings/github.com/StephenSHorton/toru/settingsservice.js";
+import * as WhiteboardsService from "../../bindings/github.com/StephenSHorton/toru/whiteboardsservice.js";
+import { Summary as BoardSummary } from "../../bindings/github.com/StephenSHorton/toru/internal/board/models.js";
 import { Options as NotificationOptions } from "../../bindings/github.com/StephenSHorton/go-toast/models.js";
 import * as HistoryService from "../../bindings/github.com/StephenSHorton/toru/internal/history/historyservice.js";
 import {
@@ -175,6 +178,8 @@ export {
   AudioSession,
   SettingsService,
   NotificationOptions,
+  WhiteboardsService,
+  BoardSummary,
   HistoryService,
   LibraryRetention,
   ReplayService,

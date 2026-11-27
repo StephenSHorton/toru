@@ -184,6 +184,10 @@ func main() {
 	// as a board:op event (wired below, once app exists).
 	boardStore := board.NewStore()
 	boardSvc := board.NewService(boardStore)
+	// The main window's Whiteboards page, the tray's "New whiteboard" and the
+	// Library's "Send to whiteboard" (whiteboards.go); its window opener and
+	// events are wired once app exists.
+	whiteboardsSvc := &WhiteboardsService{boards: boardStore, images: boardImageSvc}
 
 	// App-level preferences ("launch at Windows login", notifications). Launch
 	// at login is backed by Wails' AutostartManager; app is injected after
@@ -237,6 +241,7 @@ func main() {
 			application.NewService(histSvc),
 			application.NewService(boardImageSvc),
 			application.NewService(boardSvc),
+			application.NewService(whiteboardsSvc),
 			application.NewService(replaySvc),
 			application.NewService(uploadSvc),
 			application.NewService(transferSvc),
@@ -327,6 +332,8 @@ func main() {
 		emit:   func(name string, data any) { app.Event.Emit(name, data) },
 	})
 	registerBoardImageAgentCommands(agentReg, boardImageSvc) // agent_commands_board_images.go
+	whiteboardsSvc.open = windowsSvc.OpenWhiteboard
+	whiteboardsSvc.emit = func(name string, data any) { app.Event.Emit(name, data) }
 	lanSvc.SetApp(app)
 	// Recording a shortcut stops the clicker first, so its input can't land in
 	// the recorder.
@@ -490,7 +497,12 @@ func main() {
 			clicker:         clickerSvc,
 			openClicker:     windowsSvc.OpenClicker,
 			openVideoEditor: windowsSvc.OpenVideoEditor,
-			update:          updateSvc,
+			newWhiteboard: func() {
+				if _, err := whiteboardsSvc.Create(""); err != nil {
+					toast.Post(toast.Note{ID: "whiteboard", Kind: toast.Error, Title: "Couldn't make a whiteboard", Body: err.Error()})
+				}
+			},
+			update: updateSvc,
 		}
 		tray.rebuildMenu() // initial menu (includes any persisted recents)
 

@@ -65,7 +65,7 @@ function keepDistPlaceholder(): Plugin {
 }
 
 // boardImagesWithoutGo serves the whiteboard's sample picture at
-// /__board/image/<name> from internal/board/testdata/images when the page runs
+// /__board/image/<name> (and /__file/<name>) from internal/board/testdata/images when the page runs
 // on Vite alone (no Go behind it, as for a screenshot of the sample board).
 // Under Wails, Go's board.ImageService answers these paths first.
 function boardImagesWithoutGo(): Plugin {
@@ -74,13 +74,16 @@ function boardImagesWithoutGo(): Plugin {
     name: "toru-board-images-without-go",
     apply: "serve",
     configureServer(server) {
-      server.middlewares.use("/__board/image/", (req, res, next) => {
+      const serve = (req: { url?: string }, res: { setHeader: (k: string, v: string) => void; end: (b: Buffer) => void }, next: () => void) => {
         const name = decodeURIComponent((req.url ?? "").replace(/^\//, "").split("?")[0]);
         const file = join(dir, name);
         if (!/^[0-9a-f]{64}\.png$/.test(name) || !existsSync(file)) return next();
         res.setHeader("Content-Type", "image/png");
         res.end(readFileSync(file));
-      });
+      };
+      server.middlewares.use("/__board/image/", serve);
+      // The same picture as a Library screenshot, for whiteboards-preview.html.
+      server.middlewares.use("/__file/", serve);
     },
   };
 }
