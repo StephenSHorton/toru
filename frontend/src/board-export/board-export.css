@@ -1,0 +1,46 @@
+/* The exported board page (main.tsx): the board fills the window; in print
+   mode only the still copy of the whole board shows, one page its size. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+[data-slot="export-note"] {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+#print {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+html[data-printing] {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  overflow: hidden;
+
+  & body {
+    width: var(--print-width);
+    height: var(--print-height);
+    overflow: hidden;
+    background: var(--background);
+  }
+
+  & #root {
+    display: none;
+  }
+}
+
+@page {
+  margin: 0;
+}
+
+/* A still copy shows text, not text boxes: no scroll bars or resize grips. */
+[data-board-snapshot] textarea {
+  overflow: hidden;
+  resize: none;
+}
