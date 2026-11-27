@@ -3,9 +3,11 @@ package stream
 import (
 	"encoding/base64"
 	"encoding/binary"
+	"maps"
 	"math"
 	"math/rand/v2"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -153,10 +155,11 @@ func hum(n int, hz float64) []float64 {
 	return out
 }
 
-func TestNoVoiceIsSkipped(t *testing.T) {
-	r := rand.New(rand.NewPCG(1, 2))
+// noVoiceCases are the sounds a real mic picks up that are not a voice, 4 s
+// each, with their randomness from r.
+func noVoiceCases(r *rand.Rand) map[string][]int16 {
 	n := secs(4)
-	for name, pcm := range map[string][]int16{
+	return map[string][]int16{
 		"silence":            make([]int16, n),
 		"quiet room":         mix(noise(r, n, 30)),
 		"fan noise":          mix(noise(r, n, 2000)),
@@ -170,11 +173,27 @@ func TestNoVoiceIsSkipped(t *testing.T) {
 		"50 Hz hum":          mix(noise(r, n, 40), hum(n, 50)),
 		"60 Hz hum":          mix(noise(r, n, 40), hum(n, 60)),
 		"typing over hum":    mix(noise(r, n, 40), hum(n, 60), typing(r, n)),
-	} {
-		v := measureVoice(pcm)
-		if v.voiced >= minVoiced {
-			t.Errorf("%s: voiced %v (longest %v, floor %.0f), want under %v", name, v.voiced, v.longest, v.floor, minVoiced)
+	}
+}
+
+// Every no-voice sound, over 30 different random runs, is skipped; the
+// longest run of voice found in each is logged (0s means not one 100 ms
+// stretch looked like a voice).
+func TestNoVoiceIsSkipped(t *testing.T) {
+	const seeds = 30
+	worst := map[string]time.Duration{}
+	for seed := range uint64(seeds) {
+		for name, pcm := range noVoiceCases(rand.New(rand.NewPCG(seed, 2))) {
+			v := measureVoice(pcm)
+			worst[name] = max(worst[name], v.longest)
+			if v.voiced >= minVoiced {
+				t.Errorf("%s (run %d): voiced %v (longest %v, floor %.0f), want under %v", name, seed, v.voiced, v.longest, v.floor, minVoiced)
+			}
 		}
+	}
+	names := slices.Sorted(maps.Keys(worst))
+	for _, name := range names {
+		t.Logf("%s: longest voice over %d runs: %v", name, seeds, worst[name])
 	}
 }
 
