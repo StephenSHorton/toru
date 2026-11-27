@@ -135,6 +135,19 @@
     }
   }
 
+  /* A custom block's tile (Your blocks): its icon, big, on the dots. */
+  [data-slot="block-gallery-preview"][data-icon] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary);
+  }
+  [data-slot="block-gallery-icon"] {
+    width: 2rem;
+    height: 2rem;
+    stroke-width: 1.5;
+  }
+
   /* The name's height, under the preview, for the button to sit on. */
   [data-slot="block-gallery-tile"]::after {
     content: "";
