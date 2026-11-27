@@ -135,15 +135,6 @@ func TestCheckFont(t *testing.T) {
 	if err := CheckFont(ctx, "No Such Font 123"); err == nil {
 		t.Error("an unknown font passed")
 	}
-<<<<<<< HEAD
-	// Older ffmpeg builds fail drawtext on Mongolian Baiti; 8.1 draws it.
-	// Either answer is right as long as CheckFont matches what ffmpeg does.
-	if FontFile("Mongolian Baiti") != "" {
-		if err := CheckFont(ctx, "Mongolian Baiti"); err == nil {
-			t.Log("this ffmpeg draws Mongolian Baiti; CheckFont accepts it")
-		} else {
-			t.Logf("this ffmpeg can't draw Mongolian Baiti; CheckFont refuses it: %v", err)
-=======
 	if file := FontFile("Mongolian Baiti"); file != "" {
 		draws := exec.Command(ff, fontCheckArgs(file)...).Run() == nil
 		err := CheckFont(ctx, "Mongolian Baiti")
@@ -180,7 +171,6 @@ func TestCheckFontPinned(t *testing.T) {
 	if located, err := capture.LocateFFmpeg(); err == nil && located == ff {
 		if err := CheckFont(context.Background(), "Mongolian Baiti"); err == nil {
 			t.Error("CheckFont passed Mongolian Baiti in the shipped ffmpeg")
->>>>>>> refs/remotes/origin/main
 		}
 	}
 }
