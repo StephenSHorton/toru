@@ -154,11 +154,13 @@ function WhiteboardsPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4" role="list" aria-label="Whiteboards">
+        <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4" aria-label="Whiteboards">
           {boards.map((b) => (
-            <BoardCard key={b.id} board={b} onOpen={() => run(() => api.open(b.id))} />
+            <li key={b.id} className="flex">
+              <BoardCard board={b} onOpen={() => run(() => api.open(b.id))} />
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );
@@ -169,12 +171,11 @@ function BoardCard({ board: b, onOpen }: { board: Board; onOpen: () => void }) {
   return (
     <button
       type="button"
-      role="listitem"
       onClick={onOpen}
       disabled={!!b.error}
       title={b.error ? `Can't open: ${b.error}` : `Open ${b.name}`}
       className={cn(
-        "frost group flex flex-col overflow-hidden border border-transparent text-left",
+        "frost group flex w-full flex-col overflow-hidden border border-transparent text-left",
         "transition-[border-color,box-shadow,transform] duration-150",
         b.error
           ? "cursor-not-allowed opacity-80"
@@ -201,29 +202,24 @@ function BoardCard({ board: b, onOpen }: { board: Board; onOpen: () => void }) {
   );
 }
 
-/** Send to whiteboard: pick a board (or a new one) for a Library screenshot. */
-function SendToWhiteboard({
-  shot,
-  onClose,
-}: {
-  shot: { id: string; label: string } | null;
-  onClose: () => void;
-}) {
+type Shot = { id: string; label: string };
+
+/** Send to whiteboard: pick a board (or a new one) for a Library screenshot.
+ * The boards are listed afresh each time it opens. */
+function SendToWhiteboard({ shot, onClose }: { shot: Shot | null; onClose: () => void }) {
+  return shot ? <SendChooser key={shot.id} shot={shot} onClose={onClose} /> : null;
+}
+
+function SendChooser({ shot, onClose }: { shot: Shot; onClose: () => void }) {
   const api = useWhiteboards();
   const { boards } = useBoards();
   const [choice, setChoice] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
-  React.useEffect(() => {
-    setChoice(null);
-    setError("");
-    setBusy(false);
-  }, [shot]);
   const usable = (boards ?? []).filter((b) => !b.error);
   // The most recently changed board is chosen until the person picks.
   const picked = choice ?? usable[0]?.id ?? "";
   const send = () => {
-    if (!shot) return;
     setBusy(true);
     setError("");
     api
@@ -255,11 +251,11 @@ function SendToWhiteboard({
   );
 
   return (
-    <Dialog open={!!shot} onClose={busy ? undefined : onClose} dismissable={!busy} className="w-[26rem]">
+    <Dialog open onClose={busy ? undefined : onClose} dismissable={!busy} className="w-[26rem]">
       <div data-slot="send-to-whiteboard">
         <h2 className="text-base font-semibold">Send to whiteboard</h2>
         <p className="mt-1 text-sm break-words text-muted-foreground">
-          {shot?.label} goes on the board as a picture, below what's there.
+          {shot.label} goes on the board as a picture, below what's there.
         </p>
         <div className="mt-3 flex max-h-64 flex-col gap-0.5 overflow-auto" role="radiogroup" aria-label="Board">
           {boards === null ? (

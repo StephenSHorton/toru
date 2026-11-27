@@ -135,6 +135,9 @@ func TestWhiteboardsSendScreenshot(t *testing.T) {
 		t.Fatalf("%d blocks, want 2", len(b.Blocks))
 	}
 	first, second := b.Blocks[0], b.Blocks[1]
+	for _, x := range b.Blocks {
+		t.Logf("board %q (%s): %s block %s at (%v, %v), %v×%v, by %s, props %s", b.Name, b.ID, x.Type, x.ID, x.X, x.Y, x.W, x.H, x.CreatedBy, x.Props)
+	}
 	var props struct{ Asset, Alt string }
 	_ = json.Unmarshal(first.Props, &props)
 	if first.Type != "image" || props.Asset == "" || props.Alt != "Screenshot 1" {

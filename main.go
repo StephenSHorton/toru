@@ -497,8 +497,12 @@ func main() {
 			clicker:         clickerSvc,
 			openClicker:     windowsSvc.OpenClicker,
 			openVideoEditor: windowsSvc.OpenVideoEditor,
-			newWhiteboard:   func() { _, _ = whiteboardsSvc.Create("") },
-			update:          updateSvc,
+			newWhiteboard: func() {
+				if _, err := whiteboardsSvc.Create(""); err != nil {
+					toast.Post(toast.Note{ID: "whiteboard", Kind: toast.Error, Title: "Couldn't make a whiteboard", Body: err.Error()})
+				}
+			},
+			update: updateSvc,
 		}
 		tray.rebuildMenu() // initial menu (includes any persisted recents)
 
