@@ -50,17 +50,12 @@ import "@/whiteboard/toru-ui-sdk.css";
 // clusters by tag, like Go's board.layout: each is one change, one undo.
 
 // UI SDK's agent bridge, made before the board renders so it hears it mount.
-<<<<<<< HEAD
 // `board.snapshot` and `board.act` hand it to agents over Toru's agent control.
-const agent = createAgent();
-=======
-// `board.snapshot` hands its snapshot to agents over Toru's agent control.
 // A step on a control marked data-agent-confirm (removing a checklist item,
 // poll option or table column) waits for the person's answer in <AskPerson>;
 // a no fails the step with `The person said no to "…"`.
 const askPerson = createAskPerson();
 const agent = createAgent({ allow: askPerson.allow });
->>>>>>> refs/remotes/origin/main
 
 /** The whiteboard window. `live` is for checks: a board on a link of their own (whiteboard/links.ts). */
 export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
@@ -195,7 +190,6 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         <ArrangeCommand live={live} />
         <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
       </Board>
-<<<<<<< HEAD
       {error && (
         <div role="alert" data-slot="board-error" className="frost absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 px-3 py-2">
           {error}
@@ -204,9 +198,7 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
           </Button>
         </div>
       )}
-=======
       <AskPerson api={askPerson} />
->>>>>>> refs/remotes/origin/main
     </div>
   );
 }

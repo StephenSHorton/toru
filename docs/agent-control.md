@@ -201,22 +201,18 @@ board windows as a `board:op` event:
 `board.snapshot` and `board.act` (the window's live controls, through UI
 SDK's `createAgent`) are the board window's own commands while it is open:
 `board.act` fills its blocks as a person would (type in a sticky, tick a
-<<<<<<< HEAD
-checklist item, vote in a poll, set a table cell or a rating). Their
-changes are saved as board ops under the agent's name (`agent:<caller>`),
-before the command answers, like `board.arrange`'s.
+checklist item, vote in a poll, set a table cell or a rating, change a
+colour, rename or add poll options and table columns, give an image block a
+new picture). Removing a checklist item, poll option or table column is
+marked `data-agent-confirm`: it needs the person.
+Their changes are saved as board ops under the agent's name
+(`agent:<caller>`), before the command answers, like `board.arrange`'s.
 
 Every change to a board, from these commands, the window's live controls
 or the person, reaches open board windows as one `board:op` event
 `{board, op}`, sent by the store in rev order (`board.Store.OnOp`), and
 goes into the board's one undo history: Ctrl+Z in the window undoes an
 agent's change as well as the person's.
-=======
-checklist item, vote in a poll, set a table cell or a rating, change a
-colour, rename or add poll options and table columns, give an image block a
-new picture). Removing a checklist item, poll option or table column is
-marked `data-agent-confirm`: it needs the person.
->>>>>>> refs/remotes/origin/main
 
 ## Work split (cards under #1)
 
