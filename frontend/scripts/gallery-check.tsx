@@ -15,6 +15,11 @@
 //      Dropping on the panel, or Escape mid-drag, puts nothing.
 //   5. The panel collapses to a rail and opens again, and stays as it was
 //      when the window opens again (localStorage).
+//   6. "Your blocks" (whiteboard#31): no section while the library is empty;
+//      a tile per custom type in the library, with its icon and label; a type
+//      added while the window is open shows up without reopening it; dragging
+//      one on puts a block with the type's defaults, and the same op copies
+//      the type onto the board, so one Ctrl+Z takes both off.
 //
 //   bun scripts/gallery-check.tsx            the checks
 //   bun scripts/gallery-check.tsx --verbose  print every check
@@ -44,6 +49,10 @@ const { memoryLink } = await import("../src/whiteboard/links");
 const { dotGrid } = await import("../src/whiteboard/board");
 const { blockTypes, checkProps } = await import("../src/whiteboard/catalog");
 const { previewProps } = await import("../src/whiteboard/BlockGallery");
+const { setLibraryTypes } = await import("../src/whiteboard/custom-types");
+const samples = (await import("../../internal/board/testdata/custom-blocks.json")).default as { blocks: Record<string, unknown>[] };
+type BlockDef = import("../src/whiteboard/custom-types").BlockDef;
+const [ideaDef, bugDef] = samples.blocks.map((b, i) => ({ ...b, version: 1, origin: `blt-gallery${i}` }) as unknown as BlockDef);
 const { default: Whiteboard } = await import("../src/routes/Whiteboard");
 
 type BoardDoc = import("../src/whiteboard/document").BoardDoc;
@@ -283,6 +292,52 @@ ok("no block-kind dropdown", !host.querySelector('[aria-label="Block kind"]'));
   host.querySelector<HTMLElement>('[aria-label="Show blocks"]')!.click();
   await settle();
   ok("Show blocks opens it", gallery()!.hasAttribute("data-open") && !!tile("sticky") && localStorage.getItem("toru.whiteboard.gallery.open") === "1");
+}
+
+// 6. Your blocks.
+{
+  const titles = () => [...host.querySelectorAll('[data-slot="block-gallery-section"] h3')].map((h) => h.textContent).join();
+  ok("no Your blocks section while the library is empty", titles() === "Blocks,Frames", titles());
+
+  // What block-library.ts does with BlockLibraryService.List's answer.
+  setLibraryTypes([ideaDef]);
+  await settle();
+  ok("the library's blocks get a section", titles() === "Blocks,Frames,Your blocks", titles());
+  const idea = tile(ideaDef.type);
+  ok("... a tile for the feature idea, by its label", idea?.getAttribute("aria-label") === `Add ${ideaDef.label}` && idea?.textContent === ideaDef.label, idea?.outerHTML.slice(0, 160));
+  ok("... showing its icon", !!idea?.parentElement?.querySelector('[data-slot="block-gallery-preview"][data-icon] svg[data-slot="block-gallery-icon"]'));
+
+  // An agent defines another (board.block.define, then blocks:changed and a fresh List).
+  setLibraryTypes([ideaDef, bugDef]);
+  await settle();
+  ok("a block defined while the window is open shows up", !!tile(bugDef.type) && tile(bugDef.type)!.textContent === bugDef.label);
+  ok("... in Your blocks", tile(bugDef.type)?.closest('[data-slot="block-gallery-section"]')?.querySelector("h3")?.textContent === "Your blocks");
+  ok("agents see the custom tiles", JSON.stringify(agent.snapshot()).includes(`Add ${bugDef.label}`));
+
+  const n = sent.length;
+  ok("the board doesn't carry the type yet", !mem.board().types?.some((d) => d.type === ideaDef.type));
+  const t = tile(ideaDef.type)!;
+  pointer(t, "pointerdown", 80, 500);
+  pointer(t, "pointermove", 700, 400);
+  pointer(t, "pointerup", 700, 400);
+  t.click();
+  await settle();
+  const op = sent[n];
+  const added = op?.blocks?.[0];
+  ok("dragging a custom block on sends one op", sent.length === n + 1 && added?.type === ideaDef.type, sent.slice(n));
+  ok("... with the type's defaults as props", JSON.stringify(added?.props) === JSON.stringify(ideaDef.defaults), added?.props);
+  ok("... at the type's size", added?.w === ideaDef.w && added?.h === ideaDef.h, added);
+  ok("... carrying the type", op?.types?.length === 1 && op.types[0].type === ideaDef.type, op?.types);
+  ok("the board's file carries the type", mem.board().types?.some((d) => d.type === ideaDef.type) === true && memAll().some((b) => b.id === added?.id));
+  ok("... and draws the block", !!host.querySelector(`[data-block="${added?.id}"]`));
+  key(window, "z", { ctrlKey: true });
+  await settle();
+  ok("one Ctrl+Z takes the block off", !memAll().some((b) => b.id === added?.id));
+  ok("... and the type", !mem.board().types?.some((d) => d.type === ideaDef.type), mem.board().types);
+
+  setLibraryTypes([]);
+  await settle();
+  ok("the section goes when the library empties", titles() === "Blocks,Frames" && !tile(ideaDef.type), titles());
 }
 
 root.unmount();
