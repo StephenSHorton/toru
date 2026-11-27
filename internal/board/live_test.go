@@ -120,8 +120,16 @@ func TestLiveOpsGolden(t *testing.T) {
 // TestWindowOps applies the ops the board window sent, in order, through the
 // store and the window's service, and checks the board ends as the window's
 // own store said.
-func TestWindowOps(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("testdata", "window-ops.json"))
+func TestWindowOps(t *testing.T) { replayWindowOps(t, "window-ops.json") }
+
+// TestPanelOps does the same for the ops the window's properties panel sent
+// (frontend/scripts/props-panel-check.tsx): props, box, rotation, frame,
+// lock, a link's label and style, a stroke's colour, each one op, with undos.
+func TestPanelOps(t *testing.T) { replayWindowOps(t, "panel-ops.json") }
+
+func replayWindowOps(t *testing.T, name string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +137,7 @@ func TestWindowOps(t *testing.T) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&f); err != nil {
-		t.Fatalf("window-ops.json: %v", err)
+		t.Fatalf("%s: %v", name, err)
 	}
 	if len(f.Ops) < 5 {
 		t.Fatalf("want the window's ops, got %d", len(f.Ops))

@@ -29,8 +29,9 @@ type Point struct {
 	Y float64 `json:"y"`
 }
 
-// Layout works out new positions for the blocks ids on b (every block when
-// ids is empty). The blocks start where their top-left-most corner is now,
+// Layout works out new positions for the blocks ids on b (every block the
+// person hasn't locked when ids is empty; a locked one named in ids is
+// refused when the move is applied). The blocks start where their top-left-most corner is now,
 // unless opt gives X and Y.
 func Layout(b Board, ids []string, kind string, opt LayoutOptions) (map[string]Point, error) {
 	byID := map[string]Block{}
@@ -39,7 +40,11 @@ func Layout(b Board, ids []string, kind string, opt LayoutOptions) (map[string]P
 	}
 	var blocks []Block
 	if len(ids) == 0 {
-		blocks = append(blocks, b.Blocks...)
+		for _, x := range b.Blocks {
+			if !x.Locked {
+				blocks = append(blocks, x)
+			}
+		}
 	} else {
 		seen := map[string]bool{}
 		for _, id := range ids {

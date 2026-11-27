@@ -162,7 +162,8 @@ function ToolSurface({ board, tools, settings }: { board: ToolsBoard; tools: Too
       const p = board.viewport.toCanvas(clientX, clientY);
       const reach = s.widths.eraser / 2 / (board.viewport.get().zoom || 1);
       for (const [id, b] of Object.entries(board.blocks())) {
-        if (!isInk(b) || erased.has(id)) continue;
+        // A locked stroke stays (whiteboard#29).
+        if (!isInk(b) || b.locked || erased.has(id)) continue;
         // Its box first: most strokes are nowhere near.
         if (p.x < b.x - reach || p.y < b.y - reach || p.x > b.x + b.width + reach || p.y > b.y + b.height + reach) continue;
         if (inkDistance(b, p) <= reach) {
@@ -273,7 +274,8 @@ function ToolLayer({
   const read = () => selection.get().selected;
   const selected = useSyncExternalStore(selection.subscribe, read, read);
   const only = selected.length === 1 ? blocks[selected[0]] : undefined;
-  const shape = settings.tool === "select" && isInk(only) && only.ink.kind ? { id: selected[0], block: only } : null;
+  // A locked shape gets no handles: it doesn't move or reshape (whiteboard#29).
+  const shape = settings.tool === "select" && isInk(only) && only.ink.kind && !only.locked ? { id: selected[0], block: only } : null;
   return (
     <>
       {draft && (

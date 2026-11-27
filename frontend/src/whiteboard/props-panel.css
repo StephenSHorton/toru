@@ -1,0 +1,314 @@
+/* The properties panel (PropsPanel.tsx): down the board's right side, over
+   the canvas, in Toru's tokens, so it follows the window's light and dark
+   themes. It slides in when something is selected and out when nothing is. */
+
+@layer components {
+  [data-slot="props-panel"] {
+    position: absolute;
+    top: 64px;
+    right: 12px;
+    bottom: 60px;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-sizing: border-box;
+    width: 18rem;
+    max-width: calc(100% - 24px);
+    padding: 12px;
+    overflow: hidden auto;
+    overscroll-behavior: contain;
+    color: var(--foreground);
+    font-size: 13px;
+    cursor: default;
+    transform: translateX(calc(100% + 24px));
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      transform 180ms ease,
+      opacity 180ms ease,
+      visibility 0s linear 180ms;
+
+    &[data-open] {
+      transform: none;
+      opacity: 1;
+      visibility: visible;
+      transition:
+        transform 180ms ease,
+        opacity 180ms ease;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      transition: none;
+
+      &[data-open] {
+        transition: none;
+      }
+    }
+
+    & h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    & h3 {
+      margin: 0;
+    }
+
+    & p {
+      margin: 0;
+    }
+
+    & :is(input, textarea) {
+      box-sizing: border-box;
+      width: 100%;
+    }
+
+    & textarea {
+      resize: vertical;
+    }
+
+    & [aria-invalid="true"] {
+      outline: 1px solid var(--destructive);
+    }
+  }
+
+  [data-slot="props-panel-header"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    & p {
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
+  }
+
+  [data-slot="props-panel-section"] {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  [data-slot="props-panel-row"] {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+
+    &[data-inline] {
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+    }
+  }
+
+  [data-slot="props-panel-label"] {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  [data-slot="props-panel-mixed"] {
+    font-style: italic;
+    font-weight: 400;
+  }
+
+  [data-slot="props-panel-note"] {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+
+  [data-slot="props-panel-grid"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  [data-slot="props-panel-inline"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  [data-slot="props-panel"] [data-slot="select-trigger"] {
+    box-sizing: border-box;
+    min-width: 0;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  /* The block colour swatches, a little bigger than in a block. */
+  [data-slot="props-panel-swatches"][data-part="block-swatches"] {
+    gap: 6px;
+
+    & [data-slot="radio"] {
+      width: 18px;
+      height: 18px;
+    }
+  }
+
+  [data-slot="props-panel-cells"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+
+    & > [data-slot="props-panel-row"] {
+      flex: 1 1 5rem;
+
+      & > [data-slot="props-panel-label"] {
+        display: none;
+      }
+    }
+  }
+
+  [data-slot="props-panel-ink"] {
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+
+    & [data-slot="radio"] {
+      width: 18px;
+      height: 18px;
+      border: 1px solid color-mix(in oklch, var(--foreground) 35%, transparent);
+
+      &[data-checked] {
+        outline: 2px solid var(--foreground);
+        outline-offset: 1px;
+      }
+    }
+  }
+
+  [data-slot="props-panel-words"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    &:empty {
+      display: none;
+    }
+
+    & li {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 1px 2px 1px 6px;
+      border: 1px solid var(--border);
+      background: var(--muted);
+      font-size: 12px;
+    }
+
+    & button {
+      width: 18px;
+      height: 18px;
+      min-height: 0;
+      padding: 0;
+
+      & svg {
+        width: 12px;
+        height: 12px;
+      }
+    }
+  }
+
+  [data-slot="props-panel-list"] {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+
+    & > ol {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    & > ol > li {
+      display: flex;
+      align-items: flex-start;
+      gap: 4px;
+      padding-left: 8px;
+      border-left: 2px solid var(--border);
+    }
+
+    & > button {
+      align-self: flex-start;
+      padding-inline: 8px;
+    }
+  }
+
+  [data-slot="props-panel-item"] {
+    flex: 1;
+    min-width: 0;
+
+    /* An item's own number is enough; its fields say what they are. */
+    & > [data-slot="props-panel-row"] > [data-slot="props-panel-label"] {
+      display: none;
+    }
+  }
+
+  [data-slot="props-panel-object"] {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  [data-slot="props-panel-remove"] {
+    flex: none;
+  }
+
+  [data-slot="props-panel-ends"],
+  [data-slot="props-panel-lines"] {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    & button {
+      display: block;
+      box-sizing: border-box;
+      width: 100%;
+      min-width: 0;
+      overflow: hidden;
+      text-align: start;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  [data-slot="props-panel-error"] {
+    color: var(--destructive);
+    font-size: 12px;
+  }
+
+  [data-slot="props-panel-who"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    color: var(--muted-foreground);
+    font-size: 12px;
+
+    & strong {
+      color: var(--foreground);
+      font-weight: 500;
+    }
+  }
+}

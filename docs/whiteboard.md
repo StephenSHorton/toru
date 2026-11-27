@@ -240,6 +240,56 @@ or code from an agent is ever run.** A custom block is data only.
   a temporary folder, and while a window watches, an agent named Claude
   Code builds a board, clears what it made and builds it again.
 
+### Properties panel (built, whiteboard#29)
+
+- **Down the right side, over the canvas** (`frontend/src/whiteboard/PropsPanel.tsx`,
+  `props-panel.css`): it shows what's selected and slides away (inert) when
+  nothing is; the canvas never moves or shrinks. F6 hops from the board
+  to the panel and back to the selected block.
+- **A form from the schema.** A block's props are fields made from its
+  catalog type's JSON Schema keywords (enum, items, properties, required,
+  min/max, lengths), so a type added to the catalog later (or an AI-built
+  type that `blockType()` finds, whiteboard#27) gets a form with no new
+  code. The panel draws again when custom types arrive (`subscribeTypes`),
+  since the library can load after the board. A schema it can't map is a JSON box. Under the props: X, Y, width,
+  height, rotation, the frame it sits in, Locked, and who made it and last
+  changed it. A frame shows its name and colour; ink its colour and width;
+  a block lists its lines, each a button that picks the line.
+- **Lines** are picked by pressing them (`board-line-hit`, a wide
+  see-through stroke) or from a block's list. A line shows its label above
+  its middle and its style from the link's props: `start` and `end`
+  (`"arrow"` or none), `dash` (`"dashed"`, `"dotted"`, or solid) and
+  `color` (a block colour). `board.connect`'s `style` takes the same keys.
+- **Several selected:** the props their types share (same keywords),
+  marked "(mixed)" where they differ; a change goes to each. A list of
+  words (tags) adds or removes the word on each, keeping their own.
+- **One change, one undo:** every edit is one `LiveBoard.update`: one op to
+  Go's store, the store `board.update` changes, so Ctrl+Z takes it back.
+  The op is built from the board as it is once what's pending is sent, so
+  it never puts back a value that changed meanwhile.
+  Text and numbers are sent when the field is left or on Enter, never per
+  key; while a field has unsent typing, Ctrl+Z is the field's own.
+- **Lock** (`locked` on blocks, frames, strokes and links; `board.update`
+  sets it): on the canvas a locked item can't be dragged, resized, arranged
+  or deleted, by the person or by an agent using the window (`board.act`,
+  `board.arrange`); it still selects, so it can be unlocked, and the
+  panel's X and Y still move it. A locked line has no disconnect button.
+  The shared board code holds it against agents too
+  (`internal/board/lock.go`): any change from an agent that would move,
+  resize, delete or unlock a locked item (or delete what a locked line
+  hangs on) is refused with "… is locked, so it can't be moved: only the
+  person can unlock it, in the board window". That covers `board.move`,
+  `board.update`, `board.delete`, `board.layout` (which skips locked
+  blocks unless they're named) and an agent driving the window. Agents can
+  still lock things, and change a locked item's text and style. The
+  person's own changes, and undo and redo, aren't held.
+- **Rotation** is drawn (CSS `rotate`); moving, resizing, lassoing and
+  ports still use the unturned box.
+- **Checks:** `bun run test:props-panel` drives the real window against a
+  store in the page and writes the ops it sent to
+  `internal/board/testdata/panel-ops.json` (`--write`), which Go's
+  `TestPanelOps` applies through the real store.
+
 **Rules.**
 
 - Every agent change is a board op tagged with its source (`agent:<name>`

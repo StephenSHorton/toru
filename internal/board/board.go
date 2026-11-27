@@ -100,6 +100,7 @@ type Block struct {
 	Frame    string          `json:"frame,omitempty"`    // the frame it sits in, if any
 	Group    string          `json:"group,omitempty"`    // blocks with the same group move together
 	Props    json.RawMessage `json:"props"`
+	Locked   bool            `json:"locked,omitempty"` // nobody moves, resizes or deletes it until the person unlocks it (lock.go)
 	Meta
 }
 
@@ -111,7 +112,8 @@ type Link struct {
 	FromPort string          `json:"fromPort,omitempty"`
 	ToPort   string          `json:"toPort,omitempty"`
 	Label    string          `json:"label,omitempty"`
-	Props    json.RawMessage `json:"props,omitempty"` // style: arrow heads, dash, colour
+	Props    json.RawMessage `json:"props,omitempty"` // style: start, end ("arrow" or "none"), dash ("solid", "dashed", "dotted"), color (a block colour)
+	Locked   bool            `json:"locked,omitempty"`
 	Meta
 }
 
@@ -135,6 +137,7 @@ type Stroke struct {
 	Fill      string    `json:"fill,omitempty"`
 	Text      string    `json:"text,omitempty"`
 	Highlight bool      `json:"highlight,omitempty"`
+	Locked    bool      `json:"locked,omitempty"`
 	Meta
 }
 
@@ -147,13 +150,14 @@ func (s *Stroke) IsShape() bool { return s.Kind != "" }
 // Frame is a named region that holds blocks and ink, like a section of the
 // board.
 type Frame struct {
-	ID    string  `json:"id"`
-	Name  string  `json:"name"`
-	X     float64 `json:"x"`
-	Y     float64 `json:"y"`
-	W     float64 `json:"w"`
-	H     float64 `json:"h"`
-	Color string  `json:"color,omitempty"`
+	ID     string  `json:"id"`
+	Name   string  `json:"name"`
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	W      float64 `json:"w"`
+	H      float64 `json:"h"`
+	Color  string  `json:"color,omitempty"`
+	Locked bool    `json:"locked,omitempty"`
 	Meta
 }
 

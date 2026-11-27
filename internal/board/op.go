@@ -429,10 +429,20 @@ func (a *applier) del(ids []string) error {
 		if _, ok := a.kinds[id]; !ok {
 			return fmt.Errorf("nothing on the board has the id %q", id)
 		}
+		if err := a.lockedDelete(id); err != nil {
+			return err
+		}
 		gone[id] = true
 	}
 	for _, l := range a.b.Links {
 		if gone[l.From] || gone[l.To] {
+			if l.Locked && a.agentEdit() {
+				end := l.To
+				if gone[l.From] {
+					end = l.From
+				}
+				return fmt.Errorf("line %q is locked, and removing %q would take it too: only the person can unlock it, in the board window", l.ID, end)
+			}
 			gone[l.ID] = true
 		}
 	}
@@ -492,6 +502,9 @@ type itemOps[T any] struct {
 	meta  func(*T) *Meta
 	check func(*T) error
 	clone func(T) T
+	// held says why an agent can't make next of old, a locked item: it
+	// moves or resizes it, or unlocks it. "" when it can.
+	held func(old, next *T) string
 }
 
 var (
@@ -499,21 +512,25 @@ var (
 		id: func(x *Frame) string { return x.ID }, setID: func(x *Frame, id string) { x.ID = id },
 		meta: func(x *Frame) *Meta { return &x.Meta }, check: (*Frame).check,
 		clone: func(x Frame) Frame { return x },
+		held:  func(o, n *Frame) string { return heldBox(o.Locked, n.Locked, o.X, o.Y, o.W, o.H, n.X, n.Y, n.W, n.H) },
 	}
 	blockItem = itemOps[Block]{
 		id: func(x *Block) string { return x.ID }, setID: func(x *Block, id string) { x.ID = id },
 		meta: func(x *Block) *Meta { return &x.Meta }, check: (*Block).check,
 		clone: func(x Block) Block { x.Props = cloneRaw(x.Props); return x },
+		held:  func(o, n *Block) string { return heldBox(o.Locked, n.Locked, o.X, o.Y, o.W, o.H, n.X, n.Y, n.W, n.H) },
 	}
 	strokeItem = itemOps[Stroke]{
 		id: func(x *Stroke) string { return x.ID }, setID: func(x *Stroke, id string) { x.ID = id },
 		meta: func(x *Stroke) *Meta { return &x.Meta }, check: (*Stroke).check,
 		clone: func(x Stroke) Stroke { x.Points = append([]float64(nil), x.Points...); return x },
+		held:  heldStroke,
 	}
 	linkItem = itemOps[Link]{
 		id: func(x *Link) string { return x.ID }, setID: func(x *Link, id string) { x.ID = id },
 		meta: func(x *Link) *Meta { return &x.Meta }, check: (*Link).check,
 		clone: func(x Link) Link { x.Props = cloneRaw(x.Props); return x },
+		held:  func(o, n *Link) string { return heldBox(o.Locked, n.Locked, 0, 0, 0, 0, 0, 0, 0, 0) },
 	}
 )
 
@@ -556,6 +573,11 @@ func put[T any](a *applier, kind, prefix string, list, items []T, pos map[string
 			return nil, fmt.Errorf("id %q is already a %s, not a %s", id, k, kind)
 		}
 		i, exists := index[id]
+		if exists && a.agentEdit() {
+			if why := ops.held(&list[i], &x); why != "" {
+				return nil, lockedErr(kind, id, why)
+			}
+		}
 		m := ops.meta(&x)
 		if !a.restore {
 			if exists {
