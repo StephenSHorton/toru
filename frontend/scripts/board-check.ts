@@ -11,7 +11,7 @@ GlobalRegistrator.register({ url: "http://127.0.0.1/" });
 
 const { mount } = await import("@ui-sdk/core/testing");
 const { createAgent } = await import("@ui-sdk/core/agent");
-const { board, nameLines, facing } = await import("../src/whiteboard/board");
+const { board, nameLines, facing, dotGrid } = await import("../src/whiteboard/board");
 const { edgePath } = await import("../src/whiteboard/edge-path");
 
 type Blocks = import("../src/whiteboard/board").BoardBlocks;
@@ -323,5 +323,75 @@ function shiftPress(el: HTMLElement) {
 }
 
 b.unmount();
+
+// ── Snap to grid: a board on the dots' grid (dotGrid, 24) ─────────────
+{
+  ok("the dots are 24 apart", dotGrid === 24, dotGrid);
+  const g = mount(
+    board,
+    {
+      grid: dotGrid,
+      defaultBlocks: {
+        a: { label: "Aligned", x: 0, y: 0, width: 192, height: 96 },
+        odd: { label: "Placed by an agent", x: 13, y: 250, width: 150, height: 70 },
+      },
+    },
+    `<root aria-label="Snap board"><world>
+      <block value="a">Aligned${["n", "ne", "e", "se", "s", "sw", "w", "nw"].map((h) => `<handle value="a:${h}"></handle>`).join("")}</block>
+      <block value="odd">Odd</block>
+    </world><lasso></lasso><instructions>i</instructions></root>`,
+  );
+  g.root.getBoundingClientRect = () => rect(0, 0, 1000, 600);
+  await g.api.viewport.setViewport({ x: 0, y: 0, zoom: 1 });
+  for (const [id, box] of Object.entries(g.state.blocks)) g.part("block", id)!.getBoundingClientRect = () => rect(box.x, box.y, box.width, box.height);
+  await g.settle();
+
+  // Mid-drag, the block already shows on the dots: 37 right and 10 down shows as 48 right (2 dots), 0 down.
+  const el = g.part("block", "a")!;
+  const pe = (type: string, x: number, y: number) =>
+    new PointerEvent(type, { pointerId: 3, pointerType: "mouse", clientX: x, clientY: y, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true, cancelable: true });
+  el.dispatchEvent(pe("pointerdown", 20, 20));
+  for (const t of [0.3, 0.6, 1]) window.dispatchEvent(pe("pointermove", 20 + 37 * t, 20 + 10 * t));
+  el.dispatchEvent(pe("pointermove", 57, 30));
+  await g.settle();
+  const style = el.getAttribute("style") ?? "";
+  ok("while dragging, the block shows on the dots", /translate:\s*48px 0px/.test(style) && g.api.liveBox(g.state, "a")?.x === 48, style);
+  window.dispatchEvent(pe("pointerup", 57, 30));
+  el.dispatchEvent(pe("pointerup", 57, 30));
+  await g.settle();
+  ok("the drop lands where it showed", g.state.blocks.a.x === 48 && g.state.blocks.a.y === 0, g.state.blocks.a);
+
+  // A resize lands its edges on the dots, and can't go below the smallest box on the grid.
+  for (const [id, box] of Object.entries(g.state.blocks)) g.part("block", id)!.getBoundingClientRect = () => rect(box.x, box.y, box.width, box.height);
+  await g.drag(g.part("handle", "a:se")!, { by: { x: 30, y: 17 } });
+  ok("a resize lands on the dots", g.state.blocks.a.width === 216 && g.state.blocks.a.height === 120, g.state.blocks.a);
+  await g.drag(g.part("handle", "a:se")!, { by: { x: -1000, y: -1000 } });
+  ok("the smallest box is on the grid too", g.state.blocks.a.width === 48 && g.state.blocks.a.height === 48, g.state.blocks.a);
+
+  // An agent's exact x/y and size stay exact.
+  g.api.moveBlock("odd", 101, 203);
+  ok("an agent's moveBlock keeps its exact x/y", g.state.blocks.odd.x === 101 && g.state.blocks.odd.y === 203, g.state.blocks.odd);
+  g.api.resizeBlock("odd", 155, 77);
+  ok("an agent's resizeBlock keeps its exact size", g.state.blocks.odd.width === 155 && g.state.blocks.odd.height === 77, g.state.blocks.odd);
+  g.api.addBlock("new", { label: "Added in code", x: 7, y: 9, width: 50, height: 50 });
+  ok("a block added in code keeps its exact x/y", g.state.blocks.new.x === 7 && g.state.blocks.new.y === 9, g.state.blocks.new);
+  g.unmount();
+}
+
+// ── Snap to grid off: grid 1 places blocks where they're dropped ──────
+{
+  const f = mount(
+    board,
+    { grid: 1, defaultBlocks: { a: { label: "Free", x: 0, y: 0, width: 100, height: 60 } } },
+    `<root aria-label="Free board"><world><block value="a">Free</block></world><lasso></lasso><instructions>i</instructions></root>`,
+  );
+  f.root.getBoundingClientRect = () => rect(0, 0, 1000, 600);
+  await f.api.viewport.setViewport({ x: 0, y: 0, zoom: 1 });
+  f.part("block", "a")!.getBoundingClientRect = () => rect(0, 0, 100, 60);
+  await f.drag(f.part("block", "a")!, { by: { x: 37, y: 10 } });
+  ok("with snapping off, a drag lands where it's dropped", f.state.blocks.a.x === 37 && f.state.blocks.a.y === 10, f.state.blocks.a);
+  f.unmount();
+}
+
 console.log(`board-check: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

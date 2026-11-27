@@ -6,22 +6,14 @@ import { Input } from "@ui-sdk/react/input";
 import { Window } from "@wailsio/runtime";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
-import {
-  Popover,
-  PopoverClose,
-  PopoverContent,
-  PopoverDescription,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@ui-sdk/react/popover";
+import { Popover, PopoverClose, PopoverContent, PopoverTitle, PopoverTrigger } from "@ui-sdk/react/popover";
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
-import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
 import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MoonIcon, MousePointer2Icon, PenLineIcon, PencilIcon, PlusIcon, SunIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
-import type { BoardBlocks } from "@/whiteboard/board";
+import { dotGrid, onGrid, type BoardBlocks } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
 import { useBlockLibrary } from "@/whiteboard/block-library";
 import { blockLabel, blockType, blockTypes, newProps, type BlockType } from "@/whiteboard/catalog";
@@ -62,6 +54,31 @@ import "@/whiteboard/toru-ui-sdk.css";
 const askPerson = createAskPerson();
 const agent = createAgent({ allow: askPerson.allow });
 
+// Snap to grid: on, blocks the person drags, resizes or adds land on the
+// background dots (board.ts's dotGrid); off, they go where they're put. The
+// person's choice, kept in this computer's window storage; on until they
+// untick it. Agents placing blocks by x/y (board.add, moveBlock) are never
+// snapped.
+const snapKey = "toru.whiteboard.snapToGrid";
+function useSnapToGrid() {
+  const [snap, setSnap] = useState(() => {
+    try {
+      return window.localStorage.getItem(snapKey) !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const change = useCallback((on: boolean) => {
+    setSnap(on);
+    try {
+      window.localStorage.setItem(snapKey, on ? "1" : "0");
+    } catch {
+      // no storage: the choice lasts while the window is open
+    }
+  }, []);
+  return [snap, change] as const;
+}
+
 /** The whiteboard window. `live` is for checks: a board on a link of their own (whiteboard/links.ts). */
 export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   const [live] = useState(() => given ?? openLive());
@@ -69,6 +86,8 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   // Light (the default) or slate grey dark, saved in Go for every board.
   useWindowTheme();
   const id = live.id;
+  const [snap, setSnap] = useSnapToGrid();
+  const grid = snap ? dotGrid : 1;
   // The person's own blocks (custom types), when the board is in Toru's store.
   useBlockLibrary(id, !given && (() => {
     const params = new URLSearchParams(window.location.search);
@@ -209,9 +228,13 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         onLinesChange={(lines, details) => live.edit({ lines }, { source: sourceOf(details) })}
         renderBlock={renderBlock}
         pen={pen}
+        grid={grid}
       >
         <SampleToolbar
-          onAdd={(type) => live.edit({ blocks: addBlock(live.getState().view.blocks, type) })}
+          onAdd={(type) => live.edit({ blocks: addBlock(live.getState().view.blocks, type, grid) })}
+          grid={grid}
+          snap={snap}
+          onSnap={setSnap}
           exportMenu={<ExportMenu live={live} />}
         />
         <ArrangeCommand live={live} />
@@ -287,14 +310,17 @@ function BoardName({ name, onRename }: { name: string; onRename: (name: string) 
 
 /**
  * A new block of a catalog type, at its default size, below the lowest
- * block. Its id is random, so it can't meet one an agent adds meanwhile.
+ * block, its corner on the grid (1: wherever that falls). Its id is random,
+ * so it can't meet one an agent adds meanwhile.
  */
-function addBlock(blocks: BoardBlocks, type: BlockType): BoardBlocks {
+function addBlock(blocks: BoardBlocks, type: BlockType, grid = 1): BoardBlocks {
   const info = blockType(type);
   if (!info) return blocks;
   const all = Object.values(blocks);
-  const y = all.length ? Math.max(...all.map((b) => b.y + b.height)) + 40 : 0;
-  const x = all.length ? Math.min(...all.map((b) => b.x)) : 0;
+  const below = all.length ? Math.max(...all.map((b) => b.y + b.height)) + 40 : 0;
+  // Rounded up, so the new block never overlaps the lowest one.
+  const y = grid > 1 ? Math.ceil(below / grid) * grid : below;
+  const x = onGrid(all.length ? Math.min(...all.map((b) => b.x)) : 0, grid);
   let id = "";
   do id = `blk-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
   while (blocks[id]);
@@ -373,9 +399,23 @@ function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Par
   );
 }
 
-// The toolbar: Add block places the chosen catalog type; Fit works. The rest
-// are samples of UI SDK controls in Toru's theme, for later cards.
-function SampleToolbar({ onAdd, exportMenu }: { onAdd: (type: BlockType) => void; exportMenu?: React.ReactNode }) {
+// The toolbar: Add block places the chosen catalog type; Fit, Template,
+// Layout and Export work; Snap to grid lands what the person drags, resizes
+// and adds on the dots. Share is still a sample, kept out of agents' reach
+// (data-agent-hidden) until whiteboard#13 makes it share.
+function SampleToolbar({
+  onAdd,
+  grid,
+  snap,
+  onSnap,
+  exportMenu,
+}: {
+  onAdd: (type: BlockType) => void;
+  grid: number;
+  snap: boolean;
+  onSnap: (on: boolean) => void;
+  exportMenu?: React.ReactNode;
+}) {
   const board = useBoard();
   const [kind, setKind] = useState<BlockType>("sticky");
   return (
@@ -395,7 +435,7 @@ function SampleToolbar({ onAdd, exportMenu }: { onAdd: (type: BlockType) => void
         Add block
       </Button>
       <Button onClick={() => board.fit()}>Fit</Button>
-      <TemplateMenu />
+      <TemplateMenu grid={grid} />
       <LayoutMenu />
       {exportMenu}
       <Select value={kind} onValueChange={(v) => v && setKind(v as BlockType)} aria-label="Block kind">
@@ -415,27 +455,20 @@ function SampleToolbar({ onAdd, exportMenu }: { onAdd: (type: BlockType) => void
         </SelectContent>
       </Select>
       <label data-slot="label" className="flex items-center gap-2 whitespace-nowrap">
-        <Checkbox defaultChecked>
+        <Checkbox checked={snap} onCheckedChange={(checked) => onSnap(checked === true)}>
           <CheckboxIndicator>
             <CheckIcon aria-hidden="true" />
           </CheckboxIndicator>
         </Checkbox>
         Snap to grid
       </label>
-      <Slider defaultValue={60} style={{ minWidth: "8rem" }}>
-        <SliderControl>
-          <SliderTrack>
-            <SliderIndicator />
-            <SliderThumb aria-label="Zoom" />
-          </SliderTrack>
-        </SliderControl>
-      </Slider>
       <ThemeSwitch />
+      {/* Share does nothing yet (whiteboard#13), so agents don't see it and
+          it makes no promise about who can view the board. */}
       <Popover>
-        <PopoverTrigger>Share</PopoverTrigger>
-        <PopoverContent className="frost">
+        <PopoverTrigger data-agent-hidden="">Share</PopoverTrigger>
+        <PopoverContent className="frost" data-agent-hidden="">
           <PopoverTitle>Share this board</PopoverTitle>
-          <PopoverDescription>Anyone with the link can view it.</PopoverDescription>
           <div className="flex justify-end gap-2">
             <PopoverClose>Cancel</PopoverClose>
             <PopoverClose data-variant="solid">Copy link</PopoverClose>
@@ -472,14 +505,15 @@ function ThemeSwitch() {
 }
 
 // Template: places a brainstorm template to the right of what's on the board,
-// then fits the view to show everything.
-function TemplateMenu() {
+// its corner on the grid, then fits the view to show everything.
+function TemplateMenu({ grid }: { grid: number }) {
   const board = useBoard();
   const place = (name: string) => {
     const blocks = board.blocks();
     const all = Object.values(blocks);
-    const x = all.length ? Math.max(...all.map((b) => b.x + b.width)) + 160 : 0;
-    const y = all.length ? Math.min(...all.map((b) => b.y)) : 0;
+    const right = all.length ? Math.max(...all.map((b) => b.x + b.width)) + 160 : 0;
+    const x = grid > 1 ? Math.ceil(right / grid) * grid : right;
+    const y = onGrid(all.length ? Math.min(...all.map((b) => b.y)) : 0, grid);
     let n = 1;
     while (Object.keys(blocks).some((id) => id.startsWith(`t${n}-`))) n++;
     const t = templateBoard(name, { prefix: `t${n}-`, x, y });
