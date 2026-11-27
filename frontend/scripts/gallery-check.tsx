@@ -14,7 +14,9 @@
 //      centred on the pointer, as one op; a frame lands in the board's frames.
 //      Dropping on the panel, or Escape mid-drag, puts nothing.
 //   5. The panel collapses to a rail and opens again, and stays as it was
-//      when the window opens again (localStorage).
+//      when the window opens again (localStorage). Fit and the first view
+//      keep the blocks clear of the open panel, and use the full width when
+//      it's a rail (whiteboard#40).
 //
 //   bun scripts/gallery-check.tsx            the checks
 //   bun scripts/gallery-check.tsx --verbose  print every check
@@ -142,8 +144,27 @@ ok("no block-kind dropdown", !host.querySelector('[aria-label="Block kind"]'));
   ok("agents don't see the previews' controls", !["A quick idea", "Which one?", "To do", "Heading", "ideas"].some((s) => snap.includes(s)), snap.slice(0, 400));
 }
 
+// Fit and the first view keep clear of the open panel (whiteboard#40): the
+// one block's middle is mid-way across the 264 to 1200 px right of the panel,
+// and with the panel a rail, mid-way across the whole 1200 px.
+const s1Middle = () => {
+  const view = toCanvas(0, 0);
+  const zoom = Number(/scale\(([-\d.]+)\)/.exec(view.style)?.[1] ?? 1);
+  return { x: (100 - view.x) * zoom, y: (100 - view.y) * zoom };
+};
+const near = (a: { x: number; y: number }, x: number, y: number) => Math.abs(a.x - x) < 1 && Math.abs(a.y - y) < 1;
+const pressFit = async () => {
+  [...host.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent?.trim() === "Fit" || b.getAttribute("aria-label") === "Fit to content")!.click();
+  await settle();
+};
+ok("the first view fits the blocks right of the open panel", near(s1Middle(), (264 + 1200) / 2, 400), s1Middle());
+
 // 3. Pressing a tile.
 {
+  // The first view fits the one block into the space right of the panel,
+  // which is where a press puts a new one (then nudged off it): pan away first.
+  host.querySelector('[aria-roledescription="whiteboard"]')!.dispatchEvent(new WheelEvent("wheel", { deltaX: 0, deltaY: 400, bubbles: true, cancelable: true }));
+  await settle();
   const n = sent.length;
   tile("sticky")!.click();
   await settle();
@@ -280,9 +301,16 @@ ok("no block-kind dropdown", !host.querySelector('[aria-label="Block kind"]'));
   await settle();
   await settle();
   ok("the window opens with it collapsed", !!gallery() && !gallery()!.hasAttribute("data-open"));
+  ok("... and its first view uses the full width", near(s1Middle(), 600, 400), s1Middle());
+  host.querySelector('[aria-roledescription="whiteboard"]')!.dispatchEvent(new WheelEvent("wheel", { deltaX: 0, deltaY: 400, bubbles: true, cancelable: true }));
+  await settle();
+  await pressFit();
+  ok("Fit with the rail uses the full width", near(s1Middle(), 600, 400), s1Middle());
   host.querySelector<HTMLElement>('[aria-label="Show blocks"]')!.click();
   await settle();
   ok("Show blocks opens it", gallery()!.hasAttribute("data-open") && !!tile("sticky") && localStorage.getItem("toru.whiteboard.gallery.open") === "1");
+  await pressFit();
+  ok("Fit with the panel open keeps right of it", near(s1Middle(), (264 + 1200) / 2, 400), s1Middle());
 }
 
 root.unmount();

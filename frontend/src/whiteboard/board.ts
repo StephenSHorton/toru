@@ -675,9 +675,45 @@ const board = /* @__PURE__ */ definePrimitive({
       return true
     }
 
+    // Fit shows every block whole and centered in the part of the board no
+    // panel covers: a panel floating over the board's left edge marks itself
+    // `data-board-inset="left"` (the open block gallery does), and Fit keeps
+    // to its right.
     const fit = () => {
       const rect = contentRect(store.get().blocks)
-      return !!rect && viewport.fit(rect, { padding: 48 })
+      const root = context.element("root") as HTMLElement | null
+      if (!rect || !root) {
+        return false
+      }
+      const box = root.getBoundingClientRect()
+      let left = 0
+      root.querySelectorAll('[data-board-inset="left"]').forEach((el) => {
+        const panel = el.getBoundingClientRect()
+        if (panel.width > 0) {
+          left = Math.max(left, panel.right - box.left)
+        }
+      })
+      // A panel wider than most of the board leaves Fit the whole width.
+      if (left > box.width / 2) {
+        left = 0
+      }
+      const padding = 48
+      const width = Math.max(rect.right - rect.left, 1)
+      const height = Math.max(rect.bottom - rect.top, 1)
+      const room = box.width - left
+      const zoom = Math.max(
+        0.1,
+        Math.min(
+          (room - padding * 2) / width,
+          (box.height - padding * 2) / height,
+          1
+        )
+      )
+      return viewport.setViewport({
+        x: left + room / 2 - (rect.left + width / 2) * zoom,
+        y: box.height / 2 - (rect.top + height / 2) * zoom,
+        zoom,
+      })
     }
 
     // Zoom keys and 1 to fit, from a block or the surface itself.

@@ -249,6 +249,8 @@ function BlockGallery({ sections = catalogSections(), grid = 1 }: { sections?: G
       ref={panel}
       data-slot="block-gallery"
       data-open={open ? "" : undefined}
+      // Open, it covers the board's left edge: the board's Fit keeps clear.
+      data-board-inset={open ? "left" : undefined}
       aria-label="Block gallery"
       className="frost"
       // The board under the panel doesn't pan or take its keys.
