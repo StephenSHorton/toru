@@ -1,9 +1,5 @@
-<<<<<<< HEAD
-import { useCallback, useEffect, useState, useSyncExternalStore, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-=======
 import * as React from "react";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
->>>>>>> refs/remotes/origin/main
+import { useCallback, useEffect, useState, useSyncExternalStore, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createAgent } from "@ui-sdk/react/agent";
 import { Button } from "@ui-sdk/react/button";
 import { Input } from "@ui-sdk/react/input";
@@ -21,11 +17,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
-<<<<<<< HEAD
-import { CheckIcon, ChevronDownIcon, LayoutGridIcon, PencilIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PlusIcon, XIcon } from "lucide-react";
-=======
-import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PlusIcon, XIcon } from "lucide-react";
->>>>>>> refs/remotes/origin/main
+import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PencilIcon, PlusIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
