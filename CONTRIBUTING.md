@@ -76,7 +76,11 @@ cd frontend && bun run test:blocks && cd ..  # whiteboard blocks: agent-ready, m
 cd frontend && bun run test:templates && cd ..   # whiteboard templates and layout match Go's; `TORU_UPDATE_TEMPLATES=1 go test ./internal/board` rewrites the files they read
 cd frontend && bun run test:custom-blocks && cd ..   # custom blocks agents design (board.block.define): drawn from their layout, filled by an agent, text stays text, placeholders
 cd frontend && bun run test:live && cd ..   # the live board: window and Go ops in sync, undo, who made what; `--write` rewrites internal/board/testdata/window-ops.json, `TORU_UPDATE_LIVE=1 go test ./internal/board -run TestLiveOpsGolden` rewrites live-ops.json
+<<<<<<< HEAD
+cd frontend && bun run test:gallery && cd ..   # the whiteboard's block gallery: every catalog type, press, drag, one undo, collapse
+=======
 go test ./internal/boardshare -run TestRealRoom -count=1 -args -e2e   # shared boards over the real room (needs the internet)
+>>>>>>> refs/remotes/origin/main
 go build -o build/bin/toru.exe .
 ```
 

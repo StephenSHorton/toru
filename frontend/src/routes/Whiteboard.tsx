@@ -6,16 +6,16 @@ import { Input } from "@ui-sdk/react/input";
 import { Window } from "@wailsio/runtime";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
-import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
-import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MoonIcon, PencilIcon, PlusIcon, SunIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MoonIcon, PencilIcon, SunIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
+import { BlockGallery } from "@/whiteboard/BlockGallery";
 import { Board, useBoard } from "@/whiteboard/BoardView";
 import { dotGrid, onGrid, type BoardBlocks } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
 import { useBlockLibrary } from "@/whiteboard/block-library";
-import { blockLabel, blockType, blockTypes, newProps, type BlockType } from "@/whiteboard/catalog";
+import { blockLabel } from "@/whiteboard/catalog";
 import { DrawingBar, useDrawingSettings } from "@/whiteboard/DrawingBar";
 import { layoutKinds, type LayoutKind } from "@/whiteboard/layout";
 import { PropsPanel, usePropsSelection } from "@/whiteboard/PropsPanel";
@@ -237,13 +237,13 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         grid={grid}
       >
         <SampleToolbar
-          onAdd={(type) => live.edit({ blocks: addBlock(live.getState().view.blocks, type, grid) })}
           grid={grid}
           snap={snap}
           onSnap={setSnap}
           exportMenu={<ExportMenu live={live} />}
           share={<SharePopover boardId={id} api={shareApi} />}
         />
+        <BlockGallery grid={grid} />
         <ArrangeCommand live={live} />
         <DrawingBar settings={drawing} onChange={setDrawing} onUndo={() => void live.undo()} onRedo={() => void live.redo()} />
       </Board>
@@ -316,42 +316,17 @@ function BoardName({ name, onRename }: { name: string; onRename: (name: string) 
   );
 }
 
-/**
- * A new block of a catalog type, at its default size, below the lowest
- * block, its corner on the grid (1: wherever that falls). Its id is random,
- * so it can't meet one an agent adds meanwhile.
- */
-function addBlock(blocks: BoardBlocks, type: BlockType, grid = 1): BoardBlocks {
-  const info = blockType(type);
-  if (!info) return blocks;
-  const all = Object.values(blocks);
-  const below = all.length ? Math.max(...all.map((b) => b.y + b.height)) + 40 : 0;
-  // Rounded up, so the new block never overlaps the lowest one.
-  const y = grid > 1 ? Math.ceil(below / grid) * grid : below;
-  const x = onGrid(all.length ? Math.min(...all.map((b) => b.x)) : 0, grid);
-  let id = "";
-  do id = `blk-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-  while (blocks[id]);
-  const props = structuredClone(newProps[type]) as Record<string, unknown>;
-  return {
-    ...blocks,
-    [id]: { label: blockLabel(type, props), type, props, x, y, width: info.w, height: info.h },
-  };
-}
-
-// The toolbar: Add block places the chosen catalog type; Fit, Template,
-// Layout and Export work; Snap to grid lands what the person drags, resizes
-// and adds on the dots. Share shares the board with the people in your Toru
-// room (whiteboard/share.tsx).
+// The toolbar: Fit, Template, Layout and Export work; Snap to grid lands
+// what the person drags, resizes and adds on the dots. Blocks are added from
+// the block gallery on the left (whiteboard/BlockGallery.tsx). Share shares
+// the board with the people in your Toru room (whiteboard/share.tsx).
 function SampleToolbar({
-  onAdd,
   grid,
   snap,
   onSnap,
   exportMenu,
   share,
 }: {
-  onAdd: (type: BlockType) => void;
   grid: number;
   snap: boolean;
   onSnap: (on: boolean) => void;
@@ -359,43 +334,16 @@ function SampleToolbar({
   share?: React.ReactNode;
 }) {
   const board = useBoard();
-  const [kind, setKind] = useState<BlockType>("sticky");
   return (
     <div
       className="frost absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-3 px-3 py-2"
       onWheel={(e) => e.stopPropagation()}
       style={{ cursor: "default" }}
     >
-      <Button
-        data-variant="solid"
-        onClick={() => {
-          onAdd(kind);
-          requestAnimationFrame(() => board.fit());
-        }}
-      >
-        <PlusIcon aria-hidden="true" />
-        Add block
-      </Button>
       <Button onClick={() => board.fit()}>Fit</Button>
       <TemplateMenu grid={grid} />
       <LayoutMenu />
       {exportMenu}
-      <Select value={kind} onValueChange={(v) => v && setKind(v as BlockType)} aria-label="Block kind">
-        <SelectTrigger>
-          <SelectValue />
-          <ChevronDownIcon aria-hidden="true" />
-        </SelectTrigger>
-        <SelectContent className="frost">
-          {blockTypes.map(({ type: value, label }) => (
-            <SelectItem key={value} value={value}>
-              {label}
-              <SelectItemIndicator>
-                <CheckIcon aria-hidden="true" />
-              </SelectItemIndicator>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
       <label data-slot="label" className="flex items-center gap-2 whitespace-nowrap">
         <Checkbox checked={snap} onCheckedChange={(checked) => onSnap(checked === true)}>
           <CheckboxIndicator>
