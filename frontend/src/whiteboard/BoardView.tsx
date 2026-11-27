@@ -129,64 +129,11 @@ function Board({ renderBlock, children, className, drawing, lineLook, selectedLi
             })}
             <parts.Wire strokeWidth={2} strokeDasharray="6 4" />
           </svg>
-<<<<<<< HEAD
-          {lines.map((line) => (
-            <parts.Unlink key={line.id} value={line.id}>
-              <XIcon aria-hidden="true" />
-            </parts.Unlink>
-          ))}
-          {frameFirst(blocks).map((id) => (
-            <BlockItem key={id} id={id} block={blocks[id]} blocks={blocks} renderBlock={renderBlock} tool={tool} tools={tools} />
-          ))}
-=======
           {(() => {
             // Each block, as its part.
-            const draw = (id: string) => {
-              const block = blocks[id];
-              // A freehand stroke or a shape shows its ink, with no ports or
-              // resize handles (a selected shape's handles are DrawingTools').
-              // A double click on a text label changes its words.
-              if (block.ink) {
-                const ink = block.ink;
-                return (
-                  <BoardBlock
-                    key={id}
-                    value={id}
-                    data-block={id}
-                    data-by={block.createdBy}
-                    data-shape={ink.kind}
-                    title={madeBy(block)}
-                    onDoubleClick={ink.kind === "text" && tool === "select" ? () => editText(tools, id, { ...block, ink }) : undefined}
-                  >
-                    <InkLine stroke={block.ink} width={block.width} height={block.height} />
-                    {block.locked && <Locked />}
-                  </BoardBlock>
-                );
-              }
-              return (
-                <BoardBlock key={id} value={id} data-block={id} data-type={block.type} data-by={block.createdBy}>
-                  {block.createdBy && (
-                    <span data-slot="board-block-by" data-agent={block.createdBy.startsWith("agent:") ? "" : undefined} title={madeBy(block)}>
-                      {who(block.createdBy)}
-                    </span>
-                  )}
-                  {renderBlock ? (
-                    <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
-                  ) : (
-                    <span data-slot="board-block-label">{block.label}</span>
-                  )}
-                  {block.locked && <Locked />}
-                  {sides.map((side) => (
-                    <BoardPart key={side} slot="port" value={`${id}:${side}`} />
-                  ))}
-                  {/* A locked block doesn't resize. */}
-                  {!block.locked &&
-                    handles.map((h) => (
-                      <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
-                    ))}
-                </BoardBlock>
-              );
-            };
+            const draw = (id: string) => (
+              <BlockItem key={id} id={id} block={blocks[id]} blocks={blocks} renderBlock={renderBlock} tool={tool} tools={tools} />
+            );
             // Lines' press targets go above the frames, so a line in a frame can be
             // pressed, and below the other blocks, so they never cover a port.
             const hits = onLinePress && (
@@ -225,7 +172,6 @@ function Board({ renderBlock, children, className, drawing, lineLook, selectedLi
               </parts.LineLabel>
             ) : null;
           })}
->>>>>>> refs/remotes/origin/main
           {/* The stroke being drawn, above the blocks. */}
           <svg data-slot="board-lines" width="1" height="1">
             <InkDraft pen={pen} />
@@ -332,6 +278,7 @@ const BlockItem = React.memo(
           onDoubleClick={ink.kind === "text" && tool === "select" ? () => editText(tools, id, { ...block, ink }) : undefined}
         >
           <InkLine stroke={ink} width={block.width} height={block.height} />
+          {block.locked && <Locked />}
         </BoardBlock>
       );
     }
@@ -347,12 +294,15 @@ const BlockItem = React.memo(
         ) : (
           <span data-slot="board-block-label">{block.label}</span>
         )}
+        {block.locked && <Locked />}
         {sides.map((side) => (
           <BoardPart key={side} slot="port" value={`${id}:${side}`} />
         ))}
-        {handles.map((h) => (
-          <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
-        ))}
+        {/* A locked block doesn't resize. */}
+        {!block.locked &&
+          handles.map((h) => (
+            <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
+          ))}
       </BoardBlock>
     );
   },
@@ -377,6 +327,7 @@ function sameLook(a: BoardBlocks[string], b: BoardBlocks[string]) {
     a.ink === b.ink &&
     a.createdBy === b.createdBy &&
     a.updatedBy === b.updatedBy &&
+    a.locked === b.locked &&
     // An ink block is a light svg: it follows its size, and its place too,
     // which a text label's double click edits from.
     (!a.ink || (a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height))
