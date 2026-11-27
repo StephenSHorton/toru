@@ -46,7 +46,7 @@ func TestCtlBuildsABoard(t *testing.T) {
 	ctl := func(args ...string) map[string]any {
 		t.Helper()
 		var out, errOut bytes.Buffer
-		code := cli.RunCtl(context.Background(), args, cli.Env{Dial: dial, Enabled: func() bool { return true }, Stdout: &out, Stderr: &errOut})
+		code := cli.RunCtl(context.Background(), args, cli.Env{Dial: dial, Stdout: &out, Stderr: &errOut})
 		if quiet {
 			fmt.Printf("ctl> %s\n     (%d bytes of board JSON)\n", quoteArgs(args), out.Len())
 		} else {
@@ -62,7 +62,7 @@ func TestCtlBuildsABoard(t *testing.T) {
 	ctlFails := func(args ...string) string {
 		t.Helper()
 		var out, errOut bytes.Buffer
-		code := cli.RunCtl(context.Background(), args, cli.Env{Dial: dial, Enabled: func() bool { return true }, Stdout: &out, Stderr: &errOut})
+		code := cli.RunCtl(context.Background(), args, cli.Env{Dial: dial, Stdout: &out, Stderr: &errOut})
 		fmt.Printf("ctl> %s\n     %s     (exit %d)\n", quoteArgs(args), errOut.String(), code)
 		if code == 0 {
 			t.Fatalf("%v: want a failure", args)
@@ -182,7 +182,7 @@ func TestMCPTagsChangesWithClientName(t *testing.T) {
 	outR, outW := io.Pipe()
 	done := make(chan error, 1)
 	go func() {
-		done <- cli.RunMCP(ctx, cli.Env{Dial: dial, Enabled: func() bool { return true }, Stdin: inR, Stdout: outW, Stderr: io.Discard})
+		done <- cli.RunMCP(ctx, cli.Env{Dial: dial, Stdin: inR, Stdout: outW, Stderr: io.Discard})
 		_ = outW.Close()
 	}()
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "claude-code", Version: "2.0"}, nil).

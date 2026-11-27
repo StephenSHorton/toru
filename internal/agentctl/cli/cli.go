@@ -10,8 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"time"
-
-	"github.com/StephenSHorton/toru/internal/agentctl"
 )
 
 var (
@@ -24,9 +22,6 @@ var (
 type Env struct {
 	// Dial connects to the running Toru's agent pipe.
 	Dial func(context.Context) (net.Conn, error)
-	// Enabled reports the "Let AI agents and scripts control Toru" setting,
-	// to tell "turned off" apart from "not running".
-	Enabled func() bool
 	// Start launches Toru (no window when it boots in the tray).
 	Start func() error
 
@@ -61,7 +56,7 @@ const (
 	exitOK          = 0
 	exitCommand     = 1 // the command ran and failed
 	exitUsage       = 2
-	exitUnreachable = 3 // Toru isn't running, or agent control is off
+	exitUnreachable = 3 // Toru isn't running
 )
 
 func usage(w io.Writer) int {
@@ -80,11 +75,7 @@ Exit codes: 0 ok, 1 the command failed, 2 usage, 3 Toru not reachable.
 }
 
 // unreachableMessage explains why the pipe isn't there and what to do.
-func unreachableMessage(env Env, how string) string {
-	if env.Enabled != nil && !env.Enabled() {
-		return "Agent control is off. In Toru, open Settings > General and turn on " +
-			`"Let AI agents and scripts control Toru".`
-	}
+func unreachableMessage(how string) string {
 	return "Toru isn't running. Start it, or " + how + "."
 }
 
@@ -94,7 +85,7 @@ const appStartName = "app.start"
 
 var appStartInfo = CommandInfo{
 	Name:        appStartName,
-	Description: "Start Toru if it isn't running and wait until it answers. Agent control must be turned on in Settings > General.",
+	Description: "Start Toru if it isn't running and wait until it answers.",
 	Input:       json.RawMessage(`{"type":"object","properties":{}}`),
 }
 
@@ -102,9 +93,6 @@ var appStartInfo = CommandInfo{
 func appStart(ctx context.Context, c *Client, env Env) (any, error) {
 	if _, err := c.List(ctx); err == nil {
 		return map[string]any{"running": true, "started": false}, nil
-	}
-	if env.Enabled != nil && !env.Enabled() {
-		return nil, fmt.Errorf("%w: agent control is off", errUnreachable)
 	}
 	if env.Start == nil {
 		return nil, errors.New("can't start Toru from here")
@@ -129,13 +117,11 @@ func appStart(ctx context.Context, c *Client, env Env) (any, error) {
 	}
 }
 
-// DefaultEnv is the real environment: this user's agent pipe, the saved
-// setting, and starting this same executable in the tray.
+// DefaultEnv is the real environment: this user's agent pipe and starting this same executable in the tray.
 func DefaultEnv(version string) Env {
 	return Env{
 		Version: version,
 		Dial:    DialToru,
-		Enabled: agentctl.Enabled,
 		Start:   startToru,
 		Stdin:   os.Stdin,
 		Stdout:  os.Stdout,

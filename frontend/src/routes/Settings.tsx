@@ -29,6 +29,7 @@ import { UpdateBanner } from "@/updater/UpdateBanner";
 import { Shortcuts } from "@/shortcuts/Shortcuts";
 import { ReplayPanel } from "@/replay/ReplayPanel";
 import { NotificationsPanel } from "@/notifications/NotificationsPanel";
+import { ConnectAgentPanel } from "@/agent/ConnectAgentPanel";
 import SendFiles from "@/transfer/SendFiles";
 import ClickerPage from "@/clicker/ClickerPage";
 import StreamPage from "@/stream/StreamPage";
@@ -41,7 +42,6 @@ import {
   ReplayService,
   SettingsService,
   WindowsService,
-  AgentService,
   LibraryRetention,
   VideoService,
 } from "@/lib/api";
@@ -1517,14 +1517,14 @@ function formatWhen(iso: string | Date): string {
 // Settings panel
 // ---------------------------------------------------------------------------
 
-type SettingsTab = "general" | "recording" | "notifications" | "shortcuts" | "about";
+type SettingsTab = "general" | "recording" | "notifications" | "shortcuts" | "agent" | "about";
 const SETTINGS_TAB_KEY = "toru.settings.tab";
 
 function SettingsPage() {
   const [tab, setTabState] = useState<SettingsTab>(() => {
     try {
       const v = window.localStorage.getItem(SETTINGS_TAB_KEY);
-      if (v === "general" || v === "recording" || v === "notifications" || v === "shortcuts" || v === "about") return v;
+      if (v === "general" || v === "recording" || v === "notifications" || v === "shortcuts" || v === "agent" || v === "about") return v;
     } catch {
       // default tab
     }
@@ -1545,8 +1545,6 @@ function SettingsPage() {
   const [openEditor, setOpenEditor] = useState(true);
   const [openEditorBusy, setOpenEditorBusy] = useState(false);
   const [copyOnDone, setCopyOnDone] = useState(true);
-  const [agentControl, setAgentControl] = useState(false);
-  const [agentBusy, setAgentBusy] = useState(false);
   const [copyOnDoneBusy, setCopyOnDoneBusy] = useState(false);
   const [libraryDir, setLibraryDir] = useState("");
   const [libraryDefault, setLibraryDefault] = useState(true);
@@ -1573,9 +1571,6 @@ function SettingsPage() {
       .catch(() => {});
     void OverlayService.GetCopyOnDone()
       .then(setCopyOnDone)
-      .catch(() => {});
-    void AgentService.GetEnabled()
-      .then(setAgentControl)
       .catch(() => {});
     refreshLibraryPath();
   }, [refreshLibraryPath]);
@@ -1616,19 +1611,6 @@ function SettingsPage() {
       setCopyOnDone(prev);
     } finally {
       setCopyOnDoneBusy(false);
-    }
-  };
-
-  const toggleAgentControl = async (next: boolean) => {
-    const prev = agentControl;
-    setAgentBusy(true);
-    setAgentControl(next);
-    try {
-      await AgentService.SetEnabled(next);
-    } catch {
-      setAgentControl(prev);
-    } finally {
-      setAgentBusy(false);
     }
   };
 
@@ -1681,6 +1663,7 @@ function SettingsPage() {
     { id: "recording", label: "Replay & recording" },
     { id: "notifications", label: "Notifications" },
     { id: "shortcuts", label: "Shortcuts" },
+    { id: "agent", label: "Connect your agent" },
     { id: "about", label: "About" },
   ];
 
@@ -1712,6 +1695,7 @@ function SettingsPage() {
       {tab === "recording" ? <ReplayPanel /> : null}
       {tab === "notifications" ? <NotificationsPanel onOpenRecording={() => setTab("recording")} /> : null}
       {tab === "shortcuts" ? <Shortcuts includeAll /> : null}
+      {tab === "agent" ? <ConnectAgentPanel /> : null}
       {tab === "about" ? <Updater /> : null}
       {tab === "general" ? (
       <div className="frost flex flex-col gap-4 p-5">
@@ -1772,21 +1756,6 @@ function SettingsPage() {
             disabled={copyOnDoneBusy}
             onCheckedChange={(v) => void toggleCopyOnDone(v)}
             aria-label="Copy to clipboard when finishing with Done or Esc"
-          />
-        </div>
-
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-col">
-            <span className="text-sm font-medium">Let AI agents and scripts control Toru</span>
-            <span className="text-xs text-muted-foreground">
-              Only programs running as you on this PC can connect. Off: nothing listens
-            </span>
-          </div>
-          <Switch
-            checked={agentControl}
-            disabled={agentBusy}
-            onCheckedChange={(v) => void toggleAgentControl(v)}
-            aria-label="Let AI agents and scripts control Toru"
           />
         </div>
 
