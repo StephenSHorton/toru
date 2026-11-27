@@ -44,6 +44,10 @@ type WindowCall struct {
 	Window string          `json:"window"`
 	Name   string          `json:"name"`
 	Input  json.RawMessage `json:"input"`
+	// Caller is who called: the MCP client's name, or "toru-ctl" (see
+	// Caller). A window tags the changes a command makes with it, like the
+	// whiteboard's "agent:<caller>".
+	Caller string `json:"caller,omitempty"`
 }
 
 type windowReply struct {
@@ -304,7 +308,7 @@ func (s *Service) callIn(ctx context.Context, window, name string, input json.Ra
 		s.mu.Unlock()
 	}()
 
-	s.emit(EventCall, WindowCall{ID: id, Window: window, Name: name, Input: input})
+	s.emit(EventCall, WindowCall{ID: id, Window: window, Name: name, Input: input, Caller: Caller(ctx)})
 	timer := time.NewTimer(limit)
 	defer timer.Stop()
 	select {

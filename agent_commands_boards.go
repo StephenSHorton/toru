@@ -37,16 +37,24 @@ type boardAgentDeps struct {
 	boards boardStore
 	// open shows a board's window (WindowsService.OpenWhiteboard).
 	open func(id string)
-	// emit tells windows what changed: board:op {board, op} after a change,
-	// boards:changed after a board is made or deleted.
+	// emit tells windows a board was made or deleted (boards:changed).
+	// Changes reach open board windows as board:op from the store itself
+	// (boardOpEvent), so the window's own changes and agents' arrive in one
+	// stream, in rev order.
 	emit func(name string, data any)
 }
 
 // Board events.
 const (
-	evBoardOp       = "board:op"
+	evBoardOp       = "board:op" // {board, op}: see boardOpEvent
 	evBoardsChanged = "boards:changed"
 )
+
+// boardOpEvent is the board:op event's data: which board changed and the op
+// as applied, which the board window applies to its copy by op.rev.
+func boardOpEvent(id string, op board.Op) map[string]any {
+	return map[string]any{"board": id, "op": op}
+}
 
 // Placement of blocks an agent sends without x and y.
 const (
@@ -72,7 +80,8 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 		if err != nil {
 			return board.Op{}, err
 		}
-		emit(evBoardOp, map[string]any{"board": id, "op": op})
+		// The store sends the op to open windows (board:op, wired in
+		// main.go with the store's OnOp), in rev order.
 		return op, nil
 	}
 

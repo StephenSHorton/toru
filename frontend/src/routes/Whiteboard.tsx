@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { createAgent } from "@ui-sdk/react/agent";
 import { Button } from "@ui-sdk/react/button";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
@@ -13,14 +13,14 @@ import {
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
-import { CheckIcon, ChevronDownIcon, MousePointer2Icon, PenLineIcon, PlusIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, MousePointer2Icon, PenLineIcon, PlusIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
 import type { BoardBlocks } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
 import { blockLabel, blockType, blockTypes, newProps, type BlockType } from "@/whiteboard/catalog";
 import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
-import { sampleBoard } from "@/whiteboard/sample";
+import { agentSource, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
 import "@/whiteboard/toru-ui-sdk.css";
 
 // The whiteboard window (?view=whiteboard&id=<board>, WindowsService.OpenWhiteboard).
@@ -30,21 +30,58 @@ import "@/whiteboard/toru-ui-sdk.css";
 // (whiteboard/catalog.ts, blocks.tsx). The whiteboard uses UI SDK only, never
 // Toru's shadcn components/ui.
 //
-// Until the board document lives in Go (the live board card), the window
-// opens on a sample board with one block of every type, kept in this window.
+// The board is Go's (internal/board), kept live both ways by
+// whiteboard/live.ts: agents' changes appear as they land, the person's are
+// sent as board ops, and Ctrl+Z / Ctrl+Y step through the one undo history
+// they share. Each block shows who made it (BoardView).
+//
+// `?id=<board>` opens a board in Toru's store; `&link=http` reaches it over
+// HTTP instead of Wails (Go's live board demo server). With no id the window
+// opens the sample board (one block of every type) in a store of its own.
 
 // UI SDK's agent bridge, made before the board renders so it hears it mount.
-// `board.snapshot` hands its snapshot to agents over Toru's agent control.
+// `board.snapshot` and `board.act` hand it to agents over Toru's agent control.
 const agent = createAgent();
 
 export default function Whiteboard() {
-  const id = new URLSearchParams(window.location.search).get("id") ?? "";
-  const [blocks, setBlocks] = useState<BoardBlocks>(sampleBoard.blocks);
+  const [live] = useState(openLive);
+  const { view, error, doc } = useSyncExternalStore(live.subscribe, live.getState);
+  const id = live.id;
   const [pen, setPen] = useState<PenOptions>(() => ({
     active: false,
     color: inkColors[0].token,
     width: tokenWidth(inkWidths[0].token, inkWidths[0].fallback),
   }));
+
+  useEffect(() => {
+    void live.start();
+    // Send what's waiting before the window goes.
+    const leave = () => void live.flush();
+    window.addEventListener("beforeunload", leave);
+    return () => {
+      window.removeEventListener("beforeunload", leave);
+      live.stop();
+    };
+  }, [live]);
+
+  // Ctrl+Z undoes and Ctrl+Y (or Ctrl+Shift+Z) redoes the board's latest
+  // change, the person's or an agent's, through Go's one history. Inside a
+  // block's text too: the text is the board's, so its undo is the board's.
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        void live.undo();
+      } else if (key === "y" || (key === "z" && event.shiftKey)) {
+        event.preventDefault();
+        void live.redo();
+      }
+    };
+    window.addEventListener("keydown", keydown, true);
+    return () => window.removeEventListener("keydown", keydown, true);
+  }, [live]);
 
   useEffect(() => {
     const offSnapshot = registerAgentCommand(
@@ -77,23 +114,34 @@ export default function Whiteboard() {
           },
         },
       },
-      (input) => agent.act({ steps: (input as { steps: Parameters<typeof agent.act>[0]["steps"] }).steps }),
+      // The steps' changes are this agent's: they go to Go tagged with its
+      // name, and are saved before the answer goes back.
+      (input, call) =>
+        withAgent(agentSource(call?.caller ?? ""), live, () =>
+          agent.act({ steps: (input as { steps: Parameters<typeof agent.act>[0]["steps"] }).steps }),
+        ),
     );
     return () => {
       offSnapshot();
       offAct();
     };
-  }, []);
+  }, [live]);
 
   // A block's props changed in its render, by a person or an agent
-  // (details.source). The live board card sends these to Go as board ops.
-  const setProps = useCallback((blockId: string, props: Record<string, unknown>, _details: PropsChange) => {
-    setBlocks((prev) => {
-      const block = prev[blockId];
-      if (!block?.type) return prev;
-      return { ...prev, [blockId]: { ...block, props, label: blockLabel(block.type, props) } };
-    });
-  }, []);
+  // (details.source): an edit to send to Go. Typing waits for a pause.
+  const setProps = useCallback(
+    (blockId: string, props: Record<string, unknown>, details: PropsChange) => {
+      const blocks = live.getState().view.blocks;
+      const block = blocks[blockId];
+      if (!block?.type) return;
+      const source = sourceOf(details);
+      live.edit(
+        { blocks: { ...blocks, [blockId]: { ...block, props, label: blockLabel(block.type, props) } } },
+        { source, typing: source === "person" && typing() },
+      );
+    },
+    [live],
+  );
 
   const renderBlock = useCallback(
     (blockId: string, all: BoardBlocks) => {
@@ -114,34 +162,47 @@ export default function Whiteboard() {
   return (
     <div className="relative h-full overflow-hidden">
       <Board
-        aria-label={`Whiteboard ${id}`.trim()}
+        aria-label={doc ? `Whiteboard ${doc.name}` : `Whiteboard ${id}`}
         className="h-full w-full"
-        blocks={blocks}
-        onBlocksChange={setBlocks}
-        defaultLines={sampleBoard.lines}
+        blocks={view.blocks}
+        onBlocksChange={(blocks, details) => live.edit({ blocks }, { source: sourceOf(details) })}
+        lines={view.lines}
+        onLinesChange={(lines, details) => live.edit({ lines }, { source: sourceOf(details) })}
         renderBlock={renderBlock}
         pen={pen}
       >
-        <SampleToolbar onAdd={(type) => setBlocks((prev) => addBlock(prev, type))} />
+        <SampleToolbar onAdd={(type) => live.edit({ blocks: addBlock(live.getState().view.blocks, type) })} />
         <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
       </Board>
+      {error && (
+        <div role="alert" data-slot="board-error" className="frost absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 px-3 py-2">
+          {error}
+          <Button aria-label="Dismiss" onClick={() => live.dismissError()}>
+            <XIcon aria-hidden="true" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
 
-/** A new block of a catalog type, at its default size, below the lowest block. */
+/**
+ * A new block of a catalog type, at its default size, below the lowest
+ * block. Its id is random, so it can't meet one an agent adds meanwhile.
+ */
 function addBlock(blocks: BoardBlocks, type: BlockType): BoardBlocks {
   const info = blockType(type);
   if (!info) return blocks;
   const all = Object.values(blocks);
   const y = all.length ? Math.max(...all.map((b) => b.y + b.height)) + 40 : 0;
   const x = all.length ? Math.min(...all.map((b) => b.x)) : 0;
-  let n = all.length + 1;
-  while (blocks[`${type}-${n}`]) n++;
+  let id = "";
+  do id = `blk-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  while (blocks[id]);
   const props = structuredClone(newProps[type]) as Record<string, unknown>;
   return {
     ...blocks,
-    [`${type}-${n}`]: { label: blockLabel(type, props), type, props, x, y, width: info.w, height: info.h },
+    [id]: { label: blockLabel(type, props), type, props, x, y, width: info.w, height: info.h },
   };
 }
 

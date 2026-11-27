@@ -41,6 +41,19 @@ type Summary struct {
 type Store struct {
 	mu   sync.Mutex
 	docs map[string]*Doc
+	// onOp hears every change, undo and redo once it is saved, in the
+	// order the board's rev counts them (it is called under mu).
+	onOp func(id string, op Op)
+}
+
+// OnOp sets what hears every change to every board once it is saved: the
+// op as applied, from agents and the board window alike, so open windows
+// follow. It is called in rev order, under the store's lock, so it must not
+// call back into the store.
+func (s *Store) OnOp(f func(id string, op Op)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onOp = f
 }
 
 // NewStore returns a store over Dir.
@@ -246,6 +259,9 @@ func (s *Store) change(id string, f func(d *Doc) (Op, error)) (Op, error) {
 	if err := writeFile(d.b); err != nil {
 		*d = saved
 		return Op{}, fmt.Errorf("couldn't save board %q: %w", id, err)
+	}
+	if s.onOp != nil {
+		s.onOp(id, op)
 	}
 	return op, nil
 }
