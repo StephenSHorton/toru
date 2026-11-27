@@ -445,5 +445,26 @@ b.unmount();
   f.unmount();
 }
 
+// ── export snapshots: turned blocks and arrow heads ─────────────────────
+{
+  const { boardBounds, snapshotBoard } = await import("../src/whiteboard/snapshot");
+  const flat = boardBounds({ a: { label: "A", x: 0, y: 0, width: 200, height: 20 } });
+  const turned = boardBounds({ a: { label: "A", x: 0, y: 0, width: 200, height: 20, rotation: 90 } });
+  ok("a turned block's page is the size of its turned box", turned.height >= 200 + 2 * 48 && turned.y <= -90 - 48, { flat, turned });
+
+  document.body.innerHTML = `<div data-slot="board"><div data-slot="board-world"><svg><defs><marker id="board-arrow"></marker></defs><path data-slot="board-line" marker-end="url(#board-arrow)"></path><path marker-start="url(#other)"></path></svg></div></div>`;
+  const root = document.querySelector<HTMLElement>('[data-slot="board"]')!;
+  const snap = snapshotBoard(root, { a: { label: "A", x: 0, y: 0, width: 100, height: 60 } });
+  const marker = snap.el.querySelector("marker");
+  const line = snap.el.querySelector('[data-slot="board-line"]');
+  ok("a snapshot keeps its arrow head, with an id of its own", !!marker?.id && marker.id !== "board-arrow" && line?.getAttribute("marker-end") === `url(#${marker.id})`, {
+    id: marker?.id,
+    end: line?.getAttribute("marker-end"),
+  });
+  ok("a snapshot leaves other marker references alone", snap.el.querySelector("[marker-start]")?.getAttribute("marker-start") === "url(#other)");
+  snap.remove();
+  document.body.innerHTML = "";
+}
+
 console.log(`board-check: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

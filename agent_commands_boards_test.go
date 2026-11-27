@@ -189,6 +189,61 @@ func TestBoardChangesTaggedWithCaller(t *testing.T) {
 	}
 }
 
+// The properties panel's lock and a line's style (whiteboard#29): board.update
+// locks and unlocks blocks and frames, and a link keeps its style and lock.
+func TestBoardLockAndLineStyle(t *testing.T) {
+	reg, _ := newBoardRegistry(t)
+	id := call(t, reg, "t", "board.create", `{"name":"Lock"}`)["id"].(string)
+	call(t, reg, "t", "board.add", `{"id":"`+id+`","frames":[{"id":"f","name":"F","x":0,"y":0,"w":400,"h":300}],"blocks":[{"id":"a","type":"sticky","props":{"text":"A"}},{"id":"b","type":"sticky","props":{"text":"B"}}]}`)
+	call(t, reg, "t", "board.connect", `{"id":"`+id+`","links":[{"from":"a","to":"b","label":"then","style":{"end":"arrow","dash":"dashed","color":"blue"}}]}`)
+	call(t, reg, "t", "board.update", `{"id":"`+id+`","blocks":[{"id":"a","locked":true,"rotation":12}],"frames":[{"id":"f","locked":true}]}`)
+	b := readBoard(t, reg, id)
+	var a board.Block
+	for _, x := range b.Blocks {
+		if x.ID == "a" {
+			a = x
+		}
+	}
+	if !a.Locked || a.Rotation != 12 || !b.Frames[0].Locked {
+		t.Fatalf("locked block %+v, frame %+v", a, b.Frames[0])
+	}
+	if l := b.Links[0]; l.Label != "then" || string(l.Props) != `{"end":"arrow","dash":"dashed","color":"blue"}` {
+		t.Fatalf("link = %+v props %s", l, l.Props)
+	}
+	// The lock holds against agents: each refusal says it's locked.
+	for name, in := range map[string]string{
+		"board.move":   `{"id":"` + id + `","moves":[{"id":"a","dx":40,"dy":0}]}`,
+		"board.delete": `{"id":"` + id + `","items":["a"],"confirm":true}`,
+		"board.update": `{"id":"` + id + `","blocks":[{"id":"a","locked":false}]}`,
+		"board.layout": `{"id":"` + id + `","kind":"grid","blocks":["a","b"],"x":3000,"y":3000}`,
+	} {
+		if msg := callErr(t, reg, name, in); !strings.Contains(msg, `block "a" is locked`) || !strings.Contains(msg, "only the person can unlock it") {
+			t.Errorf("%s on a locked block: %s", name, msg)
+		}
+	}
+	if msg := callErr(t, reg, "board.update", `{"id":"`+id+`","frames":[{"id":"f","w":600}]}`); !strings.Contains(msg, `frame "f" is locked, so it can't be resized`) {
+		t.Errorf("resizing a locked frame: %s", msg)
+	}
+	// Its text still changes, and a layout of every block leaves it where it is.
+	call(t, reg, "t", "board.update", `{"id":"`+id+`","blocks":[{"id":"a","props":{"text":"A2"}}]}`)
+	before := readBoard(t, reg, id)
+	call(t, reg, "t", "board.layout", `{"id":"`+id+`","kind":"grid","x":2000,"y":2000}`)
+	after := readBoard(t, reg, id)
+	for i, x := range after.Blocks {
+		if x.ID == "a" && (x.X != before.Blocks[i].X || x.Y != before.Blocks[i].Y || !x.Locked || !strings.Contains(string(x.Props), "A2")) {
+			t.Fatalf("locked block after layout: %+v, was %+v", x, before.Blocks[i])
+		}
+		if x.ID == "b" && x.X != 2000 {
+			t.Fatalf("unlocked block b wasn't laid out: %+v", x)
+		}
+	}
+	// A window op that locks a link and a stroke is taken as it comes.
+	raw, _ := json.Marshal(board.Link{ID: "x", From: "a", To: "b", Locked: true})
+	if !strings.Contains(string(raw), `"locked":true`) {
+		t.Fatalf("link json = %s", raw)
+	}
+}
+
 func TestBoardCommandsBuildAndArrange(t *testing.T) {
 	reg, ev := newBoardRegistry(t)
 	id := call(t, reg, "t", "board.create", `{"name":"Plan","open":true}`)["id"].(string)

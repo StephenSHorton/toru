@@ -38,6 +38,64 @@
 
   [data-slot="board-line"] {
     stroke: var(--board-line);
+
+    /* A line with a colour takes its block colour's accent. */
+    &[data-color] {
+      stroke: var(--block-accent);
+    }
+
+    &[data-selected] {
+      stroke: var(--primary);
+      stroke-width: 3px;
+    }
+  }
+
+  /* The wide see-through stroke that picks a line when pressed. */
+  [data-slot="board-line-hit"] {
+    stroke: transparent;
+    pointer-events: stroke;
+    cursor: pointer;
+  }
+
+  [data-slot="board-line-label"] {
+    width: max-content;
+    max-width: 16rem;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--foreground);
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    text-align: center;
+    pointer-events: none;
+
+    &[data-color] {
+      border-color: var(--block-accent);
+    }
+  }
+
+  /* A locked block's badge, top right. */
+  [data-slot="board-block-locked"] {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    background: var(--card);
+    color: var(--muted-foreground);
+    pointer-events: none;
+
+    & svg {
+      width: 12px;
+      height: 12px;
+    }
+  }
+
+  [data-slot="board-block"][data-locked] {
+    cursor: default;
   }
 
   [data-slot="board-wire"] {

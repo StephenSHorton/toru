@@ -87,6 +87,7 @@ type TranscriptEntry struct {
 type segment struct {
 	at, end int64
 	pcm     []int16
+	voice   voiceInfo
 }
 
 // txState is StreamService's transcription state (s.mu).
@@ -316,14 +317,33 @@ func (s *StreamService) TranscribeSegment(at, end int64, pcm string) error {
 	if !ok || q == nil {
 		return nil
 	}
+	seg, keep, err := newSegment(at, end, pcm)
+	if err != nil || !keep {
+		return err
+	}
+	s.tx.pending.Add(1)
+	select {
+	case q <- seg:
+	default:
+		s.tx.pending.Done()
+		logf("transcribe: falling behind, dropped a segment")
+	}
+	return nil
+}
+
+// newSegment decodes a stretch the call window sent (base64 16-bit samples)
+// and says whether to transcribe it: not when it is too short, or has no
+// voice in it (typing, breathing, a click, room noise), where whisper would
+// only make a line up and hold up real speech in the queue.
+func newSegment(at, end int64, pcm string) (segment, bool, error) {
 	raw, err := base64.StdEncoding.DecodeString(pcm)
 	if err != nil {
-		return err
+		return segment{}, false, err
 	}
 	n := len(raw) / 2
 	dur := time.Duration(n) * time.Second / transcript.SampleRate
 	if dur < minSegment {
-		return nil
+		return segment{}, false, nil
 	}
 	if dur > maxSegment {
 		n = int(maxSegment * transcript.SampleRate / time.Second)
@@ -332,14 +352,12 @@ func (s *StreamService) TranscribeSegment(at, end int64, pcm string) error {
 	for i := range samples {
 		samples[i] = int16(binary.LittleEndian.Uint16(raw[2*i:]))
 	}
-	s.tx.pending.Add(1)
-	select {
-	case q <- segment{at: at, end: end, pcm: samples}:
-	default:
-		s.tx.pending.Done()
-		logf("transcribe: falling behind, dropped a segment")
+	v := measureVoice(samples)
+	if v.voiced < minVoiced {
+		logf("transcribe: no voice in %v of audio (longest voiced %v, floor %.0f), skipped", dur, v.longest, v.floor)
+		return segment{}, false, nil
 	}
-	return nil
+	return segment{at: at, end: end, pcm: samples, voice: v}, true, nil
 }
 
 func (s *StreamService) transcribeLoop(q chan segment) {
@@ -367,6 +385,10 @@ func (s *StreamService) transcribeOne(seg segment) {
 	if text == "" {
 		return
 	}
+	if why := madeUp(text, seg.voice); why != "" {
+		logf("transcribe: dropped %d characters (%s: voiced %v over %v)", len([]rune(text)), why, seg.voice.voiced, seg.voice.span)
+		return
+	}
 	line := txLineBody{ID: randHex(8), At: seg.at, End: seg.end, Text: text, Name: name}
 	store.Add(transcript.Entry{Kind: transcript.KindLine, At: line.At, End: line.End, Speaker: name, SpeakerID: self, Text: text, ID: line.ID})
 	if err := s.send("", msgTxLine, line); err != nil {
@@ -378,11 +400,12 @@ func (s *StreamService) transcribeOne(seg segment) {
 var nonSpeech = regexp.MustCompile(`^[\[\(\*♪].*[\]\)\*♪]$`)
 
 // cleanText tidies whisper's text and drops what isn't speech
-// ("[BLANK_AUDIO]", "(music)").
+// ("[BLANK_AUDIO]", "(music)") or never said in a call ("Thanks for
+// watching!", subtitle credits: see voice.go). It runs on everyone's lines.
 func cleanText(t string) string {
 	t = strings.Join(strings.Fields(t), " ")
 	t = strings.TrimPrefix(t, "- ")
-	if t == "" || nonSpeech.MatchString(t) {
+	if t == "" || nonSpeech.MatchString(t) || neverSaid(t) {
 		return ""
 	}
 	if r := []rune(t); len(r) > transcript.MaxTextRunes {

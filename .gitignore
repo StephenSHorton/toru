@@ -15,3 +15,6 @@ build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 
 # staged ffmpeg (delivered by installer / first-run download, never committed)
 third_party/ffmpeg/ffmpeg.exe
+
+# The app binary `go build .` leaves at the repo root.
+/toru

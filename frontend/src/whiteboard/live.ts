@@ -47,6 +47,9 @@ type BoardLink = {
 
 type View = { blocks: BoardBlocks; lines: BoardLine[] }
 
+/** Fields to set on one document item, by its id (LiveBoard.update). */
+type DocPatch = { id: string; [field: string]: unknown }
+
 type LiveState = {
   /** The board as Go has it, at `doc.rev`; null until it loads. */
   doc: BoardDoc | null
@@ -381,6 +384,52 @@ class LiveBoard {
   }
 
   /**
+   * Changes items as the document has them, fields the canvas doesn't carry
+   * too (a block's rotation, frame or lock; a link's label and style), as
+   * one op after what's pending: one change, one undo, through the same
+   * store Go's board.update changes. Each patch names an item by id and
+   * sets fields on it; a field set to undefined is removed. Items that
+   * wouldn't change are left out. Given a function, the patches are made
+   * from the board as it is once what's pending has gone, so they build on
+   * it; a throw there rejects. Resolves to whether Go took it (true when
+   * there was nothing to change).
+   */
+  update(patches: DocPatch[] | ((doc: BoardDoc) => DocPatch[]), opts: { source?: string } = {}): Promise<boolean> {
+    void this.flush()
+    const run = this.chain.then(async () => {
+      if (this.stopped || !this.doc) return false
+      if (typeof patches === "function") patches = patches(this.doc)
+      const op: BoardOp = { source: opts.source ?? "person" }
+      let any = false
+      for (const patch of patches) {
+        const found = findItem(this.doc, patch.id)
+        if (!found) continue
+        const next = { ...found.item, ...patch } as Record<string, unknown>
+        for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k]
+        delete next.createdBy
+        delete next.updatedBy
+        if (sameItem(next, found.item)) continue
+        ;(((op as Record<ListKey, DocItem[]>)[found.key] ??= []) as DocItem[]).push(next as DocItem)
+        any = true
+      }
+      if (!any) return true
+      try {
+        this.receive(await this.link.apply(this.id, op))
+        return true
+      } catch (err) {
+        this.set({ error: `That change wasn't saved: ${message(err)}` })
+        await this.reload()
+        return false
+      }
+    })
+    this.chain = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  /**
    * Gives the board a new name, as the person: one op, after what's
    * pending, so it undoes like any other change. Resolves to whether Go took it.
    */
@@ -445,4 +494,4 @@ function message(err: unknown) {
   return err instanceof Error ? err.message : String(err)
 }
 
-export { docId, LiveBoard, type BoardLink, type LiveOptions, type LiveState, type View }
+export { docId, LiveBoard, type BoardLink, type DocPatch, type LiveOptions, type LiveState, type View }

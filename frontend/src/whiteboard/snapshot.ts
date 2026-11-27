@@ -20,10 +20,19 @@ type Bounds = { x: number; y: number; width: number; height: number }
 function boardBounds(blocks: BoardBlocks): Bounds {
   const all = Object.values(blocks)
   if (!all.length) return { x: -pad, y: -pad, width: 2 * pad + 320, height: 2 * pad + 200 }
-  const x0 = Math.min(...all.map((b) => b.x))
-  const y0 = Math.min(...all.map((b) => b.y))
-  const x1 = Math.max(...all.map((b) => b.x + b.width))
-  const y1 = Math.max(...all.map((b) => b.y + b.height))
+  // A turned block (CSS rotate, about its centre) takes the box around its corners.
+  const boxes = all.map((b) => {
+    const r = ((b.rotation ?? 0) * Math.PI) / 180
+    const hw = (Math.abs(Math.cos(r)) * b.width + Math.abs(Math.sin(r)) * b.height) / 2
+    const hh = (Math.abs(Math.sin(r)) * b.width + Math.abs(Math.cos(r)) * b.height) / 2
+    const cx = b.x + b.width / 2
+    const cy = b.y + b.height / 2
+    return { x0: cx - hw, y0: cy - hh, x1: cx + hw, y1: cy + hh }
+  })
+  const x0 = Math.min(...boxes.map((b) => b.x0))
+  const y0 = Math.min(...boxes.map((b) => b.y0))
+  const x1 = Math.max(...boxes.map((b) => b.x1))
+  const y1 = Math.max(...boxes.map((b) => b.y1))
   return { x: Math.floor(x0 - pad), y: Math.floor(y0 - pad), width: Math.ceil(x1 - x0 + 2 * pad), height: Math.ceil(y1 - y0 + 2 * pad) }
 }
 
@@ -65,10 +74,32 @@ function snapshotBoard(root: HTMLElement, blocks: BoardBlocks, into: HTMLElement
   copy.style.transform = `translate(${-b.x}px, ${-b.y}px)`
   copy.style.transformOrigin = "0 0"
   copy.querySelectorAll(chrome).forEach((el) => el.remove())
-  copy.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"))
+  keepMarkers(copy)
+  copy.querySelectorAll("[id]:not(marker)").forEach((el) => el.removeAttribute("id"))
   box.appendChild(copy)
   into.appendChild(box)
   return { el: box, width: b.width, height: b.height, remove: () => box.remove() }
+}
+
+let snapshots = 0
+
+/**
+ * Gives the clone's line markers (arrow heads) ids of their own and points
+ * its lines at them, so the copy draws its arrows while the board it was
+ * copied from is hidden (print mode) and when it's drawn on its own (`rasterize`).
+ */
+function keepMarkers(copy: HTMLElement) {
+  const n = ++snapshots
+  for (const marker of Array.from(copy.querySelectorAll("marker[id]"))) {
+    const from = `url(#${marker.id})`
+    const to = `url(#${marker.id}-snapshot${n})`
+    marker.id = `${marker.id}-snapshot${n}`
+    for (const attr of ["marker-start", "marker-mid", "marker-end"]) {
+      copy.querySelectorAll(`[${attr}]`).forEach((el) => {
+        if (el.getAttribute(attr) === from) el.setAttribute(attr, to)
+      })
+    }
+  }
 }
 
 /** Copies form state the DOM keeps in properties (typed text, ticks) into the clone's attributes. */
