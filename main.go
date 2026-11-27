@@ -183,6 +183,8 @@ func main() {
 	// share one undo history, and every change reaches open board windows
 	// as a board:op event (wired below, once app exists).
 	boardStore := board.NewStore()
+	blockLibrary := board.NewLibrary()
+	blockLibrarySvc := &BlockLibraryService{library: blockLibrary, boards: boardStore}
 	boardSvc := board.NewService(boardStore)
 	// Exports and import for the board window's Export menu and agents'
 	// board.export / board.import (board_export.go).
@@ -245,6 +247,7 @@ func main() {
 			application.NewService(histSvc),
 			application.NewService(boardImageSvc),
 			application.NewService(boardSvc),
+			application.NewService(blockLibrarySvc),
 			application.NewService(boardExportSvc),
 			application.NewService(whiteboardsSvc),
 			application.NewService(replaySvc),
@@ -336,7 +339,9 @@ func main() {
 		open:     windowsSvc.OpenWhiteboard,
 		emit:     func(name string, data any) { app.Event.Emit(name, data) },
 		exporter: boardExporter,
+		blocks:   blockLibrary,
 	})
+	blockLibrary.OnChange(func() { app.Event.Emit(evBlocksChanged, nil) })
 	boardExportSvc.SetApp(app)
 	boardExportSvc.open = windowsSvc.OpenWhiteboard
 	boardExportSvc.emit = func(name string, data any) { app.Event.Emit(name, data) }
