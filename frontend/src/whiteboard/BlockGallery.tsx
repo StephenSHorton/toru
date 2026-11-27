@@ -104,7 +104,17 @@ function newId(blocks: Record<string, unknown>) {
   return id;
 }
 
-type Drag = { item: GalleryItem; pointer: number; x0: number; y0: number; x: number; y: number; moving: boolean };
+type Drag = {
+  item: GalleryItem;
+  pointer: number;
+  x0: number;
+  y0: number;
+  x: number;
+  y: number;
+  moving: boolean;
+  /** Escape dropped it; the press still ends in a release, which places nothing. */
+  cancelled?: boolean;
+};
 
 /** The gallery panel. Render it inside <Board>. */
 function BlockGallery({ sections = catalogSections() }: { sections?: GallerySection[] }) {
@@ -112,8 +122,15 @@ function BlockGallery({ sections = catalogSections() }: { sections?: GallerySect
   const [open, setOpen] = React.useState(readOpen);
   const [drag, setDrag] = React.useState<Drag | null>(null);
   const dragRef = React.useRef<Drag | null>(null);
-  // A drag ends in a click on the tile; this swallows it.
+  // A drag can end in a click on the tile; this swallows it. It clears itself
+  // once the press is over, so a click that never comes doesn't eat the next.
   const dragged = React.useRef(false);
+  const swallowClick = () => {
+    dragged.current = true;
+    setTimeout(() => {
+      dragged.current = false;
+    }, 0);
+  };
   const panel = React.useRef<HTMLElement>(null);
   const listId = React.useId();
 
@@ -178,7 +195,7 @@ function BlockGallery({ sections = catalogSections() }: { sections?: GallerySect
   };
   const pointerMove = (event: React.PointerEvent<HTMLElement>) => {
     const d = dragRef.current;
-    if (!d || d.pointer !== event.pointerId) return;
+    if (!d || d.pointer !== event.pointerId || d.cancelled) return;
     const moving = d.moving || Math.hypot(event.clientX - d.x0, event.clientY - d.y0) >= dragFrom;
     update({ ...d, x: event.clientX, y: event.clientY, moving });
   };
@@ -186,15 +203,16 @@ function BlockGallery({ sections = catalogSections() }: { sections?: GallerySect
     const d = dragRef.current;
     if (!d || d.pointer !== event.pointerId) return;
     update(null);
+    if (d.cancelled) return swallowClick();
     if (!d.moving) return; // a click: onClick places it
-    dragged.current = true;
+    swallowClick();
     if (onBoard(event.clientX, event.clientY)) {
       const p = board.viewport.toCanvas(event.clientX, event.clientY);
       place(d.item, p.x, p.y, false);
     }
   };
   const pointerCancel = () => {
-    if (dragRef.current?.moving) dragged.current = true;
+    if (dragRef.current?.moving) swallowClick();
     update(null);
   };
 
@@ -205,12 +223,21 @@ function BlockGallery({ sections = catalogSections() }: { sections?: GallerySect
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      dragged.current = true;
-      update(null);
+      if (dragRef.current) update({ ...dragRef.current, moving: false, cancelled: true });
     };
     window.addEventListener("keydown", keydown, true);
     return () => window.removeEventListener("keydown", keydown, true);
   }, [drag?.moving]);
+
+  // The wheel scrolls the list, not the board: stopped here, natively, before
+  // the board's own wheel listener zooms.
+  React.useEffect(() => {
+    const el = panel.current;
+    if (!el) return;
+    const stop = (event: WheelEvent) => event.stopPropagation();
+    el.addEventListener("wheel", stop, { passive: true });
+    return () => el.removeEventListener("wheel", stop);
+  }, []);
 
   const zoom = board.viewport.get().zoom;
   const shown = sections.filter((s) => s.items.length);
@@ -222,8 +249,7 @@ function BlockGallery({ sections = catalogSections() }: { sections?: GallerySect
       data-open={open ? "" : undefined}
       aria-label="Block gallery"
       className="frost"
-      // The board under the panel doesn't pan, zoom or take its keys.
-      onWheel={(e) => e.stopPropagation()}
+      // The board under the panel doesn't pan or take its keys.
       onPointerDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
     >

@@ -237,6 +237,31 @@ ok("no block-kind dropdown", !host.querySelector('[aria-label="Block kind"]'));
   ok("... and puts nothing", sent.length === n, sent.slice(n));
 }
 
+// The wheel over the panel scrolls its list and leaves the board's zoom alone.
+{
+  const world = () => host.querySelector<HTMLElement>('[data-slot="board-world"]')?.style.transform;
+  const was = world();
+  host.querySelector('[data-slot="block-gallery-list"]')!.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 120, clientX: 100, clientY: 300 }));
+  await settle();
+  ok("the wheel over the panel doesn't zoom the board", !!was && world() === was, [was, world()]);
+}
+
+// A drag that ends with no click doesn't eat the next press.
+{
+  const n = sent.length;
+  const t = tile("rating")!;
+  pointer(t, "pointerdown", 80, 140);
+  pointer(t, "pointermove", 700, 300);
+  pointer(t, "pointerup", 700, 300);
+  await settle(); // no click follows
+  t.click();
+  await settle();
+  ok("a drag with no click after it doesn't swallow the next press", sent.length === n + 2, sent.slice(n));
+  key(window, "z", { ctrlKey: true });
+  key(window, "z", { ctrlKey: true });
+  await settle();
+}
+
 // 5. Collapse, and its saved state.
 {
   host.querySelector<HTMLElement>('[aria-label="Hide blocks"]')!.click();
