@@ -58,10 +58,11 @@ type BoardBlocks = Record<string, BoardBlock>
 
 /**
  * A line from one block's port to another's. A port is `<block>:<side>`, like
- * `idea:right`. `label` names it by its blocks, like "Idea → Plan"; the board
- * fills it in and keeps it current.
+ * `idea:right`. `name` says what it joins, like "Idea → Plan", for the agent
+ * bridge and screen readers; the board fills it in and keeps it current. (It
+ * isn't a label a person writes on the line; that's for the block catalog.)
  */
-type BoardLine = { id: string; from: string; to: string; label?: string }
+type BoardLine = { id: string; from: string; to: string; name?: string }
 
 type BoardBlocksChangeReason = MoveReason | ResizeReason | "imperative"
 type BoardLinesChangeReason = ConnectReason | "imperative"
@@ -134,12 +135,12 @@ const endOf = (key: string) => key.slice(key.lastIndexOf(":") + 1)
 function nameLines(blocks: BoardBlocks, lines: BoardLine[]) {
   let changed = false
   const named = lines.map((line) => {
-    const label = `${blocks[blockOf(line.from)]?.label ?? blockOf(line.from)} → ${blocks[blockOf(line.to)]?.label ?? blockOf(line.to)}`
-    if (line.label === label) {
+    const name = `${blocks[blockOf(line.from)]?.label ?? blockOf(line.from)} → ${blocks[blockOf(line.to)]?.label ?? blockOf(line.to)}`
+    if (line.name === name) {
       return line
     }
     changed = true
-    return { ...line, label }
+    return { ...line, name }
   })
   return changed ? named : lines
 }
@@ -241,7 +242,7 @@ const board = /* @__PURE__ */ definePrimitive({
     ...(options.selected === undefined ? {} : { selected: options.selected }),
   }),
   // The agent bridge's snapshot shows these whole: every block by id with its
-  // label and box, every line with its label, and the selection.
+  // label and box, every line with its name, and the selection.
   controlled: ["blocks", "lines", "selected"],
   live: ["moving", "resizing", "lasso", "viewport", "connecting"],
   agent: {
@@ -515,7 +516,12 @@ const board = /* @__PURE__ */ definePrimitive({
           return
         }
         const { selected } = store.get()
-        if (event.key === "c" || event.key === "C") {
+        if (
+          (event.key === "c" || event.key === "C") &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.altKey
+        ) {
           event.preventDefault()
           connect.start(`${key}:right`)
         } else if (
@@ -571,6 +577,11 @@ const board = /* @__PURE__ */ definePrimitive({
         const target = event.target as HTMLElement
         if (target !== el && !target.hasAttribute("data-board-empty")) {
           return
+        }
+        // The board takes keys once pressed, so + - 0 1 work without a block
+        // focused (the viewport's press prevents the default that would focus it).
+        if (document.activeElement !== el) {
+          el.focus({ preventScroll: true })
         }
         // Touch always pans and pinches; Shift with a mouse or pen draws a lasso.
         if (event.shiftKey && event.pointerType !== "touch" && event.button === 0) {
@@ -762,7 +773,7 @@ const board = /* @__PURE__ */ definePrimitive({
         return {
           type: "button",
           tabindex: "-1",
-          "aria-label": line ? `Disconnect ${line.label ?? key}` : undefined,
+          "aria-label": line ? `Disconnect ${line.name ?? key}` : undefined,
           style: css({ position: "absolute", translate: "-50% -50%" }),
         }
       },

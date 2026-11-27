@@ -57,7 +57,7 @@ export default function Whiteboard() {
         "board.snapshot",
         {
           description:
-            "The open whiteboard as UI SDK's agent bridge sees it: every block by id with its label and box, every line with its label, the selection, and each component's actions.",
+            "The open whiteboard as UI SDK's agent bridge sees it: every block by id with its label and box, every line with its name, the selection, and each component's actions.",
         },
         () => agent.snapshot(),
       ),

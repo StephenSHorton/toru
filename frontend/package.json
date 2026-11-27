@@ -24,6 +24,7 @@
     "test:actions": "bun scripts/actions-check.ts",
     "test:colorspace": "bun scripts/colorspace-check.ts",
     "test:text-style": "bun scripts/text-style-check.ts",
+    "test:frost": "bun scripts/frost-check.ts",
     "test:board": "bun scripts/board-check.ts"
   },
   "dependencies": {

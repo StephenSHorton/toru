@@ -47,7 +47,7 @@ function ok(name: string, cond: boolean, detail?: unknown) {
   };
   const lines = [{ id: "a:right->b:left", from: "a:right", to: "b:left" }];
   const named = nameLines(blocks, lines);
-  ok("line named by its blocks", named[0].label === "Idea → Plan", named);
+  ok("line named by its blocks", named[0].name === "Idea → Plan", named);
   ok("named lines kept when unchanged", nameLines(blocks, named) === named);
   ok("facing right/left", facing(blocks.a, blocks.b).join() === "right,left");
   ok("facing bottom/top", facing(blocks.a, blocks.c).join() === "bottom,top");
@@ -129,7 +129,7 @@ await b.settle();
   const comp = snap.find((c) => c.component === "board");
   ok("snapshot has the board", !!comp, snap.map((c) => c.component));
   const snapBlocks = comp?.blocks as Blocks | undefined;
-  const snapLines = comp?.lines as { id: string; label: string }[] | undefined;
+  const snapLines = comp?.lines as { id: string; name: string }[] | undefined;
   ok(
     "snapshot names every block (12)",
     !!snapBlocks && labels.every((label, i) => snapBlocks[`b${i}`]?.label === label),
@@ -137,7 +137,7 @@ await b.settle();
   );
   ok(
     "snapshot names every line",
-    snapLines?.length === 2 && snapLines[0].label === "Goal → Users" && snapLines[1].label === "Users → Idea C",
+    snapLines?.length === 2 && snapLines[0].name === "Goal → Users" && snapLines[1].name === "Users → Idea C",
     snapLines,
   );
   ok("board label in snapshot", comp?.label === "Test board", comp?.label);
@@ -151,7 +151,7 @@ await b.settle();
   ok("agent act connectBlocks ok", !res.error, res);
   const line = b.state.lines.find((l) => l.from.startsWith("b2:"));
   ok("agent line between facing sides", line?.from === "b2:bottom" && line?.to === "b6:top", line);
-  ok("agent line named", line?.label === "Problem → Risks", line);
+  ok("agent line named", line?.name === "Problem → Risks", line);
   ok("agent change has source agent", b.changes.some((c) => c.key === "lines" && c.source === "agent"), b.changes.at(-1));
   b.api.disconnect(line!.id);
   ok("disconnect removes the line", b.state.lines.length === 2);
@@ -192,6 +192,11 @@ await b.settle();
   b.root.dispatchEvent(pe("pointerup", 2, 700, 300));
   b.root.dispatchEvent(pe("pointerup", 1, 400, 300));
   ok("pinch zooms", Math.abs(b.state.viewport.zoom - vp.zoom * 1.5) < 1e-6, b.state.viewport);
+
+  // A press on empty space focuses the board, so its keys work at once.
+  (document.activeElement as HTMLElement | null)?.blur();
+  await b.click(b.root);
+  ok("a press on empty space focuses the board", document.activeElement === b.root, document.activeElement?.outerHTML.slice(0, 60));
 
   // A mouse drag on empty space pans.
   await b.api.viewport.setViewport({ x: 0, y: 0, zoom: 1 });
@@ -299,7 +304,7 @@ function shiftPress(el: HTMLElement) {
   await b.drag(from, { by: { x: to.left + 6 - (a.left + 6), y: to.top + 6 - (a.top + 6) } });
   const made = b.state.lines.find((l) => l.from === "b8:right");
   ok("drag from a port to another connects", b.state.lines.length === count + 1 && made?.to === "b9:left", b.state.lines);
-  ok("dragged line is named", made?.label === "Plan → Launch", made);
+  ok("dragged line is named", made?.name === "Plan → Launch", made);
 
   // Keyboard: C on b10, then arrows to a port, Enter.
   b.part("block", "b10")!.focus();
@@ -313,6 +318,8 @@ function shiftPress(el: HTMLElement) {
   ok("connecting a joined pair again disconnects it", !b.state.lines.some((l) => l.from === "b10:right"), b.state.lines);
   await b.keys("c", "Escape");
   ok("Escape cancels a connection", !b.state.connecting);
+  await b.keys("Control+c");
+  ok("Ctrl+C doesn't start a connection", !b.state.connecting);
 }
 
 b.unmount();
