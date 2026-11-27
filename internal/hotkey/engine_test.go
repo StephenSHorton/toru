@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -605,6 +606,9 @@ func isolateConfig(t *testing.T) string {
 }
 
 func TestPersistenceRoundTrip(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	path := isolateConfig(t)
 	b := canonical(Binding{Alt: true, Sides: SideRAlt, Key: FKey(3), Extra: [4]rune{namedKeyBase + vkXButton1}, Loose: true})
 	if err := persistBinding("clickerToggle", b); err != nil {
@@ -630,6 +634,9 @@ func TestPersistenceRoundTrip(t *testing.T) {
 }
 
 func TestPersistenceLegacyAndCleared(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	path := isolateConfig(t)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -47,6 +48,9 @@ func readStreamJSON(t *testing.T) map[string]any {
 }
 
 func TestInstallIDMigration(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	dir := t.TempDir()
 	t.Setenv("APPDATA", dir)
 	// A stream.json from before InstallID.
@@ -408,6 +412,9 @@ func key(b byte) string {
 }
 
 func TestLanAddressCollision(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	s := newTestService(t)
 	f := &fakeLink{}
 	s.setLan(f)
@@ -562,6 +569,9 @@ func newTestLan(t *testing.T, info lanSvcInfo) (*StreamService, *LanService, *fa
 }
 
 func TestLanServiceNotInstalled(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	_, l, _, _ := newTestLan(t, lanSvcInfo{})
 	if st := l.GetState(); st.State != LanSetup {
 		t.Fatalf("state %q, want setup", st.State)
