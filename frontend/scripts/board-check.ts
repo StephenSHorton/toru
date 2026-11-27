@@ -322,6 +322,58 @@ function shiftPress(el: HTMLElement) {
   ok("Ctrl+C doesn't start a connection", !b.state.connecting);
 }
 
+// ── click selects, double-click edits (a field in a block) ────────────
+{
+  const el = b.part("block", "b11")!;
+  const field = document.createElement("textarea");
+  field.value = "Some notes";
+  el.append(field);
+  const tick = document.createElement("button");
+  tick.setAttribute("role", "checkbox");
+  el.append(tick);
+  const at = { ...b.state.blocks.b11 };
+  b.root.focus();
+  await b.click(b.root);
+  await b.click(field);
+  ok("a click on a block's text field selects the block", b.state.selected.join() === "b11", b.state.selected);
+  ok("...and doesn't edit it", b.state.editing === null && !el.hasAttribute("data-editing"), b.state.editing);
+  await b.drag(field, { by: { x: 16, y: 8 } });
+  ok("a drag from a text field moves the block", b.state.blocks.b11.x === at.x + 16 && b.state.blocks.b11.y === at.y + 8, b.state.blocks.b11);
+  placeOnScreen();
+
+  field.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, button: 0, clientX: 10, clientY: 10 }));
+  await b.settle();
+  ok("double-click edits the block's text", b.state.editing === "b11" && el.hasAttribute("data-editing") && document.activeElement === field, b.state.editing);
+  const still = { ...b.state.blocks.b11 };
+  await b.drag(field, { by: { x: 40, y: 40 } });
+  ok("while editing, a drag in the text doesn't move the block", b.state.blocks.b11.x === still.x && b.state.blocks.b11.y === still.y, b.state.blocks.b11);
+  field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  await b.settle();
+  ok("Escape stops editing, keeps the block selected and focused", b.state.editing === null && b.state.selected.join() === "b11" && document.activeElement === el, [b.state.editing, b.state.selected]);
+  await b.keys("Enter");
+  ok("Enter on the block edits its text", b.state.editing === "b11" && document.activeElement === field, b.state.editing);
+  ok("...with the caret at the end", field.selectionStart === field.value.length, field.selectionStart);
+  await b.click(b.root);
+  ok("a click outside stops editing and keeps the selection", b.state.editing === null && b.state.selected.join() === "b11", [b.state.editing, b.state.selected]);
+  await b.click(b.root);
+  ok("the next click outside clears the selection", b.state.selected.length === 0, b.state.selected);
+
+  // A quick control takes one press and never starts a move or an edit.
+  const was = { ...b.state.blocks.b11 };
+  await b.drag(tick, { by: { x: 30, y: 0 } });
+  ok("a drag from a quick control doesn't move the block", b.state.blocks.b11.x === was.x, b.state.blocks.b11);
+  tick.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, button: 0 }));
+  await b.settle();
+  ok("a double-click on a quick control doesn't edit", b.state.editing === null, b.state.editing);
+
+  // A block with no text field doesn't edit.
+  b.part("block", "b10")!.focus();
+  await b.keys("Enter");
+  ok("Enter on a block with no text does nothing", b.state.editing === null, b.state.editing);
+  field.remove();
+  tick.remove();
+}
+
 b.unmount();
 console.log(`board-check: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
