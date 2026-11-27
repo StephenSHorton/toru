@@ -1,3 +1,7 @@
+/* UI SDK's behavior CSS layer, declared first so everything else wins over
+   it. Empty unless a UI SDK component mounts (only the whiteboard window). */
+@layer ui-sdk;
+
 @import "tailwindcss";
 
 /* Toru design language (SHARED — owned here, do not restyle per-route):

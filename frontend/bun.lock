@@ -6,6 +6,8 @@
       "name": "toru-frontend",
       "dependencies": {
         "@lofcz/deepfilternet-web": "0.1.0",
+        "@ui-sdk/core": "0.1.0-beta.18",
+        "@ui-sdk/react": "0.1.0-beta.18",
         "@wailsio/runtime": "latest",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -121,6 +123,10 @@
     "@types/react-dom": ["@types/react-dom@19.2.3", "", { "peerDependencies": { "@types/react": "^19.2.0" } }, "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ=="],
 
     "@types/react-reconciler": ["@types/react-reconciler@0.33.0", "", { "peerDependencies": { "@types/react": "*" } }, "sha512-HZOXsKT0tGI9LlUw2LuedXsVeB88wFa536vVL0M6vE8zN63nI+sSr1ByxmPToP5K5bukaVscyeCJcF9guVNJ1g=="],
+
+    "@ui-sdk/core": ["@ui-sdk/core@0.1.0-beta.18", "", {}, "sha512-y5S6komEjZ2dtD/rrW0ulkP67zNZpfbTBmtynuw4oLvhazXoEQI7Yk1/jMuOVOJvj0RUk8tLY/iyckbzaI+CrA=="],
+
+    "@ui-sdk/react": ["@ui-sdk/react@0.1.0-beta.18", "", { "peerDependencies": { "@types/react": ">=19.2.10", "@ui-sdk/core": "^0.1.0-beta.18", "react": ">=19", "react-dom": ">=19" }, "optionalPeers": ["@types/react"] }, "sha512-iTL1slJ0PFJXPGLrNMQCuQq4cQjUlzsOAlLRsuz/aMCFtDJhvhH7E6euBwdak8mHYxGwSwVHprTfnFhkyQi44Q=="],
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@6.0.2", "", { "dependencies": { "@rolldown/pluginutils": "^1.0.0" }, "peerDependencies": { "@rolldown/plugin-babel": "^0.1.7 || ^0.2.0", "babel-plugin-react-compiler": "^1.0.0", "vite": "^8.0.0" }, "optionalPeers": ["@rolldown/plugin-babel", "babel-plugin-react-compiler"] }, "sha512-DlSMqo4WhThw4vB8Mpn0Woe9J+Jfq1geJ61AKW0QEgLzGMNwtIMdxbDUzLxcun8W7NbJO0e2Jg/Nxm3cCSVzzg=="],
 

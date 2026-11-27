@@ -9,6 +9,11 @@ import Share from "@/routes/Share";
 import Timeline from "@/routes/Timeline";
 import Watch from "@/routes/Watch";
 import Call from "@/routes/Call";
+import { lazy, Suspense } from "react";
+
+// The whiteboard loads on its own so its UI SDK stylesheet (a separate CSS
+// chunk) only ever reaches the whiteboard window.
+const Whiteboard = lazy(() => import("@/routes/Whiteboard"));
 
 // Each Wails window opens with a `?view=` query param (see windows.go). We route
 // on that rather than the path so the embedded SPA needs no server fallback.
@@ -37,6 +42,12 @@ export default function App() {
       return <Watch />;
     case "call":
       return <Call />;
+    case "whiteboard":
+      return (
+        <Suspense fallback={null}>
+          <Whiteboard />
+        </Suspense>
+      );
     case "settings":
     default:
       return <Settings />;

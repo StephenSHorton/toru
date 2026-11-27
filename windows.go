@@ -390,6 +390,36 @@ func (w *WindowsService) OpenTimeline(id int) {
 	win.Center()
 }
 
+// OpenWhiteboard opens the whiteboard window for board id, one window per
+// open board: a second call for the same board brings its window forward.
+func (w *WindowsService) OpenWhiteboard(id string) {
+	if w.app == nil || id == "" {
+		return
+	}
+	name := "toru-whiteboard-" + id
+	for _, win := range w.app.Window.GetAll() {
+		if win.Name() == name {
+			win.Show()
+			win.Focus()
+			return
+		}
+	}
+	width, height := 1280, 860
+	if screen := w.app.Screen.GetPrimary(); screen != nil && screen.WorkArea.Width > 0 {
+		width = min(1600, screen.WorkArea.Width*9/10)
+		height = min(1000, screen.WorkArea.Height*9/10)
+	}
+	win := w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:             name,
+		Title:            "Toru — Whiteboard",
+		URL:              "/?view=whiteboard&id=" + url.QueryEscape(id),
+		Width:            width,
+		Height:           height,
+		BackgroundColour: dark,
+	})
+	win.Center()
+}
+
 // OpenClipEditor opens a saved instant-replay clip in the same editor
 // (play, trim, save, share). Clips live outside the /__file dirs, so the
 // player gets the replay service's served URL instead.
