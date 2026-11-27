@@ -1,0 +1,577 @@
+{
+  "_note": "Written by TestLayoutGolden (internal/board/templates_test.go). board-check runs the window's layout on these blocks and links and compares.",
+  "blocks": [
+    {
+      "id": "topic",
+      "type": "text",
+      "x": -130,
+      "y": -50,
+      "w": 260,
+      "h": 100,
+      "props": {
+        "align": "center",
+        "size": "l",
+        "text": "Mind map"
+      }
+    },
+    {
+      "id": "branch-1",
+      "type": "sticky",
+      "x": 260,
+      "y": -220,
+      "w": 300,
+      "h": 160,
+      "props": {
+        "color": "blue",
+        "tags": [
+          "Why it matters"
+        ],
+        "text": "Why it matters"
+      }
+    },
+    {
+      "id": "branch-1-1",
+      "type": "sticky",
+      "x": 540,
+      "y": -290,
+      "w": 200,
+      "h": 120,
+      "props": {
+        "color": "blue",
+        "tags": [
+          "Why it matters"
+        ],
+        "text": "A thought"
+      }
+    },
+    {
+      "id": "branch-1-2",
+      "type": "sticky",
+      "x": 540,
+      "y": -150,
+      "w": 200,
+      "h": 120,
+      "props": {
+        "color": "blue",
+        "tags": [
+          "Why it matters"
+        ],
+        "text": "A thought"
+      }
+    },
+    {
+      "id": "branch-2",
+      "type": "sticky",
+      "x": 260,
+      "y": 100,
+      "w": 200,
+      "h": 120,
+      "props": {
+        "color": "green",
+        "tags": [
+          "What we know"
+        ],
+        "text": "What we know"
+      }
+    },
+    {
+      "id": "branch-2-1",
+      "type": "sticky",
+      "x": 540,
+      "y": 30,
+      "w": 200,
+      "h": 120,
+      "props": {
+        "color": "green",
+        "tags": [
+          "What we know"
+        ],
+        "text": "A thought"
+      }
+    },
+    {
+      "id": "branch-2-2",
+      "type": "sticky",
+      "x": 540,
+      "y": 170,
+      "w": 200,
+      "h": 120,
+      "props": {
+        "color": "green",
+        "tags": [
+          "What we know"
+        ],
+        "text": "A thought"
+      }
+    },
+    {
+      "id": "branch-3",
+      "type": "sticky",
+      "x": -460,
+      "y": -220,
+      "w": 200,
+      "h": 120,
+      "props": {
+        "color": "pink",
+        "tags": [
+          "Open questions"
+        ],
+        "text": "Open questions"
+      }
+    },
+    {
+      "id": "branch-3-1",
+      "type": "sticky",
+      "x": -740,
+      "y": -290,
+      "w": 200,
+      "h": 120,
+      "props": {
+        "color": "pink",
+        "tags": [
+          "Open questions"
+        ],
+        "text": "A thought"
+      }
+    },
+    {
+      "id": "branch-3-2",
+      "type": "sticky",
+      "x": -740,
+      "y": -150,
+      "w": 200,
+      "h": 120,
+      "props": {
+        "color": "pink",
+        "tags": [
+          "Open questions"
+        ],
+        "text": "A thought"
+      }
+    },
+    {
+      "id": "branch-4",
+      "type": "sticky",
+      "x": -460,
+      "y": 100,
+      "w": 200,
+      "h": 120,
+      "props": {
+        "color": "yellow",
+        "tags": [
+          "Ideas"
+        ],
+        "text": "Ideas"
+      }
+    },
+    {
+      "id": "branch-4-1",
+      "type": "sticky",
+      "x": -740,
+      "y": 30,
+      "w": 200,
+      "h": 120,
+      "props": {
+        "color": "yellow",
+        "tags": [
+          "Ideas"
+        ],
+        "text": "A thought"
+      }
+    },
+    {
+      "id": "branch-4-2",
+      "type": "sticky",
+      "x": -740,
+      "y": 170,
+      "w": 200,
+      "h": 120,
+      "props": {
+        "color": "yellow",
+        "tags": [
+          "Ideas"
+        ],
+        "text": "A thought"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "kind": "grid",
+      "positions": {
+        "branch-1": {
+          "x": -400,
+          "y": -290
+        },
+        "branch-1-1": {
+          "x": -60,
+          "y": -290
+        },
+        "branch-1-2": {
+          "x": 280,
+          "y": -290
+        },
+        "branch-2": {
+          "x": -740,
+          "y": -90
+        },
+        "branch-2-1": {
+          "x": -400,
+          "y": -90
+        },
+        "branch-2-2": {
+          "x": -60,
+          "y": -90
+        },
+        "branch-3": {
+          "x": 280,
+          "y": -90
+        },
+        "branch-3-1": {
+          "x": -740,
+          "y": 110
+        },
+        "branch-3-2": {
+          "x": -400,
+          "y": 110
+        },
+        "branch-4": {
+          "x": -60,
+          "y": 110
+        },
+        "branch-4-1": {
+          "x": 280,
+          "y": 110
+        },
+        "branch-4-2": {
+          "x": -740,
+          "y": 310
+        },
+        "topic": {
+          "x": -740,
+          "y": -290
+        }
+      }
+    },
+    {
+      "kind": "grid",
+      "columns": 3,
+      "gap": 10,
+      "positions": {
+        "branch-1": {
+          "x": -430,
+          "y": -290
+        },
+        "branch-1-1": {
+          "x": -120,
+          "y": -290
+        },
+        "branch-1-2": {
+          "x": -740,
+          "y": -120
+        },
+        "branch-2": {
+          "x": -430,
+          "y": -120
+        },
+        "branch-2-1": {
+          "x": -120,
+          "y": -120
+        },
+        "branch-2-2": {
+          "x": -740,
+          "y": 50
+        },
+        "branch-3": {
+          "x": -430,
+          "y": 50
+        },
+        "branch-3-1": {
+          "x": -120,
+          "y": 50
+        },
+        "branch-3-2": {
+          "x": -740,
+          "y": 220
+        },
+        "branch-4": {
+          "x": -430,
+          "y": 220
+        },
+        "branch-4-1": {
+          "x": -120,
+          "y": 220
+        },
+        "branch-4-2": {
+          "x": -740,
+          "y": 390
+        },
+        "topic": {
+          "x": -740,
+          "y": -290
+        }
+      }
+    },
+    {
+      "kind": "tree",
+      "positions": {
+        "branch-1": {
+          "x": -400,
+          "y": -290
+        },
+        "branch-1-1": {
+          "x": -20,
+          "y": -290
+        },
+        "branch-1-2": {
+          "x": -20,
+          "y": -130
+        },
+        "branch-2": {
+          "x": -400,
+          "y": -90
+        },
+        "branch-2-1": {
+          "x": -20,
+          "y": 30
+        },
+        "branch-2-2": {
+          "x": -20,
+          "y": 190
+        },
+        "branch-3": {
+          "x": -400,
+          "y": 70
+        },
+        "branch-3-1": {
+          "x": -20,
+          "y": 350
+        },
+        "branch-3-2": {
+          "x": -20,
+          "y": 510
+        },
+        "branch-4": {
+          "x": -400,
+          "y": 230
+        },
+        "branch-4-1": {
+          "x": -20,
+          "y": 670
+        },
+        "branch-4-2": {
+          "x": -20,
+          "y": 830
+        },
+        "topic": {
+          "x": -740,
+          "y": -290
+        }
+      }
+    },
+    {
+      "kind": "tree",
+      "direction": "down",
+      "positions": {
+        "branch-1": {
+          "x": -740,
+          "y": -110
+        },
+        "branch-1-1": {
+          "x": -740,
+          "y": 130
+        },
+        "branch-1-2": {
+          "x": -500,
+          "y": 130
+        },
+        "branch-2": {
+          "x": -400,
+          "y": -110
+        },
+        "branch-2-1": {
+          "x": -260,
+          "y": 130
+        },
+        "branch-2-2": {
+          "x": -20,
+          "y": 130
+        },
+        "branch-3": {
+          "x": -160,
+          "y": -110
+        },
+        "branch-3-1": {
+          "x": 220,
+          "y": 130
+        },
+        "branch-3-2": {
+          "x": 460,
+          "y": 130
+        },
+        "branch-4": {
+          "x": 80,
+          "y": -110
+        },
+        "branch-4-1": {
+          "x": 700,
+          "y": 130
+        },
+        "branch-4-2": {
+          "x": 940,
+          "y": 130
+        },
+        "topic": {
+          "x": -740,
+          "y": -290
+        }
+      }
+    },
+    {
+      "kind": "cluster",
+      "positions": {
+        "branch-1": {
+          "x": 100,
+          "y": -290
+        },
+        "branch-1-1": {
+          "x": 100,
+          "y": -90
+        },
+        "branch-1-2": {
+          "x": 100,
+          "y": 70
+        },
+        "branch-2": {
+          "x": -180,
+          "y": -290
+        },
+        "branch-2-1": {
+          "x": -180,
+          "y": -130
+        },
+        "branch-2-2": {
+          "x": -180,
+          "y": 30
+        },
+        "branch-3": {
+          "x": -460,
+          "y": -290
+        },
+        "branch-3-1": {
+          "x": -460,
+          "y": -130
+        },
+        "branch-3-2": {
+          "x": -460,
+          "y": 30
+        },
+        "branch-4": {
+          "x": -740,
+          "y": -290
+        },
+        "branch-4-1": {
+          "x": -740,
+          "y": -130
+        },
+        "branch-4-2": {
+          "x": -740,
+          "y": 30
+        },
+        "topic": {
+          "x": 480,
+          "y": -290
+        }
+      }
+    },
+    {
+      "kind": "cluster",
+      "only": [
+        "branch-2",
+        "branch-1-1",
+        "topic",
+        "branch-1"
+      ],
+      "positions": {
+        "branch-1": {
+          "x": 150,
+          "y": -130
+        },
+        "branch-1-1": {
+          "x": 150,
+          "y": -290
+        },
+        "branch-2": {
+          "x": -130,
+          "y": -290
+        },
+        "topic": {
+          "x": 530,
+          "y": -290
+        }
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "topic-to-branch-1",
+      "from": "topic",
+      "to": "branch-1"
+    },
+    {
+      "id": "branch-1-to-branch-1-1",
+      "from": "branch-1",
+      "to": "branch-1-1"
+    },
+    {
+      "id": "branch-1-to-branch-1-2",
+      "from": "branch-1",
+      "to": "branch-1-2"
+    },
+    {
+      "id": "topic-to-branch-2",
+      "from": "topic",
+      "to": "branch-2"
+    },
+    {
+      "id": "branch-2-to-branch-2-1",
+      "from": "branch-2",
+      "to": "branch-2-1"
+    },
+    {
+      "id": "branch-2-to-branch-2-2",
+      "from": "branch-2",
+      "to": "branch-2-2"
+    },
+    {
+      "id": "topic-to-branch-3",
+      "from": "topic",
+      "to": "branch-3"
+    },
+    {
+      "id": "branch-3-to-branch-3-1",
+      "from": "branch-3",
+      "to": "branch-3-1"
+    },
+    {
+      "id": "branch-3-to-branch-3-2",
+      "from": "branch-3",
+      "to": "branch-3-2"
+    },
+    {
+      "id": "topic-to-branch-4",
+      "from": "topic",
+      "to": "branch-4"
+    },
+    {
+      "id": "branch-4-to-branch-4-1",
+      "from": "branch-4",
+      "to": "branch-4-1"
+    },
+    {
+      "id": "branch-4-to-branch-4-2",
+      "from": "branch-4",
+      "to": "branch-4-2"
+    }
+  ]
+}

@@ -1,0 +1,106 @@
+/* What template blocks look like until the block catalog renders each type:
+   frames as labelled regions behind their notes, sticky notes in their
+   colour, text by size, and a plain preview of checklists and polls. Colours
+   are Toru's dark tokens mixed with a hue, so the board stays dark. */
+
+@layer components {
+  [data-slot="board"] {
+    --note-yellow: oklch(0.86 0.15 92);
+    --note-pink: oklch(0.72 0.16 350);
+    --note-blue: oklch(0.7 0.13 250);
+    --note-green: oklch(0.76 0.15 155);
+    --note-purple: oklch(0.68 0.15 300);
+    --note-orange: oklch(0.76 0.15 60);
+    --note-grey: var(--muted-foreground);
+  }
+
+  [data-slot="board-block"] {
+    --note: var(--note-yellow);
+
+    &[data-color="pink"] { --note: var(--note-pink); }
+    &[data-color="blue"] { --note: var(--note-blue); }
+    &[data-color="green"] { --note: var(--note-green); }
+    &[data-color="purple"] { --note: var(--note-purple); }
+    &[data-color="orange"] { --note: var(--note-orange); }
+    &[data-color="grey"] { --note: var(--note-grey); }
+  }
+
+  [data-slot="board-block"][data-type="frame"] {
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 14px 16px;
+    border: 1px solid color-mix(in oklch, var(--note) 45%, transparent);
+    background: color-mix(in oklch, var(--note) 6%, transparent);
+    color: color-mix(in oklch, var(--note) 80%, var(--foreground));
+    font-size: 15px;
+    font-weight: 600;
+    text-align: left;
+  }
+
+  [data-slot="board-block"][data-type="sticky"] {
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 12px 14px;
+    border-color: color-mix(in oklch, var(--note) 55%, transparent);
+    border-top: 3px solid var(--note);
+    background: color-mix(in oklch, var(--note) 16%, var(--card));
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+  }
+
+  [data-slot="board-block"][data-type="text"] {
+    border-color: transparent;
+    background: transparent;
+    font-weight: 600;
+
+    &[data-size="xl"] { justify-content: flex-start; font-size: 32px; }
+    &[data-size="l"] { font-size: 24px; }
+  }
+
+  [data-slot="board-block"]:is([data-type="checklist"], [data-type="poll"]) {
+    align-items: flex-start;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  [data-slot="template-preview"] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    & strong {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    & ul {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: var(--muted-foreground);
+      font-weight: 400;
+    }
+
+    & li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    & li::before {
+      content: "";
+      flex: none;
+      width: 12px;
+      height: 12px;
+      border: 1px solid var(--border);
+    }
+
+    &[data-kind="poll"] li::before {
+      border-radius: 50%;
+    }
+  }
+}

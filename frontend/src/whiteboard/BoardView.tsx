@@ -80,7 +80,7 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
               <XIcon aria-hidden="true" />
             </parts.Unlink>
           ))}
-          {Object.keys(blocks).map((id) => {
+          {frameFirst(blocks).map((id) => {
             const block = blocks[id];
             // A freehand stroke shows its line, with no ports or resize handles.
             if (block.ink) {
@@ -90,12 +90,13 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
                 </BoardBlock>
               );
             }
+            const color = typeof block.props?.color === "string" ? block.props.color : undefined;
             return (
-              <BoardBlock key={id} value={id} data-block={id}>
+              <BoardBlock key={id} value={id} data-block={id} data-type={block.type} data-color={color} data-size={typeof block.props?.size === "string" ? block.props.size : undefined}>
                 <span data-slot="board-block-label">{renderBlock ? renderBlock(id, blocks) : block.label}</span>
-                {sides.map((side) => (
-                  <BoardPart key={side} slot="port" value={`${id}:${side}`} />
-                ))}
+                {/* A frame is a region, not something lines join. */}
+                {block.type !== "frame" &&
+                  sides.map((side) => <BoardPart key={side} slot="port" value={`${id}:${side}`} />)}
                 {handles.map((h) => (
                   <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
                 ))}
@@ -127,6 +128,12 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
     ),
   });
   return <BoardContext.Provider value={handle}>{root}</BoardContext.Provider>;
+}
+
+/** Block ids with frames first, so frames sit behind the blocks in them. */
+function frameFirst(blocks: BoardBlocks) {
+  const ids = Object.keys(blocks);
+  return [...ids.filter((id) => blocks[id].type === "frame"), ...ids.filter((id) => blocks[id].type !== "frame")];
 }
 
 function BoardBlock({ value, ...props }: { value: string } & PartProps<"div", BoardBlockState>) {

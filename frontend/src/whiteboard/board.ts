@@ -44,11 +44,16 @@ import {
 } from "@ui-sdk/core"
 import { edgePath, type EdgeSide } from "./edge-path"
 import type { InkStroke } from "./ink"
+import { layout, type LayoutKind, type LayoutOptions } from "./layout"
 
 /**
  * A block on the board: its name, and its box in canvas units. A freehand
  * stroke (ink.ts) is a block with `ink`: it selects, lassos, moves and
  * deletes like any block, but has no ports and doesn't resize.
+ *
+ * `type` and `props` are its block catalog entry and that entry's props, as
+ * in Go's board document (a frame is type "frame" with props name and
+ * color). The canvas carries them along; only arrange reads props.tags.
  */
 type BoardBlock = {
   label: string
@@ -57,6 +62,8 @@ type BoardBlock = {
   width: number
   height: number
   ink?: InkStroke
+  type?: string
+  props?: Record<string, unknown>
 }
 
 /** Every block, by id. Ids don't contain ":". */
@@ -264,6 +271,7 @@ const board = /* @__PURE__ */ definePrimitive({
       "disconnect",
       "fit",
       "zoomTo",
+      "arrange",
     ],
   },
   api: (context) => {
@@ -528,7 +536,104 @@ const board = /* @__PURE__ */ definePrimitive({
         )
       },
 
+      /** Every block on the board now, by id. */
+      blocks() {
+        return store.get().blocks
+      },
+
+      /**
+       * Puts many blocks and lines on the board in one change each, like a
+       * template. False, and nothing added, if an id is taken or has ":".
+       */
+      addBlocks(add: BoardBlocks, addLines: BoardLine[] = []) {
+        const { blocks, lines } = store.get()
+        const ids = Object.keys(add)
+        if (!ids.length || ids.some((id) => !id || id.includes(":") || blocks[id])) {
+          return false
+        }
+        const all = { ...blocks, ...add }
+        const known = new Set(lines.map((l) => l.id))
+        const fresh = addLines.filter(
+          (l) => !known.has(l.id) && all[blockOf(l.from)] && all[blockOf(l.to)]
+        )
+        change("blocks", all, { reason: "imperative" })
+        if (fresh.length) {
+          change("lines", nameLines(all, [...lines, ...fresh]), {
+            reason: "imperative",
+          })
+        }
+        return true
+      },
+
       // Agent actions (listed in `agent.actions`), in plain arguments.
+
+      /**
+       * Arranges blocks as Go's board.layout does: "grid", "tree" (follows
+       * the lines) or "cluster" (one column per first tag). ids picks the
+       * blocks; without them, the selection when two or more are selected,
+       * else every block. Frames and ink strokes stay where they are. Returns
+       * how many blocks moved.
+       */
+      arrange(kind: LayoutKind, ids?: string[], options?: LayoutOptions) {
+        if (kind !== "grid" && kind !== "tree" && kind !== "cluster") {
+          return 0
+        }
+        const { blocks, lines, selected } = store.get()
+        const pick = ids?.length
+          ? ids
+          : selected.length > 1
+            ? selected
+            : Object.keys(blocks)
+        const placed = pick
+          .filter((id, i) => pick.indexOf(id) === i)
+          .filter((id) => blocks[id] && !blocks[id].ink && blocks[id].type !== "frame")
+          .map((id) => {
+            const b = blocks[id]
+            const tags = b.props?.tags
+            return {
+              id,
+              x: b.x,
+              y: b.y,
+              w: b.width,
+              h: b.height,
+              tags: Array.isArray(tags) ? tags.filter((t): t is string => typeof t === "string") : undefined,
+            }
+          })
+        const pos = layout(
+          placed,
+          lines.map((l) => ({ from: blockOf(l.from), to: blockOf(l.to) })),
+          kind,
+          options
+        )
+        const next: BoardBlocks = { ...blocks }
+        let moved = 0
+        for (const [id, p] of Object.entries(pos)) {
+          if (next[id].x !== p.x || next[id].y !== p.y) {
+            next[id] = { ...next[id], x: p.x, y: p.y }
+            moved++
+          }
+        }
+        if (moved) {
+          change("blocks", next, { reason: "imperative" })
+          // Lines to moved blocks leave from the sides that now face.
+          let turned = false
+          const relined = lines.map((line) => {
+            const a = blockOf(line.from)
+            const b = blockOf(line.to)
+            if ((!pos[a] && !pos[b]) || !next[a] || !next[b]) return line
+            const [fs, ts] = facing(next[a], next[b])
+            const from = `${a}:${fs}`
+            const to = `${b}:${ts}`
+            if (from === line.from && to === line.to) return line
+            turned = true
+            return { ...line, from, to }
+          })
+          if (turned) {
+            change("lines", relined, { reason: "imperative" })
+          }
+        }
+        return moved
+      },
 
       /** Selects these blocks, by id. */
       select(ids: string[]) {
