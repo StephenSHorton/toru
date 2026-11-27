@@ -40,6 +40,10 @@ export class Block {
      */
     "group"?: string;
     "props": json$0.RawMessage;
+    /**
+     * the person can't move, resize or delete it in the window
+     */
+    "locked"?: boolean;
     "createdBy"?: Source;
     "updatedBy"?: Source;
 
@@ -349,6 +353,7 @@ export class Frame {
     "w": number;
     "h": number;
     "color"?: string;
+    "locked"?: boolean;
     "createdBy"?: Source;
     "updatedBy"?: Source;
 
@@ -521,6 +526,7 @@ export class Link {
      * style: arrow heads, dash, colour
      */
     "props"?: json$0.RawMessage;
+    "locked"?: boolean;
     "createdBy"?: Source;
     "updatedBy"?: Source;
 
@@ -723,6 +729,7 @@ export class Stroke {
     "fill"?: string;
     "text"?: string;
     "highlight"?: boolean;
+    "locked"?: boolean;
     "createdBy"?: Source;
     "updatedBy"?: Source;
 

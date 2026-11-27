@@ -18,7 +18,7 @@
     { "id": "image-empty", "createdBy": "person", "type": "image", "x": 780, "y": 610, "w": 220, "h": 230, "props": {} }
   ],
   "links": [
-    { "id": "idea-agents->table", "from": "idea-agents", "to": "card-ship" },
-    { "id": "checklist->poll", "from": "checklist", "to": "poll" }
+    { "id": "lnk-agents-ship", "from": "idea-agents", "to": "card-ship" },
+    { "id": "lnk-checklist-poll", "from": "checklist", "to": "poll" }
   ]
 }

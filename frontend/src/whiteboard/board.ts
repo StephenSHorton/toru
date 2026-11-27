@@ -66,6 +66,10 @@ type BoardBlock = {
   /** Who made it and who last changed it: "person" or "agent:<name>" (Go's board.Source). The canvas shows `createdBy` and never reads either. */
   createdBy?: string
   updatedBy?: string
+  /** Degrees, clockwise: the block is drawn turned. Moves, resizes and ports still use its unturned box. */
+  rotation?: number
+  /** A locked block doesn't move, resize or delete; it still selects. */
+  locked?: boolean
 }
 
 /** Every block, by id. Ids don't contain ":". */
@@ -334,6 +338,18 @@ function portPoint(state: BoardState, port: string) {
   }
 }
 
+/** A block's turn, as CSS to add to its style; nothing when it isn't turned. */
+function turn(state: BoardState, key: string) {
+  const r = state.blocks[key]?.rotation
+  return r ? `;rotate:${r}deg` : ""
+}
+
+/** A line's path between its ports, as they are now. */
+const lineD = live<BoardState, any, { value: string }>((state, { key, api }) => {
+  const line = state.lines.find((l) => l.id === key)
+  return line ? { d: edgePath(api.portPoint(state, line.from), api.portPoint(state, line.to)).d } : {}
+})
+
 /** The facing sides for a line from block a to block b, by where their middles are. */
 function facing(a: BoardBlock, b: BoardBlock): [EdgeSide, EdgeSide] {
   const dx = b.x + b.width / 2 - (a.x + a.width / 2)
@@ -475,7 +491,8 @@ const board = /* @__PURE__ */ definePrimitive({
       const merged: BoardBlocks = {}
       for (const [key, box] of Object.entries(next)) {
         const was = blocks[key]
-        if (was) {
+        // A locked block stays where it is.
+        if (was && !was.locked) {
           merged[key] = {
             ...was,
             x: box.x,
@@ -511,7 +528,9 @@ const board = /* @__PURE__ */ definePrimitive({
       draft: "moving",
       set: (value, details) => setBoxes(value, details),
       group: (key) =>
-        store.get().selected.includes(key) ? store.get().selected : [key],
+        (store.get().selected.includes(key) ? store.get().selected : [key]).filter(
+          (k) => !block(k)?.locked
+        ),
       step: grid,
       largeStep: () => grid() * 8,
       scale: () => viewport.get().zoom,
@@ -606,7 +625,7 @@ const board = /* @__PURE__ */ definePrimitive({
       }
     ) => {
       const { blocks, lines, selected } = store.get()
-      const gone = new Set(ids.filter((id) => blocks[id]))
+      const gone = new Set(ids.filter((id) => blocks[id] && !blocks[id].locked))
       if (!gone.size) {
         return false
       }
@@ -787,7 +806,7 @@ const board = /* @__PURE__ */ definePrimitive({
             : Object.keys(blocks)
         const placed = pick
           .filter((id, i) => pick.indexOf(id) === i)
-          .filter((id) => blocks[id] && !blocks[id].ink && blocks[id].type !== "frame")
+          .filter((id) => blocks[id] && !blocks[id].ink && !blocks[id].locked && blocks[id].type !== "frame")
           .map((id) => {
             const b = blocks[id]
             const tags = b.props?.tags
@@ -1008,7 +1027,7 @@ const board = /* @__PURE__ */ definePrimitive({
           return
         }
         const arrow = resizeKey[event.key]
-        if (arrow && (event.ctrlKey || event.metaKey) && !event.altKey && !isInk(key)) {
+        if (arrow && (event.ctrlKey || event.metaKey) && !event.altKey && !isInk(key) && !block(key)?.locked) {
           // Ctrl with an arrow moves the block's bottom right corner.
           event.preventDefault()
           const by = event.shiftKey ? grid() * 8 : grid()
@@ -1092,7 +1111,7 @@ const board = /* @__PURE__ */ definePrimitive({
         } else if (!store.get().selected.includes(key)) {
           selection.choose(key, { reason: "item-press", event })
         }
-        if (control && el.contains(control)) {
+        if ((control && el.contains(control)) || block(key)?.locked) {
           return
         }
         move.pointerdown(event, key, el)
@@ -1217,6 +1236,7 @@ const board = /* @__PURE__ */ definePrimitive({
       attrs: (state, part) => {
         const selected = state.selected.includes(part.key)
         const isStroke = !!state.blocks[part.key]?.ink
+        const isLocked = !!state.blocks[part.key]?.locked
         const links = state.lines
           .filter(
             (line) =>
@@ -1231,15 +1251,17 @@ const board = /* @__PURE__ */ definePrimitive({
           role: "option",
           "aria-roledescription": "block",
           "aria-selected": String(selected),
-          "aria-description": isStroke
-            ? "Freehand stroke."
-            : links.length
-            ? `Connected ${links.join(", ")}.`
-            : "Not connected.",
+          "aria-description":
+            (isStroke
+              ? "Freehand stroke."
+              : links.length
+              ? `Connected ${links.join(", ")}.`
+              : "Not connected.") + (isLocked ? " Locked." : ""),
           tabindex: part.api.roving.tabIndex(state, part),
           "data-selected": selected ? "" : undefined,
           "data-ink": isStroke ? "" : undefined,
-          style: part.api.resize.boxStyle(state, part.key),
+          "data-locked": isLocked ? "" : undefined,
+          style: part.api.resize.boxStyle(state, part.key) + turn(state, part.key),
         }
       },
       live: live<BoardState, any, { value: string }>(
@@ -1252,7 +1274,7 @@ const board = /* @__PURE__ */ definePrimitive({
           // draft on the grid, so a block lands on the dots while it drags.
           style: [moveStyle(state, key), resizeStyle(state, key)]
             .filter(Boolean)
-            .join(";") || undefined,
+            .join(";") + turn(state, key) || undefined,
         })
       ),
       on: {
@@ -1314,16 +1336,28 @@ const board = /* @__PURE__ */ definePrimitive({
     line: slot<{ value: string }>({
       props: { value: "string" },
       attrs: () => ({ fill: "none" }),
+      live: lineD,
+    }),
+    // A wide see-through stroke along a line, so a press on it can pick the line.
+    "line-hit": slot<{ value: string }>({
+      props: { value: "string" },
+      attrs: () => ({ fill: "none", "aria-hidden": "true" }),
+      live: lineD,
+      on: { pointerdown: (event) => event.stopPropagation() },
+    }),
+    // A line's label, written above its middle.
+    "line-label": slot<{ value: string }>({
+      props: { value: "string" },
+      attrs: () => ({
+        style: css({ position: "absolute", translate: "-50% calc(-100% - 12px)" }),
+      }),
       live: live<BoardState, any, { value: string }>((state, { key, api }) => {
         const line = state.lines.find((l) => l.id === key)
-        return line
-          ? {
-              d: edgePath(
-                api.portPoint(state, line.from),
-                api.portPoint(state, line.to)
-              ).d,
-            }
-          : {}
+        if (!line) {
+          return {}
+        }
+        const { mid } = edgePath(api.portPoint(state, line.from), api.portPoint(state, line.to))
+        return { style: css({ left: `${mid.x}px`, top: `${mid.y}px` }) }
       }),
     }),
     unlink: slot<{ value: string }>({

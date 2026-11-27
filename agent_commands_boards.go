@@ -454,13 +454,15 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 				"rotation":     numP("Degrees, clockwise."),
 				"frame":        str("A frame id to sit in, or \"\" to leave its frame."),
 				"group":        str("A group id, or \"\" to leave its group."),
+				"locked":       map[string]any{"type": "boolean", "description": "Lock it: then no agent can move, resize, delete or unlock it, and only the person unlocks it, in the board window. Its text and style can still change."},
 			}, "id"), "Blocks to change."),
 			"frames": list(obj(map[string]any{
-				"id":    str("The frame's id."),
-				"name":  map[string]any{"type": "string", "minLength": 1, "maxLength": board.MaxNameLen},
-				"w":     map[string]any{"type": "number", "minimum": 0},
-				"h":     map[string]any{"type": "number", "minimum": 0},
-				"color": str("A colour."),
+				"id":     str("The frame's id."),
+				"name":   map[string]any{"type": "string", "minLength": 1, "maxLength": board.MaxNameLen},
+				"w":      map[string]any{"type": "number", "minimum": 0},
+				"h":      map[string]any{"type": "number", "minimum": 0},
+				"color":  str("A colour."),
+				"locked": map[string]any{"type": "boolean", "description": "Lock it: then no agent can move, resize, delete or unlock it, and only the person unlocks it, in the board window. Its text and style can still change."},
 			}, "id"), "Frames to change."),
 		}, "id"),
 		Handler: func(ctx context.Context, in json.RawMessage) (any, error) {
@@ -475,12 +477,14 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 					Rotation     *float64 `json:"rotation"`
 					Frame        *string  `json:"frame"`
 					Group        *string  `json:"group"`
+					Locked       *bool    `json:"locked"`
 				} `json:"blocks"`
 				Frames []struct {
-					ID    string  `json:"id"`
-					Name  *string `json:"name"`
-					W, H  *float64
-					Color *string `json:"color"`
+					ID     string  `json:"id"`
+					Name   *string `json:"name"`
+					W, H   *float64
+					Color  *string `json:"color"`
+					Locked *bool   `json:"locked"`
 				} `json:"frames"`
 			}](in)
 			if err != nil {
@@ -517,6 +521,9 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 					if u.Group != nil {
 						x.Group = *u.Group
 					}
+					if u.Locked != nil {
+						x.Locked = *u.Locked
+					}
 					op.Blocks = append(op.Blocks, x)
 				}
 				for _, u := range v.Frames {
@@ -532,6 +539,9 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 					if u.Color != nil {
 						f.Color = *u.Color
 					}
+					if u.Locked != nil {
+						f.Locked = *u.Locked
+					}
 					op.Frames = append(op.Frames, f)
 				}
 				return op, nil
@@ -546,7 +556,7 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 	reg.Register(agentctl.Command{
 		Name: "board.move",
 		Description: "Move blocks and frames in one change: to x, y, or by dx, dy. A block in a group takes its group with it; a frame takes the blocks and ink in it. " +
-			"z: front or back puts the item at the top or bottom of the stack.",
+			"z: front or back puts the item at the top or bottom of the stack. A locked item (board.read shows locked) can't be moved, nor a frame or group that would carry one.",
 		Input: schema(map[string]any{
 			"id": propBoard,
 			"moves": list(obj(map[string]any{
@@ -691,7 +701,7 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 				"fromPort": str("Optional port on the from end (top, right, bottom, left)."),
 				"toPort":   str("Optional port on the to end."),
 				"label":    map[string]any{"type": "string", "maxLength": board.MaxLabelLen},
-				"style":    map[string]any{"type": "object", "description": "Optional line style: arrow heads, dash, colour."},
+				"style":    map[string]any{"type": "object", "description": "Optional line style: start and end (\"arrow\" or \"none\"; end defaults to none), dash (\"solid\", \"dashed\", \"dotted\") and color (a block colour: yellow, pink, blue, green, purple, orange, grey)."},
 			}, "from", "to"), "The lines to draw."),
 		}, "id", "links"),
 		Handler: func(ctx context.Context, in json.RawMessage) (any, error) {
@@ -794,7 +804,7 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 	reg.Register(agentctl.Command{
 		Name: "board.layout",
 		Description: "Arrange blocks in one change: grid (rows and columns), tree (follows the lines: roots first, each level further right, or down), " +
-			"or cluster (one column per tag: a block's first props.tags entry). Every block unless blocks lists some. They start at their top-left corner, or at x, y.",
+			"or cluster (one column per tag: a block's first props.tags entry). Every block the person hasn't locked, unless blocks lists some (a locked one there is refused). They start at their top-left corner, or at x, y.",
 		Input: schema(map[string]any{
 			"id":        propBoard,
 			"kind":      map[string]any{"type": "string", "enum": []string{board.LayoutGrid, board.LayoutTree, board.LayoutCluster}},
@@ -847,7 +857,7 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 
 	reg.Register(agentctl.Command{
 		Name: "board.delete",
-		Description: "Destructive. With items: remove those blocks, frames, lines or ink from the board (lines to them go too; it can be undone in the board window). " +
+		Description: "Destructive. With items: remove those blocks, frames, lines or ink from the board (lines to them go too; it can be undone in the board window). A locked item can't be removed. " +
 			"Without items: delete the whole board and its file for good. Needs confirm: true.",
 		Destructive: true,
 		Input: schema(map[string]any{

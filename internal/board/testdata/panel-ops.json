@@ -1,0 +1,1133 @@
+{
+  "note": "Written by frontend/scripts/props-panel-check.tsx --write: ops as the whiteboard window's properties panel sent them, and the board the window's store ended on. Go's TestPanelOps applies them. Don't edit by hand.",
+  "start": {
+    "format": "toruboard",
+    "version": 1,
+    "id": "props",
+    "name": "Props",
+    "rev": 0,
+    "frames": [
+      {
+        "id": "frm-plan",
+        "name": "Plan",
+        "x": -20,
+        "y": 260,
+        "w": 480,
+        "h": 260,
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "s1",
+        "type": "sticky",
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "First idea",
+          "tags": [
+            "a"
+          ]
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "s2",
+        "type": "sticky",
+        "x": 320,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "Second",
+          "color": "pink",
+          "tags": [
+            "a",
+            "b"
+          ]
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "c1",
+        "type": "card",
+        "x": 640,
+        "y": 0,
+        "w": 240,
+        "h": 160,
+        "props": {
+          "title": "A card",
+          "color": "blue"
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "k1",
+        "type": "checklist",
+        "x": 0,
+        "y": 600,
+        "w": 240,
+        "h": 200,
+        "props": {
+          "title": "Todo",
+          "items": [
+            {
+              "text": "One"
+            },
+            {
+              "text": "Two",
+              "done": true
+            }
+          ]
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "u1",
+        "type": "bug-report",
+        "x": 1400,
+        "y": 600,
+        "w": 380,
+        "h": 480,
+        "props": {
+          "title": "Save fails",
+          "severity": "medium",
+          "steps": [],
+          "expected": "",
+          "actual": "",
+          "fixed": false
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      }
+    ],
+    "links": [
+      {
+        "id": "lnk-12",
+        "from": "s1",
+        "to": "s2",
+        "fromPort": "right",
+        "toPort": "left",
+        "label": "leads to",
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "ink": [
+      {
+        "id": "ink-1",
+        "points": [
+          240,
+          340,
+          0.5,
+          330,
+          400,
+          0.7,
+          420,
+          360,
+          0.5
+        ],
+        "color": "ink-blue",
+        "width": 4,
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "types": [
+      {
+        "type": "bug-report",
+        "label": "Bug report",
+        "description": "A bug: how bad it is, how to make it happen, what should happen and what does.",
+        "icon": "bug",
+        "w": 380,
+        "h": 480,
+        "props": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "title",
+            "severity"
+          ],
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ]
+            },
+            "steps": {
+              "type": "array",
+              "maxItems": 30,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "done": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "expected": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "actual": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "fixed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "defaults": {
+          "title": "New bug",
+          "severity": "medium",
+          "steps": [],
+          "expected": "",
+          "actual": "",
+          "fixed": false
+        },
+        "layout": {
+          "part": "stack",
+          "gap": "m",
+          "children": [
+            {
+              "part": "stack",
+              "direction": "row",
+              "justify": "between",
+              "children": [
+                {
+                  "part": "badge",
+                  "prop": "severity",
+                  "colors": {
+                    "low": "grey",
+                    "medium": "yellow",
+                    "high": "orange",
+                    "critical": "pink"
+                  }
+                },
+                {
+                  "part": "checkbox",
+                  "prop": "fixed",
+                  "label": "Fixed"
+                }
+              ]
+            },
+            {
+              "part": "field",
+              "prop": "title",
+              "label": "Bug"
+            },
+            {
+              "part": "choice",
+              "prop": "severity",
+              "label": "Severity",
+              "style": "segmented"
+            },
+            {
+              "part": "checklist",
+              "prop": "steps",
+              "label": "Steps to reproduce"
+            },
+            {
+              "part": "stack",
+              "direction": "row",
+              "align": "start",
+              "children": [
+                {
+                  "part": "field",
+                  "prop": "expected",
+                  "label": "Expected",
+                  "multiline": true
+                },
+                {
+                  "part": "field",
+                  "prop": "actual",
+                  "label": "Actual",
+                  "multiline": true
+                }
+              ]
+            }
+          ]
+        },
+        "version": 1,
+        "origin": "blt-panel1"
+      }
+    ]
+  },
+  "ops": [
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 0,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Edited in the panel",
+            "tags": [
+              "a"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 0,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "a"
+            ],
+            "color": "blue"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 0,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "a",
+              "new"
+            ],
+            "color": "blue"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 0,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "k1",
+          "type": "checklist",
+          "x": 0,
+          "y": 600,
+          "w": 240,
+          "h": 200,
+          "props": {
+            "title": "Todo",
+            "items": [
+              {
+                "text": "One",
+                "done": true
+              },
+              {
+                "text": "Two",
+                "done": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "k1",
+          "type": "checklist",
+          "x": 0,
+          "y": 600,
+          "w": 240,
+          "h": 200,
+          "props": {
+            "title": "Todo",
+            "items": [
+              {
+                "text": "One",
+                "done": true
+              },
+              {
+                "text": "Two",
+                "done": true
+              },
+              {
+                "text": "New"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "k1",
+          "type": "checklist",
+          "x": 0,
+          "y": 600,
+          "w": 240,
+          "h": 200,
+          "props": {
+            "title": "Todo",
+            "items": [
+              {
+                "text": "One",
+                "done": true
+              },
+              {
+                "text": "Two",
+                "done": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          },
+          "rotation": 10
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          },
+          "rotation": 10,
+          "locked": true
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "blue"
+          },
+          "rotation": 10
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new"
+            ],
+            "color": "green"
+          },
+          "rotation": 10
+        },
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Second",
+            "color": "green",
+            "tags": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "id": "c1",
+          "type": "card",
+          "x": 640,
+          "y": 0,
+          "w": 240,
+          "h": 160,
+          "props": {
+            "title": "A card",
+            "color": "green"
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new",
+              "shared"
+            ],
+            "color": "green"
+          },
+          "rotation": 10
+        },
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Second",
+            "color": "green",
+            "tags": [
+              "a",
+              "b",
+              "shared"
+            ]
+          }
+        },
+        {
+          "id": "c1",
+          "type": "card",
+          "x": 640,
+          "y": 0,
+          "w": 240,
+          "h": 160,
+          "props": {
+            "title": "A card",
+            "color": "green",
+            "tags": [
+              "shared"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "source": "person",
+      "links": [
+        {
+          "id": "lnk-12",
+          "from": "s1",
+          "to": "s2",
+          "fromPort": "right",
+          "toPort": "left",
+          "label": "depends on"
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "links": [
+        {
+          "id": "lnk-12",
+          "from": "s1",
+          "to": "s2",
+          "fromPort": "right",
+          "toPort": "left",
+          "label": "depends on",
+          "props": {
+            "color": "purple"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "source": "person",
+      "links": [
+        {
+          "id": "lnk-12",
+          "from": "s1",
+          "to": "s2",
+          "fromPort": "right",
+          "toPort": "left",
+          "label": "depends on",
+          "locked": true
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "source": "person",
+      "ink": [
+        {
+          "id": "ink-1",
+          "points": [
+            240,
+            340,
+            0.5,
+            330,
+            400,
+            0.7,
+            420,
+            360,
+            0.5
+          ],
+          "color": "ink-red",
+          "width": 4
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Typed in place",
+            "color": "pink",
+            "tags": [
+              "a",
+              "b"
+            ]
+          },
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Typed in place",
+            "color": "orange",
+            "tags": [
+              "a",
+              "b"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Typed in place",
+            "color": "yellow",
+            "tags": [
+              "a",
+              "b"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Typed in place",
+            "color": "yellow",
+            "tags": [
+              "a",
+              "b",
+              "quick"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "u1",
+          "type": "bug-report",
+          "x": 1400,
+          "y": 600,
+          "w": 380,
+          "h": 480,
+          "props": {
+            "title": "Save fails on Mac",
+            "severity": "medium",
+            "steps": [],
+            "expected": "",
+            "actual": "",
+            "fixed": false
+          }
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    }
+  ],
+  "end": {
+    "format": "toruboard",
+    "version": 1,
+    "id": "props",
+    "name": "Props",
+    "rev": 29,
+    "frames": [
+      {
+        "id": "frm-plan",
+        "name": "Plan",
+        "x": -20,
+        "y": 260,
+        "w": 480,
+        "h": 260,
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "s1",
+        "type": "sticky",
+        "x": 40,
+        "y": 0,
+        "w": 260,
+        "h": 200,
+        "props": {
+          "text": "First idea",
+          "tags": [
+            "new"
+          ],
+          "color": "blue"
+        },
+        "rotation": 10,
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "s2",
+        "type": "sticky",
+        "x": 320,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "Typed in place",
+          "color": "yellow",
+          "tags": [
+            "a",
+            "b",
+            "quick"
+          ]
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "person"
+      },
+      {
+        "id": "c1",
+        "type": "card",
+        "x": 640,
+        "y": 0,
+        "w": 240,
+        "h": 160,
+        "props": {
+          "title": "A card",
+          "color": "blue"
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "k1",
+        "type": "checklist",
+        "x": 0,
+        "y": 600,
+        "w": 240,
+        "h": 200,
+        "props": {
+          "title": "Todo",
+          "items": [
+            {
+              "text": "One",
+              "done": true
+            },
+            {
+              "text": "Two",
+              "done": true
+            }
+          ]
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "u1",
+        "type": "bug-report",
+        "x": 1400,
+        "y": 600,
+        "w": 380,
+        "h": 480,
+        "props": {
+          "title": "Save fails",
+          "severity": "medium",
+          "steps": [],
+          "expected": "",
+          "actual": "",
+          "fixed": false
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      }
+    ],
+    "links": [
+      {
+        "id": "lnk-12",
+        "from": "s1",
+        "to": "s2",
+        "fromPort": "right",
+        "toPort": "left",
+        "label": "depends on",
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "ink": [
+      {
+        "id": "ink-1",
+        "points": [
+          240,
+          340,
+          0.5,
+          330,
+          400,
+          0.7,
+          420,
+          360,
+          0.5
+        ],
+        "color": "ink-red",
+        "width": 4,
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "types": [
+      {
+        "type": "bug-report",
+        "label": "Bug report",
+        "description": "A bug: how bad it is, how to make it happen, what should happen and what does.",
+        "icon": "bug",
+        "w": 380,
+        "h": 480,
+        "props": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "title",
+            "severity"
+          ],
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ]
+            },
+            "steps": {
+              "type": "array",
+              "maxItems": 30,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "done": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "expected": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "actual": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "fixed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "defaults": {
+          "title": "New bug",
+          "severity": "medium",
+          "steps": [],
+          "expected": "",
+          "actual": "",
+          "fixed": false
+        },
+        "layout": {
+          "part": "stack",
+          "gap": "m",
+          "children": [
+            {
+              "part": "stack",
+              "direction": "row",
+              "justify": "between",
+              "children": [
+                {
+                  "part": "badge",
+                  "prop": "severity",
+                  "colors": {
+                    "low": "grey",
+                    "medium": "yellow",
+                    "high": "orange",
+                    "critical": "pink"
+                  }
+                },
+                {
+                  "part": "checkbox",
+                  "prop": "fixed",
+                  "label": "Fixed"
+                }
+              ]
+            },
+            {
+              "part": "field",
+              "prop": "title",
+              "label": "Bug"
+            },
+            {
+              "part": "choice",
+              "prop": "severity",
+              "label": "Severity",
+              "style": "segmented"
+            },
+            {
+              "part": "checklist",
+              "prop": "steps",
+              "label": "Steps to reproduce"
+            },
+            {
+              "part": "stack",
+              "direction": "row",
+              "align": "start",
+              "children": [
+                {
+                  "part": "field",
+                  "prop": "expected",
+                  "label": "Expected",
+                  "multiline": true
+                },
+                {
+                  "part": "field",
+                  "prop": "actual",
+                  "label": "Actual",
+                  "multiline": true
+                }
+              ]
+            }
+          ]
+        },
+        "version": 1,
+        "origin": "blt-panel1"
+      }
+    ]
+  }
+}
