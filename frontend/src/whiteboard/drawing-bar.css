@@ -1,0 +1,227 @@
+/* The drawing bar (DrawingBar.tsx) and the drawing tools on the board
+   (DrawingTools.tsx), in Toru's look: frosted, sharp-edged, Lucide icons. */
+
+@layer components {
+  [data-slot="drawing-bar"] {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    translate: -50% 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: calc(100% - 200px);
+    padding: 4px 6px;
+    overflow-x: auto;
+    cursor: default;
+    scrollbar-width: none;
+
+    & [data-slot="toggle"],
+    & [data-slot="button"],
+    & [data-slot="popover-trigger"] {
+      display: grid;
+      flex: none;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+
+      & svg {
+        width: 16px;
+        height: 16px;
+      }
+    }
+  }
+
+  [data-part="drawing-tools"],
+  [data-part="drawing-colours"],
+  [data-slot="drawing-group"] {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  [data-part="drawing-tools"] {
+    gap: 6px;
+  }
+
+  [data-slot="drawing-group"] + [data-slot="drawing-group"] {
+    padding-left: 6px;
+    border-left: 1px solid var(--border);
+  }
+
+  [data-part="drawing-colours"] [data-slot="toggle"] {
+    width: 24px;
+  }
+
+  [data-slot="drawing-separator"] {
+    flex: none;
+    width: 1px;
+    height: 20px;
+    margin: 0 2px;
+    background: var(--border);
+  }
+
+  [data-slot="drawing-swatch"] {
+    display: block;
+    width: 14px;
+    height: 14px;
+    border: 1px solid color-mix(in oklch, var(--foreground) 25%, transparent);
+    border-radius: 50%;
+  }
+
+  [data-part="drawing-colours"] [data-pressed] [data-slot="drawing-swatch"] {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  [data-slot="drawing-width-preview"] {
+    display: block;
+    width: 18px;
+    border-radius: 999px;
+
+    &[data-eraser] {
+      width: 14px;
+      height: 14px !important;
+      border: 1.5px solid var(--muted-foreground);
+      border-radius: 50%;
+    }
+  }
+
+  [data-part="drawing-width"] {
+    display: grid;
+    gap: 10px;
+    min-width: 15rem;
+  }
+
+  [data-part="drawing-width-presets"] {
+    display: flex;
+    gap: 2px;
+
+    & [data-slot="toggle"] {
+      flex: 1;
+      padding: 0 8px;
+    }
+  }
+
+  [data-slot="drawing-width-fine"] {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    & [data-slot="slider"] {
+      flex: 1;
+    }
+  }
+
+  [data-slot="drawing-width-value"] {
+    min-width: 2.5em;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  [data-part="drawing-emoji-trigger"] {
+    font-size: 18px;
+  }
+
+  [data-slot="drawing-emoji-grid"] {
+    display: grid;
+    grid-template-columns: repeat(8, 32px);
+    gap: 2px;
+
+    & [data-slot="button"] {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      font-size: 18px;
+
+      &[aria-pressed="true"] {
+        outline: 2px solid var(--ring);
+        outline-offset: -2px;
+      }
+    }
+  }
+
+  /* On the board (DrawingTools.tsx). */
+  [data-slot="tool-surface"][data-active] {
+    cursor: crosshair;
+
+    &[data-tool="hand"] {
+      cursor: grab;
+
+      &:active {
+        cursor: grabbing;
+      }
+    }
+
+    &[data-tool="eraser"] {
+      cursor: none;
+    }
+
+    &[data-tool="text"] {
+      cursor: text;
+    }
+  }
+
+  [data-slot="eraser-ring"] {
+    z-index: 3;
+    border: 1.5px solid var(--foreground);
+    border-radius: 50%;
+    background: color-mix(in oklch, var(--foreground) 10%, transparent);
+    pointer-events: none;
+  }
+
+  /* A stroke the eraser has touched, gone when it lifts. */
+  [data-slot="board-block"][data-erasing] {
+    opacity: 0.25;
+  }
+
+  /* A shape being reshaped: its draft shows instead. */
+  [data-slot="board-block"][data-reshaping] {
+    visibility: hidden;
+  }
+
+  [data-slot="shape-handle"] {
+    z-index: 2;
+    box-sizing: border-box;
+    border: solid var(--primary);
+    background: var(--background);
+    cursor: move;
+
+    &[data-round] {
+      border-radius: 50%;
+    }
+
+    &[data-handle="nw"],
+    &[data-handle="se"] {
+      cursor: nwse-resize;
+    }
+
+    &[data-handle="ne"],
+    &[data-handle="sw"] {
+      cursor: nesw-resize;
+    }
+  }
+
+  [data-slot="shape-text-editor"] {
+    z-index: 3;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    outline: 1px dashed var(--primary);
+    outline-offset: 2px;
+    background: color-mix(in oklch, var(--background) 70%, transparent);
+    font-family: inherit;
+    white-space: pre;
+    resize: none;
+  }
+
+  /* While the hand, eraser or a shape tool is on, blocks don't show hover. */
+  [data-slot="board"]:has([data-slot="tool-surface"][data-active]) [data-slot="board-port"] {
+    opacity: 0;
+  }
+}

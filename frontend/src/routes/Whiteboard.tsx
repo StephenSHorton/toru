@@ -9,15 +9,15 @@ import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
 import { Popover, PopoverClose, PopoverContent, PopoverTitle, PopoverTrigger } from "@ui-sdk/react/popover";
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
-import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MoonIcon, MousePointer2Icon, PenLineIcon, PencilIcon, PlusIcon, SunIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplateIcon, MoonIcon, PencilIcon, PlusIcon, SunIcon, XIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
-import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
+import { Board, useBoard } from "@/whiteboard/BoardView";
 import { dotGrid, onGrid, type BoardBlocks } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
 import { useBlockLibrary } from "@/whiteboard/block-library";
 import { blockLabel, blockType, blockTypes, newProps, type BlockType } from "@/whiteboard/catalog";
-import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
+import { DrawingBar, useDrawingSettings } from "@/whiteboard/DrawingBar";
 import { layoutKinds, type LayoutKind } from "@/whiteboard/layout";
 import { boardTemplates, templateBoard } from "@/whiteboard/templates";
 import type { LiveBoard } from "@/whiteboard/live";
@@ -93,11 +93,7 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
     const params = new URLSearchParams(window.location.search);
     return !!params.get("id") && params.get("link") !== "http";
   })());
-  const [pen, setPen] = useState<PenOptions>(() => ({
-    active: false,
-    color: inkColors[0].token,
-    width: tokenWidth(inkWidths[0].token, inkWidths[0].fallback),
-  }));
+  const [drawing, setDrawing] = useDrawingSettings();
 
   useEffect(() => {
     void live.start();
@@ -227,7 +223,7 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         lines={view.lines}
         onLinesChange={(lines, details) => live.edit({ lines }, { source: sourceOf(details) })}
         renderBlock={renderBlock}
-        pen={pen}
+        drawing={drawing}
         grid={grid}
       >
         <SampleToolbar
@@ -238,11 +234,11 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
           exportMenu={<ExportMenu live={live} />}
         />
         <ArrangeCommand live={live} />
-        <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
+        <DrawingBar settings={drawing} onChange={setDrawing} onUndo={() => void live.undo()} onRedo={() => void live.redo()} />
       </Board>
       {doc && <BoardName name={doc.name} onRename={(next) => live.rename(next)} />}
       {error && (
-        <div role="alert" data-slot="board-error" className="frost absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 px-3 py-2">
+        <div role="alert" data-slot="board-error" className="frost absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-2 px-3 py-2">
           {error}
           <Button aria-label="Dismiss" onClick={() => live.dismissError()}>
             <XIcon aria-hidden="true" />
@@ -329,74 +325,6 @@ function addBlock(blocks: BoardBlocks, type: BlockType, grid = 1): BoardBlocks {
     ...blocks,
     [id]: { label: blockLabel(type, props), type, props, x, y, width: info.w, height: info.h },
   };
-}
-
-// The tools down the board's left side: select or pen, then the pen's colour
-// and width (Toru's --ink-* tokens).
-// The white pen is the board's ink colour: it draws dark on a light board.
-const penName = (c: { token: string; name: string }, theme: string) => (c.token === "ink-white" && theme === "light" ? "Black" : c.name);
-
-function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Partial<PenOptions>) => void }) {
-  const theme = useBoardTheme();
-  const widths = inkWidths.map((w) => ({ ...w, value: tokenWidth(w.token, w.fallback) }));
-  const width = widths.find((w) => w.value === pen.width) ?? widths[0];
-  return (
-    <div
-      data-slot="pen-toolbar"
-      className="frost absolute top-1/2 left-3 flex -translate-y-1/2 flex-col items-center gap-2 p-1.5"
-      onWheel={(e) => e.stopPropagation()}
-      style={{ cursor: "default" }}
-    >
-      <ToggleGroup
-        aria-label="Tool"
-        orientation="vertical"
-        deselectable={false}
-        value={[pen.active ? "pen" : "select"]}
-        onValueChange={(value) => value[0] && onChange({ active: value[0] === "pen" })}
-        className="flex flex-col gap-1"
-      >
-        <Toggle value="select" aria-label="Select" title="Select">
-          <MousePointer2Icon aria-hidden="true" />
-        </Toggle>
-        <Toggle value="pen" aria-label="Pen" title="Pen">
-          <PenLineIcon aria-hidden="true" />
-        </Toggle>
-      </ToggleGroup>
-      <div data-slot="pen-toolbar-separator" />
-      <ToggleGroup
-        aria-label="Pen colour"
-        orientation="vertical"
-        deselectable={false}
-        value={[pen.color]}
-        onValueChange={(value) => value[0] && onChange({ color: value[0], active: true })}
-        className="flex flex-col gap-1"
-      >
-        {inkColors.map((c) => (
-          <Toggle key={c.token} value={c.token} aria-label={penName(c, theme)} title={penName(c, theme)} data-pen-colour={c.token}>
-            <span data-slot="pen-swatch" style={{ background: inkColor(c.token) }} />
-          </Toggle>
-        ))}
-      </ToggleGroup>
-      <div data-slot="pen-toolbar-separator" />
-      <ToggleGroup
-        aria-label="Pen width"
-        orientation="vertical"
-        deselectable={false}
-        value={[width.token]}
-        onValueChange={(value) => {
-          const w = widths.find((x) => x.token === value[0]);
-          if (w) onChange({ width: w.value, active: true });
-        }}
-        className="flex flex-col gap-1"
-      >
-        {widths.map((w) => (
-          <Toggle key={w.token} value={w.token} aria-label={`${w.name} pen`} title={`${w.name} pen`} data-pen-width={w.token}>
-            <span data-slot="pen-width" style={{ height: `${w.value}px`, background: inkColor(pen.color) }} />
-          </Toggle>
-        ))}
-      </ToggleGroup>
-    </div>
-  );
 }
 
 // The toolbar: Add block places the chosen catalog type; Fit, Template,

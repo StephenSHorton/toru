@@ -698,6 +698,29 @@ const board = /* @__PURE__ */ definePrimitive({
         return store.get().blocks
       },
 
+      /** The ids of the selected blocks and strokes now. */
+      selected() {
+        return store.get().selected
+      },
+
+      /**
+       * Puts new versions of blocks already on the board in one change, like
+       * a reshaped or recoloured shape (shapes.ts). Ids not on the board are
+       * left out. False if none were.
+       */
+      replaceBlocks(replace: BoardBlocks) {
+        const { blocks } = store.get()
+        const ids = Object.keys(replace).filter((id) => blocks[id])
+        if (!ids.length) {
+          return false
+        }
+        const next = { ...blocks }
+        for (const id of ids) {
+          next[id] = replace[id]
+        }
+        return change("blocks", next, { reason: "imperative" })
+      },
+
       /**
        * Puts many blocks and lines on the board in one change each, like a
        * template. False, and nothing added, if an id is taken or has ":".

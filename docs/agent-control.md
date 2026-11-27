@@ -197,11 +197,21 @@ board windows as a `board:op` event:
 - `board.draw` (`agent_commands_board_ink.go`): freehand ink, many strokes
   in one change. Each stroke is `points` (`[x, y]` or `[x, y, pressure]`,
   pressure 0.5 when left out), `color` (a pen token: `ink-white`,
-  `ink-blue`, `ink-red`, `ink-yellow`, `ink-green`, or the colour's name
-  alone; white when left out), `width` (`fine`, `medium`, `bold` or a
-  number; fine when left out) and an optional `frame`. The pen in the
+  `ink-blue`, `ink-red`, `ink-yellow`, `ink-green`, `ink-orange`,
+  `ink-purple`, `ink-pink`, `ink-grey`, or the colour's name alone; white
+  when left out), `width` (`fine`, `medium`, `bold` or a number; fine when
+  left out), an optional `frame`, and `highlight: true` for a see-through
+  highlighter stroke drawn under the other ink. The pen in the
   window has no agent action (its parts are `aria-hidden`), so agents draw
   here; strokes come off with `board.delete`.
+- `board.shape` (`agent_commands_board_shapes.go`): shapes on the ink
+  layer, the drawing bar's shape tools, many in one change. Each is `kind`
+  (`rect`, `ellipse`, `line`, `arrow`, `text`, `emoji`), `from` and `to`
+  (`[x, y]`: a box's corners or a line's ends; text and emoji may give
+  `size` instead of `to`), `color` and `width` as for `board.draw`, `fill`
+  (a pen token, rect and ellipse only), `text` (a label's words or one
+  emoji) and an optional `frame`. A shape is a stroke with a `kind` and two
+  points, so the person can select, move and reshape it after.
 - `board.layout`: `grid`, `tree` (follows the lines) or `cluster` (by a
   block's first `props.tags` entry). The window's Layout menu and its
   `board.arrange` window command give the same positions on the board open

@@ -939,6 +939,7 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 	})
 
 	registerBoardInkCommand(reg, d)
+	registerBoardShapeCommand(reg, d)
 
 	reg.Register(agentctl.Command{
 		Name: "board.import",
