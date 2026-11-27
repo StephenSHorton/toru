@@ -184,6 +184,10 @@ func main() {
 	// as a board:op event (wired below, once app exists).
 	boardStore := board.NewStore()
 	boardSvc := board.NewService(boardStore)
+	// Exports and import for the board window's Export menu and agents'
+	// board.export / board.import (board_export.go).
+	boardExporter := newBoardExporter()
+	boardExportSvc := &BoardExportService{store: boardStore, exporter: boardExporter, copier: exportSvc}
 	// The main window's Whiteboards page, the tray's "New whiteboard" and the
 	// Library's "Send to whiteboard" (whiteboards.go); its window opener and
 	// events are wired once app exists.
@@ -241,6 +245,7 @@ func main() {
 			application.NewService(histSvc),
 			application.NewService(boardImageSvc),
 			application.NewService(boardSvc),
+			application.NewService(boardExportSvc),
 			application.NewService(whiteboardsSvc),
 			application.NewService(replaySvc),
 			application.NewService(uploadSvc),
@@ -327,10 +332,14 @@ func main() {
 	// with the window open or closed (agent_commands_boards.go).
 	boardStore.OnOp(func(id string, op board.Op) { app.Event.Emit(evBoardOp, boardOpEvent(id, op)) })
 	registerBoardAgentCommands(agentReg, boardAgentDeps{
-		boards: boardStore,
-		open:   windowsSvc.OpenWhiteboard,
-		emit:   func(name string, data any) { app.Event.Emit(name, data) },
+		boards:   boardStore,
+		open:     windowsSvc.OpenWhiteboard,
+		emit:     func(name string, data any) { app.Event.Emit(name, data) },
+		exporter: boardExporter,
 	})
+	boardExportSvc.SetApp(app)
+	boardExportSvc.open = windowsSvc.OpenWhiteboard
+	boardExportSvc.emit = func(name string, data any) { app.Event.Emit(name, data) }
 	registerBoardImageAgentCommands(agentReg, boardImageSvc) // agent_commands_board_images.go
 	whiteboardsSvc.open = windowsSvc.OpenWhiteboard
 	whiteboardsSvc.emit = func(name string, data any) { app.Event.Emit(name, data) }

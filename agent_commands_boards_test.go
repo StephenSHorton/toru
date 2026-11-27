@@ -19,7 +19,7 @@ import (
 var boardCommands = []string{
 	"board.list", "board.create", "board.templates", "board.open", "board.read", "board.catalog",
 	"board.add", "board.update", "board.move", "board.group",
-	"board.connect", "board.disconnect", "board.draw", "board.layout", "board.delete", "board.export",
+	"board.connect", "board.disconnect", "board.draw", "board.layout", "board.delete", "board.export", "board.import",
 }
 
 type boardEvents struct {
@@ -279,8 +279,17 @@ func TestBoardCommandsBuildAndArrange(t *testing.T) {
 		t.Fatalf("overwrite without confirm: %s", msg)
 	}
 	call(t, reg, "t", "board.export", `{"id":"`+id+`","format":"toruboard","path":`+jsonString(out)+`,"confirm":true}`)
-	if msg := callErr(t, reg, "board.export", `{"id":"`+id+`","format":"png","path":`+jsonString(out)+`}`); !strings.Contains(msg, "isn't built yet") {
+	// This registry has no board viewer (main.go gives it Toru's): the
+	// formats drawn by it say so.
+	if msg := callErr(t, reg, "board.export", `{"id":"`+id+`","format":"png","path":`+jsonString(out)+`}`); !strings.Contains(msg, "board viewer") {
 		t.Fatalf("png: %s", msg)
+	}
+	mdPath := call(t, reg, "t", "board.export", `{"id":"`+id+`","format":"markdown","path":`+jsonString(out)+`}`)["path"].(string)
+	if got, _ := os.ReadFile(mdPath); filepath.Ext(mdPath) != ".md" || !strings.Contains(string(got), "## Ideas") {
+		t.Fatalf("markdown export %s: %q", mdPath, got)
+	}
+	if msg := callErr(t, reg, "board.export", `{"id":"`+id+`","format":"svg","path":`+jsonString(out)+`}`); !strings.Contains(msg, "no export format") {
+		t.Fatalf("svg: %s", msg)
 	}
 
 	// Rename through update, and the list shows it.
@@ -291,6 +300,23 @@ func TestBoardCommandsBuildAndArrange(t *testing.T) {
 	}
 	if types := call(t, reg, "t", "board.catalog", `{}`)["types"].([]any); len(types) < 4 {
 		t.Fatalf("catalog = %v", types)
+	}
+
+	// Import the export: its id is taken (the board is still here), so it
+	// comes in as a new board, the same blocks, and never replaces it.
+	imp := call(t, reg, "t", "board.import", `{"path":`+jsonString(p)+`,"open":true}`)
+	newID := imp["id"].(string)
+	if newID == id || imp["blocks"].(float64) != 4 {
+		t.Fatalf("import = %v", imp)
+	}
+	if n := len(readBoard(t, reg, newID).Blocks); n != 4 {
+		t.Fatalf("imported board has %d blocks", n)
+	}
+	if n := len(call(t, reg, "t", "board.list", `{}`)["boards"].([]any)); n != 2 {
+		t.Fatalf("%d boards after import, want 2", n)
+	}
+	if msg := callErr(t, reg, "board.import", `{"path":"relative.toruboard"}`); !strings.Contains(msg, "absolute") {
+		t.Fatalf("relative path: %s", msg)
 	}
 }
 

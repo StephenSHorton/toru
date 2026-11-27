@@ -88,12 +88,10 @@ func ImportImage(data []byte) (Image, error) {
 	if len(data) > MaxImageBytes {
 		return Image{}, fmt.Errorf("that picture is over %d MB", MaxImageBytes>>20)
 	}
-	ext, ok := imageExts[http.DetectContentType(data)]
-	if !ok {
+	asset := imageName(data)
+	if asset == "" {
 		return Image{}, errors.New("that file isn't a PNG, JPEG, GIF or WebP picture")
 	}
-	sum := sha256.Sum256(data)
-	asset := hex.EncodeToString(sum[:]) + "." + ext
 	path, err := ImagePath(asset)
 	if err != nil {
 		return Image{}, err
@@ -124,6 +122,18 @@ func ImportImage(data []byte) (Image, error) {
 		img.Width, img.Height = cfg.Width, cfg.Height
 	}
 	return img, nil
+}
+
+// imageName is the name ImportImage gives a picture: the SHA-256 of its
+// bytes and its type's extension, or "" for a file that isn't a picture it
+// takes.
+func imageName(data []byte) string {
+	ext, ok := imageExts[http.DetectContentType(data)]
+	if !ok {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]) + "." + ext
 }
 
 // ImportImageFile imports the picture at path.
