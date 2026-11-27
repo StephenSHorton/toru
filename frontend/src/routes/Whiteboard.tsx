@@ -16,6 +16,7 @@ import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
 import { CheckIcon, ChevronDownIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PlusIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
+import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
 import type { BoardBlocks, BoardLine } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
@@ -42,7 +43,11 @@ import "@/whiteboard/toru-ui-sdk.css";
 
 // UI SDK's agent bridge, made before the board renders so it hears it mount.
 // `board.snapshot` hands its snapshot to agents over Toru's agent control.
-const agent = createAgent();
+// A step on a control marked data-agent-confirm (removing a checklist item,
+// poll option or table column) waits for the person's answer in <AskPerson>;
+// a no fails the step with `The person said no to "…"`.
+const askPerson = createAskPerson();
+const agent = createAgent({ allow: askPerson.allow });
 
 // The board the window opens on: ?template=<name>, else the sample.
 function startBoard(): { blocks: BoardBlocks; lines: BoardLine[] } {
@@ -140,6 +145,7 @@ export default function Whiteboard() {
         <ArrangeCommand />
         <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
       </Board>
+      <AskPerson api={askPerson} />
     </div>
   );
 }
