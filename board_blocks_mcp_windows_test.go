@@ -41,7 +41,7 @@ func TestMCPBuildsCustomBlocks(t *testing.T) {
 		}
 		t.Skip("the board viewer isn't built into this binary (run `bun run build` in frontend)")
 	}
-	exporter.WebViewDir = filepath.Join(t.TempDir(), "webview")
+	exporter.WebViewDir = webViewDir(t)
 
 	dir := t.TempDir()
 	oldB, oldL := board.Dir, board.BlocksDir
