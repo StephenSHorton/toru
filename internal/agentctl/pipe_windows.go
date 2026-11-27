@@ -20,7 +20,7 @@ func PipeName() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return `\\.\pipe\toru-agent-` + sid, nil
+	return `\\.\pipe\toru-agent-` + sid + ProfileSuffix(), nil
 }
 
 // pipeSDDL lets only sid (and nobody else, not even admins) open the pipe.
@@ -51,7 +51,7 @@ func Listen(reg *Registry, name string) (*Server, error) {
 		return nil, err
 	}
 	if name == "" {
-		name = `\\.\pipe\toru-agent-` + sid
+		name = `\\.\pipe\toru-agent-` + sid + ProfileSuffix()
 	}
 	ln, err := winio.ListenPipe(name, &winio.PipeConfig{
 		SecurityDescriptor: pipeSDDL(sid),

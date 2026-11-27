@@ -38,6 +38,7 @@ import { ExportService, LanService, LanState, StreamService, StreamSettings, Str
 import type { LanPeer, StreamLiveInfo, StreamMember, StreamMonitor } from "@/lib/api";
 import { errText } from "@/transfer/useTransfer";
 import { cn } from "@/lib/utils";
+import { TranscribeBar, TranscribeButton, TranscriptsCard } from "@/stream/Transcripts";
 
 // Stream — Toru's own screen sharing. A room is a reusable code friends join;
 // anyone in it can go live and the others watch in a Toru window. The picture
@@ -232,6 +233,8 @@ export default function StreamPage() {
             onStopShare={() => void run(() => StreamService.StopLive())}
             onWatch={watch}
             onVolume={(id, pct) => void StreamService.SetPeerVolume(id, pct).then(setState).catch((e: unknown) => setError(errText(e)))}
+            onState={setState}
+            onError={setError}
           />
         ) : null}
         <VoiceCard state={state} onChange={(noise, mic, speaker) => void run(() => StreamService.SetVoice(noise, mic, speaker))} />
@@ -245,6 +248,7 @@ export default function StreamPage() {
         />
         <VideoCard settings={settings} update={update} monitors={monitors} monitor={monitor} support={support} />
         <AudioCard settings={settings} update={update} />
+        <TranscriptsCard state={state} />
       </div>
     </div>
   );
@@ -646,6 +650,8 @@ function CallCard({
   onStopShare,
   onWatch,
   onVolume,
+  onState,
+  onError,
 }: {
   state: StreamState;
   name: string;
@@ -658,6 +664,8 @@ function CallCard({
   onStopShare: () => void;
   onWatch: (id: string) => void;
   onVolume: (id: string, pct: number) => void;
+  onState: (s: StreamState) => void;
+  onError: (e: string) => void;
 }) {
   const call = state.call;
   const others = (state.room?.members ?? []).filter((m) => m.inCall);
@@ -700,6 +708,8 @@ function CallCard({
         }
       />
 
+      <TranscribeBar state={state} onState={onState} />
+
       {tiles.length > 0 ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
           {tiles.map((t) => (
@@ -737,6 +747,7 @@ function CallCard({
               Share screen
             </Button>
           )}
+          <TranscribeButton state={state} onState={onState} onError={onError} />
           <div className="flex-1" />
           <Button variant="destructive" disabled={busy} onClick={onLeave}>
             <PhoneOff />

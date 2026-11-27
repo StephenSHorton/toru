@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -90,6 +91,9 @@ func TestParseRate(t *testing.T) {
 }
 
 func TestEditedName(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	for in, want := range map[string]string{
 		`C:\Users\me\Videos\Toru Replays\The Finals 2026-10-28.mp4`: "The Finals 2026-10-28-edited.mp4",
 		`D:\rec\clip.webm`: "clip-edited.mp4",
@@ -102,6 +106,9 @@ func TestEditedName(t *testing.T) {
 }
 
 func TestAudioName(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	for in, want := range map[string]string{
 		`D:\rec\clip.mp4`: "clip-audio.m4a",
 		"":                "audio.m4a",
@@ -198,6 +205,16 @@ func TestEditServiceSmoke(t *testing.T) {
 	defer cancel()
 
 	dir := t.TempDir()
+	// The export makes its temp files under the system temp folder; point
+	// that at a folder of this test's own, so the leftover check below sees
+	// only this run's files and not those of other runs on the machine.
+	tmp := t.TempDir()
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
+	t.Setenv("TMPDIR", tmp)
+	if got := os.TempDir(); got != tmp {
+		t.Fatalf("temp folder is %q, want this test's own %q", got, tmp)
+	}
 	src := filepath.Join(dir, "clip.mp4")
 	if err := capture.RunFFmpeg(ctx, []string{"-y",
 		"-f", "lavfi", "-i", "testsrc=size=640x360:rate=60:duration=3",
@@ -235,7 +252,7 @@ func TestEditServiceSmoke(t *testing.T) {
 		texts = []TextOverlay{{Text: "It's 5:00", X: 0.5, Y: 0.5, Size: "l", StartMs: 0, EndMs: 2000}}
 	}
 	textDirs := func() []string {
-		m, _ := filepath.Glob(filepath.Join(os.TempDir(), "toru-edittext-*"))
+		m, _ := filepath.Glob(filepath.Join(tmp, "toru-edittext-*"))
 		return m
 	}
 	before := len(textDirs())

@@ -702,8 +702,16 @@ export enum Source {
 };
 
 /**
- * Stroke is one freehand ink line. Points is flat: x, y, pressure for each
- * point (pressure 0..1; 0.5 when the device has none).
+ * Stroke is one piece of ink: a freehand line, or a shape drawn on the ink
+ * layer. Points is flat: x, y, pressure for each point (pressure 0..1; 0.5
+ * when the device has none).
+ * 
+ * Kind is empty for a freehand line. A shape (ShapeKinds) has exactly two
+ * points: a box's opposite corners (rect, ellipse, text, emoji) or a line's
+ * two ends (line, arrow), so it stays a shape to select, move and reshape.
+ * Fill is a rect's or ellipse's inside colour, empty for none. Text is a
+ * text label's words or an emoji. Highlight marks a freehand highlighter
+ * stroke, drawn see-through and under the other ink.
  */
 export class Stroke {
     "id": string;
@@ -711,6 +719,10 @@ export class Stroke {
     "color": string;
     "width": number;
     "frame"?: string;
+    "kind"?: string;
+    "fill"?: string;
+    "text"?: string;
+    "highlight"?: boolean;
     "createdBy"?: Source;
     "updatedBy"?: Source;
 

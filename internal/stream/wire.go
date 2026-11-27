@@ -27,6 +27,7 @@ type presenceBody struct {
 	Muted    bool      `json:"muted,omitempty"`
 	Deafened bool      `json:"deafened,omitempty"`
 	Lan      *LanInfo  `json:"lan,omitempty"`
+	Tx       *txBody   `json:"tx,omitempty"` // in the call: its transcription toggle (transcribe.go)
 }
 
 // LanInfo is a member's LAN as their presence announces it: their overlay

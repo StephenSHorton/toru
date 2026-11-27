@@ -47,12 +47,31 @@ type CallState struct {
 	// Volumes is how loud each other person plays here, in percent (0..
 	// MaxPeerVolume) by peer id; anyone missing is at 100.
 	Volumes map[string]int `json:"volumes"`
+	// Transcribe is the call's transcription (transcribe.go).
+	Transcribe TranscribeState `json:"transcribe"`
+	// Audio is how each other person's audio is arriving (see PeerAudio).
+	Audio map[string]PeerAudio `json:"audio"`
 }
 
 // CallReport is what the call window reports a few times a second.
 type CallReport struct {
 	Speaking []string          `json:"speaking"` // peer ids talking now; may include our own id
 	Peers    map[string]string `json:"peers"`
+	// Audio is each peer's incoming audio so far (WebRTC inbound-rtp
+	// stats), refreshed every few seconds; nil = unchanged.
+	Audio map[string]PeerAudio `json:"audio,omitempty"`
+}
+
+// PeerAudio is how one person's audio has been arriving since the
+// connection started: packets received and lost, the jitter now (seconds),
+// and how many samples had to be concealed (made up to cover gaps) out of
+// all played.
+type PeerAudio struct {
+	PacketsReceived  int64   `json:"packetsReceived"`
+	PacketsLost      int64   `json:"packetsLost"`
+	Jitter           float64 `json:"jitter"`
+	ConcealedSamples int64   `json:"concealedSamples"`
+	TotalSamples     int64   `json:"totalSamples"`
 }
 
 // SetCallOpener installs the function that opens the hidden call window.
@@ -79,8 +98,10 @@ func (s *StreamService) JoinCall() (State, error) {
 	s.inCall = true
 	s.speaking = map[string]bool{}
 	s.callPeers = map[string]string{}
+	s.callAudio = nil
 	open := s.openCall
 	s.mu.Unlock()
+	s.txJoined()
 	if open != nil {
 		open()
 	}
@@ -98,12 +119,14 @@ func (s *StreamService) LeaveCall() State {
 	s.inCall = false
 	s.speaking = map[string]bool{}
 	s.callPeers = map[string]string{}
+	s.callAudio = nil
 	var watching []HostEvent
 	for session, host := range s.sessions {
 		watching = append(watching, HostEvent{Host: host, Session: session, Kind: "close"})
 	}
 	s.mu.Unlock()
 	if was {
+		s.txLeft()
 		for _, ev := range watching {
 			s.emit(EventHost, ev)
 		}
@@ -192,6 +215,9 @@ func (s *StreamService) CallReport(r CallReport) {
 	}
 	s.speaking = speaking
 	s.callPeers = r.Peers
+	if r.Audio != nil {
+		s.callAudio = r.Audio
+	}
 	s.mu.Unlock()
 	if changed {
 		s.emitState()
@@ -221,6 +247,10 @@ func (s *StreamService) callStateLocked() CallState {
 	if volumes == nil {
 		volumes = map[string]int{}
 	}
+	audio := maps.Clone(s.callAudio)
+	if audio == nil || !s.inCall {
+		audio = map[string]PeerAudio{}
+	}
 	return CallState{
 		InCall:        s.inCall,
 		Muted:         s.muted || s.deafened,
@@ -231,6 +261,8 @@ func (s *StreamService) callStateLocked() CallState {
 		SpeakerDevice: s.settings.SpeakerDevice,
 		Peers:         peers,
 		Volumes:       volumes,
+		Transcribe:    s.transcribeStateLocked(),
+		Audio:         audio,
 	}
 }
 

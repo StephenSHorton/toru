@@ -40,9 +40,10 @@ function configure() {
         "stream:host": $$createType10,
         "stream:offer": $$createType11,
         "stream:state": $$createType12,
-        "transfer:receive": $$createType13,
-        "transfer:send": $$createType14,
-        "update:status": $$createType15,
+        "transcript:entry": $$createType13,
+        "transfer:receive": $$createType14,
+        "transfer:send": $$createType15,
+        "update:status": $$createType16,
     }));
 }
 
@@ -60,8 +61,9 @@ const $$createType9 = overlay$0.OverlayUi.createFrom;
 const $$createType10 = stream$0.HostEvent.createFrom;
 const $$createType11 = stream$0.Offer.createFrom;
 const $$createType12 = stream$0.State.createFrom;
-const $$createType13 = transfer$0.ReceiveState.createFrom;
-const $$createType14 = transfer$0.SendState.createFrom;
-const $$createType15 = update$0.Status.createFrom;
+const $$createType13 = stream$0.TranscriptEntry.createFrom;
+const $$createType14 = transfer$0.ReceiveState.createFrom;
+const $$createType15 = transfer$0.SendState.createFrom;
+const $$createType16 = update$0.Status.createFrom;
 
 configure();

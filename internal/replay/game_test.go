@@ -2,10 +2,14 @@ package replay
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestGameFolderFor(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	cases := []struct {
 		name string
 		app  foregroundApp

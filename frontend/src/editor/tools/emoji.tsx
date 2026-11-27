@@ -21,13 +21,10 @@ import type { EmojiNode } from '../types';
 import { useEditorStore } from '../store';
 import { newId } from '../geometry';
 
-/** Curated sticker set — expressive, screenshot-friendly, broad coverage. */
-export const EMOJI_SET: readonly string[] = [
-  '😀', '😂', '😍', '🤔', '😎', '😢', '😡', '🤯',
-  '👍', '👎', '👏', '🙌', '🙏', '💪', '👀', '🤝',
-  '❤️', '🔥', '⭐', '✨', '✅', '❌', '⚠️', '❓',
-  '💯', '🎉', '🚀', '💡', '📌', '🔒', '🐛', '🎯',
-] as const;
+import { EMOJI_SET } from '../emoji-set';
+
+// The set lives in ../emoji-set.ts, shared with the whiteboard's drawing bar.
+export { EMOJI_SET };
 
 /** Emoji stickers render larger than text by default — they read better as glyphs. */
 const EMOJI_SCALE = 2;

@@ -41,6 +41,7 @@ declare module "@wailsio/runtime" {
             "stream:host": stream$0.HostEvent;
             "stream:offer": stream$0.Offer;
             "stream:state": stream$0.State;
+            "transcript:entry": stream$0.TranscriptEntry;
             "transfer:receive": transfer$0.ReceiveState;
             "transfer:send": transfer$0.SendState;
             "update:status": update$0.Status;

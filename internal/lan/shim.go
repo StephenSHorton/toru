@@ -113,12 +113,13 @@ type shim struct {
 
 	limMu sync.Mutex
 	lim   map[netip.Addr]*bucket
+	now   func() time.Time // the rate limiter's clock: time.Now, or a test's own
 
 	stats shimStats
 }
 
 func newShim(dev tun.Device, self netip.Addr, p api.Policy) *shim {
-	s := &shim{dev: dev, self: self, mtu: api.MTU, lim: map[netip.Addr]*bucket{}}
+	s := &shim{dev: dev, self: self, mtu: api.MTU, lim: map[netip.Addr]*bucket{}, now: time.Now}
 	if m, err := dev.MTU(); err == nil && m > 0 {
 		s.mtu = m
 	}
@@ -428,7 +429,7 @@ func (s *shim) blocked(h ipv4Header, pkt []byte) bool {
 
 // allow charges one broadcast of n bytes to src's token buckets.
 func (s *shim) allow(src netip.Addr, n int) bool {
-	now := time.Now()
+	now := s.now()
 	s.limMu.Lock()
 	defer s.limMu.Unlock()
 	b := s.lim[src]

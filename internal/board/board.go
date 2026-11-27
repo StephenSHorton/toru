@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -114,16 +115,34 @@ type Link struct {
 	Meta
 }
 
-// Stroke is one freehand ink line. Points is flat: x, y, pressure for each
-// point (pressure 0..1; 0.5 when the device has none).
+// Stroke is one piece of ink: a freehand line, or a shape drawn on the ink
+// layer. Points is flat: x, y, pressure for each point (pressure 0..1; 0.5
+// when the device has none).
+//
+// Kind is empty for a freehand line. A shape (ShapeKinds) has exactly two
+// points: a box's opposite corners (rect, ellipse, text, emoji) or a line's
+// two ends (line, arrow), so it stays a shape to select, move and reshape.
+// Fill is a rect's or ellipse's inside colour, empty for none. Text is a
+// text label's words or an emoji. Highlight marks a freehand highlighter
+// stroke, drawn see-through and under the other ink.
 type Stroke struct {
-	ID     string    `json:"id"`
-	Points []float64 `json:"points"`
-	Color  string    `json:"color"`
-	Width  float64   `json:"width"`
-	Frame  string    `json:"frame,omitempty"`
+	ID        string    `json:"id"`
+	Points    []float64 `json:"points"`
+	Color     string    `json:"color"`
+	Width     float64   `json:"width"`
+	Frame     string    `json:"frame,omitempty"`
+	Kind      string    `json:"kind,omitempty"`
+	Fill      string    `json:"fill,omitempty"`
+	Text      string    `json:"text,omitempty"`
+	Highlight bool      `json:"highlight,omitempty"`
 	Meta
 }
+
+// ShapeKinds are the shapes a Stroke can be (Stroke.Kind).
+var ShapeKinds = []string{"rect", "ellipse", "line", "arrow", "text", "emoji"}
+
+// IsShape reports whether a stroke is a shape rather than a freehand line.
+func (s *Stroke) IsShape() bool { return s.Kind != "" }
 
 // Frame is a named region that holds blocks and ink, like a section of the
 // board.
@@ -149,6 +168,8 @@ const (
 	maxFileBytes     = 128 << 20
 	maxStrokeWidth   = 1000
 	maxColorLen      = 64
+	MaxShapeText     = 2000 // a text label's words, in characters
+	maxEmojiBytes    = 64
 	maxTypeOrPortLen = 40
 )
 
@@ -539,7 +560,54 @@ func (s *Stroke) check() error {
 	if err := checkColor("stroke", s.ID, s.Color); err != nil {
 		return err
 	}
+	if err := s.checkShape(); err != nil {
+		return err
+	}
 	return s.Meta.check("stroke", s.ID)
+}
+
+// checkShape checks what makes a stroke a shape: its kind, its two points,
+// its fill and its text.
+func (s *Stroke) checkShape() error {
+	if s.Kind == "" {
+		if s.Fill != "" || s.Text != "" {
+			return fmt.Errorf("stroke %q is freehand: only shapes have a fill or text", s.ID)
+		}
+		return nil
+	}
+	if !slices.Contains(ShapeKinds, s.Kind) {
+		return fmt.Errorf("stroke %q has a bad kind %q: one of %s", s.ID, s.Kind, strings.Join(ShapeKinds, ", "))
+	}
+	if s.Highlight {
+		return fmt.Errorf("stroke %q: only freehand strokes are highlighter", s.ID)
+	}
+	if len(s.Points) != 6 {
+		return fmt.Errorf("stroke %q is a %s: it needs exactly two points", s.ID, s.Kind)
+	}
+	if s.Fill != "" && s.Kind != "rect" && s.Kind != "ellipse" {
+		return fmt.Errorf("stroke %q: only a rect or ellipse has a fill", s.ID)
+	}
+	if err := checkColor("stroke", s.ID, s.Fill); err != nil {
+		return err
+	}
+	switch s.Kind {
+	case "text":
+		if strings.TrimSpace(s.Text) == "" {
+			return fmt.Errorf("stroke %q is a text label with no text", s.ID)
+		}
+		if len([]rune(s.Text)) > MaxShapeText {
+			return fmt.Errorf("stroke %q's text is too long (%d characters at most)", s.ID, MaxShapeText)
+		}
+	case "emoji":
+		if s.Text == "" || len(s.Text) > maxEmojiBytes || strings.ContainsFunc(s.Text, isControl) {
+			return fmt.Errorf("stroke %q needs one emoji as its text", s.ID)
+		}
+	default:
+		if s.Text != "" {
+			return fmt.Errorf("stroke %q: only a text label or emoji has text", s.ID)
+		}
+	}
+	return nil
 }
 
 func (f *Frame) check() error {

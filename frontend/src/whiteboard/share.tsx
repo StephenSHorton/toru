@@ -142,11 +142,14 @@ export function SharePopover({ boardId, api = goShare }: { boardId: string; api?
   const s = status;
   return (
     <Popover>
-      <PopoverTrigger data-share={s?.sharing ? "sharing" : s?.live ? "live" : "off"}>
+      {/* Sharing decides who can reach the board: it's the person's, so the
+          window's agent bridge doesn't see it (agents use board.shared and
+          board.join, and can't share). */}
+      <PopoverTrigger data-agent-hidden="" data-share={s?.sharing ? "sharing" : s?.live ? "live" : "off"}>
         {s?.sharing || s?.live ? <RadioTowerIcon aria-hidden="true" /> : <UsersIcon aria-hidden="true" />}
         {triggerText(s)}
       </PopoverTrigger>
-      <PopoverContent className="frost" data-slot="share-popover" style={{ maxWidth: "22rem" }}>
+      <PopoverContent className="frost" data-agent-hidden="" data-share-popover="" style={{ maxWidth: "22rem" }}>
         {!s ? (
           <PopoverDescription>Loading…</PopoverDescription>
         ) : s.hostName ? (
