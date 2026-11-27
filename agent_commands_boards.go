@@ -887,6 +887,8 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 		},
 	})
 
+	registerBoardInkCommand(reg, d)
+
 	reg.Register(agentctl.Command{
 		Name: "board.import",
 		Description: "Read a .toruboard file (from board.export or Toru's Export) into Toru as a board, with its pictures. " +

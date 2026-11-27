@@ -155,18 +155,7 @@ func (s *Store) Import(data []byte) (Board, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	taken := func(id string) bool {
-		if _, ok := s.docs[id]; ok {
-			return true
-		}
-		path, err := boardPath(id)
-		if err != nil {
-			return true
-		}
-		_, err = os.Stat(path)
-		return err == nil
-	}
-	for taken(b.ID) {
+	for s.idTaken(b.ID) {
 		b.ID = "brd-" + randHex(8)
 	}
 	b.UpdatedAt = now()
@@ -175,4 +164,18 @@ func (s *Store) Import(data []byte) (Board, error) {
 	}
 	s.docs[b.ID] = NewDoc(b)
 	return clone(b), nil
+}
+
+// idTaken reports whether a board with id is open or saved. Call it with
+// s.mu held.
+func (s *Store) idTaken(id string) bool {
+	if _, ok := s.docs[id]; ok {
+		return true
+	}
+	p, err := boardPath(id)
+	if err != nil {
+		return true
+	}
+	_, err = os.Stat(p)
+	return !errors.Is(err, os.ErrNotExist)
 }

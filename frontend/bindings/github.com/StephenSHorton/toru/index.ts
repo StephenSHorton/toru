@@ -3,9 +3,11 @@
 
 import * as BoardExportService from "./boardexportservice.js";
 import * as SettingsService from "./settingsservice.js";
+import * as WhiteboardsService from "./whiteboardsservice.js";
 import * as WindowsService from "./windowsservice.js";
 export {
     BoardExportService,
     SettingsService,
+    WhiteboardsService,
     WindowsService
 };

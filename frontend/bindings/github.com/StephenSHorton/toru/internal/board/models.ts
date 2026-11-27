@@ -482,6 +482,48 @@ export class Stroke {
     }
 }
 
+/**
+ * Summary is one board in the list. A board whose file can't be read is
+ * still listed, with Error saying why, so it isn't silently lost.
+ */
+export class Summary {
+    "id": string;
+    "name": string;
+    "createdAt": time$0.Time;
+    "updatedAt": time$0.Time;
+    "blocks": number;
+    "error"?: string;
+
+    /** Creates a new Summary instance. */
+    constructor($$source: Partial<Summary> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("createdAt" in $$source)) {
+            this["createdAt"] = null;
+        }
+        if (!("updatedAt" in $$source)) {
+            this["updatedAt"] = null;
+        }
+        if (!("blocks" in $$source)) {
+            this["blocks"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Summary instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Summary {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Summary($$parsedSource as Partial<Summary>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = Frame.createFrom;
 const $$createType1 = $Create.Array($$createType0);

@@ -315,6 +315,7 @@ function SampleToolbar({ onAdd, exportMenu }: { onAdd: (type: BlockType) => void
       <Button onClick={() => board.fit()}>Fit</Button>
       <TemplateMenu />
       <LayoutMenu />
+      {exportMenu}
       <Select value={kind} onValueChange={(v) => v && setKind(v as BlockType)} aria-label="Block kind">
         <SelectTrigger>
           <SelectValue />

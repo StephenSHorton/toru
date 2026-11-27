@@ -124,6 +124,7 @@ window, and the window shows each change live when it is open:
 | `board.catalog` | Every block type with its props schema, so an agent knows what it can place |
 | `board.add`, `board.update`, `board.move`, `board.group` | Place and change blocks, many in one call |
 | `board.connect`, `board.disconnect` | Lines between blocks |
+| `board.draw` | Freehand ink: strokes through points, in a pen colour token and width |
 | `board.layout` | Arrange blocks (grid, tree, cluster by tag) |
 | `board.delete` | Destructive: needs `"confirm": true` |
 | `board.export`, `board.import` | Any format in section 3, to a path; a `.toruboard` back in |
