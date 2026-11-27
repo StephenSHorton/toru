@@ -193,6 +193,14 @@ export function OpenVideoEditor(): $CancellablePromise<void> {
 }
 
 /**
+ * OpenWhiteboard opens the whiteboard window for board id, one window per
+ * open board: a second call for the same board brings its window forward.
+ */
+export function OpenWhiteboard(id: string): $CancellablePromise<void> {
+    return $Call.ByID(617874279, id);
+}
+
+/**
  * ServedURL returns the URL a Toru window's player can load videoPath from:
  * the replay service's URL for a saved clip, else the /__file/<basename> URL
  * for a recording or capture. The Edit video window uses it for clips added
