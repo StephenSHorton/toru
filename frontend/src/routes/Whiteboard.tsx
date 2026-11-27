@@ -311,14 +311,11 @@ function addBlock(blocks: BoardBlocks, type: BlockType): BoardBlocks {
 const penName = (c: { token: string; name: string }, theme: string) => (c.token === "ink-white" && theme === "light" ? "Black" : c.name);
 
 function PenToolbar({ pen, onChange }: { pen: PenOptions; onChange: (change: Partial<PenOptions>) => void }) {
-<<<<<<< HEAD
+  const theme = useBoardTheme();
   // Read once: reading a CSS variable while rendering makes the browser
   // restyle the page first, a long frame when it follows a change to the board.
+  // The widths are sizes, the same in either theme.
   const widths = React.useMemo(() => inkWidths.map((w) => ({ ...w, value: tokenWidth(w.token, w.fallback) })), []);
-=======
-  const theme = useBoardTheme();
-  const widths = inkWidths.map((w) => ({ ...w, value: tokenWidth(w.token, w.fallback) }));
->>>>>>> refs/remotes/origin/main
   const width = widths.find((w) => w.value === pen.width) ?? widths[0];
   return (
     <div
