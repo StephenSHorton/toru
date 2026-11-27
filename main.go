@@ -21,6 +21,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/agentctl"
 	agentcli "github.com/StephenSHorton/toru/internal/agentctl/cli"
 	"github.com/StephenSHorton/toru/internal/board"
+	"github.com/StephenSHorton/toru/internal/boardshare"
 	"github.com/StephenSHorton/toru/internal/capture"
 	"github.com/StephenSHorton/toru/internal/clicker"
 	"github.com/StephenSHorton/toru/internal/dpi"
@@ -196,6 +197,9 @@ func main() {
 	// Library's "Send to whiteboard" (whiteboards.go); its window opener and
 	// events are wired once app exists.
 	whiteboardsSvc := &WhiteboardsService{boards: boardStore, images: boardImageSvc}
+	// Shared boards between Toru installs, over the room Call and LAN use
+	// (internal/boardshare): no port, no socket of its own.
+	boardShareSvc := boardshare.New(boardStore)
 
 	// App-level preferences ("launch at Windows login", notifications). Launch
 	// at login is backed by Wails' AutostartManager; app is injected after
@@ -261,6 +265,7 @@ func main() {
 			application.NewService(blockLibrarySvc),
 			application.NewService(boardExportSvc),
 			application.NewService(whiteboardsSvc),
+			application.NewService(boardShareSvc),
 			application.NewService(replaySvc),
 			application.NewService(uploadSvc),
 			application.NewService(transferSvc),
@@ -351,7 +356,12 @@ func main() {
 	})
 	// Whiteboards: the board document lives in Go, so agents build boards
 	// with the window open or closed (agent_commands_boards.go).
-	boardStore.OnOp(func(id string, op board.Op) { app.Event.Emit(evBoardOp, boardOpEvent(id, op)) })
+	boardStore.OnOp(func(id string, op board.Op) {
+		app.Event.Emit(evBoardOp, boardOpEvent(id, op))
+		boardShareSvc.OnOp(id, op) // sends ops on shared boards to the room; only queues
+	})
+	streamSvc.SetBoardHandler(boardShareSvc.Receive)
+	boardShareSvc.Attach(streamSvc, func(name string, data any) { app.Event.Emit(name, data) })
 	registerBoardAgentCommands(agentReg, boardAgentDeps{
 		boards:   boardStore,
 		open:     windowsSvc.OpenWhiteboard,
@@ -363,7 +373,8 @@ func main() {
 	boardExportSvc.SetApp(app)
 	boardExportSvc.open = windowsSvc.OpenWhiteboard
 	boardExportSvc.emit = func(name string, data any) { app.Event.Emit(name, data) }
-	registerBoardImageAgentCommands(agentReg, boardImageSvc) // agent_commands_board_images.go
+	registerBoardImageAgentCommands(agentReg, boardImageSvc)                            // agent_commands_board_images.go
+	registerBoardShareAgentCommands(agentReg, boardShareSvc, windowsSvc.OpenWhiteboard) // agent_commands_board_share.go
 	whiteboardsSvc.open = windowsSvc.OpenWhiteboard
 	whiteboardsSvc.close = windowsSvc.CloseWhiteboard
 	whiteboardsSvc.emit = func(name string, data any) { app.Event.Emit(name, data) }

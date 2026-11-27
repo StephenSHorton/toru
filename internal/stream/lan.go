@@ -42,8 +42,9 @@ const maxLanBlob = 8 << 10
 var overlayPrefix = netip.MustParsePrefix(api.OverlayPrefix)
 
 var (
-	errBadLanBlob = errors.New("bad LAN signaling message")
-	errNotInRoom  = errors.New("not in a room")
+	errBadLanBlob  = errors.New("bad LAN signaling message")
+	errNotInRoom   = errors.New("not in a room")
+	errBoardTooBig = errors.New("board message too big")
 )
 
 // roomHash is the opaque room id the LAN service gets in Up: a hash of the

@@ -120,6 +120,9 @@ type StreamService struct {
 	readdressIP string
 	readdressAt time.Time
 
+	// onBoard hears msgBoard messages (board.go).
+	onBoard func(from string, body json.RawMessage)
+
 	emitMu   sync.Mutex
 	lastEmit time.Time
 	pending  bool
@@ -548,6 +551,9 @@ func (s *StreamService) onMessage(env Envelope) {
 
 	case msgLan:
 		s.onLanMessage(env)
+
+	case msgBoard:
+		s.onBoardMessage(env)
 
 	case msgWatch:
 		w, err := decodeBody[watchBody](env)

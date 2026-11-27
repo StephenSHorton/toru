@@ -63,7 +63,7 @@ type BoardDoc = {
 type BoardOp = {
   rev?: number
   at?: string
-  kind?: "change" | "undo" | "redo" | ""
+  kind?: "change" | "undo" | "redo" | "reset" | ""
   source: string
   name?: string
   delete?: string[]

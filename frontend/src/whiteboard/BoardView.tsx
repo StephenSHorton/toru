@@ -174,9 +174,12 @@ function frameFirst(blocks: BoardBlocks) {
   return [0, 1, 2, 3].flatMap((r) => ids.filter((id) => rank(id) === r));
 }
 
-/** Who a source is, for people: "You" for the person, else the agent's name. */
+/** Who a source is, for people: "You" for the person, else the agent's or
+ * the other person's name ("person:<name>" is someone at another Toru the
+ * board is shared with). */
 function who(source: string) {
   if (source === "person") return "You";
+  if (source.startsWith("person:")) return source.slice("person:".length);
   return source.startsWith("agent:") ? source.slice("agent:".length) : source;
 }
 

@@ -27,7 +27,17 @@ func Agent(name string) Source { return Source(agentPrefix + strings.TrimSpace(n
 // AgentNamed is the Source for an agent whose name came from outside (an
 // MCP client's name): characters a source can't hold become "-", it is cut
 // to 64 characters, and an empty name becomes "unknown".
-func AgentNamed(raw string) Source {
+func AgentNamed(raw string) Source { return Agent(cleanName(raw)) }
+
+// PersonNamed is the Source for another person, by name: someone at
+// another Toru whose board is shared with this one (internal/boardshare).
+// The name is cleaned as AgentNamed cleans it. The person at this board is
+// always Person.
+func PersonNamed(raw string) Source { return Source(personPrefix + cleanName(raw)) }
+
+const personPrefix = "person:"
+
+func cleanName(raw string) string {
 	var b strings.Builder
 	n := 0
 	for _, r := range strings.TrimSpace(raw) {
@@ -47,10 +57,10 @@ func AgentNamed(raw string) Source {
 	if name == "" {
 		name = "unknown"
 	}
-	return Agent(name)
+	return name
 }
 
-// Check reports whether s is "person" or "agent:<name>".
+// Check reports whether s is "person", "person:<name>" or "agent:<name>".
 func (s Source) Check() error {
 	if s == Person {
 		return nil
@@ -58,7 +68,22 @@ func (s Source) Check() error {
 	if name, ok := strings.CutPrefix(string(s), agentPrefix); ok && agentNamePattern.MatchString(name) {
 		return nil
 	}
-	return fmt.Errorf("bad source %q: want \"person\" or \"agent:<name>\"", string(s))
+	if name, ok := strings.CutPrefix(string(s), personPrefix); ok && agentNamePattern.MatchString(name) {
+		return nil
+	}
+	return fmt.Errorf("bad source %q: want \"person\", \"person:<name>\" or \"agent:<name>\"", string(s))
+}
+
+// Name is the name in "agent:<name>" or "person:<name>", and "" for Person.
+func (s Source) Name() string {
+	if name, ok := strings.CutPrefix(string(s), agentPrefix); ok {
+		return name
+	}
+	name, _ := strings.CutPrefix(string(s), personPrefix)
+	if Source(name) == Person {
+		return ""
+	}
+	return name
 }
 
 // IsAgent reports whether an agent made the change.

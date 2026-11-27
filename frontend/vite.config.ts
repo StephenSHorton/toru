@@ -98,20 +98,29 @@ function boardLiveDemo(): Plugin {
   const port = 47_900 + Math.floor(Math.random() * 90);
   const target = `http://127.0.0.1:${port}`;
   let on = false;
+  // `vite --mode share-demo`: two Torus sharing one board through the real
+  // room instead (board_share_demo_test.go), shown side by side at
+  // /share-demo.html.
+  let share = false;
   return {
     name: "toru-board-live-demo",
     apply: "serve",
     config: (_, env) => {
-      on = env.mode === "board-demo" || !!process.env.TORU_BOARD_DEMO;
-      return on ? { server: { proxy: { "/__board/live/": target } } } : {};
+      share = env.mode === "share-demo";
+      on = share || env.mode === "board-demo" || !!process.env.TORU_BOARD_DEMO;
+      return on ? { server: { proxy: { "/__board/live/": target, "/__board/live-b/": target } } } : {};
     },
     async configureServer() {
       if (!on) return;
       const { spawn } = await import("node:child_process");
       const root = fileURLToPath(new URL("..", import.meta.url));
-      const go = spawn("go", ["test", "-run", "^TestBoardLiveDemo$", "-count=1", "-timeout", "0", "."], {
+      const go = spawn("go", ["test", "-run", share ? "^TestBoardShareDemo$" : "^TestBoardLiveDemo$", "-count=1", "-timeout", "0", "."], {
         cwd: root,
-        env: { ...process.env, TORU_BOARD_DEMO_PORT: String(port), TORU_BOARD_DEMO_PARENT: String(process.pid) },
+        env: {
+          ...process.env,
+          [share ? "TORU_BOARD_SHARE_DEMO_PORT" : "TORU_BOARD_DEMO_PORT"]: String(port),
+          TORU_BOARD_DEMO_PARENT: String(process.pid),
+        },
         stdio: ["ignore", "inherit", "inherit"],
       });
       process.on("exit", () => go.kill());
