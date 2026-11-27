@@ -1,0 +1,988 @@
+{
+  "_note": "Written by internal/board/templates_test.go from internal/board/templates.go. Don't edit by hand.",
+  "templates": [
+    {
+      "name": "mind-map",
+      "title": "Mind map",
+      "description": "A topic in the middle with four branches, two ideas on each, joined by lines. Cluster by tag groups each branch.",
+      "frames": [],
+      "blocks": [
+        {
+          "id": "topic",
+          "type": "text",
+          "x": -130,
+          "y": -50,
+          "w": 260,
+          "h": 100,
+          "props": {
+            "align": "center",
+            "size": "l",
+            "text": "Mind map"
+          }
+        },
+        {
+          "id": "branch-1",
+          "type": "sticky",
+          "x": 260,
+          "y": -220,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "blue",
+            "tags": [
+              "Why it matters"
+            ],
+            "text": "Why it matters"
+          }
+        },
+        {
+          "id": "branch-1-1",
+          "type": "sticky",
+          "x": 540,
+          "y": -290,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "blue",
+            "tags": [
+              "Why it matters"
+            ],
+            "text": "A thought"
+          }
+        },
+        {
+          "id": "branch-1-2",
+          "type": "sticky",
+          "x": 540,
+          "y": -150,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "blue",
+            "tags": [
+              "Why it matters"
+            ],
+            "text": "A thought"
+          }
+        },
+        {
+          "id": "branch-2",
+          "type": "sticky",
+          "x": 260,
+          "y": 100,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "green",
+            "tags": [
+              "What we know"
+            ],
+            "text": "What we know"
+          }
+        },
+        {
+          "id": "branch-2-1",
+          "type": "sticky",
+          "x": 540,
+          "y": 30,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "green",
+            "tags": [
+              "What we know"
+            ],
+            "text": "A thought"
+          }
+        },
+        {
+          "id": "branch-2-2",
+          "type": "sticky",
+          "x": 540,
+          "y": 170,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "green",
+            "tags": [
+              "What we know"
+            ],
+            "text": "A thought"
+          }
+        },
+        {
+          "id": "branch-3",
+          "type": "sticky",
+          "x": -460,
+          "y": -220,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "pink",
+            "tags": [
+              "Open questions"
+            ],
+            "text": "Open questions"
+          }
+        },
+        {
+          "id": "branch-3-1",
+          "type": "sticky",
+          "x": -740,
+          "y": -290,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "pink",
+            "tags": [
+              "Open questions"
+            ],
+            "text": "A thought"
+          }
+        },
+        {
+          "id": "branch-3-2",
+          "type": "sticky",
+          "x": -740,
+          "y": -150,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "pink",
+            "tags": [
+              "Open questions"
+            ],
+            "text": "A thought"
+          }
+        },
+        {
+          "id": "branch-4",
+          "type": "sticky",
+          "x": -460,
+          "y": 100,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "yellow",
+            "tags": [
+              "Ideas"
+            ],
+            "text": "Ideas"
+          }
+        },
+        {
+          "id": "branch-4-1",
+          "type": "sticky",
+          "x": -740,
+          "y": 30,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "yellow",
+            "tags": [
+              "Ideas"
+            ],
+            "text": "A thought"
+          }
+        },
+        {
+          "id": "branch-4-2",
+          "type": "sticky",
+          "x": -740,
+          "y": 170,
+          "w": 200,
+          "h": 120,
+          "props": {
+            "color": "yellow",
+            "tags": [
+              "Ideas"
+            ],
+            "text": "A thought"
+          }
+        }
+      ],
+      "links": [
+        {
+          "id": "topic-to-branch-1",
+          "from": "topic",
+          "to": "branch-1"
+        },
+        {
+          "id": "branch-1-to-branch-1-1",
+          "from": "branch-1",
+          "to": "branch-1-1"
+        },
+        {
+          "id": "branch-1-to-branch-1-2",
+          "from": "branch-1",
+          "to": "branch-1-2"
+        },
+        {
+          "id": "topic-to-branch-2",
+          "from": "topic",
+          "to": "branch-2"
+        },
+        {
+          "id": "branch-2-to-branch-2-1",
+          "from": "branch-2",
+          "to": "branch-2-1"
+        },
+        {
+          "id": "branch-2-to-branch-2-2",
+          "from": "branch-2",
+          "to": "branch-2-2"
+        },
+        {
+          "id": "topic-to-branch-3",
+          "from": "topic",
+          "to": "branch-3"
+        },
+        {
+          "id": "branch-3-to-branch-3-1",
+          "from": "branch-3",
+          "to": "branch-3-1"
+        },
+        {
+          "id": "branch-3-to-branch-3-2",
+          "from": "branch-3",
+          "to": "branch-3-2"
+        },
+        {
+          "id": "topic-to-branch-4",
+          "from": "topic",
+          "to": "branch-4"
+        },
+        {
+          "id": "branch-4-to-branch-4-1",
+          "from": "branch-4",
+          "to": "branch-4-1"
+        },
+        {
+          "id": "branch-4-to-branch-4-2",
+          "from": "branch-4",
+          "to": "branch-4-2"
+        }
+      ]
+    },
+    {
+      "name": "affinity",
+      "title": "Affinity clusters",
+      "description": "Unsorted ideas on the left and three theme frames to group them into. Each note is tagged with its theme; cluster by tag regroups them.",
+      "frames": [
+        {
+          "id": "unsorted",
+          "name": "Unsorted",
+          "x": 0,
+          "y": 120,
+          "w": 240,
+          "h": 636,
+          "color": "grey"
+        },
+        {
+          "id": "theme-a",
+          "name": "Theme A",
+          "x": 280,
+          "y": 120,
+          "w": 240,
+          "h": 636,
+          "color": "blue"
+        },
+        {
+          "id": "theme-b",
+          "name": "Theme B",
+          "x": 560,
+          "y": 120,
+          "w": 240,
+          "h": 636,
+          "color": "green"
+        },
+        {
+          "id": "theme-c",
+          "name": "Theme C",
+          "x": 840,
+          "y": 120,
+          "w": 240,
+          "h": 636,
+          "color": "purple"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "title",
+          "type": "text",
+          "x": 0,
+          "y": 0,
+          "w": 1080,
+          "h": 80,
+          "props": {
+            "align": "left",
+            "size": "xl",
+            "text": "Affinity clusters"
+          }
+        },
+        {
+          "id": "unsorted-1",
+          "type": "sticky",
+          "x": 20,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "unsorted",
+          "props": {
+            "color": "yellow",
+            "text": "One idea per note"
+          }
+        },
+        {
+          "id": "unsorted-2",
+          "type": "sticky",
+          "x": 20,
+          "y": 316,
+          "w": 200,
+          "h": 120,
+          "frame": "unsorted",
+          "props": {
+            "color": "yellow",
+            "text": "Write fast, sort later"
+          }
+        },
+        {
+          "id": "unsorted-3",
+          "type": "sticky",
+          "x": 20,
+          "y": 456,
+          "w": 200,
+          "h": 120,
+          "frame": "unsorted",
+          "props": {
+            "color": "yellow",
+            "text": "Another idea"
+          }
+        },
+        {
+          "id": "unsorted-4",
+          "type": "sticky",
+          "x": 20,
+          "y": 596,
+          "w": 200,
+          "h": 120,
+          "frame": "unsorted",
+          "props": {
+            "color": "yellow",
+            "text": "Drag me to a theme"
+          }
+        },
+        {
+          "id": "theme-a-1",
+          "type": "sticky",
+          "x": 300,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "theme-a",
+          "props": {
+            "color": "blue",
+            "tags": [
+              "Theme A"
+            ],
+            "text": "An idea that fits Theme A"
+          }
+        },
+        {
+          "id": "theme-a-2",
+          "type": "sticky",
+          "x": 300,
+          "y": 316,
+          "w": 200,
+          "h": 120,
+          "frame": "theme-a",
+          "props": {
+            "color": "blue",
+            "tags": [
+              "Theme A"
+            ],
+            "text": "Another one"
+          }
+        },
+        {
+          "id": "theme-b-1",
+          "type": "sticky",
+          "x": 580,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "theme-b",
+          "props": {
+            "color": "green",
+            "tags": [
+              "Theme B"
+            ],
+            "text": "An idea that fits Theme B"
+          }
+        },
+        {
+          "id": "theme-b-2",
+          "type": "sticky",
+          "x": 580,
+          "y": 316,
+          "w": 200,
+          "h": 120,
+          "frame": "theme-b",
+          "props": {
+            "color": "green",
+            "tags": [
+              "Theme B"
+            ],
+            "text": "Another one"
+          }
+        },
+        {
+          "id": "theme-c-1",
+          "type": "sticky",
+          "x": 860,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "theme-c",
+          "props": {
+            "color": "purple",
+            "tags": [
+              "Theme C"
+            ],
+            "text": "An idea that fits Theme C"
+          }
+        },
+        {
+          "id": "theme-c-2",
+          "type": "sticky",
+          "x": 860,
+          "y": 316,
+          "w": 200,
+          "h": 120,
+          "frame": "theme-c",
+          "props": {
+            "color": "purple",
+            "tags": [
+              "Theme C"
+            ],
+            "text": "Another one"
+          }
+        }
+      ],
+      "links": []
+    },
+    {
+      "name": "retro",
+      "title": "Retro",
+      "description": "Went well, didn't go well and ideas to try, as three columns, with an actions checklist to close the retro.",
+      "frames": [
+        {
+          "id": "went-well",
+          "name": "Went well",
+          "x": 0,
+          "y": 120,
+          "w": 240,
+          "h": 636,
+          "color": "green"
+        },
+        {
+          "id": "went-badly",
+          "name": "Didn't go well",
+          "x": 280,
+          "y": 120,
+          "w": 240,
+          "h": 636,
+          "color": "pink"
+        },
+        {
+          "id": "try-next",
+          "name": "Ideas to try",
+          "x": 560,
+          "y": 120,
+          "w": 240,
+          "h": 636,
+          "color": "blue"
+        },
+        {
+          "id": "actions",
+          "name": "Actions",
+          "x": 840,
+          "y": 120,
+          "w": 240,
+          "h": 636,
+          "color": "orange"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "title",
+          "type": "text",
+          "x": 0,
+          "y": 0,
+          "w": 1080,
+          "h": 80,
+          "props": {
+            "align": "left",
+            "size": "xl",
+            "text": "Retro"
+          }
+        },
+        {
+          "id": "went-well-1",
+          "type": "sticky",
+          "x": 20,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "went-well",
+          "props": {
+            "color": "green",
+            "tags": [
+              "Went well"
+            ],
+            "text": "What helped us?"
+          }
+        },
+        {
+          "id": "went-badly-1",
+          "type": "sticky",
+          "x": 300,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "went-badly",
+          "props": {
+            "color": "pink",
+            "tags": [
+              "Didn't go well"
+            ],
+            "text": "What slowed us down?"
+          }
+        },
+        {
+          "id": "try-next-1",
+          "type": "sticky",
+          "x": 580,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "try-next",
+          "props": {
+            "color": "blue",
+            "tags": [
+              "Ideas to try"
+            ],
+            "text": "What would we change?"
+          }
+        },
+        {
+          "id": "actions-list",
+          "type": "checklist",
+          "x": 860,
+          "y": 176,
+          "w": 200,
+          "h": 260,
+          "frame": "actions",
+          "props": {
+            "items": [
+              {
+                "text": "An action, with an owner"
+              },
+              {
+                "text": "Another action"
+              }
+            ],
+            "tags": [
+              "Actions"
+            ],
+            "title": "Who does what"
+          }
+        }
+      ],
+      "links": []
+    },
+    {
+      "name": "pros-cons",
+      "title": "Pros and cons",
+      "description": "The decision as a heading, a pros column and a cons column, and a poll to decide.",
+      "frames": [
+        {
+          "id": "pros",
+          "name": "Pros",
+          "x": 0,
+          "y": 120,
+          "w": 240,
+          "h": 496,
+          "color": "green"
+        },
+        {
+          "id": "cons",
+          "name": "Cons",
+          "x": 280,
+          "y": 120,
+          "w": 240,
+          "h": 496,
+          "color": "pink"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "title",
+          "type": "text",
+          "x": 0,
+          "y": 0,
+          "w": 520,
+          "h": 80,
+          "props": {
+            "align": "left",
+            "size": "xl",
+            "text": "Pros and cons"
+          }
+        },
+        {
+          "id": "pros-1",
+          "type": "sticky",
+          "x": 20,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "pros",
+          "props": {
+            "color": "green",
+            "tags": [
+              "Pros"
+            ],
+            "text": "A reason for"
+          }
+        },
+        {
+          "id": "pros-2",
+          "type": "sticky",
+          "x": 20,
+          "y": 316,
+          "w": 200,
+          "h": 120,
+          "frame": "pros",
+          "props": {
+            "color": "green",
+            "tags": [
+              "Pros"
+            ],
+            "text": "Another reason for"
+          }
+        },
+        {
+          "id": "cons-1",
+          "type": "sticky",
+          "x": 300,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "cons",
+          "props": {
+            "color": "pink",
+            "tags": [
+              "Cons"
+            ],
+            "text": "A reason against"
+          }
+        },
+        {
+          "id": "cons-2",
+          "type": "sticky",
+          "x": 300,
+          "y": 316,
+          "w": 200,
+          "h": 120,
+          "frame": "cons",
+          "props": {
+            "color": "pink",
+            "tags": [
+              "Cons"
+            ],
+            "text": "Another reason against"
+          }
+        },
+        {
+          "id": "decide",
+          "type": "poll",
+          "x": 0,
+          "y": 656,
+          "w": 520,
+          "h": 220,
+          "props": {
+            "options": [
+              {
+                "label": "Yes"
+              },
+              {
+                "label": "No"
+              },
+              {
+                "label": "Not yet: we need to know more"
+              }
+            ],
+            "question": "Do we go ahead?",
+            "tags": [
+              "Decision"
+            ]
+          }
+        }
+      ],
+      "links": []
+    },
+    {
+      "name": "kanban",
+      "title": "Kanban",
+      "description": "To do, doing and done columns of cards. Each card is tagged with its column.",
+      "frames": [
+        {
+          "id": "todo",
+          "name": "To do",
+          "x": 0,
+          "y": 120,
+          "w": 240,
+          "h": 776,
+          "color": "grey"
+        },
+        {
+          "id": "doing",
+          "name": "Doing",
+          "x": 280,
+          "y": 120,
+          "w": 240,
+          "h": 776,
+          "color": "blue"
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "x": 560,
+          "y": 120,
+          "w": 240,
+          "h": 776,
+          "color": "green"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "title",
+          "type": "text",
+          "x": 0,
+          "y": 0,
+          "w": 800,
+          "h": 80,
+          "props": {
+            "align": "left",
+            "size": "xl",
+            "text": "Kanban"
+          }
+        },
+        {
+          "id": "todo-1",
+          "type": "sticky",
+          "x": 20,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "todo",
+          "props": {
+            "color": "yellow",
+            "tags": [
+              "To do"
+            ],
+            "text": "A task"
+          }
+        },
+        {
+          "id": "todo-2",
+          "type": "sticky",
+          "x": 20,
+          "y": 316,
+          "w": 200,
+          "h": 120,
+          "frame": "todo",
+          "props": {
+            "color": "yellow",
+            "tags": [
+              "To do"
+            ],
+            "text": "Another task"
+          }
+        },
+        {
+          "id": "todo-3",
+          "type": "sticky",
+          "x": 20,
+          "y": 456,
+          "w": 200,
+          "h": 120,
+          "frame": "todo",
+          "props": {
+            "color": "yellow",
+            "tags": [
+              "To do"
+            ],
+            "text": "One more"
+          }
+        },
+        {
+          "id": "doing-1",
+          "type": "sticky",
+          "x": 300,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "doing",
+          "props": {
+            "color": "blue",
+            "tags": [
+              "Doing"
+            ],
+            "text": "In progress"
+          }
+        },
+        {
+          "id": "done-1",
+          "type": "sticky",
+          "x": 580,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "done",
+          "props": {
+            "color": "green",
+            "tags": [
+              "Done"
+            ],
+            "text": "Finished"
+          }
+        }
+      ],
+      "links": []
+    },
+    {
+      "name": "swot",
+      "title": "SWOT",
+      "description": "Strengths, weaknesses, opportunities and threats in four frames, two by two.",
+      "frames": [
+        {
+          "id": "strengths",
+          "name": "Strengths",
+          "x": 0,
+          "y": 120,
+          "w": 460,
+          "h": 356,
+          "color": "green"
+        },
+        {
+          "id": "weaknesses",
+          "name": "Weaknesses",
+          "x": 500,
+          "y": 120,
+          "w": 460,
+          "h": 356,
+          "color": "pink"
+        },
+        {
+          "id": "opportunities",
+          "name": "Opportunities",
+          "x": 0,
+          "y": 516,
+          "w": 460,
+          "h": 356,
+          "color": "blue"
+        },
+        {
+          "id": "threats",
+          "name": "Threats",
+          "x": 500,
+          "y": 516,
+          "w": 460,
+          "h": 356,
+          "color": "orange"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "title",
+          "type": "text",
+          "x": 0,
+          "y": 0,
+          "w": 960,
+          "h": 80,
+          "props": {
+            "align": "left",
+            "size": "xl",
+            "text": "SWOT"
+          }
+        },
+        {
+          "id": "strengths-1",
+          "type": "sticky",
+          "x": 20,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "strengths",
+          "props": {
+            "color": "green",
+            "tags": [
+              "Strengths"
+            ],
+            "text": "What we do well"
+          }
+        },
+        {
+          "id": "weaknesses-1",
+          "type": "sticky",
+          "x": 520,
+          "y": 176,
+          "w": 200,
+          "h": 120,
+          "frame": "weaknesses",
+          "props": {
+            "color": "pink",
+            "tags": [
+              "Weaknesses"
+            ],
+            "text": "Where we fall short"
+          }
+        },
+        {
+          "id": "opportunities-1",
+          "type": "sticky",
+          "x": 20,
+          "y": 572,
+          "w": 200,
+          "h": 120,
+          "frame": "opportunities",
+          "props": {
+            "color": "blue",
+            "tags": [
+              "Opportunities"
+            ],
+            "text": "What we could use"
+          }
+        },
+        {
+          "id": "threats-1",
+          "type": "sticky",
+          "x": 520,
+          "y": 572,
+          "w": 200,
+          "h": 120,
+          "frame": "threats",
+          "props": {
+            "color": "orange",
+            "tags": [
+              "Threats"
+            ],
+            "text": "What could hurt us"
+          }
+        }
+      ],
+      "links": []
+    }
+  ]
+}

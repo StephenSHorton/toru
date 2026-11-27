@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createAgent } from "@ui-sdk/react/agent";
 import { Button } from "@ui-sdk/react/button";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
 import {
   Popover,
@@ -13,14 +14,16 @@ import {
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/react/slider";
 import { Toggle, ToggleGroup } from "@ui-sdk/react/toggle";
-import { CheckIcon, ChevronDownIcon, MousePointer2Icon, PenLineIcon, PlusIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, LayoutGridIcon, LayoutTemplateIcon, MousePointer2Icon, PenLineIcon, PlusIcon } from "lucide-react";
 import { registerAgentCommand } from "@/lib/agent";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
-import type { BoardBlocks } from "@/whiteboard/board";
+import type { BoardBlocks, BoardLine } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
 import { blockLabel, blockType, blockTypes, newProps, type BlockType } from "@/whiteboard/catalog";
 import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
+import { layoutKinds, type LayoutKind } from "@/whiteboard/layout";
 import { sampleBoard } from "@/whiteboard/sample";
+import { boardTemplates, templateBoard } from "@/whiteboard/templates";
 import "@/whiteboard/toru-ui-sdk.css";
 
 // The whiteboard window (?view=whiteboard&id=<board>, WindowsService.OpenWhiteboard).
@@ -31,15 +34,26 @@ import "@/whiteboard/toru-ui-sdk.css";
 // Toru's shadcn components/ui.
 //
 // Until the board document lives in Go (the live board card), the window
-// opens on a sample board with one block of every type, kept in this window.
+// opens on a sample board with one block of every type, kept in this window,
+// or on a brainstorm template with ?template=<name> (templates.ts). The
+// toolbar's Template menu places a template beside what's on the board, and
+// Layout arranges blocks as a grid, a tree or clusters by tag, like Go's
+// board.layout.
 
 // UI SDK's agent bridge, made before the board renders so it hears it mount.
 // `board.snapshot` hands its snapshot to agents over Toru's agent control.
 const agent = createAgent();
 
+// The board the window opens on: ?template=<name>, else the sample.
+function startBoard(): { blocks: BoardBlocks; lines: BoardLine[] } {
+  const name = new URLSearchParams(window.location.search).get("template");
+  return (name && templateBoard(name)) || sampleBoard;
+}
+
 export default function Whiteboard() {
   const id = new URLSearchParams(window.location.search).get("id") ?? "";
-  const [blocks, setBlocks] = useState<BoardBlocks>(sampleBoard.blocks);
+  const [start] = useState(startBoard);
+  const [blocks, setBlocks] = useState<BoardBlocks>(start.blocks);
   const [pen, setPen] = useState<PenOptions>(() => ({
     active: false,
     color: inkColors[0].token,
@@ -118,11 +132,12 @@ export default function Whiteboard() {
         className="h-full w-full"
         blocks={blocks}
         onBlocksChange={setBlocks}
-        defaultLines={sampleBoard.lines}
+        defaultLines={start.lines}
         renderBlock={renderBlock}
         pen={pen}
       >
         <SampleToolbar onAdd={(type) => setBlocks((prev) => addBlock(prev, type))} />
+        <ArrangeCommand />
         <PenToolbar pen={pen} onChange={(change) => setPen((was) => ({ ...was, ...change }))} />
       </Board>
     </div>
@@ -231,6 +246,8 @@ function SampleToolbar({ onAdd }: { onAdd: (type: BlockType) => void }) {
         Add block
       </Button>
       <Button onClick={() => board.fit()}>Fit</Button>
+      <TemplateMenu />
+      <LayoutMenu />
       <Select value={kind} onValueChange={(v) => v && setKind(v as BlockType)} aria-label="Block kind">
         <SelectTrigger>
           <SelectValue />
@@ -276,4 +293,104 @@ function SampleToolbar({ onAdd }: { onAdd: (type: BlockType) => void }) {
       </Popover>
     </div>
   );
+}
+
+// Template: places a brainstorm template to the right of what's on the board,
+// then fits the view to show everything.
+function TemplateMenu() {
+  const board = useBoard();
+  const place = (name: string) => {
+    const blocks = board.blocks();
+    const all = Object.values(blocks);
+    const x = all.length ? Math.max(...all.map((b) => b.x + b.width)) + 160 : 0;
+    const y = all.length ? Math.min(...all.map((b) => b.y)) : 0;
+    let n = 1;
+    while (Object.keys(blocks).some((id) => id.startsWith(`t${n}-`))) n++;
+    const t = templateBoard(name, { prefix: `t${n}-`, x, y });
+    if (t && board.addBlocks(t.blocks, t.lines)) requestAnimationFrame(() => board.fit());
+  };
+  return (
+    <Menu>
+      <MenuTrigger data-menu="template">
+        <LayoutTemplateIcon aria-hidden="true" />
+        Template
+        <ChevronDownIcon aria-hidden="true" />
+      </MenuTrigger>
+      <MenuContent className="frost">
+        {boardTemplates.map((t) => (
+          <MenuItem key={t.name} value={t.name} title={t.description} data-template={t.name} onSelect={() => place(t.name)}>
+            {t.title}
+          </MenuItem>
+        ))}
+      </MenuContent>
+    </Menu>
+  );
+}
+
+// Layout: arranges the selection (two or more blocks) or every block.
+function LayoutMenu() {
+  const board = useBoard();
+  return (
+    <Menu>
+      <MenuTrigger data-menu="layout">
+        <LayoutGridIcon aria-hidden="true" />
+        Layout
+        <ChevronDownIcon aria-hidden="true" />
+      </MenuTrigger>
+      <MenuContent className="frost">
+        {layoutKinds.map((k) => (
+          <MenuItem
+            key={k.kind}
+            value={k.kind}
+            title={k.description}
+            data-layout={k.kind}
+            onSelect={() => {
+              if (board.arrange(k.kind)) requestAnimationFrame(() => board.fit());
+            }}
+          >
+            {k.title}
+          </MenuItem>
+        ))}
+      </MenuContent>
+    </Menu>
+  );
+}
+
+// board.arrange: the Layout menu for agents, on the board open in this window.
+// (Go's board.layout arranges a saved board, window open or not.)
+function ArrangeCommand() {
+  const board = useBoard();
+  useEffect(
+    () =>
+      registerAgentCommand(
+        "board.arrange",
+        {
+          description:
+            "Arrange the blocks on the whiteboard open in this window, as its Layout menu does: grid, tree (follows the lines) or cluster (one column per tag). " +
+            "Every block, unless blocks lists some ids from board.snapshot. Frames and ink stay put. Returns how many moved. For a saved board, use board.layout.",
+          input: {
+            type: "object",
+            required: ["kind"],
+            properties: {
+              kind: { type: "string", enum: layoutKinds.map((k) => k.kind) },
+              blocks: { type: "array", items: { type: "string" } },
+              gap: { type: "number", minimum: 0 },
+              columns: { type: "integer", minimum: 1 },
+              direction: { type: "string", enum: ["right", "down"] },
+            },
+          },
+        },
+        (input: { kind: LayoutKind; blocks?: string[]; gap?: number; columns?: number; direction?: "right" | "down" }) => {
+          const moved = board.arrange(input.kind, input.blocks?.length ? input.blocks : Object.keys(board.blocks()), {
+            gap: input.gap,
+            columns: input.columns,
+            direction: input.direction,
+          });
+          board.fit();
+          return { moved };
+        },
+      ),
+    [board],
+  );
+  return null;
 }

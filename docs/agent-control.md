@@ -162,8 +162,12 @@ or closed. Every change is one board op tagged `agent:<client>`, goes
 through the board's undo history like a person's, and is sent to open
 board windows as a `board:op` event:
 
-- `board.list`, `board.create` (`open: true` also shows it), `board.open`
-  (shows the board's window).
+- `board.list`, `board.create` (`open: true` also shows it; `template`
+  starts it ready to fill), `board.open` (shows the board's window).
+- `board.templates`: the brainstorm templates `board.create` takes
+  (`mind-map`, `affinity`, `retro`, `pros-cons`, `kanban`, `swot`). They
+  live in `internal/board/templates.go`; the board window's Template menu
+  places the same ones.
 - `board.read`: the board as JSON, or `format: "markdown"` for an outline
   (frames as headings, checklists as `- [ ]`, tables as tables, links as
   `A → B`).
@@ -183,7 +187,10 @@ board windows as a `board:op` event:
   ungroup, or put blocks in a frame).
 - `board.connect` / `board.disconnect` (lines between blocks or frames).
 - `board.layout`: `grid`, `tree` (follows the lines) or `cluster` (by a
-  block's first `props.tags` entry).
+  block's first `props.tags` entry). The window's Layout menu and its
+  `board.arrange` window command give the same positions on the board open
+  in the window (`frontend/src/whiteboard/layout.ts`, checked against Go by
+  `bun run test:templates`).
 - `board.delete` (destructive, needs `confirm: true`): items, or the whole
   board when `items` is left out.
 - `board.export`: `toruboard` or `markdown` to a path; an existing file is

@@ -80,7 +80,7 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
               <XIcon aria-hidden="true" />
             </parts.Unlink>
           ))}
-          {Object.keys(blocks).map((id) => {
+          {frameFirst(blocks).map((id) => {
             const block = blocks[id];
             // A freehand stroke shows its line, with no ports or resize handles.
             if (block.ink) {
@@ -131,6 +131,12 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
     ),
   });
   return <BoardContext.Provider value={handle}>{root}</BoardContext.Provider>;
+}
+
+/** Block ids with frames first, so frames sit behind the blocks in them. */
+function frameFirst(blocks: BoardBlocks) {
+  const ids = Object.keys(blocks);
+  return [...ids.filter((id) => blocks[id].type === "frame"), ...ids.filter((id) => blocks[id].type !== "frame")];
 }
 
 function BoardBlock({ value, ...props }: { value: string } & PartProps<"div", BoardBlockState>) {
