@@ -1,0 +1,105 @@
+{
+  "about": "Two custom block types as an agent sends them to board.block.define (whiteboard#27): Go's tests define, place and round-trip them, and the window's checks draw and fill them.",
+  "blocks": [
+    {
+      "type": "feature-idea",
+      "label": "Feature idea",
+      "description": "A feature someone wants: what it is, why it matters, how much work, and votes from the team.",
+      "icon": "lightbulb",
+      "w": 340,
+      "h": 500,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "pitch": { "type": "string", "maxLength": 2000 },
+          "votes": { "type": "integer", "minimum": 0 },
+          "status": { "type": "string", "enum": ["idea", "planned", "building", "shipped"] },
+          "effort": { "type": "integer", "minimum": 1, "maximum": 10 },
+          "tags": { "type": "array", "maxItems": 10, "items": { "type": "string", "minLength": 1, "maxLength": 40 } }
+        }
+      },
+      "defaults": { "title": "New idea", "pitch": "", "votes": 0, "status": "idea", "effort": 3, "tags": [] },
+      "layout": {
+        "part": "stack",
+        "gap": "m",
+        "children": [
+          { "part": "field", "prop": "title", "label": "Idea" },
+          { "part": "field", "prop": "pitch", "label": "Why it matters", "multiline": true, "placeholder": "Who wants it and why" },
+          {
+            "part": "stack",
+            "direction": "row",
+            "justify": "between",
+            "children": [
+              { "part": "counter", "prop": "votes", "label": "Vote", "icon": "thumbs-up" },
+              { "part": "badge", "prop": "status", "colors": { "idea": "grey", "planned": "blue", "building": "orange", "shipped": "green" } }
+            ]
+          },
+          { "part": "choice", "prop": "status", "label": "Status", "style": "segmented" },
+          { "part": "slider", "prop": "effort", "label": "Effort" },
+          { "part": "tags", "prop": "tags", "label": "Tags" }
+        ]
+      }
+    },
+    {
+      "type": "bug-report",
+      "label": "Bug report",
+      "description": "A bug: how bad it is, how to make it happen, what should happen and what does.",
+      "icon": "bug",
+      "w": 380,
+      "h": 480,
+      "props": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "severity"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "steps": {
+            "type": "array",
+            "maxItems": 30,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["text"],
+              "properties": { "text": { "type": "string", "minLength": 1, "maxLength": 300 }, "done": { "type": "boolean" } }
+            }
+          },
+          "expected": { "type": "string", "maxLength": 1000 },
+          "actual": { "type": "string", "maxLength": 1000 },
+          "fixed": { "type": "boolean" }
+        }
+      },
+      "defaults": { "title": "New bug", "severity": "medium", "steps": [], "expected": "", "actual": "", "fixed": false },
+      "layout": {
+        "part": "stack",
+        "gap": "m",
+        "children": [
+          {
+            "part": "stack",
+            "direction": "row",
+            "justify": "between",
+            "children": [
+              { "part": "badge", "prop": "severity", "colors": { "low": "grey", "medium": "yellow", "high": "orange", "critical": "pink" } },
+              { "part": "checkbox", "prop": "fixed", "label": "Fixed" }
+            ]
+          },
+          { "part": "field", "prop": "title", "label": "Bug" },
+          { "part": "choice", "prop": "severity", "label": "Severity", "style": "segmented" },
+          { "part": "checklist", "prop": "steps", "label": "Steps to reproduce" },
+          {
+            "part": "stack",
+            "direction": "row",
+            "align": "start",
+            "children": [
+              { "part": "field", "prop": "expected", "label": "Expected", "multiline": true },
+              { "part": "field", "prop": "actual", "label": "Actual", "multiline": true }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

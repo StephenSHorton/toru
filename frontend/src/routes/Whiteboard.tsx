@@ -23,6 +23,7 @@ import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
 import { Board, useBoard, type PenOptions } from "@/whiteboard/BoardView";
 import type { BoardBlocks } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
+import { useBlockLibrary } from "@/whiteboard/block-library";
 import { blockLabel, blockType, blockTypes, newProps, type BlockType } from "@/whiteboard/catalog";
 import { inkColor, inkColors, inkWidths, tokenWidth } from "@/whiteboard/ink";
 import { layoutKinds, type LayoutKind } from "@/whiteboard/layout";
@@ -68,6 +69,11 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   // Light (the default) or slate grey dark, saved in Go for every board.
   useWindowTheme();
   const id = live.id;
+  // The person's own blocks (custom types), when the board is in Toru's store.
+  useBlockLibrary(id, !given && (() => {
+    const params = new URLSearchParams(window.location.search);
+    return !!params.get("id") && params.get("link") !== "http";
+  })());
   const [pen, setPen] = useState<PenOptions>(() => ({
     active: false,
     color: inkColors[0].token,

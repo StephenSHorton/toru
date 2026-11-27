@@ -128,6 +128,7 @@ window, and the window shows each change live when it is open:
 | `board.layout` | Arrange blocks (grid, tree, cluster by tag) |
 | `board.delete` | Destructive: needs `"confirm": true` |
 | `board.export`, `board.import` | Any format in section 3, to a path; a `.toruboard` back in |
+| `board.block.define`, `.list`, `.update`, `.remove`, `.save` | The person's own block types, designed by agents (below) |
 
 **Live controls (window commands, while the board is open).**
 `board.snapshot` and `board.act` pass straight through to UI SDK's
@@ -135,6 +136,61 @@ window, and the window shows each change live when it is open:
 checklist or move a slider exactly as a person would. Board commands carry
 the heavy lifting because the bridge's snapshot stops at 100 components and
 window commands time out (30 s default).
+
+### Custom blocks built by agents (built, whiteboard#27)
+
+People ask their agent for a new kind of block ("a feature idea with
+votes", "a bug report") and keep it. The plan's rule stands: **no markup
+or code from an agent is ever run.** A custom block is data only.
+
+- **A definition** (`board.BlockDef`, `internal/board/blockdef.go`):
+  `type` (like `feature-idea`, never a built-in name), `label`, `icon`
+  (one of Toru's lucide icons), default `w`/`h`, `props` (a closed JSON
+  Schema in the catalog's keyword subset), `defaults` (a new block's
+  props, checked against it), `layout`, optional `nameProp`, and
+  `version` and `origin`, which Toru sets.
+- **The layout** is a tree of parts from `internal/board/blockparts.json`,
+  which Go and the window both read: `stack` (rows, columns, tinted
+  panels), `heading`, `text`, `badge`, `icon`, `divider`, and parts bound
+  to a prop: `field`, `checkbox`, `choice`, `counter` (votes), `slider`,
+  `rating`, `progress`, `checklist`, `list`, `tags`, `poll`, `table`,
+  `image`. Each part names the kinds of prop it takes, and Go refuses a
+  definition with an unknown part or field, a wrong binding, an unchecked
+  schema keyword, defaults that break the schema, more than 200 parts or
+  12 levels. Text templates (`"Votes: {votes}"`) are plain text.
+- **The library** is `%AppData%\toru\blocks\<type>.json`
+  (`internal/board/library.go`). `board.block.define` saves version 1
+  with a new origin; `board.block.update` saves the next version, same
+  origin; `board.block.remove` (needs `confirm`) leaves boards' copies
+  alone; a file that can't be read is listed under `broken`.
+  `board.catalog` lists the library under `custom`, with the parts, prop
+  kinds and icons, and a board's own types under `boardTypes` given `id`.
+  The window gets the library from `BlockLibraryService` and
+  `blocks:changed`.
+- **Boards carry copies.** The board file has `types`: every custom type
+  its blocks use. `board.add` (or the window placing one of the person's
+  blocks) copies the definition in with the same op, so undo takes it off
+  again. Ops carry `types`/`dropTypes`; a type already on the board is
+  replaced only by a newer version of the same origin, and only when every
+  block of it still fits. A different block with the same name is
+  refused. So a board renders the same on any Toru, in shared boards, and
+  in `.toruboard`, HTML, PNG and PDF exports.
+- **Saving someone else's block:** a custom block the person's library
+  lacks shows "Save to my blocks" (`board.block.save` for agents); a
+  name clash saves it under a free name (`as`).
+- **Never a crash.** A definition that fails its check when a board file
+  is read is left out, so the board still opens. A block whose type the
+  window doesn't have, or whose layout throws while drawing, shows as a
+  plain placeholder card (`custom-blocks.tsx`).
+- **Checks:** `go test ./internal/board` (validation, bad definitions,
+  library, ops/undo/file/import round trips), `go test -run
+  TestBoardBlock .` (the commands), `go test -run TestMCPBuildsCustomBlocks
+  .` (an MCP client on the real `toru.exe mcp` code builds a feature idea
+  and a bug report and exports the board; `TORU_CUSTOM_BLOCKS_OUT=<folder>`
+  keeps the PNG), `bun run test:custom-blocks` (the window draws and an
+  agent fills every part; text stays text; placeholders).
+- **Gallery:** the window's block gallery (whiteboard#26) lists the
+  person's own blocks from `libraryBlocks()` in `custom-types.ts`.
 
 ### Live board (built, whiteboard#9)
 
