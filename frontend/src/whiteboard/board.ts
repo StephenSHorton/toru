@@ -102,7 +102,12 @@ type BoardOptions = {
   selected?: string[]
   defaultSelected?: string[]
   onSelectedChange?: (selected: string[], details: ChangeDetails) => void
-  /** The grid blocks land on and arrows move by, in canvas units. Defaults to 8. */
+  /**
+   * The grid dragged and resized blocks land on (while they drag, too) and
+   * arrows move by, in canvas units. Defaults to 8. 1 places them freely. The
+   * whiteboard window passes `dotGrid` while Snap to grid is ticked. Agents'
+   * moveBlock and resizeBlock, and blocks added in code, keep their exact x/y.
+   */
   grid?: number
 }
 
@@ -171,14 +176,54 @@ function nameLines(blocks: BoardBlocks, lines: BoardLine[]) {
   return changed ? named : lines
 }
 
-/** The box a block shows now: a resize's draft box, moved by a move's draft. */
-function liveBox(state: BoardState, key: string) {
-  const resizing = state.resizing?.key === key ? state.resizing.box : null
-  const box = resizing ?? state.blocks[key]
+/**
+ * The spacing of the board's background dots, in canvas units, from board
+ * (0, 0): board.css's 24px. Snap to grid snaps to it, so blocks land on dots.
+ */
+const dotGrid = 24
+
+/** v on a grid of g; a grid of 1 or less leaves it as it is. */
+const onGrid = (v: number, g: number) => (g > 1 ? Math.round(v / g) * g : v)
+
+/**
+ * How far a move's draft shows a block from where it is: the pointer's
+ * offset, landed on the grid as the drop will land it (createMove rounds each
+ * block's dropped position to the grid).
+ */
+function dragOffset(state: BoardState, key: string) {
+  const box = state.blocks[key]
+  if (!box || !state.moving?.keys.includes(key)) {
+    return null
+  }
+  const { dx, dy } = state.moving
+  return {
+    dx: onGrid(box.x + dx, state.grid) - box.x,
+    dy: onGrid(box.y + dy, state.grid) - box.y,
+  }
+}
+
+/** A resize's draft box, on the grid as the drop will land it (createResize rounds all four). */
+function resizeDraft(state: BoardState, key: string) {
+  const box = state.resizing?.key === key ? state.resizing.box : null
   if (!box) {
     return null
   }
-  const drag = state.moving?.keys.includes(key) ? state.moving : null
+  const g = state.grid
+  return {
+    x: onGrid(box.x, g),
+    y: onGrid(box.y, g),
+    width: onGrid(box.width, g),
+    height: onGrid(box.height, g),
+  }
+}
+
+/** The box a block shows now: a resize's draft box, moved by a move's draft. */
+function liveBox(state: BoardState, key: string) {
+  const box = resizeDraft(state, key) ?? state.blocks[key]
+  if (!box) {
+    return null
+  }
+  const drag = dragOffset(state, key)
   return {
     x: box.x + (drag?.dx ?? 0),
     y: box.y + (drag?.dy ?? 0),
@@ -230,6 +275,22 @@ function contentRect(blocks: BoardBlocks) {
     right: Math.max(...all.map((b) => b.x + b.width)),
     bottom: Math.max(...all.map((b) => b.y + b.height)),
   }
+}
+
+/** A dragged block's offset, as createMove's style gives it, on the grid. */
+function moveStyle(state: BoardState, key: string) {
+  const off = dragOffset(state, key)
+  return off
+    ? `translate:${off.dx}px ${off.dy}px;--move-x:${off.dx}px;--move-y:${off.dy}px`
+    : undefined
+}
+
+/** A resized block's draft box, as createResize's style gives it, on the grid. */
+function resizeStyle(state: BoardState, key: string) {
+  const box = resizeDraft(state, key)
+  return box
+    ? `--resize-x:${box.x}px;--resize-y:${box.y}px;--resize-width:${box.width}px;--resize-height:${box.height}px`
+    : undefined
 }
 
 const board = /* @__PURE__ */ definePrimitive({
@@ -357,7 +418,12 @@ const board = /* @__PURE__ */ definePrimitive({
       boxes: (state) => state.blocks,
       draft: "resizing",
       set: (value, details) => setBoxes(value, details),
-      min: () => ({ width: 48, height: 32 }),
+      // The smallest box, rounded up onto the grid so the drop's rounding
+      // can't take it below.
+      min: () => ({
+        width: Math.ceil(48 / grid()) * grid(),
+        height: Math.ceil(32 / grid()) * grid(),
+      }),
       step: grid,
       largeStep: () => grid() * 8,
       scale: () => viewport.get().zoom,
@@ -915,7 +981,9 @@ const board = /* @__PURE__ */ definePrimitive({
           "data-dragging": api.move.dragging(state, key) ? "" : undefined,
           "data-resizing": api.resize.dragging(state, key),
           "data-lassoed": api.lasso.touches(state, key) ? "" : undefined,
-          style: [api.move.style(state, key), api.resize.style(state, key)]
+          // What createMove's and createResize's styles give, with the
+          // draft on the grid, so a block lands on the dots while it drags.
+          style: [moveStyle(state, key), resizeStyle(state, key)]
             .filter(Boolean)
             .join(";") || undefined,
         })
@@ -1090,9 +1158,11 @@ export {
   type BoardOptions,
   type BoardRootState,
   contentRect,
+  dotGrid,
   endOf,
   facing,
   handleNames,
   nameLines,
+  onGrid,
   sides,
 }
