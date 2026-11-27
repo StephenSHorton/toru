@@ -95,8 +95,11 @@
      control bar, the floating thumbnail). Sharp corners by design. */
   .frost {
     background-color: color-mix(in oklch, var(--color-card) 60%, transparent);
-    backdrop-filter: blur(18px) saturate(150%);
+    /* Prefixed first: the build's CSS optimizer (lightningcss, via Tailwind)
+       reads a prefixed declaration *after* the unprefixed one as an override
+       and drops the unprefixed one, which leaves WebView2 with no blur. */
     -webkit-backdrop-filter: blur(18px) saturate(150%);
+    backdrop-filter: blur(18px) saturate(150%);
     border: 1px solid color-mix(in oklch, var(--color-border) 75%, transparent);
     box-shadow: 0 8px 30px oklch(0 0 0 / 0.45);
   }
