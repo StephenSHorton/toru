@@ -102,7 +102,12 @@ type BoardOptions = {
   selected?: string[]
   defaultSelected?: string[]
   onSelectedChange?: (selected: string[], details: ChangeDetails) => void
-  /** The grid blocks land on and arrows move by, in canvas units. Defaults to 8. */
+  /**
+   * The grid dragged and resized blocks land on (while they drag, too) and
+   * arrows move by, in canvas units. Defaults to 8. 1 places them freely. The
+   * whiteboard window passes `dotGrid` while Snap to grid is ticked. Agents'
+   * moveBlock and resizeBlock, and blocks added in code, keep their exact x/y.
+   */
   grid?: number
 }
 
@@ -116,6 +121,8 @@ type BoardState = {
   lasso: LassoDraft | null
   viewport: Viewport
   connecting: ConnectDraft | null
+  /** The block whose text is being edited (blockTextFields), or null. This window's own; never saved or sent. */
+  editing: string | null
   grid: number
 }
 
@@ -152,6 +159,85 @@ const handleNames: Record<string, string> = {
 const blockControls =
   'input, textarea, select, button, a[href], label, [contenteditable], [role="checkbox"], [role="radio"], [role="slider"], [role="textbox"], [data-slot="rating"], [data-slot="file-input-dropzone"]'
 
+/**
+ * The text fields inside a block. Unlike the other controls they don't take
+ * a single press: a press on one selects and moves its block like the rest
+ * of it, and a double-click (or Enter on the selected block) starts editing,
+ * when they take presses, drags and the caret as usual until Escape or a
+ * press outside the block. board.css stops them taking the pointer while
+ * their block isn't being edited.
+ */
+const blockTextFields =
+  'textarea, input:not([type]), input:is([type="text"], [type="search"], [type="number"], [type="email"], [type="url"], [type="tel"], [type="password"]), [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+
+/** The text field an event's target is in, inside this block (not the block itself). */
+function textFieldOf(el: HTMLElement, target: EventTarget | null) {
+  if (!(target instanceof Element) || target === el || !el.contains(target)) {
+    return null
+  }
+  const field = target.closest<HTMLElement>(blockTextFields)
+  return field && field !== el && el.contains(field) ? field : null
+}
+
+/**
+ * A block's first text field that can take the caret: not hidden, inert or
+ * disabled, and on screen (not in a closed panel, like a table's Columns)
+ * where there's layout to tell.
+ */
+function firstTextField(el: HTMLElement) {
+  const usable = [...el.querySelectorAll<HTMLElement>(blockTextFields)].filter(
+    (field) =>
+      !field.closest("[hidden], [inert]") &&
+      !(field as HTMLInputElement).disabled &&
+      field.getAttribute("aria-disabled") !== "true"
+  )
+  return usable.find((field) => field.getClientRects().length > 0) ?? (hasLayout(el) ? null : usable[0] ?? null)
+}
+
+/** Whether the page lays things out (a browser), or measures everything as nothing (a test DOM). */
+const hasLayout = (el: HTMLElement) => el.getClientRects().length > 0
+
+type CaretDocument = Document & {
+  caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+}
+
+/**
+ * Focuses a text field and puts the caret where the pointer is (`at`, on
+ * screen), or at the end of its text when there's no point or the browser
+ * can't say where it falls.
+ */
+function placeCaret(field: HTMLElement, at?: { x: number; y: number }) {
+  field.focus({ preventScroll: true })
+  const doc = field.ownerDocument as CaretDocument
+  const pos = at ? doc.caretPositionFromPoint?.(at.x, at.y) : null
+  if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+    const offset =
+      pos && (pos.offsetNode === field || field.contains(pos.offsetNode))
+        ? Math.min(pos.offset, field.value.length)
+        : field.value.length
+    try {
+      field.setSelectionRange(offset, offset)
+    } catch {
+      // Number fields don't take a selection; the caret stays where focus put it.
+    }
+    return
+  }
+  const selection = doc.getSelection()
+  if (!selection) {
+    return
+  }
+  const range = doc.createRange()
+  if (pos && field.contains(pos.offsetNode)) {
+    range.setStart(pos.offsetNode, pos.offset)
+    range.collapse(true)
+  } else {
+    range.selectNodeContents(field)
+    range.collapse(false)
+  }
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
 /** The block a port or handle key belongs to: everything before its last ":". */
 const blockOf = (key: string) => key.slice(0, key.lastIndexOf(":"))
 /** What follows a port or handle key's last ":", its side or handle. */
@@ -171,14 +257,54 @@ function nameLines(blocks: BoardBlocks, lines: BoardLine[]) {
   return changed ? named : lines
 }
 
-/** The box a block shows now: a resize's draft box, moved by a move's draft. */
-function liveBox(state: BoardState, key: string) {
-  const resizing = state.resizing?.key === key ? state.resizing.box : null
-  const box = resizing ?? state.blocks[key]
+/**
+ * The spacing of the board's background dots, in canvas units, from board
+ * (0, 0): board.css's 24px. Snap to grid snaps to it, so blocks land on dots.
+ */
+const dotGrid = 24
+
+/** v on a grid of g; a grid of 1 or less leaves it as it is. */
+const onGrid = (v: number, g: number) => (g > 1 ? Math.round(v / g) * g : v)
+
+/**
+ * How far a move's draft shows a block from where it is: the pointer's
+ * offset, landed on the grid as the drop will land it (createMove rounds each
+ * block's dropped position to the grid).
+ */
+function dragOffset(state: BoardState, key: string) {
+  const box = state.blocks[key]
+  if (!box || !state.moving?.keys.includes(key)) {
+    return null
+  }
+  const { dx, dy } = state.moving
+  return {
+    dx: onGrid(box.x + dx, state.grid) - box.x,
+    dy: onGrid(box.y + dy, state.grid) - box.y,
+  }
+}
+
+/** A resize's draft box, on the grid as the drop will land it (createResize rounds all four). */
+function resizeDraft(state: BoardState, key: string) {
+  const box = state.resizing?.key === key ? state.resizing.box : null
   if (!box) {
     return null
   }
-  const drag = state.moving?.keys.includes(key) ? state.moving : null
+  const g = state.grid
+  return {
+    x: onGrid(box.x, g),
+    y: onGrid(box.y, g),
+    width: onGrid(box.width, g),
+    height: onGrid(box.height, g),
+  }
+}
+
+/** The box a block shows now: a resize's draft box, moved by a move's draft. */
+function liveBox(state: BoardState, key: string) {
+  const box = resizeDraft(state, key) ?? state.blocks[key]
+  if (!box) {
+    return null
+  }
+  const drag = dragOffset(state, key)
   return {
     x: box.x + (drag?.dx ?? 0),
     y: box.y + (drag?.dy ?? 0),
@@ -232,16 +358,13 @@ function contentRect(blocks: BoardBlocks) {
   }
 }
 
-/** Board units between the background's dots, which sit at multiples of it from (0, 0). */
-const dotSpacing = 24
-
 /**
  * The dot grid's background size and position for a viewport, so each dot
  * stays on the same board point as the canvas pans and zooms. board.css draws
  * one dot in the middle of each tile, so tiles start half a spacing early.
  */
-function dotGrid({ x, y, zoom }: Viewport) {
-  const size = dotSpacing * zoom
+function dotBackground({ x, y, zoom }: Viewport) {
+  const size = dotGrid * zoom
   return {
     "background-size": `${size}px ${size}px`,
     "background-position": `${x - size / 2}px ${y - size / 2}px`,
@@ -254,6 +377,22 @@ function worldStyle(style: string) {
     .split(";")
     .filter((d) => !d.trim().startsWith("--canvas-zoom"))
     .join(";")
+}
+
+/** A dragged block's offset, as createMove's style gives it, on the grid. */
+function moveStyle(state: BoardState, key: string) {
+  const off = dragOffset(state, key)
+  return off
+    ? `translate:${off.dx}px ${off.dy}px;--move-x:${off.dx}px;--move-y:${off.dy}px`
+    : undefined
+}
+
+/** A resized block's draft box, as createResize's style gives it, on the grid. */
+function resizeStyle(state: BoardState, key: string) {
+  const box = resizeDraft(state, key)
+  return box
+    ? `--resize-x:${box.x}px;--resize-y:${box.y}px;--resize-width:${box.width}px;--resize-height:${box.height}px`
+    : undefined
 }
 
 const board = /* @__PURE__ */ definePrimitive({
@@ -282,6 +421,7 @@ const board = /* @__PURE__ */ definePrimitive({
       lasso: null,
       viewport: { x: 0, y: 0, zoom: 1 },
       connecting: null,
+      editing: null,
       grid: options.grid ?? 8,
     }
   },
@@ -294,7 +434,7 @@ const board = /* @__PURE__ */ definePrimitive({
   // The agent bridge's snapshot shows these whole: every block by id with its
   // label and box, every line with its name, and the selection.
   controlled: ["blocks", "lines", "selected"],
-  live: ["moving", "resizing", "lasso", "viewport", "connecting"],
+  live: ["moving", "resizing", "lasso", "viewport", "connecting", "editing"],
   agent: {
     actions: [
       "select",
@@ -381,7 +521,12 @@ const board = /* @__PURE__ */ definePrimitive({
       boxes: (state) => state.blocks,
       draft: "resizing",
       set: (value, details) => setBoxes(value, details),
-      min: () => ({ width: 48, height: 32 }),
+      // The smallest box, rounded up onto the grid so the drop's rounding
+      // can't take it below.
+      min: () => ({
+        width: Math.ceil(48 / grid()) * grid(),
+        height: Math.ceil(32 / grid()) * grid(),
+      }),
       step: grid,
       largeStep: () => grid() * 8,
       scale: () => viewport.get().zoom,
@@ -574,6 +719,29 @@ const board = /* @__PURE__ */ definePrimitive({
         return store.get().blocks
       },
 
+      /** The ids of the selected blocks and strokes now. */
+      selected() {
+        return store.get().selected
+      },
+
+      /**
+       * Puts new versions of blocks already on the board in one change, like
+       * a reshaped or recoloured shape (shapes.ts). Ids not on the board are
+       * left out. False if none were.
+       */
+      replaceBlocks(replace: BoardBlocks) {
+        const { blocks } = store.get()
+        const ids = Object.keys(replace).filter((id) => blocks[id])
+        if (!ids.length) {
+          return false
+        }
+        const next = { ...blocks }
+        for (const id of ids) {
+          next[id] = replace[id]
+        }
+        return change("blocks", next, { reason: "imperative" })
+      },
+
       /**
        * Puts many blocks and lines on the board in one change each, like a
        * template. False, and nothing added, if an id is taken or has ":".
@@ -712,13 +880,129 @@ const board = /* @__PURE__ */ definePrimitive({
 
       // Event handlers, which the slots call.
 
+      /**
+       * Starts editing a block's text: the field under `at` (a point on
+       * screen) with the caret there, else the block's first text field with
+       * the caret at its end. False when the block has no text field.
+       */
+      editBlock(key: string, el: HTMLElement, at?: { x: number; y: number }, from?: EventTarget | null) {
+        // The fields take the pointer once their block is editing, so the
+        // attribute goes on before the point is looked up.
+        store.set({ editing: key })
+        el.setAttribute("data-editing", "")
+        const hit =
+          at && typeof el.ownerDocument.elementFromPoint === "function"
+            ? el.ownerDocument.elementFromPoint(at.x, at.y)
+            : null
+        const atPoint = textFieldOf(el, hit) ?? textFieldOf(el, from ?? null)
+        const field = atPoint ?? firstTextField(el)
+        if (!field) {
+          store.set({ editing: null })
+          el.removeAttribute("data-editing")
+          return false
+        }
+        placeCaret(field, atPoint ? at : undefined)
+        // Editing holds only while focus is in one of the block's fields.
+        if (el.ownerDocument.activeElement !== field) {
+          store.set({ editing: null })
+          return false
+        }
+        return true
+      },
+      /** Stops editing a block's text and focuses the block, selected. */
+      stopEditing(key: string, el: HTMLElement) {
+        store.set({ editing: null })
+        if (!store.get().selected.includes(key)) {
+          selection.choose(key, { reason: "item-press" })
+        }
+        el.focus({ preventScroll: true })
+      },
+      blockDblclick(event: MouseEvent, el: HTMLElement, key: string) {
+        if (event.button !== 0 || store.get().editing === key || isInk(key)) {
+          return
+        }
+        const target = event.target as Element | null
+        const control = target && target !== el ? target.closest(blockControls) : null
+        // A double-click on a quick control (a tick, a vote, a star) is two presses of it.
+        if (control && el.contains(control) && !textFieldOf(el, target)) {
+          return
+        }
+        if (api.editBlock(key, el, { x: event.clientX, y: event.clientY }, target)) {
+          event.preventDefault()
+        }
+      },
+      blockMousedown(event: MouseEvent, el: HTMLElement, key: string) {
+        if (event.button !== 0) {
+          return
+        }
+        const field = textFieldOf(el, event.target)
+        if (store.get().editing !== key) {
+          // A press on a text field of a block that isn't editing is a press
+          // on the block: the field doesn't take focus or start a selection.
+          if (field) {
+            event.preventDefault()
+            el.focus({ preventScroll: true })
+          }
+          return
+        }
+        // While editing, a press on the block around its fields (its rim,
+        // a heading) keeps focus in the field; quick controls take theirs.
+        const target = event.target as Element | null
+        const control = target && target !== el ? target.closest(blockControls) : null
+        if (!field && !(control && el.contains(control))) {
+          event.preventDefault()
+        }
+      },
+      blockFocusin(event: FocusEvent, el: HTMLElement, key: string) {
+        // Focus reaching a text field another way (Tab, an agent filling it)
+        // edits it, so presses in it go to the text.
+        if (store.get().editing !== key && textFieldOf(el, event.target)) {
+          store.set({ editing: key })
+        }
+      },
+      blockFocusout(_event: FocusEvent, el: HTMLElement, key: string) {
+        if (store.get().editing !== key) {
+          return
+        }
+        // Wait for focus to land: still in one of the block's fields (another
+        // field, or the window losing focus with the field kept) keeps editing.
+        setTimeout(() => {
+          if (store.get().editing === key && !textFieldOf(el, el.ownerDocument.activeElement)) {
+            store.set({ editing: null })
+          }
+        }, 0)
+      },
       blockKeydown(event: KeyboardEvent, el: HTMLElement, key: string) {
-        // Keys from inside a block, like a field in it, are that element's.
+        // Keys from inside a block, like a field in it, are that element's,
+        // except Escape in a text field being edited, which stops editing.
         if (event.target !== el) {
+          if (
+            event.key === "Escape" &&
+            store.get().editing === key &&
+            textFieldOf(el, event.target)
+          ) {
+            event.preventDefault()
+            event.stopPropagation()
+            api.stopEditing(key, el)
+          }
           return
         }
         if (connect.keydown(event) || move.keydown(event, key)) {
           return
+        }
+        if (
+          event.key === "Enter" &&
+          !event.shiftKey &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.altKey &&
+          !isInk(key)
+        ) {
+          // Enter edits the block's text, from the end.
+          if (api.editBlock(key, el)) {
+            event.preventDefault()
+            return
+          }
         }
         if (deleteKeydown(event, key)) {
           return
@@ -786,8 +1070,21 @@ const board = /* @__PURE__ */ definePrimitive({
         }
         event.stopPropagation()
         const target = event.target as Element | null
+        const editing = store.get().editing
+        // While a block is editing, presses in it go to its text: they
+        // place the caret and drag a text selection, and never move it.
+        if (editing === key) {
+          if (!store.get().selected.includes(key)) {
+            selection.choose(key, { reason: "item-press", event })
+          }
+          return
+        }
+        if (editing) {
+          store.set({ editing: null })
+        }
+        const field = textFieldOf(el, target)
         const control =
-          target && target !== el && el.contains(target)
+          !field && target && target !== el && el.contains(target)
             ? target.closest(blockControls)
             : null
         if (event.shiftKey || event.metaKey || event.ctrlKey) {
@@ -824,7 +1121,11 @@ const board = /* @__PURE__ */ definePrimitive({
         if (event.shiftKey && event.pointerType !== "touch" && event.button === 0) {
           return lasso.pointerdown(event, el)
         }
-        if (event.button === 0 && store.get().selected.length) {
+        // A press outside a block being edited stops editing and leaves it
+        // selected; the next press on empty space clears the selection.
+        if (store.get().editing) {
+          store.set({ editing: null })
+        } else if (event.button === 0 && store.get().selected.length) {
           change("selected", [], { reason: "item-press", event })
         }
         viewport.pointerdown(event)
@@ -852,13 +1153,13 @@ const board = /* @__PURE__ */ definePrimitive({
         }),
       }),
       // The dot grid (board.css) moves and scales with the canvas: a dot at
-      // every `dotSpacing` board units from (0, 0). Background size and
+      // every `dotGrid` board units from (0, 0). Background size and
       // position aren't inherited, so changing them restyles the board alone;
       // a custom property here would restyle every element in it each frame.
       live: live<BoardState, any, {}>((state) => ({
         "data-connecting": state.connecting ? "" : undefined,
         "data-lassoing": state.lasso ? "" : undefined,
-        style: css(dotGrid(state.viewport)),
+        style: css(dotBackground(state.viewport)),
       })),
       on: {
         wheel: (event, { api }) => api.viewport.wheel(event),
@@ -944,9 +1245,12 @@ const board = /* @__PURE__ */ definePrimitive({
       live: live<BoardState, any, { value: string }>(
         (state, { key, api }) => ({
           "data-dragging": api.move.dragging(state, key) ? "" : undefined,
+          "data-editing": state.editing === key ? "" : undefined,
           "data-resizing": api.resize.dragging(state, key),
           "data-lassoed": api.lasso.touches(state, key) ? "" : undefined,
-          style: [api.move.style(state, key), api.resize.style(state, key)]
+          // What createMove's and createResize's styles give, with the
+          // draft on the grid, so a block lands on the dots while it drags.
+          style: [moveStyle(state, key), resizeStyle(state, key)]
             .filter(Boolean)
             .join(";") || undefined,
         })
@@ -956,6 +1260,14 @@ const board = /* @__PURE__ */ definePrimitive({
           el && api.blockKeydown(event, el, key),
         pointerdown: (event, { el, api, key }) =>
           el && api.blockPointerdown(event, el, key),
+        mousedown: (event, { el, api, key }) =>
+          el && api.blockMousedown(event, el, key),
+        dblclick: (event, { el, api, key }) =>
+          el && api.blockDblclick(event, el, key),
+        focusin: (event, { el, api, key }) =>
+          el && api.blockFocusin(event, el, key),
+        focusout: (event, { el, api, key }) =>
+          el && api.blockFocusout(event, el, key),
         focus: (event, { el, api, store, key }) => {
           const box = api.liveBox(store.get(), key)
           if (box && event.target === el) {
@@ -1114,12 +1426,14 @@ const board = /* @__PURE__ */ definePrimitive({
 /** The words the board's instructions part reads to screen readers. */
 const boardInstructions =
   "Arrow keys move to the nearest block; Shift with an arrow adds it to the selection, and Space selects. " +
+  "Enter edits the focused block's text and Escape stops editing; double-click a block to edit its text where you click. " +
   "Alt with an arrow moves the selection; Ctrl with an arrow resizes the block. Delete removes the selection. " +
   "C connects from the focused block: arrows choose a port, Enter connects, and connecting a joined pair again disconnects it. " +
   "Plus and minus zoom, 0 goes back to 100%, 1 fits the board. Drag empty space to pan, Shift and drag to select an area."
 
 export {
   blockControls,
+  blockTextFields,
   blockOf,
   board,
   boardInstructions,
@@ -1132,9 +1446,11 @@ export {
   type BoardOptions,
   type BoardRootState,
   contentRect,
+  dotGrid,
   endOf,
   facing,
   handleNames,
   nameLines,
+  onGrid,
   sides,
 }

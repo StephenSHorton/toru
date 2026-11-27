@@ -86,7 +86,7 @@
     font-size: 13px;
     font-weight: 500;
     text-align: center;
-    cursor: default;
+    cursor: move;
     outline: none;
 
     &[data-lassoed] {
@@ -108,6 +108,28 @@
 
     &[data-dragging] {
       cursor: grabbing;
+    }
+  }
+
+  /* Click selects, double-click edits (board.ts's blockTextFields): a block
+     moves from anywhere on it, its text fields included, until it's being
+     edited; then its fields take the pointer and show the text cursor, and
+     the rest of it no longer moves. Quick controls (ticks, votes, stars,
+     buttons) keep their own cursor and their one press. */
+  [data-slot="board-block"] {
+    &[data-editing] {
+      cursor: default;
+    }
+
+    &:not([data-editing])
+      :is(textarea, input:not([type]), input:is([type="text"], [type="search"], [type="number"], [type="email"], [type="url"], [type="tel"], [type="password"]), [contenteditable]:not([contenteditable="false"]), [role="textbox"]) {
+      pointer-events: none;
+      user-select: none;
+    }
+
+    &[data-editing]
+      :is(textarea, input:not([type]), input:is([type="text"], [type="search"], [type="number"], [type="email"], [type="url"], [type="tel"], [type="password"]), [contenteditable]:not([contenteditable="false"]), [role="textbox"]) {
+      cursor: text;
     }
   }
 

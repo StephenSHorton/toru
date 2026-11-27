@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -50,6 +51,9 @@ func TestFriendlyError(t *testing.T) {
 // TestFailIdleSendDoesNotClobberActive: a rejected drop publishes an error
 // state only while no send is running.
 func TestFailIdleSendDoesNotClobberActive(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	m := NewManager()
 	rec := &recorder{}
 	m.SetEmitter(rec.emit)

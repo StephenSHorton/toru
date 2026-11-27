@@ -64,6 +64,7 @@ func Assets(b Board) []string {
 // imports empty.
 func EncodePortable(b Board, read func(asset string) ([]byte, error)) ([]byte, error) {
 	b.fill()
+	b.MirrorOf = nil // an exported board stands alone
 	out := portable{Board: b}
 	for _, a := range Assets(b) {
 		data, err := read(a)
@@ -162,13 +163,14 @@ func (s *Store) Import(data []byte) (Board, error) {
 			return Board{}, fmt.Errorf("picture %s doesn't match its name", name)
 		}
 	}
+	b.MirrorOf = nil
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for s.idTaken(b.ID) {
 		b.ID = "brd-" + randHex(8)
 	}
 	b.UpdatedAt = now()
-	if err := writeFile(b); err != nil {
+	if err := s.writeFile(b); err != nil {
 		return Board{}, err
 	}
 	s.docs[b.ID] = NewDoc(b)
@@ -181,7 +183,7 @@ func (s *Store) idTaken(id string) bool {
 	if _, ok := s.docs[id]; ok {
 		return true
 	}
-	p, err := boardPath(id)
+	p, err := s.boardPath(id)
 	if err != nil {
 		return true
 	}

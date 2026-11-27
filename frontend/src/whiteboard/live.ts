@@ -179,7 +179,16 @@ class LiveBoard {
 
   /** An op Go applied, from its event or as an answer. Each rev is applied once, in order. */
   receive(op: BoardOp) {
-    if (this.stopped || op.rev === undefined) return
+    if (this.stopped) return
+    // The board was replaced whole (a copy of a shared board joining or
+    // catching up with its host): load it again. Its rev may be 0, which
+    // Go leaves out.
+    if (op.kind === "reset") {
+      this.buffered.clear()
+      void this.reload()
+      return
+    }
+    if (op.rev === undefined) return
     if (this.doc && op.rev <= this.doc.rev) return
     this.buffered.set(op.rev, op)
     this.drain()

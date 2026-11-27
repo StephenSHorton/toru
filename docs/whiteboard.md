@@ -91,6 +91,17 @@ What that gives the board:
   or in use. Every remove control carries `data-agent-confirm`, so an
   agent's removal waits for the person (and fails with "Needs a person"
   while the window's bridge has no `allow`).
+- **Click selects, double-click edits (whiteboard#30):** a press or drag
+  anywhere on a block, its text fields included, selects and moves it.
+  Double-click (or Enter on the focused block) edits its text, with the
+  caret where you double-clicked; Escape or a press outside stops editing
+  and leaves the block selected. While a block edits, presses and drags in
+  it go to its text and never move it. Quick controls (ticks, votes, stars,
+  buttons, swatches) still take one press. The rule is the board's, by
+  selector (`blockTextFields` in `board.ts`), so a new block type gets it
+  for free; `board.css` stops text fields taking the pointer until their
+  block edits, and the hover cursor is "move" on blocks and "text" only in
+  a field being edited. Agents fill fields through the bridge as before.
 - **Images** are copied into `%AppData%\toru\boards\images`, named by their
   SHA-256, from a chosen or dropped file or a Library screenshot
   (`board.ImageService`, served at `/__board/image/<name>`). Agents import one
@@ -125,6 +136,7 @@ window, and the window shows each change live when it is open:
 | `board.add`, `board.update`, `board.move`, `board.group` | Place and change blocks, many in one call |
 | `board.connect`, `board.disconnect` | Lines between blocks |
 | `board.draw` | Freehand ink: strokes through points, in a pen colour token and width |
+| `board.shape` | Shapes on the ink layer: rectangles, ellipses, lines, arrows, text labels and emoji, each from one point to another, which the person can then select, move and reshape |
 | `board.layout` | Arrange blocks (grid, tree, cluster by tag) |
 | `board.delete` | Destructive: needs `"confirm": true` |
 | `board.export`, `board.import` | Any format in section 3, to a path; a `.toruboard` back in |
@@ -236,12 +248,69 @@ or code from an agent is ever run.** A custom block is data only.
   person's.
 - Deleting blocks or boards and overwriting an export need confirmation
   (`confirm: true` from the CLI; `data-agent-confirm` in the window).
-- **Other people's agents** (a friend's Claude building on your board) is
-  not in the build list by default: it needs boards shared between Toru
-  installs. Planned as its own card held for Stephen: each person's agent
-  talks to their own Toru over its own pipe, and Toru syncs the board over
-  the room connection Toru already uses for Call and LAN. No MCP port is
-  opened to the network.
+- **Other people's agents** (a friend's Claude building on your board)
+  work through shared boards (below): each person's agent talks to their
+  own Toru over its own pipe, and Toru syncs the board over the room
+  connection Toru already uses for Call and LAN. No MCP port is opened to
+  the network.
+
+### Shared boards (built, whiteboard#13)
+
+- **Over the room, nothing else.** `internal/boardshare` rides the room
+  Call and LAN use (`internal/stream/room.go`: sealed messages on public
+  MQTT brokers, topic and key from the room code) as `board` messages
+  (`internal/stream/board.go`, which never reads them and passes on only
+  members heard in presence). It imports no networking package and opens
+  no port or socket of its own (`TestNoNetworkingOfItsOwn`; the real-room
+  check lists the process's listening ports before and after: none).
+- **One owner.** The person who shares a board (the board window's Share
+  button, "Share in room") keeps it and its one undo history. Everyone in
+  the room sees it on their Whiteboards page under "Shared in your room"
+  and joins it there (or their agent does, `board.join`): their Toru keeps
+  a **copy** (`board.Board.MirrorOf`, `internal/board/mirror.go`).
+- **Changes.** A change to a copy, by its person or their agents, goes to
+  the owner's Toru as a request; the owner stamps who made it from the
+  sender's name in the room (never from the request: their person is
+  `person:<name>`, their agents `agent:<agent> (<name>)`), applies it
+  through its own store, which checks it like any change, and answers with
+  the op as applied. The owner sends every op on a shared board to the
+  room; copies apply them exactly as applied (same rev, time and who made
+  what) in rev order. Undo and redo from a copy step the owner's one
+  history. Ops replace whole items, so when two people change the same
+  block at once, the later change wins.
+- **Catching up.** The owner says what it shares, and at which rev, every
+  4 s; a copy that's behind, or has a gap in revs that doesn't fill,
+  asks for the whole board again. A message too big for one room message
+  (a whole board, a big picture) goes in 48 KB parts. Windows reload on a
+  `reset` op when a copy is replaced whole.
+- **Who's who.** "You" is always this Toru's person; the owner's person
+  shows by name on copies (`person:<name>`), and this Toru's person, whom
+  the owner knows by name, is "You" again on its copy.
+- **Pictures** go by name on demand: whoever gets a change with a picture
+  it lacks asks the peer it came from, and checks the bytes against the
+  name. Only pictures a shared board shows (or that this Toru just sent)
+  are given out. An image that fails to load in the window tries again for
+  a while, so a picture that arrives late shows.
+- **Ending.** "Stop sharing", leaving the room, or the owner not heard from
+  for 13 s ends it: copies stop following and stay as ordinary boards,
+  labelled whose they were. A copy's "Stop following" does the same for
+  one copy. Joining again follows the same copy, unless it was changed
+  after it stopped following: then it's kept as it is and the new copy
+  gets an id of its own. Each share has a token, so a late "stopped
+  sharing" never ends a newer share. Shares don't survive a restart:
+  share again.
+- **Checks:** `go test ./internal/boardshare` (two Torus on a fake room,
+  out of order and losing messages: share, join, both people and both
+  agents building, undo, catch-up, pictures, a forged board or source
+  refused, leaving, rejoining); `go test ./internal/boardshare -run
+  'TestRealRoom|TestTwoStreamServices' -args -e2e` does it on the real
+  brokers, with a 2 MB picture, and through two of Toru's own room
+  services (`stream.StreamService`).
+- **Demo in a browser:** `cd frontend && bun x vite --mode share-demo
+  --port 47820`, then `/share-demo.html`: two Torus with their own stores,
+  Stephen's and Blake's, sharing a board through a fresh real room, side by
+  side; each one's agent builds on it through its own Toru
+  (`board_share_demo_test.go`).
 
 ## 3. Export formats
 
@@ -512,7 +581,7 @@ card named.
 | 8 | Export and import | 7 |
 | 9 | Whiteboards page, tray entry and Send to whiteboard | 7 |
 | 10 | Brainstorm templates and auto-layout | 6 |
-| 11 | Shared boards between Toru installs | Stephen |
+| 11 | Shared boards between Toru installs (built, whiteboard#13) | Stephen |
 
 Not built in this plan: agent-sent markup or custom code at runtime, SVG
 export, a light theme, an MCP port on the network.

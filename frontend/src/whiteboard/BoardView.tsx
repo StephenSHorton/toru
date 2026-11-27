@@ -7,6 +7,8 @@ import { createParts, usePart, usePrimitive, type PartProps } from "@ui-sdk/reac
 import { MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { board, boardInstructions, handleNames, sides, type BoardBlocks, type BoardBlockState, type BoardOptions } from "./board";
 import { InkDraft, InkLine, InkSurface, usePen } from "./InkView";
+import type { DrawingSettings } from "./drawing";
+import { createTools, editText, ToolLayer, ToolSurface } from "./DrawingTools";
 import "./board.css";
 
 const handles = ["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const;
@@ -37,13 +39,14 @@ function useBoard() {
   return handle.api;
 }
 
-/** The pen: on or off, and its colour (a token name like `ink-blue`) and width. */
-type PenOptions = { active: boolean; color: string; width: number };
-
 type BoardProps = BoardOptions & {
   "aria-label": string;
-  /** The freehand pen (ink.ts). While it's on, presses on the board draw. */
-  pen?: PenOptions;
+  /**
+   * The drawing bar's tool and pen (drawing.ts, DrawingBar.tsx). The pen and
+   * highlighter draw freehand ink (ink.ts); the hand, eraser and shape tools
+   * work through DrawingTools.tsx. Left out, the board only selects.
+   */
+  drawing?: DrawingSettings;
   className?: string;
   /**
    * What each block shows, like its catalog type's render. Defaults to its
@@ -55,12 +58,16 @@ type BoardProps = BoardOptions & {
   children?: React.ReactNode;
 };
 
-function Board({ renderBlock, children, className, pen: penOptions, "aria-label": label, ...options }: BoardProps) {
+function Board({ renderBlock, children, className, drawing, "aria-label": label, ...options }: BoardProps) {
   const handle = usePrimitive(board, options);
+  const [tools] = React.useState(createTools);
+  const tool = drawing?.tool ?? "select";
+  const highlight = tool === "highlighter";
   const pen = usePen({
-    active: !!penOptions?.active,
-    color: penOptions?.color,
-    width: penOptions?.width,
+    active: tool === "pen" || highlight,
+    color: drawing?.color,
+    width: drawing ? (highlight ? drawing.widths.highlighter : drawing.widths.pen) : undefined,
+    highlight,
     toCanvas: ({ x, y }) => handle.api.viewport.toCanvas(x, y),
     // A finished stroke goes on the board as a block.
     onStroke: (id, stroke) => {
@@ -85,15 +92,17 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
             </parts.Unlink>
           ))}
           {frameFirst(blocks).map((id) => (
-            <BlockItem key={id} id={id} block={blocks[id]} blocks={blocks} renderBlock={renderBlock} />
+            <BlockItem key={id} id={id} block={blocks[id]} blocks={blocks} renderBlock={renderBlock} tool={tool} tools={tools} />
           ))}
           {/* The stroke being drawn, above the blocks. */}
           <svg data-slot="board-lines" width="1" height="1">
             <InkDraft pen={pen} />
           </svg>
+          {drawing && <ToolLayer board={handle.api} tools={tools} settings={drawing} selection={handle.instance} blocks={blocks} />}
         </parts.World>
         <parts.Lasso />
         <InkSurface pen={pen} />
+        {drawing && <ToolSurface board={handle.api} tools={tools} settings={drawing} />}
         <div data-slot="board-controls" className="frost">
           <parts.ZoomOut>
             <MinusIcon aria-hidden="true" />
@@ -114,15 +123,28 @@ function Board({ renderBlock, children, className, pen: penOptions, "aria-label"
   return <BoardContext.Provider value={handle}>{root}</BoardContext.Provider>;
 }
 
-/** Block ids with frames first, so frames sit behind the blocks in them. */
+/**
+ * Block ids in the order they stack: frames first, so they sit behind the
+ * blocks in them, then blocks, then highlighter strokes, then the rest of
+ * the ink, so a highlighter is drawn under the ink it highlights.
+ */
 function frameFirst(blocks: BoardBlocks) {
   const ids = Object.keys(blocks);
-  return [...ids.filter((id) => blocks[id].type === "frame"), ...ids.filter((id) => blocks[id].type !== "frame")];
+  const rank = (id: string) => {
+    const b = blocks[id];
+    if (b.type === "frame") return 0;
+    if (!b.ink) return 1;
+    return b.ink.highlight ? 2 : 3;
+  };
+  return [0, 1, 2, 3].flatMap((r) => ids.filter((id) => rank(id) === r));
 }
 
-/** Who a source is, for people: "You" for the person, else the agent's name. */
+/** Who a source is, for people: "You" for the person, else the agent's or
+ * the other person's name ("person:<name>" is someone at another Toru the
+ * board is shared with). */
 function who(source: string) {
   if (source === "person") return "You";
+  if (source.startsWith("person:")) return source.slice("person:".length);
   return source.startsWith("agent:") ? source.slice("agent:".length) : source;
 }
 
@@ -139,6 +161,9 @@ type BlockItemProps = {
   block: BoardBlocks[string];
   blocks: BoardBlocks;
   renderBlock?: BoardProps["renderBlock"];
+  /** The drawing bar's tool: a text label's words change on a double click with Select. */
+  tool: string;
+  tools: ReturnType<typeof createTools>;
 };
 
 /**
@@ -150,12 +175,22 @@ type BlockItemProps = {
  * draw a block from that block alone, as Toru's do.
  */
 const BlockItem = React.memo(
-  function BlockItem({ id, block, blocks, renderBlock }: BlockItemProps) {
-    // A freehand stroke shows its line, with no ports or resize handles.
+  function BlockItem({ id, block, blocks, renderBlock, tool, tools }: BlockItemProps) {
+    // A freehand stroke or a shape shows its ink, with no ports or resize
+    // handles (a selected shape's handles are DrawingTools'). A double click
+    // on a text label changes its words.
     if (block.ink) {
+      const ink = block.ink;
       return (
-        <BoardBlock value={id} data-block={id} data-by={block.createdBy} title={madeBy(block)}>
-          <InkLine stroke={block.ink} width={block.width} height={block.height} />
+        <BoardBlock
+          value={id}
+          data-block={id}
+          data-by={block.createdBy}
+          data-shape={ink.kind}
+          title={madeBy(block)}
+          onDoubleClick={ink.kind === "text" && tool === "select" ? () => editText(tools, id, { ...block, ink }) : undefined}
+        >
+          <InkLine stroke={ink} width={block.width} height={block.height} />
         </BoardBlock>
       );
     }
@@ -180,7 +215,8 @@ const BlockItem = React.memo(
       </BoardBlock>
     );
   },
-  (a, b) => a.id === b.id && a.renderBlock === b.renderBlock && sameLook(a.block, b.block),
+  (a, b) =>
+    a.id === b.id && a.renderBlock === b.renderBlock && a.tool === b.tool && a.tools === b.tools && sameLook(a.block, b.block),
 );
 
 /**
@@ -188,7 +224,8 @@ const BlockItem = React.memo(
  * places and sizes a block's element itself, so a move or resize needn't
  * render the block again; doing so rewrote its fields, and a field rewritten
  * inside the board makes the browser restyle every block (UI SDK's :has()
- * rules), a long frame on each drop. A stroke's svg does take its size.
+ * rules), a long frame on each drop. Ink blocks have no fields, so they
+ * follow every change.
  */
 function sameLook(a: BoardBlocks[string], b: BoardBlocks[string]) {
   if (a === b) return true;
@@ -199,7 +236,9 @@ function sameLook(a: BoardBlocks[string], b: BoardBlocks[string]) {
     a.ink === b.ink &&
     a.createdBy === b.createdBy &&
     a.updatedBy === b.updatedBy &&
-    (!a.ink || (a.width === b.width && a.height === b.height))
+    // An ink block is a light svg: it follows its size, and its place too,
+    // which a text label's double click edits from.
+    (!a.ink || (a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height))
   );
 }
 
@@ -212,4 +251,4 @@ function BoardPart({ slot, value, ...props }: { slot: "port" | "handle"; value: 
   return usePart(board, slot, { value }, props, "span");
 }
 
-export { Board, madeBy, useBoard, who, type BoardProps, type PenOptions };
+export { Board, madeBy, useBoard, who, type BoardHandle, type BoardProps };

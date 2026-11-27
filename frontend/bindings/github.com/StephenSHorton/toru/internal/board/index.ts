@@ -18,6 +18,7 @@ export {
     LibraryImage,
     LibraryList,
     Link,
+    MirrorOf,
     Op,
     Source,
     Stroke,

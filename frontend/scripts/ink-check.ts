@@ -78,7 +78,7 @@ const rect = (left: number, top: number, width: number, height: number) =>
 
   ok("pen token drawn as its variable", ink.inkColor("ink-red") === "var(--ink-red)");
   ok("other colours drawn as written", ink.inkColor("#ff0000") === "#ff0000");
-  ok("five pen colours, all tokens", ink.inkColors.length === 5 && ink.inkColors.every((c) => /^ink-[a-z]+$/.test(c.token)));
+  ok("nine pen colours, the theme's five first, all tokens", ink.inkColors.length === 9 && ink.inkColors[0].token === "ink-white" && ink.inkColors.every((c) => /^ink-[a-z]+$/.test(c.token)));
   ok("stroke ids fit the document and the board", /^[A-Za-z0-9_-]{1,64}$/.test(ink.strokeId()) && !ink.strokeId().includes(":"));
 }
 
@@ -315,6 +315,101 @@ let drawn: { id: string; block: InkBlock; source: string } | null = null;
       had = readFileSync(path, "utf8").replace(/\r\n/g, "\n");
     } catch {}
     ok("Go fixture matches what the pen draws (run without --check to rewrite it)", had === json);
+  } else {
+    writeFileSync(path, json);
+    console.log(`wrote ${path}`);
+  }
+}
+
+// ── shapes, the highlighter and smoothing (shapes.ts, ink.ts) ─────────
+{
+  const shapes = await import("../src/whiteboard/shapes");
+  const docs = await import("../src/whiteboard/document");
+  const style = { color: "ink-blue", width: 4 };
+
+  // Drawing: a drag from one corner or end to the other, Shift for square or 45°.
+  const r = shapes.shapeBlock("rect", { x: 10, y: 20 }, { x: 110, y: 80 }, { ...style, fill: "ink-blue" });
+  ok("a rect's box is its corners widened by half the width", r.x === 8 && r.y === 18 && r.width === 104 && r.height === 64, r);
+  ok("a rect keeps two points, its kind and fill", r.ink.points.join() === "2,2,0.5,102,62,0.5" && r.ink.kind === "rect" && r.ink.fill === "ink-blue" && r.label === "Rectangle", r.ink);
+  const sq = shapes.constrain("rect", { x: 0, y: 0 }, { x: 50, y: -20 }, true);
+  ok("Shift makes a box square", sq.x === 50 && sq.y === -50, sq);
+  const diag = shapes.constrain("line", { x: 0, y: 0 }, { x: 100, y: 10 }, true);
+  ok("Shift snaps a line to 45°", Math.abs(diag.y) < 1e-9 && Math.abs(diag.x - Math.hypot(100, 10)) < 1e-9, diag);
+  ok("no Shift, no snap", shapes.constrain("arrow", { x: 0, y: 0 }, { x: 100, y: 10 }, false).y === 10);
+  const a = shapes.shapeBlock("arrow", { x: 0, y: 0 }, { x: 100, y: 0 }, style);
+  ok("an arrow's box makes room for its head", a.y < -5 && a.height > 12, a);
+  ok("a fill on a line is dropped", shapes.shapeBlock("line", { x: 0, y: 0 }, { x: 9, y: 9 }, { ...style, fill: "ink-red" }).ink.fill === undefined);
+  const t = shapes.shapeBlock("text", { x: 0, y: 0 }, { x: 80, y: 60 }, { ...style, text: "Two\nlines" });
+  ok("a text label's box is its points, no padding", t.x === 0 && t.y === 0 && t.width === 80 && t.height === 60 && t.ink.text === "Two\nlines", t);
+  ok("a text label's font size comes from its height", shapes.textLayout("Two\nlines", 60).size === 24);
+  ok("a text box is lines × 1.25 sizes tall", shapes.textBox("a\nb\nc", 20).h === 75);
+
+  // Reshaping: a corner moves and the opposite stays; a line's end moves.
+  const moved = shapes.reshape(r, "se", { x: 210, y: 180 }, false);
+  ok("dragging a corner keeps the opposite one", shapes.shapeEnds(moved)[0].x === 10 && shapes.shapeEnds(moved)[0].y === 20 && shapes.shapeEnds(moved)[1].x === 210, shapes.shapeEnds(moved));
+  ok("... and the shape's kind and fill", moved.ink.kind === "rect" && moved.ink.fill === "ink-blue");
+  const nw = shapes.reshape(r, "nw", { x: 60, y: 60 }, true);
+  const [n0, n1] = shapes.shapeEnds(nw);
+  ok("Shift on a corner keeps it square", Math.abs(Math.abs(n1.x - n0.x) - Math.abs(n1.y - n0.y)) < 1e-9, [n0, n1]);
+  const end = shapes.reshape(a, "end", { x: 50, y: 50 }, false);
+  ok("dragging an arrow's end keeps its start", shapes.shapeEnds(end)[0].x === 0 && shapes.shapeEnds(end)[1].y === 50, shapes.shapeEnds(end));
+  ok("a rect has four corner handles, a line two ends", shapes.shapeHandles(r).length === 4 && shapes.shapeHandles(a).length === 2);
+  const re = shapes.restyle(r, { color: "ink-red", width: 8, fill: undefined });
+  ok("restyle changes colour, width and fill, not the points", re.ink.color === "ink-red" && re.ink.width === 8 && re.ink.fill === undefined && shapes.shapeEnds(re)[1].x === 110, re.ink);
+
+  // The eraser reaches a stroke's line, a filled shape's inside, a label's box.
+  const line = ink.strokeBlock([0, 0, 0.5, 100, 0, 0.5], "ink-blue", 4);
+  ok("eraser: on a line is 0", shapes.inkDistance(line, { x: 50, y: 1 }) === 0);
+  ok("eraser: beside a line is the gap past its edge", Math.abs(shapes.inkDistance(line, { x: 50, y: 12 }) - 10) < 1e-9);
+  ok("eraser: inside a filled rect is 0", shapes.inkDistance(r, { x: 60, y: 50 }) === 0);
+  const hollow = shapes.shapeBlock("ellipse", { x: 0, y: 0 }, { x: 100, y: 100 }, style);
+  ok("eraser: inside a hollow ellipse is not on it", shapes.inkDistance(hollow, { x: 50, y: 50 }) > 40);
+  ok("eraser: on a hollow ellipse's edge is 0", shapes.inkDistance(hollow, { x: 100, y: 50 }) === 0);
+  ok("eraser: inside a label is 0", shapes.inkDistance(t, { x: 40, y: 30 }) === 0);
+
+  // Highlighter: even, see-through, kept as a flag.
+  const h = ink.strokeBlock([0, 0, 0.5, 50, 0, 0.5], "ink-yellow", 20, { highlight: true });
+  ok("a highlighter stroke is marked and named", h.ink.highlight === true && h.label === "Highlighter stroke", h);
+  ok("a shape is never a highlighter", ink.strokeBlock([0, 0, 0.5, 9, 9, 0.5], "x", 2, { kind: "rect", highlight: true }).ink.highlight === undefined);
+  ok("a freehand stroke takes no fill or text", JSON.stringify(ink.strokeBlock([0, 0, 0.5], "x", 2, { fill: "x", text: "y" }).ink) === '{"points":[1,1,0.5],"color":"x","width":2}');
+
+  // Smoothing: a wobble evens out; a corner stays.
+  const wobble = [0, 0, 0.5, 10, 4, 0.5, 20, 0, 0.5];
+  ink.smoothPoint(wobble, 1);
+  ok("smoothing evens a wobble halfway", wobble[4] === 2, wobble);
+  const corner = [0, 0, 0.5, 10, 20, 0.5, 20, 0, 0.5];
+  ink.smoothPoint(corner, 1);
+  ok("smoothing keeps a sharp corner", corner[4] === 20, corner);
+
+  // Round trip through the board document: a shape stays a shape when moved.
+  const all: Record<string, ReturnType<typeof shapes.shapeBlock>> = {
+    "shp-rect": r,
+    "shp-ellipse": shapes.shapeBlock("ellipse", { x: 140, y: 20 }, { x: 260, y: 100 }, { color: "ink-purple", width: 2 }),
+    "shp-line": shapes.shapeBlock("line", { x: 10, y: 140 }, { x: 120, y: 200 }, { color: "ink-green", width: 8 }),
+    "shp-arrow": shapes.shapeBlock("arrow", { x: 140, y: 140 }, { x: 260, y: 200 }, { color: "ink-orange", width: 4 }),
+    "shp-text": shapes.shapeBlock("text", { x: 10, y: 240 }, { x: 130, y: 300 }, { color: "ink-white", width: 4, text: "Two\nlines" }),
+    "shp-emoji": shapes.shapeBlock("emoji", { x: 160, y: 240 }, { x: 208, y: 288 }, { color: "ink-white", width: 4, text: "🎉" }),
+    "shp-highlight": ink.strokeBlock([10, 330, 0.5, 130, 334, 0.5, 250, 330, 0.5], "ink-yellow", 20, { highlight: true }),
+  };
+  const items = Object.entries(all).map(([id, b]) => docs.toDocItem(id, b)!.item);
+  ok("every shape is an ink stroke in the document", Object.values(all).every((b, i) => docs.toDocItem(Object.keys(all)[i], b)!.key === "ink"));
+  const back = docs.toCanvas({ format: "toruboard", version: 1, id: "b", name: "b", createdAt: "", updatedAt: "", rev: 0, frames: [], blocks: [], links: [], ink: items as never }).blocks;
+  ok("the document reads back to the same shapes", Object.keys(all).every((id) => JSON.stringify(back[id]) === JSON.stringify(all[id])), back["shp-text"]);
+  const nudged = { ...all["shp-rect"], x: all["shp-rect"].x + 40 };
+  const doc = docs.toDocItem("shp-rect", nudged, items[0])!.item as import("../src/whiteboard/ink").DocumentStroke;
+  ok("a moved shape keeps its kind and fill", doc.kind === "rect" && doc.fill === "ink-blue" && doc.points[0] === 50, doc);
+  const unfilled = docs.toDocItem("shp-rect", shapes.restyle(all["shp-rect"], { fill: undefined }), items[0])!.item as import("../src/whiteboard/ink").DocumentStroke;
+  ok("taking a fill away drops it from the document", !("fill" in unfilled), unfilled);
+
+  // What the window sends Go for these: Go's TestShapesFromWindow applies it.
+  const json = `${JSON.stringify({ source: "person", ink: items }, null, 2)}\n`;
+  const path = fileURLToPath(new URL("../../internal/board/testdata/shapes-op-from-window.json", import.meta.url));
+  if (process.argv.includes("--check")) {
+    let had = "";
+    try {
+      had = readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+    } catch {}
+    ok("Go shapes fixture matches the window's shapes (run without --check to rewrite it)", had === json);
   } else {
     writeFileSync(path, json);
     console.log(`wrote ${path}`);

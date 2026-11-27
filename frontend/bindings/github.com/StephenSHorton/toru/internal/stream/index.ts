@@ -22,9 +22,12 @@ export {
     Member,
     Monitor,
     Offer,
+    PeerAudio,
     RelayStatus,
     RoomState,
     Settings,
     State,
+    TranscribeState,
+    TranscriptEntry,
     ViewerInfo
 } from "./models.js";

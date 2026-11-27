@@ -10,7 +10,8 @@ import type { CaptureItem } from "@/lib/api";
 // memory instead of Go's WhiteboardsService, so they can be seen and
 // screenshotted without Toru running. ?page=whiteboards is the hub on the
 // Whiteboards page; ?page=send is a Library screenshot, with its chooser
-// open when &open is added.
+// open when &open is added. &room=off shows the page outside a Toru room;
+// otherwise a room where Blake shares a board.
 
 const params = new URLSearchParams(window.location.search);
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
@@ -49,6 +50,23 @@ const memory: WhiteboardsApi = {
   onChange: (f) => {
     listeners.add(f);
     return () => listeners.delete(f);
+  },
+  room: {
+    state: async () =>
+      params.get("room") === "off"
+        ? { inRoom: false, code: "", sharing: [], offered: [] }
+        : {
+            inRoom: true,
+            code: "K7QM-4XHT-PW2B-9RDE",
+            sharing: [{ board: "brd-1", name: "Toru launch plan", viewers: ["Blake"] }],
+            offered: [
+              { host: "b1", hostName: "Blake", board: "brd-9", name: "Game night ideas", local: "", live: false },
+              { host: "b1", hostName: "Blake", board: "brd-8", name: "Level design", local: "brd-8", live: true },
+            ],
+          },
+    join: async () => {},
+    joinRoom: async () => {},
+    onChange: () => () => {},
   },
 };
 

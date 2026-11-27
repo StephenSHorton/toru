@@ -15,6 +15,24 @@ What ships where:
 - wintun.dll          the Wintun network adapter driver library, unmodified
 - toru-relay          the TURN relay (a separate server program, not in the installer)
 
+Downloaded on first use, not shipped (each pinned by SHA-256 in the source):
+
+whisper.cpp b5907 (whisper-server.exe, whisper.dll, ggml*.dll), the
+  Windows x64 CPU build from https://github.com/ggml-org/whisper.cpp,
+  for call transcription (internal/transcript/engine.go)
+  License: MIT. Copyright (c) 2023-2026 The ggml authors.
+whisper.cpp b5907, the Windows x64 CUDA 12.4 build (whisper-bin-win-cuda-
+  12.4.0-x64.zip, same project and license), only on PCs with an NVIDIA GPU
+  and only when the person asks for it on the call page. It carries NVIDIA's
+  CUDA runtime and cuBLAS (cudart64_12.dll, cublas64_12.dll,
+  cublasLt64_12.dll), which Toru unpacks unmodified next to whisper.
+  License: NVIDIA CUDA Toolkit End User License Agreement (redistributable
+  runtime components), https://docs.nvidia.com/cuda/eula/.
+  Copyright (c) NVIDIA Corporation.
+Whisper "base" model, converted for whisper.cpp and 5-bit quantized
+  (ggml-base-q5_1.bin, from https://huggingface.co/ggerganov/whisper.cpp)
+  License: MIT. Copyright (c) 2022 OpenAI (the Whisper model weights).
+
 
 LAN (toru-lan.exe, wintun.dll)
 ------------------------------

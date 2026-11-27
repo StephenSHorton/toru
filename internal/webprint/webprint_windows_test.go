@@ -27,7 +27,7 @@ html,body{margin:0;background:#101014;color:#f5f5f5;font:24px sans-serif;-webkit
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	p, err := Open(ctx, page, Options{DataDir: filepath.Join(dir, "webview")})
+	p, err := Open(ctx, page, Options{DataDir: webViewDir(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestBrokenWebViewFailsThePage(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	start := time.Now()
-	p, err := Open(ctx, page, Options{DataDir: filepath.Join(dir, "webview"), browserPath: filepath.Join(dir, "no-such-runtime")})
+	p, err := Open(ctx, page, Options{DataDir: webViewDir(t), browserPath: filepath.Join(dir, "no-such-runtime")})
 	if err == nil {
 		p.Close()
 		t.Fatal("opened with no WebView2 runtime")
@@ -91,4 +91,33 @@ func TestBrokenWebViewFailsThePage(t *testing.T) {
 	if d := time.Since(start); d > 10*time.Second {
 		t.Errorf("took %v to fail", d)
 	}
+}
+
+// webViewDir is a folder for a WebView2's data that outlives the test's own
+// temp folder. WebView2's browser processes can hold a file in it (such as
+// BrowserMetrics) for a while after the page closes, more so on a busy
+// machine, and t.TempDir fails the test when it cannot remove its folder.
+// The cleanup here retries for a while, then leaves the folder behind with a
+// log line instead of failing.
+func webViewDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "toru-webview-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		deadline := time.Now().Add(15 * time.Second)
+		for {
+			err := os.RemoveAll(dir)
+			if err == nil {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Logf("left %s behind: WebView2 still holds a file in it: %v", dir, err)
+				return
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+	})
+	return dir
 }

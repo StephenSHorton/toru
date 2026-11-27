@@ -20,7 +20,7 @@ import (
 // The pens, as the board window's toolbar has them (frontend
 // src/whiteboard/ink.ts, inkColors and inkWidths; index.css --ink-*).
 var (
-	inkPens   = []string{"ink-white", "ink-blue", "ink-red", "ink-yellow", "ink-green"}
+	inkPens   = []string{"ink-white", "ink-blue", "ink-red", "ink-yellow", "ink-green", "ink-orange", "ink-purple", "ink-pink", "ink-grey"}
 	inkWidths = map[string]float64{"fine": 2, "medium": 4, "bold": 8}
 )
 
@@ -93,19 +93,21 @@ func registerBoardInkCommand(reg *agentctl.Registry, d boardAgentDeps) {
 		"properties": map[string]any{
 			"points": map[string]any{"type": "array", "minItems": 1, "maxItems": board.MaxStrokeFloats / 3, "items": point,
 				"description": "The line's points, in the order drawn."},
-			"color": map[string]any{"type": "string", "enum": append(append([]string{}, inkPens...), "white", "blue", "red", "yellow", "green"),
+			"color": map[string]any{"type": "string", "enum": penNames(),
 				"description": "The pen: a colour token, which follows the theme. Defaults to ink-white."},
 			"width": map[string]any{"description": "The pen's width: fine, medium or bold (2, 4, 8), or a number of world units. Defaults to fine.",
 				"oneOf": []any{map[string]any{"type": "number", "exclusiveMinimum": 0, "maximum": 1000},
 					map[string]any{"type": "string", "enum": []string{"fine", "medium", "bold", "ink-width-fine", "ink-width-medium", "ink-width-bold"}}}},
 			"frame": map[string]any{"type": "string", "description": "The id of a frame for the stroke to sit in."},
+			"highlight": map[string]any{"type": "boolean",
+				"description": "A highlighter stroke: see-through and drawn under the other ink. Give it a wider width, like 16."},
 		},
 	}
 	reg.Register(agentctl.Command{
 		Name: "board.draw",
 		Description: "Draw freehand ink on a whiteboard, as the pen does: each stroke is a line through its points in a pen colour and width. " +
 			"All strokes go in one change, shown at once in an open board window. Returns the new strokes' ids in the order sent, and the board's rev. " +
-			"Remove strokes with board.delete.",
+			"Remove strokes with board.delete. For rectangles, ellipses, lines, arrows, text labels and emoji, use board.shape.",
 		Input: schema(map[string]any{
 			"id":      map[string]any{"type": "string", "description": "The board's id, from board.list or board.create."},
 			"strokes": map[string]any{"type": "array", "minItems": 1, "maxItems": maxPerOp, "items": stroke, "description": "The strokes to draw."},
@@ -114,10 +116,11 @@ func registerBoardInkCommand(reg *agentctl.Registry, d boardAgentDeps) {
 			v, err := decode[struct {
 				ID      string `json:"id"`
 				Strokes []struct {
-					Points [][]float64     `json:"points"`
-					Color  string          `json:"color"`
-					Width  json.RawMessage `json:"width"`
-					Frame  string          `json:"frame"`
+					Points    [][]float64     `json:"points"`
+					Color     string          `json:"color"`
+					Width     json.RawMessage `json:"width"`
+					Frame     string          `json:"frame"`
+					Highlight bool            `json:"highlight"`
 				} `json:"strokes"`
 			}](in)
 			if err != nil {
@@ -143,30 +146,50 @@ func registerBoardInkCommand(reg *agentctl.Registry, d boardAgentDeps) {
 				if err != nil {
 					return nil, fmt.Errorf("strokes[%d]: %w", i, err)
 				}
-				strokes[i] = board.Stroke{Points: pts, Color: color, Width: width, Frame: s.Frame}
+				strokes[i] = board.Stroke{Points: pts, Color: color, Width: width, Frame: s.Frame, Highlight: s.Highlight}
 			}
-			src := board.AgentNamed(agentctl.Caller(ctx))
-			var strokeIDs []string
-			op, err := d.boards.Edit(v.ID, func(b board.Board) (board.Op, error) {
-				taken := itemIDs(b)
-				op := board.Op{Source: src}
-				for _, s := range strokes {
-					id := board.RandomID("ink")
-					for taken[id] {
-						id = board.RandomID("ink")
-					}
-					taken[id] = true
-					s.ID = id
-					op.Ink = append(op.Ink, s)
-					strokeIDs = append(strokeIDs, id)
-				}
-				return op, nil
-			})
+			rev, ids, err := addInk(ctx, d, v.ID, strokes)
 			if err != nil {
 				return nil, err
 			}
-			// The store sends the op to open windows (board:op).
-			return map[string]any{"rev": op.Rev, "strokes": strokeIDs}, nil
+			return map[string]any{"rev": rev, "strokes": ids}, nil
 		},
 	})
+}
+
+// penNames are the colours an agent may name: the pen tokens, with or
+// without their "ink-".
+func penNames() []string {
+	out := append([]string{}, inkPens...)
+	for _, p := range inkPens {
+		out = append(out, strings.TrimPrefix(p, "ink-"))
+	}
+	return out
+}
+
+// addInk puts strokes on a board in one op under the calling agent's name,
+// each with a new id. The store sends the op to open windows (board:op).
+func addInk(ctx context.Context, d boardAgentDeps, boardID string, strokes []board.Stroke) (int, []string, error) {
+	src := board.AgentNamed(agentctl.Caller(ctx))
+	var ids []string
+	op, err := d.boards.Edit(boardID, func(b board.Board) (board.Op, error) {
+		taken := itemIDs(b)
+		op := board.Op{Source: src}
+		ids = ids[:0]
+		for _, s := range strokes {
+			id := board.RandomID("ink")
+			for taken[id] {
+				id = board.RandomID("ink")
+			}
+			taken[id] = true
+			s.ID = id
+			op.Ink = append(op.Ink, s)
+			ids = append(ids, id)
+		}
+		return op, nil
+	})
+	if err != nil {
+		return 0, nil, err
+	}
+	return op.Rev, ids, nil
 }

@@ -15,6 +15,9 @@ const (
 	// services of two members, to one peer or everyone. The body is the blob
 	// itself; this side never parses it (lan.go).
 	msgLan = "lan"
+	// msgBoard carries one shared-whiteboard message (internal/boardshare)
+	// between members. This side never parses it (board.go).
+	msgBoard = "board"
 )
 
 type presenceBody struct {
@@ -24,6 +27,7 @@ type presenceBody struct {
 	Muted    bool      `json:"muted,omitempty"`
 	Deafened bool      `json:"deafened,omitempty"`
 	Lan      *LanInfo  `json:"lan,omitempty"`
+	Tx       *txBody   `json:"tx,omitempty"` // in the call: its transcription toggle (transcribe.go)
 }
 
 // LanInfo is a member's LAN as their presence announces it: their overlay

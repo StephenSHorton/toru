@@ -4,12 +4,18 @@
 import * as BlockLibraryService from "./blocklibraryservice.js";
 import * as BoardExportService from "./boardexportservice.js";
 import * as SettingsService from "./settingsservice.js";
+import * as TranscriptService from "./transcriptservice.js";
 import * as WhiteboardsService from "./whiteboardsservice.js";
 import * as WindowsService from "./windowsservice.js";
 export {
     BlockLibraryService,
     BoardExportService,
     SettingsService,
+    TranscriptService,
     WhiteboardsService,
     WindowsService
 };
+
+export {
+    TranscriptView
+} from "./models.js";

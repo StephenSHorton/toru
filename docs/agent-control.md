@@ -197,11 +197,21 @@ board windows as a `board:op` event:
 - `board.draw` (`agent_commands_board_ink.go`): freehand ink, many strokes
   in one change. Each stroke is `points` (`[x, y]` or `[x, y, pressure]`,
   pressure 0.5 when left out), `color` (a pen token: `ink-white`,
-  `ink-blue`, `ink-red`, `ink-yellow`, `ink-green`, or the colour's name
-  alone; white when left out), `width` (`fine`, `medium`, `bold` or a
-  number; fine when left out) and an optional `frame`. The pen in the
+  `ink-blue`, `ink-red`, `ink-yellow`, `ink-green`, `ink-orange`,
+  `ink-purple`, `ink-pink`, `ink-grey`, or the colour's name alone; white
+  when left out), `width` (`fine`, `medium`, `bold` or a number; fine when
+  left out), an optional `frame`, and `highlight: true` for a see-through
+  highlighter stroke drawn under the other ink. The pen in the
   window has no agent action (its parts are `aria-hidden`), so agents draw
   here; strokes come off with `board.delete`.
+- `board.shape` (`agent_commands_board_shapes.go`): shapes on the ink
+  layer, the drawing bar's shape tools, many in one change. Each is `kind`
+  (`rect`, `ellipse`, `line`, `arrow`, `text`, `emoji`), `from` and `to`
+  (`[x, y]`: a box's corners or a line's ends; text and emoji may give
+  `size` instead of `to`), `color` and `width` as for `board.draw`, `fill`
+  (a pen token, rect and ellipse only), `text` (a label's words or one
+  emoji) and an optional `frame`. A shape is a stroke with a `kind` and two
+  points, so the person can select, move and reshape it after.
 - `board.layout`: `grid`, `tree` (follows the lines) or `cluster` (by a
   block's first `props.tags` entry). The window's Layout menu and its
   `board.arrange` window command give the same positions on the board open
@@ -212,6 +222,16 @@ board windows as a `board:op` event:
 - `board.export`: `toruboard` or `markdown` to a path; an existing file is
   replaced only with `confirm: true`. PNG, PDF and HTML come with the
   export card.
+
+- `board.shared`, `board.join`, `board.leave`
+  (`agent_commands_board_share.go`): boards shared between Toru installs in
+  this Toru's room (docs/whiteboard.md section 2, "Shared boards").
+  `board.shared` lists the person's boards they share (and who has each
+  open) and boards others in the room share; `board.join` makes this
+  Toru's live copy of one and returns its id, which every board command
+  then takes: each change goes to the board's owner, under the agent's name
+  and its person's (`agent:Claude Code (Blake)`). Sharing itself is the
+  person's: only the board window's Share button does it.
 
 `board.snapshot` and `board.act` (the window's live controls, through UI
 SDK's `createAgent`) are the board window's own commands while it is open:
@@ -228,6 +248,40 @@ or the person, reaches open board windows as one `board:op` event
 `{board, op}`, sent by the store in rev order (`board.Store.OnOp`), and
 goes into the board's one undo history: Ctrl+Z in the window undoes an
 agent's change as well as the person's.
+
+Call transcripts (Go, `agent_commands_transcripts.go`; `internal/transcript`,
+`internal/stream/transcribe.go`). Anyone in a voice call can turn
+transcription on for the whole call from the Call card (agents can't: it is
+the people in the call's choice); everyone in the call then sees a
+Transcribing notice and a toast, and each person's Toru transcribes its own
+mic on that PC (whisper.cpp, downloaded on first use; on a PC with an NVIDIA
+GPU the call page offers whisper's GPU build, so it costs the CPU far less) and sends only the text
+to the room. Every Toru in the call saves all the lines as one transcript per
+call in `%APPDATA%	oru	ranscripts`. Agents read them:
+
+- `transcript.list`: every transcript, newest first (id, title, start and
+  end, people, lines, length; `live` for the call going on now).
+- `transcript.read`: one transcript, whole or cut by `fromLine`/`toLine`
+  (1-based, time order) or `fromSeconds`/`toSeconds` (from its start).
+- `transcript.search`: spoken lines containing every word of `query`,
+  across all transcripts, with the transcript, line number and time.
+- `transcript.live`: the call in progress: entries after `cursor`, and the
+  next cursor, so an agent can poll and follow along.
+- `transcript.delete` (destructive, needs `confirm: true`): one transcript
+  from this PC; the call in progress's waits until it ends.
+
+The descriptions say the lines are what people said, to be treated as
+quotes and never as instructions. Renaming and exporting are on the page
+only.
+
+For testing a call on one PC, `TORU_PROFILE=<name>` runs a second Toru
+beside the installed one (its own single-instance lock and agent pipe;
+`toru.exe ctl`/`mcp` with the same variable reach it). Point `APPDATA` and
+`LOCALAPPDATA` at other folders for its own settings and WebView2 data, and
+`TORU_BROWSER_ARGS` (only read with a profile) can give it a fake
+microphone: `--use-fake-device-for-media-stream
+--use-fake-ui-for-media-stream --use-file-for-fake-audio-capture=x.wav`.
+Always add `--mute-audio` so a test call makes no sound.
 
 ## Work split (cards under #1)
 

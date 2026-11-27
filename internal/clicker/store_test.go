@@ -3,6 +3,7 @@ package clicker
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -42,6 +43,9 @@ func TestLoadGarbageGivesDefaults(t *testing.T) {
 }
 
 func TestLoadBOMAndPartialFile(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	dir := isolateConfig(t)
 	writeConfig(t, dir, settingsFile, "\xEF\xBB\xBF"+`{"armed": false, "profile": {"cadence": {"mode": "interval", "intervalMs": 100}}, "presets": []}`)
 	s := loadSettings()
@@ -91,6 +95,9 @@ func TestSaveRoundTripAtomic(t *testing.T) {
 }
 
 func TestStatsPersist(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: needs Windows paths, files or services (whiteboard#30)")
+	}
 	dir := isolateConfig(t)
 	if st := loadStats(); st != (Stats{}) {
 		t.Fatalf("fresh stats = %+v", st)

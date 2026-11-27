@@ -18,8 +18,23 @@
 // theme; any other CSS colour, as an agent might send, is drawn as written.
 import { bindDrag, css, definePrimitive, live } from "@ui-sdk/core"
 
+/** The shapes a stroke can be (shapes.ts); a freehand line has none. Go's `board.ShapeKinds`. */
+type ShapeKind = "rect" | "ellipse" | "line" | "arrow" | "text" | "emoji"
+
+/** What, besides its points, colour and width, makes a stroke a shape or a highlighter. */
+type InkExtras = {
+  /** A shape's kind. Its points are then exactly two: a box's corners or a line's ends. */
+  kind?: ShapeKind
+  /** A rect's or ellipse's inside colour, drawn see-through. */
+  fill?: string
+  /** A text label's words, or an emoji. */
+  text?: string
+  /** A freehand highlighter stroke: see-through, and drawn under the other ink. */
+  highlight?: boolean
+}
+
 /** A stroke's ink: points relative to its block's top left corner. */
-type InkStroke = {
+type InkStroke = InkExtras & {
   /** x, y, pressure for each point; pressure 0..1, 0.5 when the device has none. */
   points: number[]
   /** A pen token's name, like `ink-blue`, or a CSS colour. */
@@ -39,7 +54,7 @@ type InkBlock = {
 }
 
 /** A stroke as the board document keeps it (Go's `board.Stroke`). */
-type DocumentStroke = {
+type DocumentStroke = InkExtras & {
   id: string
   points: number[]
   color: string
@@ -49,13 +64,22 @@ type DocumentStroke = {
 
 type Point = { x: number; y: number }
 
-/** The pens: Toru's ink tokens, in the order the toolbar shows them. */
+/**
+ * The pens: Toru's ink tokens (index.css), in the order the drawing bar shows
+ * them. The theme's five first, then a few more. "Ink" is the theme's text
+ * colour: white on a dark board, near black on a light one. Go's `inkPens`
+ * (agent_commands_board_ink.go) lists the same.
+ */
 const inkColors = [
-  { token: "ink-white", name: "White" },
+  { token: "ink-white", name: "Ink" },
   { token: "ink-blue", name: "Blue" },
   { token: "ink-red", name: "Red" },
   { token: "ink-yellow", name: "Yellow" },
   { token: "ink-green", name: "Green" },
+  { token: "ink-orange", name: "Orange" },
+  { token: "ink-purple", name: "Purple" },
+  { token: "ink-pink", name: "Pink" },
+  { token: "ink-grey", name: "Grey" },
 ] as const
 
 /** Pen widths: Toru's `--ink-width-*` tokens, with the width used before CSS is read. */
@@ -69,6 +93,33 @@ const inkWidths = [
 const maxPoints = 20000
 /** How far, in screen pixels, the pointer moves before a new point is kept. */
 const minGap = 1.5
+/**
+ * Stroke smoothing: as each point is kept, the one before it moves this
+ * share of the way towards the middle of its neighbours, which evens out a
+ * hand's wobble while the stroke is drawn, so the draft and the finished
+ * stroke are the same line. A sharp turn (more than `cornerTurn`) is a
+ * corner the hand meant, and stays where it is, as do the first and last
+ * points. Pressure isn't touched.
+ */
+const smoothing = 0.5
+/** The cosine of the turn past which a point is a corner and isn't smoothed: 60°. */
+const cornerTurn = 0.5
+
+/** Smooths point `j` of flat triples towards its neighbours (`smoothing`), unless it's a corner or an end. */
+function smoothPoint(points: number[], j: number) {
+  const n = points.length / 3
+  if (j <= 0 || j >= n - 1) return
+  const ax = points[j * 3 - 3], ay = points[j * 3 - 2]
+  const bx = points[j * 3], by = points[j * 3 + 1]
+  const cx = points[j * 3 + 3], cy = points[j * 3 + 4]
+  const ux = bx - ax, uy = by - ay
+  const vx = cx - bx, vy = cy - by
+  const lu = Math.hypot(ux, uy)
+  const lv = Math.hypot(vx, vy)
+  if (!lu || !lv || (ux * vx + uy * vy) / (lu * lv) < cornerTurn) return
+  points[j * 3] = bx + ((ax + cx) / 2 - bx) * smoothing
+  points[j * 3 + 1] = by + ((ay + cy) / 2 - by) * smoothing
+}
 
 const tokenPattern = /^ink-[a-z0-9-]+$/
 
@@ -287,12 +338,58 @@ function inkShape(points: number[], width: number) {
     : { filled: false, d: inkPath(points) }
 }
 
+/** What a stroke is called, for screen readers and the agent bridge. */
+const strokeLabels: Record<ShapeKind, string> = {
+  rect: "Rectangle",
+  ellipse: "Ellipse",
+  line: "Line",
+  arrow: "Arrow",
+  text: "Text label",
+  emoji: "Emoji",
+}
+
+function strokeLabel(extras: InkExtras) {
+  if (extras.kind === "text" && extras.text) return `Text label: ${extras.text.split("\n")[0].slice(0, 60)}`
+  if (extras.kind === "emoji" && extras.text) return `Emoji ${extras.text}`
+  if (extras.kind) return strokeLabels[extras.kind]
+  return extras.highlight ? "Highlighter stroke" : "Ink stroke"
+}
+
+/** Only the extras that are set, so a plain stroke stays exactly as it was. */
+function cleanExtras(extras: InkExtras): InkExtras {
+  const out: InkExtras = {}
+  if (extras.kind) out.kind = extras.kind
+  if ((extras.kind === "rect" || extras.kind === "ellipse") && extras.fill) out.fill = extras.fill
+  if ((extras.kind === "text" || extras.kind === "emoji") && extras.text) out.text = extras.text
+  if (!extras.kind && extras.highlight) out.highlight = true
+  return out
+}
+
+/** The head of an arrow this wide: how long it is, from its tip. Like the screenshot editor's arrows. */
+function arrowHead(width: number) {
+  return Math.max(10, width * 3)
+}
+
+/**
+ * How far a stroke's line reaches past its points: half its widest width,
+ * an arrow's head, and nothing for a text label or emoji, whose points are
+ * its box.
+ */
+function strokePad(points: number[], width: number, extras: InkExtras) {
+  if (extras.kind === "text" || extras.kind === "emoji") return 0
+  if (extras.kind === "arrow") return Math.max(width / 2, arrowHead(width) * 0.6)
+  if (extras.kind) return width / 2
+  return (width / 2) * maxPressureScale(points)
+}
+
 /**
  * A finished stroke as a board block: its box is the line's bounds, widened by
  * half its widest width so the whole line sits inside, and its points move to
  * be relative to that box. `points` are absolute canvas x, y, pressure triples.
+ * A shape (`extras.kind`) has two points: its box's corners or its line's ends.
  */
-function strokeBlock(points: number[], color: string, width: number): InkBlock {
+function strokeBlock(points: number[], color: string, width: number, extras: InkExtras = {}): InkBlock {
+  const more = cleanExtras(extras)
   let left = Infinity
   let top = Infinity
   let right = -Infinity
@@ -303,36 +400,43 @@ function strokeBlock(points: number[], color: string, width: number): InkBlock {
     top = Math.min(top, points[i + 1])
     bottom = Math.max(bottom, points[i + 1])
   }
-  const pad = (width / 2) * maxPressureScale(points)
+  const pad = strokePad(points, width, more)
   const x = left - pad
   const y = top - pad
   const relative = points.map((v, i) =>
     i % 3 === 0 ? v - x : i % 3 === 1 ? v - y : v
   )
   return {
-    label: "Ink stroke",
+    label: strokeLabel(more),
     x,
     y,
     width: right - left + 2 * pad,
     height: bottom - top + 2 * pad,
-    ink: { points: relative, color, width },
+    ink: { points: relative, color, width, ...more },
   }
+}
+
+/** A stroke's points in canvas units, from its block. */
+function absolutePoints(block: { x: number; y: number; ink: InkStroke }) {
+  const { x, y, ink } = block
+  return ink.points.map((v, i) => (i % 3 === 0 ? v + x : i % 3 === 1 ? v + y : v))
 }
 
 /** A block's stroke as the board document keeps it: absolute points. */
 function toDocumentStroke(id: string, block: Omit<InkBlock, "label">): DocumentStroke {
-  const { x, y, ink } = block
+  const { ink } = block
   return {
     id,
-    points: ink.points.map((v, i) => (i % 3 === 0 ? v + x : i % 3 === 1 ? v + y : v)),
+    points: absolutePoints(block),
     color: ink.color,
     width: ink.width,
+    ...cleanExtras(ink),
   }
 }
 
 /** A document stroke as a board block. */
 function fromDocumentStroke(stroke: DocumentStroke): InkBlock {
-  return strokeBlock(stroke.points, stroke.color, stroke.width)
+  return strokeBlock(stroke.points, stroke.color, stroke.width, stroke)
 }
 
 /** A new stroke's id: the document's id pattern, never a ":" (board.ts). */
@@ -347,6 +451,8 @@ type InkOptions = {
   color?: string
   /** The pen's width in canvas units. Defaults to the fine pen token. */
   width?: number
+  /** A highlighter: its strokes are see-through, under the other ink, and even (no pressure). */
+  highlight?: boolean
   /** Turns a point on screen (client pixels) into canvas units, like the board viewport's `toCanvas`. */
   toCanvas?: (point: Point) => Point
   /** A stroke was finished. Its id is new and free to use. */
@@ -357,6 +463,7 @@ type InkState = {
   active: boolean
   color: string
   width: number
+  highlight: boolean
   /** The stroke being drawn, absolute canvas triples, or null. */
   draft: number[] | null
   /** Counts points added to the draft, so its path redraws. */
@@ -369,6 +476,7 @@ const ink = /* @__PURE__ */ definePrimitive({
     active: "boolean",
     color: "string",
     width: "number",
+    highlight: "boolean",
     toCanvas: "callback",
     onStroke: "callback",
   },
@@ -376,15 +484,17 @@ const ink = /* @__PURE__ */ definePrimitive({
     active: !!options.active,
     color: options.color ?? "ink-white",
     width: options.width ?? tokenWidth("ink-width-fine", 2),
+    highlight: !!options.highlight,
     draft: null,
     drawn: 0,
   }),
   sync: (options) => ({
     active: !!options.active,
+    highlight: !!options.highlight,
     ...(options.color === undefined ? {} : { color: options.color }),
     ...(options.width === undefined ? {} : { width: options.width }),
   }),
-  controlled: ["active", "color", "width"],
+  controlled: ["active", "color", "width", "highlight"],
   live: ["draft", "drawn"],
   api: (context) => {
     const { store } = context
@@ -396,8 +506,11 @@ const ink = /* @__PURE__ */ definePrimitive({
     // apart on screen), so it looks exactly like the draft: dropping points
     // would let the smoothing round off corners.
     const finish = (points: number[], source: "person") => {
-      const { color, width } = store.get()
-      const block = strokeBlock(points.slice(0, maxPoints * 3), color, width)
+      const { color, width, highlight } = store.get()
+      const kept = points.slice(0, maxPoints * 3)
+      // A highlighter's line is even: it keeps no pressure.
+      if (highlight) for (let i = 2; i < kept.length; i += 3) kept[i] = 0.5
+      const block = strokeBlock(kept, color, width, { highlight })
       context.options().onStroke?.(strokeId(), block, { source })
       return block
     }
@@ -432,6 +545,8 @@ const ink = /* @__PURE__ */ definePrimitive({
           last = at
           const p = toCanvas(at)
           points.push(p.x, p.y, pressureOf(e))
+          // The point before now has both neighbours: smooth it.
+          smoothPoint(points, points.length / 3 - 2)
         }
         add(event, true)
         store.set({ draft: points, drawn: points.length })
@@ -489,6 +604,7 @@ const ink = /* @__PURE__ */ definePrimitive({
         return {
           d: shape.d,
           "data-filled": shape.filled ? "" : undefined,
+          "data-highlight": state.highlight ? "" : undefined,
           fill: shape.filled ? inkColor(state.color) : "none",
           stroke: shape.filled ? "none" : inkColor(state.color),
           "stroke-width": String(state.width),
@@ -499,6 +615,9 @@ const ink = /* @__PURE__ */ definePrimitive({
 })
 
 export {
+  absolutePoints,
+  arrowHead,
+  cleanExtras,
   fromDocumentStroke,
   ink,
   inkColor,
@@ -510,12 +629,17 @@ export {
   maxPressureScale,
   maxPoints,
   pressureScale,
+  smoothPoint,
+  smoothing,
   strokeBlock,
+  strokeLabel,
   strokeId,
   toDocumentStroke,
   tokenWidth,
   type DocumentStroke,
   type InkBlock,
+  type InkExtras,
+  type ShapeKind,
   type InkOptions,
   type InkState,
   type InkStroke,

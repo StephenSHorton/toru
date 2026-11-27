@@ -106,8 +106,10 @@ func TestRecordingBackendFallback(t *testing.T) {
 	bogus := []string{"-y", "-f", "lavfi", "-i", "nosuchsource=broken", "-c:v", "libvpx-vp9"}
 	r := lavfiRecorder(t, bogus, lavfiArgs())
 	// The bogus backend has to die inside the grace window, and ffmpeg can
-	// take seconds just to start on a busy or freshly updated machine.
-	r.grace = 5 * time.Second
+	// take seconds just to start on a busy or freshly updated machine. The
+	// working backend waits the whole window too, so this one can't be as
+	// long as the all-failing test's: 15s covers a slow start under load.
+	r.grace = 15 * time.Second
 
 	handle, err := r.StartRecording(videoReq())
 	if err != nil {
@@ -125,8 +127,11 @@ func TestAllBackendsFailing(t *testing.T) {
 	bogus := []string{"-y", "-f", "lavfi", "-i", "nosuchsource=broken", "-c:v", "libvpx-vp9"}
 	r := lavfiRecorder(t, bogus)
 	// The bogus backend has to die inside the grace window, and ffmpeg can
-	// take seconds just to start on a busy or freshly updated machine.
-	r.grace = 5 * time.Second
+	// take many seconds just to start on a busy or freshly updated machine.
+	// A dying backend ends the wait as soon as it exits, so a long window
+	// costs nothing here; it only stops a slow start from looking like a
+	// backend that works.
+	r.grace = 2 * time.Minute
 
 	_, err := r.StartRecording(videoReq())
 	if err == nil {
@@ -152,7 +157,16 @@ func TestStopAfterPrematureExit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartRecording: %v", err)
 	}
-	time.Sleep(1500 * time.Millisecond) // let the finite input run out
+	// Let the finite input run out: wait for ffmpeg to exit, however long a
+	// busy machine makes that, rather than for a fixed time.
+	r.mu.Lock()
+	rec := r.recs[handle]
+	r.mu.Unlock()
+	select {
+	case <-rec.done:
+	case <-time.After(2 * time.Minute):
+		t.Fatal("ffmpeg didn't end on its own")
+	}
 
 	if _, err := r.StopRecording(handle); err == nil || !strings.Contains(err.Error(), "ended prematurely") {
 		t.Errorf("want premature-end error, got %v", err)

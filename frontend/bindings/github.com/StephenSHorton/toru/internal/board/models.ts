@@ -228,6 +228,14 @@ export class Board {
      */
     "types"?: BlockDef[];
 
+    /**
+     * MirrorOf is set on this Toru's copy of a board someone else shares
+     * in the room (internal/boardshare): whose board it is. While they
+     * share it, every change goes to them and theirs come back; after,
+     * it stays here as a copy.
+     */
+    "mirrorOf"?: MirrorOf | null;
+
     /** Creates a new Board instance. */
     constructor($$source: Partial<Board> = {}) {
         if (!("format" in $$source)) {
@@ -276,6 +284,7 @@ export class Board {
         const $$createField9_0 = $$createType5;
         const $$createField10_0 = $$createType7;
         const $$createField11_0 = $$createType9;
+        const $$createField12_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("frames" in $$parsedSource) {
             $$parsedSource["frames"] = $$createField7_0($$parsedSource["frames"]);
@@ -291,6 +300,9 @@ export class Board {
         }
         if ("types" in $$parsedSource) {
             $$parsedSource["types"] = $$createField11_0($$parsedSource["types"]);
+        }
+        if ("mirrorOf" in $$parsedSource) {
+            $$parsedSource["mirrorOf"] = $$createField12_0($$parsedSource["mirrorOf"]);
         }
         return new Board($$parsedSource as Partial<Board>);
     }
@@ -482,7 +494,7 @@ export class LibraryList {
      */
     static createFrom($$source: any = {}): LibraryList {
         const $$createField0_0 = $$createType9;
-        const $$createField1_0 = $$createType11;
+        const $$createField1_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("blocks" in $$parsedSource) {
             $$parsedSource["blocks"] = $$createField0_0($$parsedSource["blocks"]);
@@ -533,6 +545,49 @@ export class Link {
     static createFrom($$source: any = {}): Link {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new Link($$parsedSource as Partial<Link>);
+    }
+}
+
+/**
+ * MirrorOf says whose board a copy is: the host's peer id and name in the
+ * room, and the board's id on their Toru.
+ */
+export class MirrorOf {
+    "host": string;
+    "hostName": string;
+    "board": string;
+
+    /**
+     * Rev is the host's rev this copy last had. A copy whose own Rev is
+     * past it was changed here after it stopped following, so joining
+     * again never replaces it.
+     */
+    "rev": number;
+
+    /** Creates a new MirrorOf instance. */
+    constructor($$source: Partial<MirrorOf> = {}) {
+        if (!("host" in $$source)) {
+            this["host"] = "";
+        }
+        if (!("hostName" in $$source)) {
+            this["hostName"] = "";
+        }
+        if (!("board" in $$source)) {
+            this["board"] = "";
+        }
+        if (!("rev" in $$source)) {
+            this["rev"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new MirrorOf instance from a string or object.
+     */
+    static createFrom($$source: any = {}): MirrorOf {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new MirrorOf($$parsedSource as Partial<MirrorOf>);
     }
 }
 
@@ -593,14 +648,14 @@ export class Op {
      * Creates a new Op instance from a string or object.
      */
     static createFrom($$source: any = {}): Op {
-        const $$createField5_0 = $$createType12;
+        const $$createField5_0 = $$createType14;
         const $$createField6_0 = $$createType1;
         const $$createField7_0 = $$createType3;
         const $$createField8_0 = $$createType7;
         const $$createField9_0 = $$createType5;
-        const $$createField10_0 = $$createType13;
+        const $$createField10_0 = $$createType15;
         const $$createField11_0 = $$createType9;
-        const $$createField12_0 = $$createType12;
+        const $$createField12_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("delete" in $$parsedSource) {
             $$parsedSource["delete"] = $$createField5_0($$parsedSource["delete"]);
@@ -647,8 +702,16 @@ export enum Source {
 };
 
 /**
- * Stroke is one freehand ink line. Points is flat: x, y, pressure for each
- * point (pressure 0..1; 0.5 when the device has none).
+ * Stroke is one piece of ink: a freehand line, or a shape drawn on the ink
+ * layer. Points is flat: x, y, pressure for each point (pressure 0..1; 0.5
+ * when the device has none).
+ * 
+ * Kind is empty for a freehand line. A shape (ShapeKinds) has exactly two
+ * points: a box's opposite corners (rect, ellipse, text, emoji) or a line's
+ * two ends (line, arrow), so it stays a shape to select, move and reshape.
+ * Fill is a rect's or ellipse's inside colour, empty for none. Text is a
+ * text label's words or an emoji. Highlight marks a freehand highlighter
+ * stroke, drawn see-through and under the other ink.
  */
 export class Stroke {
     "id": string;
@@ -656,6 +719,10 @@ export class Stroke {
     "color": string;
     "width": number;
     "frame"?: string;
+    "kind"?: string;
+    "fill"?: string;
+    "text"?: string;
+    "highlight"?: boolean;
     "createdBy"?: Source;
     "updatedBy"?: Source;
 
@@ -681,7 +748,7 @@ export class Stroke {
      * Creates a new Stroke instance from a string or object.
      */
     static createFrom($$source: any = {}): Stroke {
-        const $$createField1_0 = $$createType14;
+        const $$createField1_0 = $$createType16;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("points" in $$parsedSource) {
             $$parsedSource["points"] = $$createField1_0($$parsedSource["points"]);
@@ -700,6 +767,11 @@ export class Summary {
     "createdAt": time$0.Time;
     "updatedAt": time$0.Time;
     "blocks": number;
+
+    /**
+     * MirrorOf is set on a copy of someone else's shared board.
+     */
+    "mirrorOf"?: MirrorOf | null;
     "error"?: string;
 
     /** Creates a new Summary instance. */
@@ -727,7 +799,11 @@ export class Summary {
      * Creates a new Summary instance from a string or object.
      */
     static createFrom($$source: any = {}): Summary {
+        const $$createField5_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("mirrorOf" in $$parsedSource) {
+            $$parsedSource["mirrorOf"] = $$createField5_0($$parsedSource["mirrorOf"]);
+        }
         return new Summary($$parsedSource as Partial<Summary>);
     }
 }
@@ -743,8 +819,10 @@ const $$createType6 = Stroke.createFrom;
 const $$createType7 = $Create.Array($$createType6);
 const $$createType8 = BlockDef.createFrom;
 const $$createType9 = $Create.Array($$createType8);
-const $$createType10 = BrokenBlock.createFrom;
-const $$createType11 = $Create.Array($$createType10);
-const $$createType12 = $Create.Array($Create.Any);
-const $$createType13 = $Create.Map($Create.Any, $Create.Any);
+const $$createType10 = MirrorOf.createFrom;
+const $$createType11 = $Create.Nullable($$createType10);
+const $$createType12 = BrokenBlock.createFrom;
+const $$createType13 = $Create.Array($$createType12);
 const $$createType14 = $Create.Array($Create.Any);
+const $$createType15 = $Create.Map($Create.Any, $Create.Any);
+const $$createType16 = $Create.Array($Create.Any);

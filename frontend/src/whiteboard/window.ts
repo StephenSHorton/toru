@@ -15,10 +15,16 @@ import { boardTemplates } from "./templates"
 function openLive(search = window.location.search): LiveBoard {
   const params = new URLSearchParams(search)
   const id = params.get("id") ?? ""
-  if (id) return new LiveBoard(id, params.get("link") === "http" ? httpLink() : wailsLink())
+  if (id) return new LiveBoard(id, params.get("link") === "http" ? httpLink(httpBase(params)) : wailsLink())
   const t = boardTemplates.find((t) => t.name === params.get("template"))
   if (t) return new LiveBoard(t.name, memoryLink(fileDoc(t.name, t.title, t)))
   return new LiveBoard("sample", memoryLink(sampleDoc()))
+}
+
+/** The demo server's address for this window: `&base=/__board/live-b` is the second Toru in the shared board demo. */
+function httpBase(params: URLSearchParams) {
+  const base = params.get("base")
+  return base && /^\/__board\/live(-[a-z])?$/.test(base) ? base : "/__board/live"
 }
 
 /** A board file's frames, blocks and links (sample-board.json, templates.json) as a document. */
@@ -74,4 +80,4 @@ function typing() {
   )
 }
 
-export { agentSource, openLive, sampleDoc, sourceOf, typing, withAgent }
+export { agentSource, httpBase, openLive, sampleDoc, sourceOf, typing, withAgent }
