@@ -6,6 +6,7 @@ import * as React from "react";
 import { createParts, usePart, usePrimitive, type PartProps } from "@ui-sdk/react/primitive";
 import { MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { board, boardInstructions, handleNames, sides, type BoardBlocks, type BoardBlockState, type BoardOptions } from "./board";
+import { InkDraft, InkLine, InkSurface, usePen } from "./InkView";
 import "./board.css";
 
 const handles = ["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const;
@@ -36,8 +37,13 @@ function useBoard() {
   return handle.api;
 }
 
+/** The pen: on or off, and its colour (a token name like `ink-blue`) and width. */
+type PenOptions = { active: boolean; color: string; width: number };
+
 type BoardProps = BoardOptions & {
   "aria-label": string;
+  /** The freehand pen (ink.ts). While it's on, presses on the board draw. */
+  pen?: PenOptions;
   className?: string;
   /** What each block shows, like its catalog type's render. Defaults to its label. */
   renderBlock?: (id: string, blocks: BoardBlocks) => React.ReactNode;
@@ -45,8 +51,18 @@ type BoardProps = BoardOptions & {
   children?: React.ReactNode;
 };
 
-function Board({ renderBlock, children, className, "aria-label": label, ...options }: BoardProps) {
+function Board({ renderBlock, children, className, pen: penOptions, "aria-label": label, ...options }: BoardProps) {
   const handle = usePrimitive(board, options);
+  const pen = usePen({
+    active: !!penOptions?.active,
+    color: penOptions?.color,
+    width: penOptions?.width,
+    toCanvas: ({ x, y }) => handle.api.viewport.toCanvas(x, y),
+    // A finished stroke goes on the board as a block.
+    onStroke: (id, stroke) => {
+      handle.api.addBlock(id, stroke);
+    },
+  });
   const root = usePart(handle, "root", {}, {
     "aria-label": label,
     className,
@@ -64,23 +80,39 @@ function Board({ renderBlock, children, className, "aria-label": label, ...optio
               <XIcon aria-hidden="true" />
             </parts.Unlink>
           ))}
-          {Object.keys(blocks).map((id) => (
-            <BoardBlock key={id} value={id} data-block={id} data-type={blocks[id].type}>
-              {renderBlock ? (
-                <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
-              ) : (
-                <span data-slot="board-block-label">{blocks[id].label}</span>
-              )}
-              {sides.map((side) => (
-                <BoardPart key={side} slot="port" value={`${id}:${side}`} />
-              ))}
-              {handles.map((h) => (
-                <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
-              ))}
-            </BoardBlock>
-          ))}
+          {Object.keys(blocks).map((id) => {
+            const block = blocks[id];
+            // A freehand stroke shows its line, with no ports or resize handles.
+            if (block.ink) {
+              return (
+                <BoardBlock key={id} value={id} data-block={id}>
+                  <InkLine stroke={block.ink} width={block.width} height={block.height} />
+                </BoardBlock>
+              );
+            }
+            return (
+              <BoardBlock key={id} value={id} data-block={id} data-type={block.type}>
+                {renderBlock ? (
+                  <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
+                ) : (
+                  <span data-slot="board-block-label">{block.label}</span>
+                )}
+                {sides.map((side) => (
+                  <BoardPart key={side} slot="port" value={`${id}:${side}`} />
+                ))}
+                {handles.map((h) => (
+                  <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
+                ))}
+              </BoardBlock>
+            );
+          })}
+          {/* The stroke being drawn, above the blocks. */}
+          <svg data-slot="board-lines" width="1" height="1">
+            <InkDraft pen={pen} />
+          </svg>
         </parts.World>
         <parts.Lasso />
+        <InkSurface pen={pen} />
         <div data-slot="board-controls" className="frost">
           <parts.ZoomOut>
             <MinusIcon aria-hidden="true" />
@@ -110,4 +142,4 @@ function BoardPart({ slot, value, ...props }: { slot: "port" | "handle"; value: 
   return usePart(board, slot, { value }, props, "span");
 }
 
-export { Board, useBoard, type BoardProps };
+export { Board, useBoard, type BoardProps, type PenOptions };

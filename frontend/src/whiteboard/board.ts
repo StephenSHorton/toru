@@ -43,11 +43,14 @@ import {
   type Viewport,
 } from "@ui-sdk/core"
 import { edgePath, type EdgeSide } from "./edge-path"
+import type { InkStroke } from "./ink"
 
 /**
  * A block on the board: its name, and its box in canvas units. `type` and
  * `props` are its block catalog entry and that entry's props (catalog.ts);
- * the canvas carries them along and never reads them.
+ * the canvas carries them along and never reads them. A freehand stroke
+ * (ink.ts) is a block with `ink`: it selects, lassos, moves and deletes like
+ * any block, but has no ports and doesn't resize.
  */
 type BoardBlock = {
   label: string
@@ -57,6 +60,7 @@ type BoardBlock = {
   height: number
   type?: string
   props?: Record<string, unknown>
+  ink?: InkStroke
 }
 
 /** Every block, by id. Ids don't contain ":". */
@@ -70,8 +74,12 @@ type BoardBlocks = Record<string, BoardBlock>
  */
 type BoardLine = { id: string; from: string; to: string; name?: string }
 
-type BoardBlocksChangeReason = MoveReason | ResizeReason | "imperative"
-type BoardLinesChangeReason = ConnectReason | "imperative"
+type BoardBlocksChangeReason =
+  | MoveReason
+  | ResizeReason
+  | "imperative"
+  | "delete-key"
+type BoardLinesChangeReason = ConnectReason | "imperative" | "delete-key"
 
 type BoardOptions = {
   blocks?: BoardBlocks
@@ -274,6 +282,8 @@ const board = /* @__PURE__ */ definePrimitive({
     const change = createChange(context)
     const block = (key: string) => store.get().blocks[key]
     const grid = () => store.get().grid
+    /** Whether a block is a freehand stroke, which has no ports and doesn't resize. */
+    const isInk = (key: string) => !!block(key)?.ink
 
     // Lines keep their names as blocks are renamed or lines come in unnamed.
     const name = () => {
@@ -392,7 +402,10 @@ const board = /* @__PURE__ */ definePrimitive({
     const connect = createConnect<BoardState>(context, {
       slot: "port",
       draft: "connecting",
-      canConnect: (from, to) => blockOf(from) !== blockOf(to),
+      canConnect: (from, to) =>
+        blockOf(from) !== blockOf(to) &&
+        !isInk(blockOf(from)) &&
+        !isInk(blockOf(to)),
       point: viewport.toCanvas,
       label: (port) =>
         `${block(blockOf(port))?.label ?? blockOf(port)} ${sideNames[endOf(port) as EdgeSide] ?? ""} side`,
@@ -409,6 +422,64 @@ const board = /* @__PURE__ */ definePrimitive({
         return addLine(from, to, details)
       },
     })
+
+    // Deletes blocks and strokes, the lines to them, and them from the selection.
+    const deleteBlocks = (
+      ids: string[],
+      details: { reason: "imperative" | "delete-key"; event?: Event } = {
+        reason: "imperative",
+      }
+    ) => {
+      const { blocks, lines, selected } = store.get()
+      const gone = new Set(ids.filter((id) => blocks[id]))
+      if (!gone.size) {
+        return false
+      }
+      const kept: BoardBlocks = {}
+      for (const [id, box] of Object.entries(blocks)) {
+        if (!gone.has(id)) {
+          kept[id] = box
+        }
+      }
+      const touches = (line: BoardLine) =>
+        gone.has(blockOf(line.from)) || gone.has(blockOf(line.to))
+      if (lines.some(touches)) {
+        change(
+          "lines",
+          lines.filter((line) => !touches(line)),
+          details
+        )
+      }
+      if (selected.some((id) => gone.has(id))) {
+        change(
+          "selected",
+          selected.filter((id) => !gone.has(id)),
+          details
+        )
+      }
+      return change("blocks", kept, details)
+    }
+
+    // Delete or Backspace deletes the selection, or the focused block when
+    // nothing is selected.
+    const deleteKeydown = (event: KeyboardEvent, focused?: string) => {
+      if (
+        (event.key !== "Delete" && event.key !== "Backspace") ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey
+      ) {
+        return false
+      }
+      const { selected } = store.get()
+      const ids = selected.length ? selected : focused ? [focused] : []
+      if (!ids.length) {
+        return false
+      }
+      event.preventDefault()
+      deleteBlocks(ids, { reason: "delete-key", event })
+      return true
+    }
 
     const fit = () => {
       const rect = contentRect(store.get().blocks)
@@ -454,6 +525,19 @@ const board = /* @__PURE__ */ definePrimitive({
       portPoint,
       fit,
       removeLine,
+      deleteBlocks,
+
+      /** Puts a block on the board, like a finished ink stroke. Its id mustn't contain ":". */
+      addBlock(id: string, box: BoardBlock) {
+        if (!id || id.includes(":") || block(id)) {
+          return false
+        }
+        return change(
+          "blocks",
+          { ...store.get().blocks, [id]: box },
+          { reason: "imperative" }
+        )
+      },
 
       // Agent actions (listed in `agent.actions`), in plain arguments.
 
@@ -469,11 +553,12 @@ const board = /* @__PURE__ */ definePrimitive({
       moveBlock(id: string, x: number, y: number) {
         return !!block(id) && move.moveTo(id, { x, y })
       },
-      /** Gives a block a new width and height, keeping its top left corner. */
+      /** Gives a block a new width and height, keeping its top left corner. Strokes don't resize. */
       resizeBlock(id: string, width: number, height: number) {
         const box = block(id)
         return (
           !!box &&
+          !box.ink &&
           resize.resizeTo(id, { x: box.x, y: box.y, width, height })
         )
       },
@@ -481,7 +566,7 @@ const board = /* @__PURE__ */ definePrimitive({
       connectBlocks(fromId: string, toId: string) {
         const a = block(fromId)
         const b = block(toId)
-        if (!a || !b || fromId === toId || between(fromId, toId)) {
+        if (!a || !b || a.ink || b.ink || fromId === toId || between(fromId, toId)) {
           return false
         }
         const [fromSide, toSide] = facing(a, b)
@@ -508,8 +593,11 @@ const board = /* @__PURE__ */ definePrimitive({
         if (connect.keydown(event) || move.keydown(event, key)) {
           return
         }
+        if (deleteKeydown(event, key)) {
+          return
+        }
         const arrow = resizeKey[event.key]
-        if (arrow && (event.ctrlKey || event.metaKey) && !event.altKey) {
+        if (arrow && (event.ctrlKey || event.metaKey) && !event.altKey && !isInk(key)) {
           // Ctrl with an arrow moves the block's bottom right corner.
           event.preventDefault()
           const by = event.shiftKey ? grid() * 8 : grid()
@@ -531,6 +619,7 @@ const board = /* @__PURE__ */ definePrimitive({
         const { selected } = store.get()
         if (
           (event.key === "c" || event.key === "C") &&
+          !isInk(key) &&
           !event.ctrlKey &&
           !event.metaKey &&
           !event.altKey
@@ -590,7 +679,7 @@ const board = /* @__PURE__ */ definePrimitive({
         resize.pointerdown(event, blockOf(key), endOf(key) as ResizeHandle, el)
       },
       rootKeydown(event: KeyboardEvent, el: HTMLElement) {
-        if (event.target === el) {
+        if (event.target === el && !deleteKeydown(event)) {
           viewKeydown(event)
         }
       },
@@ -692,6 +781,7 @@ const board = /* @__PURE__ */ definePrimitive({
       state: (state, { key }) => ({ selected: state.selected.includes(key) }),
       attrs: (state, part) => {
         const selected = state.selected.includes(part.key)
+        const isStroke = !!state.blocks[part.key]?.ink
         const links = state.lines
           .filter(
             (line) =>
@@ -706,11 +796,14 @@ const board = /* @__PURE__ */ definePrimitive({
           role: "option",
           "aria-roledescription": "block",
           "aria-selected": String(selected),
-          "aria-description": links.length
+          "aria-description": isStroke
+            ? "Freehand stroke."
+            : links.length
             ? `Connected ${links.join(", ")}.`
             : "Not connected.",
           tabindex: part.api.roving.tabIndex(state, part),
           "data-selected": selected ? "" : undefined,
+          "data-ink": isStroke ? "" : undefined,
           style: part.api.resize.boxStyle(state, part.key),
         }
       },
@@ -876,7 +969,7 @@ const board = /* @__PURE__ */ definePrimitive({
 /** The words the board's instructions part reads to screen readers. */
 const boardInstructions =
   "Arrow keys move to the nearest block; Shift with an arrow adds it to the selection, and Space selects. " +
-  "Alt with an arrow moves the selection; Ctrl with an arrow resizes the block. " +
+  "Alt with an arrow moves the selection; Ctrl with an arrow resizes the block. Delete removes the selection. " +
   "C connects from the focused block: arrows choose a port, Enter connects, and connecting a joined pair again disconnects it. " +
   "Plus and minus zoom, 0 goes back to 100%, 1 fits the board. Drag empty space to pan, Shift and drag to select an area."
 

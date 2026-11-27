@@ -26,6 +26,7 @@
     "test:text-style": "bun scripts/text-style-check.ts",
     "test:frost": "bun scripts/frost-check.ts",
     "test:board": "bun scripts/board-check.ts",
+    "test:ink": "bun scripts/ink-check.ts --check",
     "test:blocks": "bun scripts/blocks-check.tsx"
   },
   "dependencies": {
