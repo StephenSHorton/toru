@@ -47,15 +47,34 @@ const rect = (left: number, top: number, width: number, height: number) =>
   ok("one point draws a dot", ink.inkPath([5, 6, 0.5]) === "M5,6 L5,6");
   ok("no points, no path", ink.inkPath([]) === "");
 
-  const s = ink.strokeBlock([100, 50, 0.5, 140, 80, 0.7], "ink-blue", 4);
+  const s = ink.strokeBlock([100, 50, 0.7, 140, 80, 0.7], "ink-blue", 4);
   ok("box is the line's bounds widened by half the width", s.x === 98 && s.y === 48 && s.width === 44 && s.height === 34, s);
-  ok("points are relative to the box", s.ink.points.join() === "2,2,0.5,42,32,0.7", s.ink.points);
+  ok("points are relative to the box", s.ink.points.join() === "2,2,0.7,42,32,0.7", s.ink.points);
   ok("stroke keeps its pen", s.ink.color === "ink-blue" && s.ink.width === 4 && s.label === "Ink stroke", s);
 
   const doc = ink.toDocumentStroke("ink-1", s);
-  ok("document stroke has absolute points", doc.points.join() === "100,50,0.5,140,80,0.7", doc);
+  ok("document stroke has absolute points", doc.points.join() === "100,50,0.7,140,80,0.7", doc);
   const back = ink.fromDocumentStroke(doc);
   ok("document stroke reads back to the same block", JSON.stringify(back) === JSON.stringify(s), back);
+
+  // Pressure: a stylus stroke is a filled outline that thickens and thins.
+  ok("pressure 0.5 draws the pen's own width", ink.pressureScale(0.5) === 1);
+  ok("harder is wider, lighter is thinner", ink.pressureScale(1) > 1.5 && ink.pressureScale(0.05) < 0.5);
+  const even = [0, 0, 0.5, 10, 0, 0.5, 20, 10, 0.5, 30, 10, 0.5];
+  const evenShape = ink.inkShape(even, 4);
+  ok("even pressure (a mouse) draws today's stroked line", !evenShape.filled && evenShape.d === ink.inkPath(even), evenShape);
+  ok("even pressure keeps the box padding", ink.maxPressureScale(even) === 1);
+  const pressed = [0, 0, 0.1, 50, 0, 0.5, 100, 0, 1, 150, 0, 1];
+  const pressedShape = ink.inkShape(pressed, 4);
+  ok("changing pressure (a stylus) draws a filled outline", pressedShape.filled && pressedShape.d.includes("A") && pressedShape.d.endsWith("Z"), pressedShape.d.slice(0, 80));
+  // The outline's round ends are arcs of the line's half width at that point.
+  const radii = [...pressedShape.d.matchAll(/A([0-9.]+),/g)].map((m) => Number(m[1]));
+  ok("outline is thin where light, wide where pressed", Math.min(...radii) < 1.2 && Math.max(...radii) > 3.2, [Math.min(...radii), Math.max(...radii)]);
+  ok("outline's first piece is thinner than its last", radii[0] < radii.at(-1)!, [radii[0], radii.at(-1)]);
+  ok("outline is one smooth path of many pieces", (pressedShape.d.match(/M/g) ?? []).length > 3);
+  const box = ink.strokeBlock(pressed, "ink-blue", 4);
+  ok("a pressure stroke's box fits its widest point", Math.abs(box.y - -2 * ink.pressureScale(1)) < 1e-9 && Math.abs(box.height - 4 * ink.pressureScale(1)) < 1e-9, box);
+  ok("a pressure stroke's dot is a circle", ink.inkOutline([5, 5, 1], 4).startsWith("M"), ink.inkOutline([5, 5, 1], 4));
 
   ok("pen token drawn as its variable", ink.inkColor("ink-red") === "var(--ink-red)");
   ok("other colours drawn as written", ink.inkColor("#ff0000") === "#ff0000");
@@ -156,6 +175,22 @@ let drawn: { id: string; block: InkBlock; source: string } | null = null;
   surface.dispatchEvent(pe("pointerup", 300, 300, 0));
   await pen.settle();
   ok("a tap leaves a dot", strokes.length === 2 && strokes[1].block.ink.points.length === 3, strokes[1]?.block);
+
+  // A stylus: its draft and its stroke follow the pressure.
+  const pp = (type: string, x: number, y: number, pressure: number, buttons = 1) =>
+    new PointerEvent(type, { pointerId: 8, pointerType: "pen", clientX: x, clientY: y, button: 0, buttons, pressure, bubbles: true, cancelable: true });
+  surface.dispatchEvent(pp("pointerdown", 300, 300, 0.2));
+  for (const [x, p] of [[320, 0.4], [340, 0.6], [360, 0.8], [380, 0.9]]) {
+    surface.dispatchEvent(pp("pointermove", x, 300, p));
+    await pen.settle();
+  }
+  ok("a stylus draft is a filled outline", draft.hasAttribute("data-filled") && draft.getAttribute("fill") === "var(--ink-green)" && draft.getAttribute("stroke") === "none", draft.outerHTML.slice(0, 160));
+  surface.dispatchEvent(pp("pointerup", 380, 300, 0.9, 0));
+  await pen.settle();
+  const styl = strokes.pop()!.block;
+  ok("a stylus stroke keeps its pressures", styl.ink.points.filter((_, i) => i % 3 === 2).join() === "0.2,0.4,0.6,0.8,0.9", styl.ink.points);
+  ok("a stylus stroke draws filled", ink.inkShape(styl.ink.points, styl.ink.width).filled);
+  ok("the draft goes back to a line after", !draft.hasAttribute("data-filled"));
 
   // Escape mid-stroke drops it.
   surface.dispatchEvent(pe("pointerdown", 300, 300));
