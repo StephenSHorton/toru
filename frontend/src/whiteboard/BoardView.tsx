@@ -64,7 +64,11 @@ type BoardProps = BoardOptions & {
    */
   drawing?: DrawingSettings;
   className?: string;
-  /** What each block shows, like its catalog type's render. Defaults to its label. */
+  /**
+   * What each block shows, like its catalog type's render. Defaults to its
+   * label. It's called again only when that block (or this function)
+   * changes, so draw the block from `blocks[id]` alone.
+   */
   renderBlock?: (id: string, blocks: BoardBlocks) => React.ReactNode;
   /** Controls drawn over the board, which can call `useBoard()`. */
   children?: React.ReactNode;
@@ -127,52 +131,9 @@ function Board({ renderBlock, children, className, drawing, lineLook, selectedLi
           </svg>
           {(() => {
             // Each block, as its part.
-            const draw = (id: string) => {
-              const block = blocks[id];
-              // A freehand stroke or a shape shows its ink, with no ports or
-              // resize handles (a selected shape's handles are DrawingTools').
-              // A double click on a text label changes its words.
-              if (block.ink) {
-                const ink = block.ink;
-                return (
-                  <BoardBlock
-                    key={id}
-                    value={id}
-                    data-block={id}
-                    data-by={block.createdBy}
-                    data-shape={ink.kind}
-                    title={madeBy(block)}
-                    onDoubleClick={ink.kind === "text" && tool === "select" ? () => editText(tools, id, { ...block, ink }) : undefined}
-                  >
-                    <InkLine stroke={block.ink} width={block.width} height={block.height} />
-                    {block.locked && <Locked />}
-                  </BoardBlock>
-                );
-              }
-              return (
-                <BoardBlock key={id} value={id} data-block={id} data-type={block.type} data-by={block.createdBy}>
-                  {block.createdBy && (
-                    <span data-slot="board-block-by" data-agent={block.createdBy.startsWith("agent:") ? "" : undefined} title={madeBy(block)}>
-                      {who(block.createdBy)}
-                    </span>
-                  )}
-                  {renderBlock ? (
-                    <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
-                  ) : (
-                    <span data-slot="board-block-label">{block.label}</span>
-                  )}
-                  {block.locked && <Locked />}
-                  {sides.map((side) => (
-                    <BoardPart key={side} slot="port" value={`${id}:${side}`} />
-                  ))}
-                  {/* A locked block doesn't resize. */}
-                  {!block.locked &&
-                    handles.map((h) => (
-                      <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
-                    ))}
-                </BoardBlock>
-              );
-            };
+            const draw = (id: string) => (
+              <BlockItem key={id} id={id} block={blocks[id]} blocks={blocks} renderBlock={renderBlock} tool={tool} tools={tools} />
+            );
             // Lines' press targets go above the frames, so a line in a frame can be
             // pressed, and below the other blocks, so they never cover a port.
             const hits = onLinePress && (
@@ -280,6 +241,97 @@ function madeBy(block: { createdBy?: string; updatedBy?: string }) {
   const made = `Made by ${who(block.createdBy) === "You" ? "you" : who(block.createdBy)}`;
   if (!block.updatedBy || block.updatedBy === block.createdBy) return made;
   return `${made}, last changed by ${who(block.updatedBy) === "You" ? "you" : who(block.updatedBy)}`;
+}
+
+type BlockItemProps = {
+  id: string;
+  block: BoardBlocks[string];
+  blocks: BoardBlocks;
+  renderBlock?: BoardProps["renderBlock"];
+  /** The drawing bar's tool: a text label's words change on a double click with Select. */
+  tool: string;
+  tools: ReturnType<typeof createTools>;
+};
+
+/**
+ * One block on the board. It renders again only when its own block or
+ * `renderBlock` changes, not on every change to the board: a drop, a vote or
+ * an agent's edit then re-renders that block alone, where re-rendering every
+ * block body cost a long frame on a full board. Its parts still follow the
+ * board's selection, drags and lines by themselves. So `renderBlock` must
+ * draw a block from that block alone, as Toru's do.
+ */
+const BlockItem = React.memo(
+  function BlockItem({ id, block, blocks, renderBlock, tool, tools }: BlockItemProps) {
+    // A freehand stroke or a shape shows its ink, with no ports or resize
+    // handles (a selected shape's handles are DrawingTools'). A double click
+    // on a text label changes its words.
+    if (block.ink) {
+      const ink = block.ink;
+      return (
+        <BoardBlock
+          value={id}
+          data-block={id}
+          data-by={block.createdBy}
+          data-shape={ink.kind}
+          title={madeBy(block)}
+          onDoubleClick={ink.kind === "text" && tool === "select" ? () => editText(tools, id, { ...block, ink }) : undefined}
+        >
+          <InkLine stroke={ink} width={block.width} height={block.height} />
+          {block.locked && <Locked />}
+        </BoardBlock>
+      );
+    }
+    return (
+      <BoardBlock value={id} data-block={id} data-type={block.type} data-by={block.createdBy}>
+        {block.createdBy && (
+          <span data-slot="board-block-by" data-agent={block.createdBy.startsWith("agent:") ? "" : undefined} title={madeBy(block)}>
+            {who(block.createdBy)}
+          </span>
+        )}
+        {renderBlock ? (
+          <div data-slot="board-block-body">{renderBlock(id, blocks)}</div>
+        ) : (
+          <span data-slot="board-block-label">{block.label}</span>
+        )}
+        {block.locked && <Locked />}
+        {sides.map((side) => (
+          <BoardPart key={side} slot="port" value={`${id}:${side}`} />
+        ))}
+        {/* A locked block doesn't resize. */}
+        {!block.locked &&
+          handles.map((h) => (
+            <BoardPart key={h} slot="handle" value={`${id}:${h}`} title={`Resize from ${handleNames[h]}`} />
+          ))}
+      </BoardBlock>
+    );
+  },
+  (a, b) =>
+    a.id === b.id && a.renderBlock === b.renderBlock && a.tool === b.tool && a.tools === b.tools && sameLook(a.block, b.block),
+);
+
+/**
+ * Whether a block draws the same: everything but where it is. The board
+ * places and sizes a block's element itself, so a move or resize needn't
+ * render the block again; doing so rewrote its fields, and a field rewritten
+ * inside the board makes the browser restyle every block (UI SDK's :has()
+ * rules), a long frame on each drop. Ink blocks have no fields, so they
+ * follow every change.
+ */
+function sameLook(a: BoardBlocks[string], b: BoardBlocks[string]) {
+  if (a === b) return true;
+  return (
+    a.label === b.label &&
+    a.type === b.type &&
+    a.props === b.props &&
+    a.ink === b.ink &&
+    a.createdBy === b.createdBy &&
+    a.updatedBy === b.updatedBy &&
+    a.locked === b.locked &&
+    // An ink block is a light svg: it follows its size, and its place too,
+    // which a text label's double click edits from.
+    (!a.ink || (a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height))
+  );
 }
 
 function BoardBlock({ value, ...props }: { value: string } & PartProps<"div", BoardBlockState>) {

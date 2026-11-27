@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en" class="dark" style="color-scheme: dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Toru — Whiteboard frame times</title>
+  </head>
+  <body>
+    <!-- Vite only (not built): the whiteboard window on a board in memory,
+         for scripts/board-perf.ts to measure frame times while it pans,
+         zooms and drags. The board is window.__perfBoard (a .toruboard's
+         document) when the script sets it, else the sample board. -->
+    <div id="root" style="height: 100vh"></div>
+    <script type="module" src="/src/whiteboard/board-perf.tsx"></script>
+  </body>
+</html>

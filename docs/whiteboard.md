@@ -525,6 +525,95 @@ dark look.
   import), "New whiteboard" in the tray, and a "Send to whiteboard" action on
   Library screenshots so a capture lands on a board as an image block.
 
+### Frame times (whiteboard#23)
+
+Measured on a copy of "Boxes Inc: the game on one board" (8 frames, 45
+blocks, 15 links, 15 ink strokes; 2,270 elements in the board), in WebView2
+on DESKTOP-STEPHEN, window 1384×861, monitor at 238 Hz (4.2 ms a frame),
+production build, after the Light/Dark themes (whiteboard#25) and custom
+blocks (whiteboard#27) merged in. Time between frames over three 2.5 s runs
+of each action, main before this change and after it, in each theme:
+
+| Action | Before, light | Before, dark | After, light | After, dark |
+| --- | --- | --- | --- | --- |
+| Pan (drag empty space) | 68 fps, p95 37.5 ms, worst 50 ms | 55 fps, 41.6 ms, 50 ms | 239 fps, 4.3 ms, 13 ms | 239 fps, 4.3 ms, 25 ms |
+| Scroll (wheel pans) | 76 fps, 37.5 ms, 46 ms | 78 fps, 37.5 ms, 46 ms | 238 fps, 4.3 ms, 17 ms | 240 fps, 4.3 ms, 4 ms |
+| Zoom (Ctrl and wheel) | 134 fps, 41.6 ms, 63 ms | 128 fps, 37.5 ms, 54 ms | 240 fps, 4.3 ms, 8 ms | 240 fps, 4.3 ms, 5 ms |
+| Drag a block and drop it | 55 fps, 41.7 ms, 183 ms | 55 fps, 41.7 ms, 192 ms | 234 fps, 4.3 ms, 67 ms | 238 fps, 4.3 ms, 75 ms |
+| Click one block after another | 200 fps, 4.3 ms, 100 ms | 200 fps, 4.3 ms, 92 ms | 234 fps, 4.3 ms, 13 ms | 235 fps, 4.3 ms, 17 ms |
+
+The themes change no costs: both measure the same, before and after.
+
+What cost the frames, found in Chrome DevTools traces (style invalidation
+tracking): style recalculation of the whole board, 35–60 ms a frame.
+
+- **The zoom label rewrote its text on every store change**, so every
+  pointer move of a pan or drag. A new text node inside the board makes
+  Blink recheck UI SDK's `:has()` rules (in `@ui-sdk/core/dist/web.css`,
+  such as `:not([data-slot="field"]):has(…)`, whose subject is any element),
+  and that restyles every `[data-slot]` and `svg` under the board. Now it
+  writes into its one text node, and only when the percentage changes.
+- **Zoom was written as inherited custom properties**, `--board-zoom` on the
+  board (for the dot grid) and UI SDK's `--canvas-zoom` on the world, so each
+  zoom step restyled every element. The dot grid now takes `background-size`
+  and `background-position` from the viewport (not inherited), and the world
+  keeps only its transform.
+- **Every change to the board re-rendered every block** in React, and a
+  re-rendered block rewrote its text fields (UI SDK's `Textarea` hands React a
+  `defaultValue`, which replaces the field's text node), tripping the same
+  `:has()` restyle. Blocks are now memoized (`BlockItem` in `BoardView.tsx`)
+  and skip moves and resizes; the pen toolbar reads its width tokens once
+  instead of forcing a style recalculation while it renders.
+
+Checked and not a cost here: the four `.frost` toolbars' backdrop blur
+(frames hold the refresh rate with it on), lines and ink re-routed per move
+(under 1 ms of script a frame in all), and paint or layers (no culling
+needed at this size).
+
+What's left: one long frame (about 75 ms) the first time a person moves or
+edits a block an agent made, as its "last changed by" label changes and the
+block renders again, and any re-render of a block with a text field (typing
+in it, a vote) costs one board-wide restyle of about 30–40 ms. Both come
+from UI SDK's `:has()` rules reacting to a text node change anywhere in the
+board.
+
+The dots stay on the board: one every 24 board units from (0, 0), the same
+grid Snap to grid uses (whiteboard#24).
+
+**Measuring again.** `frontend/board-perf.html` (Vite only) opens the
+whiteboard window on a board in memory; `frontend/scripts/board-perf.ts`
+drives it over the DevTools protocol with synthetic input only, so it never
+moves the mouse or takes focus, and prints frame times per action plus where
+the main thread's time went. For WebView2, a tiny Wails app opens the page in
+a window that can't be activated and lets the mouse through:
+
+```go
+app := application.New(application.Options{
+	Name: "board-perf-host",
+	Windows: application.WindowsOptions{
+		WebviewUserDataPath: os.Args[2],
+		AdditionalBrowserArgs: []string{"--remote-debugging-port=9339",
+			"--disable-features=CalculateNativeWinOcclusion",
+			"--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"},
+	},
+})
+app.Window.NewWithOptions(application.WebviewWindowOptions{
+	Width: 1400, Height: 900, InitialPosition: application.WindowXY, X: 200, Y: 2000, // below the screens
+	URL: os.Args[1], IgnoreMouseEvents: true,
+	Windows: application.WindowsWindow{ExStyle: 0x08000000 | 0x80}, // WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+})
+_ = app.Run()
+```
+
+```sh
+cd frontend && bunx vite --host 127.0.0.1 --port 47830
+host.exe http://127.0.0.1:47830/board-perf.html <profile dir>
+bun scripts/board-perf.ts --cdp 9339 --board <copy.toruboard> --no-profile --theme dark
+```
+
+Export the board to `.toruboard` first and measure the file; the page keeps
+the board in memory and never touches Toru's store.
+
 ## 6. Build, split into cards
 
 In order. Cards 1 and 2 start when this plan is done; the rest wait on the

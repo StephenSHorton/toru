@@ -11,7 +11,9 @@
     box-sizing: border-box;
     background-color: var(--background);
     background-image: radial-gradient(circle, var(--board-dot) 1px, transparent 1.5px);
-    background-size: calc(24px * var(--board-zoom, 1)) calc(24px * var(--board-zoom, 1));
+    /* A dot every 24 board units. board.ts sets the size and position from
+       the viewport as it pans and zooms, so the dots move with the blocks. */
+    background-size: 24px 24px;
     cursor: grab;
     outline: none;
 
