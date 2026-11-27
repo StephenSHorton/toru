@@ -7,11 +7,17 @@
     cursor: crosshair;
   }
 
-  [data-slot="ink-draft"],
-  [data-slot="board-ink-line"] {
+  /* A mouse stroke is a line of one width. A stylus stroke is a filled
+     outline (ink.ts, inkShape), marked data-filled: its colour is its fill
+     attribute, and it has no stroke. */
+  :is([data-slot="ink-draft"], [data-slot="board-ink-line"]):not([data-filled]) {
     fill: none;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  :is([data-slot="ink-draft"], [data-slot="board-ink-line"])[data-filled] {
+    stroke: none;
   }
 
   /* A stroke's block has no card, border or padding: only its line shows,
