@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/StephenSHorton/toru/internal/capture"
+	"github.com/StephenSHorton/toru/internal/fx/fxtest"
 )
 
 func TestFontURL(t *testing.T) {
@@ -109,14 +112,18 @@ func TestInstalledFonts(t *testing.T) {
 	}
 }
 
-// TestCheckFont draws with real ffmpeg: Arial works, Mongolian Baiti (which
-// loads but fails in drawtext) and an unknown name don't.
+// TestCheckFont draws with real ffmpeg: Arial works, an unknown name doesn't,
+// and an installed font is refused exactly when that ffmpeg can't draw it.
+// Mongolian Baiti fails in the pinned LGPL build Toru ships but draws in newer
+// full builds (gyan.dev 8.1.2), so which way it goes depends on the ffmpeg;
+// TestCheckFontPinned holds the refusal against the shipped build.
 func TestCheckFont(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs ffmpeg; skipped with -short")
 	}
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skipf("ffmpeg not on PATH: %v", err)
+	ff, err := capture.LocateFFmpeg()
+	if err != nil {
+		t.Skipf("no ffmpeg: %v", err)
 	}
 	if FontFile("Arial") == "" {
 		t.Skip("no Arial on this machine")
@@ -128,6 +135,7 @@ func TestCheckFont(t *testing.T) {
 	if err := CheckFont(ctx, "No Such Font 123"); err == nil {
 		t.Error("an unknown font passed")
 	}
+<<<<<<< HEAD
 	// Older ffmpeg builds fail drawtext on Mongolian Baiti; 8.1 draws it.
 	// Either answer is right as long as CheckFont matches what ffmpeg does.
 	if FontFile("Mongolian Baiti") != "" {
@@ -135,6 +143,44 @@ func TestCheckFont(t *testing.T) {
 			t.Log("this ffmpeg draws Mongolian Baiti; CheckFont accepts it")
 		} else {
 			t.Logf("this ffmpeg can't draw Mongolian Baiti; CheckFont refuses it: %v", err)
+=======
+	if file := FontFile("Mongolian Baiti"); file != "" {
+		draws := exec.Command(ff, fontCheckArgs(file)...).Run() == nil
+		err := CheckFont(ctx, "Mongolian Baiti")
+		switch {
+		case !draws && err == nil:
+			t.Errorf("Mongolian Baiti passed; drawtext fails on it in %s", ff)
+		case draws && err != nil:
+			t.Errorf("Mongolian Baiti refused (%v); drawtext draws it in %s", err, ff)
+		case draws:
+			t.Logf("%s draws Mongolian Baiti; TestCheckFontPinned checks the shipped build refuses it", ff)
+		}
+	}
+}
+
+// TestCheckFontPinned runs CheckFont's ffmpeg command in the build Toru
+// ships (fxtest.PinnedFFmpeg: TORU_FFMPEG_PINNED=1 or TORU_FFMPEG, skipped
+// otherwise): Arial draws and Mongolian Baiti fails, so the picker refuses it.
+// With TORU_FFMPEG set, CheckFont itself runs that binary and must refuse it.
+func TestCheckFontPinned(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs ffmpeg; skipped with -short")
+	}
+	arial, mongolian := FontFile("Arial"), FontFile("Mongolian Baiti")
+	if arial == "" || mongolian == "" {
+		t.Skip("needs Arial and Mongolian Baiti (Windows fonts)")
+	}
+	ff := fxtest.PinnedFFmpeg(t)
+	if out, err := exec.Command(ff, fontCheckArgs(arial)...).CombinedOutput(); err != nil {
+		t.Fatalf("Arial doesn't draw in %s: %v\n%s", ff, err, out)
+	}
+	if exec.Command(ff, fontCheckArgs(mongolian)...).Run() == nil {
+		t.Errorf("Mongolian Baiti draws in %s; pick another font that fails there", ff)
+	}
+	if located, err := capture.LocateFFmpeg(); err == nil && located == ff {
+		if err := CheckFont(context.Background(), "Mongolian Baiti"); err == nil {
+			t.Error("CheckFont passed Mongolian Baiti in the shipped ffmpeg")
+>>>>>>> refs/remotes/origin/main
 		}
 	}
 }
