@@ -27,6 +27,9 @@ type Options struct {
 	Width, Height int
 	// Fragment is put after the file's address, after "#".
 	Fragment string
+	// URL, when set, is loaded instead of the file (path is then ignored):
+	// a check's page on its own local server.
+	URL string
 	// Timeout bounds starting WebView2 and loading the page (30 s if 0).
 	Timeout time.Duration
 

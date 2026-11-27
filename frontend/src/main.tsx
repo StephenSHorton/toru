@@ -19,6 +19,14 @@ import App from "./App";
     document.body.style.background = "transparent";
     document.body.style.backgroundImage = "none";
   }
+  // The whiteboard's light or slate dark theme (whiteboard/theme.ts) arrives
+  // with its lazy stylesheet; until then paint the theme's canvas, not
+  // index.css's near-black. theme.ts clears this once the theme is applied.
+  if (view === "whiteboard") {
+    const dark = new URLSearchParams(window.location.search).get("theme") === "dark";
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.body.style.background = dark ? "#323b48" : "#f9fafb";
+  }
 }
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

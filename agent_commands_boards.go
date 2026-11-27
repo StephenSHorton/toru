@@ -48,6 +48,9 @@ type boardAgentDeps struct {
 	// one, which makes the files that need no board viewer or WebView2
 	// (toruboard, markdown).
 	exporter *boardexport.Exporter
+	// blocks is the person's block library (custom block types). Nil: no
+	// library, so only built-in and board-carried types can be placed.
+	blocks *board.Library
 }
 
 // Board events.
@@ -242,17 +245,50 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 	})
 
 	reg.Register(agentctl.Command{
-		Name:        "board.catalog",
-		Description: "Every block type you can place with board.add: its type name, what it is, its default size and its props as JSON Schema.",
-		Handler: func(context.Context, json.RawMessage) (any, error) {
-			return map[string]any{"types": board.Catalog()}, nil
+		Name: "board.catalog",
+		Description: "Every block type you can place with board.add: types are Toru's built-in ones (type name, what it is, default size, props as JSON Schema); " +
+			"custom are the person's own blocks from their block library (board.block.define makes them), each with its props schema, defaults and layout. " +
+			"Give id to also list the custom types that board carries (boardTypes), which may have come from someone else. " +
+			"parts and icons are what a custom block's layout may use.",
+		Input: schema(map[string]any{"id": map[string]any{"type": "string", "description": "Optional: a board's id, to list the custom types it carries too."}}),
+		Handler: func(_ context.Context, in json.RawMessage) (any, error) {
+			var v struct {
+				ID string `json:"id"`
+			}
+			if t := strings.TrimSpace(string(in)); t != "" && t != "null" {
+				if err := json.Unmarshal(in, &v); err != nil {
+					return nil, fmt.Errorf("bad input: %w", err)
+				}
+			}
+			out := map[string]any{"types": board.Catalog(), "custom": []board.BlockDef{}}
+			if d.blocks != nil {
+				lib, err := d.blocks.List()
+				if err != nil {
+					return nil, err
+				}
+				out["custom"] = lib.Blocks
+				if len(lib.Broken) > 0 {
+					out["brokenCustom"] = lib.Broken
+				}
+			}
+			if v.ID != "" {
+				b, err := d.boards.Load(v.ID)
+				if err != nil {
+					return nil, err
+				}
+				out["boardTypes"] = orEmptyDefs(b.Types)
+			}
+			var parts map[string]json.RawMessage
+			_ = json.Unmarshal(board.BlockParts(), &parts)
+			out["parts"], out["icons"], out["propKinds"] = parts["parts"], parts["icons"], parts["propKinds"]
+			return out, nil
 		},
 	})
 
 	blockIn := obj(map[string]any{
 		"id":       str("Optional id of your own (letters, digits, - and _), to refer to the block later in this or another call. One is made if left out."),
-		"type":     str("A block type from board.catalog."),
-		"props":    propProps,
+		"type":     str("A block type from board.catalog: a built-in type, one of the person's own blocks, or a custom type the board carries."),
+		"props":    map[string]any{"type": "object", "description": "The block's props, as its type's schema in board.catalog says. For a custom block, its defaults fill in the props you leave out."},
 		"x":        numP("Left edge. Leave x and y out to place the block below what's on the board."),
 		"y":        numP("Top edge."),
 		"w":        map[string]any{"type": "number", "minimum": 0, "description": "Default: the type's size."},
@@ -260,7 +296,7 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 		"rotation": numP("Degrees, clockwise."),
 		"frame":    str("The id of a frame to sit in."),
 		"group":    str("A group id: blocks with the same group move together."),
-	}, "type", "props")
+	}, "type")
 
 	reg.Register(agentctl.Command{
 		Name: "board.add",
@@ -326,12 +362,19 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 					frameIDs = append(frameIDs, id)
 				}
 				var auto []int // blocks sent without x and y
+				types := newTypeResolver(b, d.blocks)
 				for i, x := range v.Blocks {
-					bt, ok := board.LookupType(x.Type)
-					if !ok {
-						return op, board.CheckProps(x.Type, x.Props)
+					rt, err := types.resolve(x.Type)
+					if err != nil {
+						return op, err
 					}
-					if err := board.CheckProps(x.Type, x.Props); err != nil {
+					props := x.Props
+					if rt.def != nil {
+						if props, err = withDefaults(rt.def.Defaults, x.Props); err != nil {
+							return op, fmt.Errorf("blocks[%d] (%s): %w", i, x.Type, err)
+						}
+					}
+					if err := rt.check(props); err != nil {
 						return op, fmt.Errorf("blocks[%d] (%s): %w", i, x.Type, err)
 					}
 					id, err := newID(x.ID, "blk", "block")
@@ -340,12 +383,12 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 					}
 					w, h := x.W, x.H
 					if w == 0 {
-						w = bt.W
+						w = rt.w
 					}
 					if h == 0 {
-						h = bt.H
+						h = rt.h
 					}
-					blk := board.Block{ID: id, Type: x.Type, W: w, H: h, Rotation: x.Rotation, Frame: x.Frame, Group: x.Group, Props: x.Props}
+					blk := board.Block{ID: id, Type: x.Type, W: w, H: h, Rotation: x.Rotation, Frame: x.Frame, Group: x.Group, Props: props}
 					if x.X != nil && x.Y != nil {
 						blk.X, blk.Y = *x.X, *x.Y
 					} else {
@@ -374,12 +417,20 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 						x.X, x.Y = place.next(x.W, x.H)
 					}
 				}
+				op.Types = types.added
 				return op, nil
 			})
 			if err != nil {
 				return nil, err
 			}
 			out := map[string]any{"rev": op.Rev, "blocks": orEmpty(blockIDs)}
+			if len(op.Types) > 0 {
+				var copied []string
+				for _, t := range op.Types {
+					copied = append(copied, fmt.Sprintf("%s v%d", t.Type, t.Version))
+				}
+				out["typesCopied"] = copied
+			}
 			if len(frameIDs) > 0 {
 				out["frames"] = frameIDs
 			}
@@ -456,7 +507,7 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 						if err != nil {
 							return op, fmt.Errorf("block %q: %w", u.ID, err)
 						}
-						if err := board.CheckProps(x.Type, p); err != nil {
+						if err := board.CheckBlockProps(&b, x.Type, p); err != nil {
 							return op, fmt.Errorf("block %q (%s): %w", u.ID, x.Type, err)
 						}
 						x.Props = p
@@ -929,6 +980,8 @@ func registerBoardAgentCommands(reg *agentctl.Registry, d boardAgentDeps) {
 			return map[string]any{"id": b.ID, "name": b.Name, "blocks": len(b.Blocks)}, nil
 		},
 	})
+
+	registerBoardBlockCommands(reg, d) // agent_commands_board_blocks.go
 }
 
 // itemIDs is every id on b.

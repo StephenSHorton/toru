@@ -84,6 +84,123 @@ export class Block {
 }
 
 /**
+ * BlockDef is a custom block type: one an agent designed through
+ * board.block.define (whiteboard#27), kept in the person's block library
+ * (library.go) and copied into every board that uses it, so the board
+ * renders the same on any Toru.
+ * 
+ * A definition is data only. Its layout is a tree of the parts listed in
+ * blockparts.json (text, fields, checkboxes, polls, sliders, tables...),
+ * each bound to one of the block's props, and the board window draws each
+ * part with its own UI SDK components. No markup, script or style from a
+ * definition is ever run: that keeps the plan's rule that agents never
+ * send code to the board window, which can call into Toru.
+ */
+export class BlockDef {
+    /**
+     * Type is the name blocks use, like "feature-idea". It can't be a
+     * built-in type's name.
+     */
+    "type": string;
+
+    /**
+     * what people call it, like "Feature idea"
+     */
+    "label": string;
+    "description"?: string;
+
+    /**
+     * one of blockparts.json's icons
+     */
+    "icon": string;
+
+    /**
+     * default size, world units
+     */
+    "w": number;
+    "h": number;
+
+    /**
+     * Props is the JSON Schema of a block's props, in the subset the
+     * built-in catalog uses: a closed object at the top.
+     */
+    "props": json$0.RawMessage;
+
+    /**
+     * Defaults are a new block's props; they must pass Props.
+     */
+    "defaults": json$0.RawMessage;
+
+    /**
+     * Layout is the tree of parts the block shows (blockparts.json).
+     */
+    "layout": json$0.RawMessage;
+
+    /**
+     * NameProp is the text prop that names a block, like "title": "Feature
+     * idea: Dark mode". Default: the first required text prop.
+     */
+    "nameProp"?: string;
+
+    /**
+     * Version counts the definition's changes, from 1. A board keeps the
+     * version it was given until a newer one of the same Origin replaces it.
+     */
+    "version": number;
+
+    /**
+     * Origin is the id the definition was made with. It stays the same
+     * through updates and copies, so Toru can tell a newer version of the
+     * same block from a different block that happens to share its name.
+     */
+    "origin": string;
+
+    /** Creates a new BlockDef instance. */
+    constructor($$source: Partial<BlockDef> = {}) {
+        if (!("type" in $$source)) {
+            this["type"] = "";
+        }
+        if (!("label" in $$source)) {
+            this["label"] = "";
+        }
+        if (!("icon" in $$source)) {
+            this["icon"] = "";
+        }
+        if (!("w" in $$source)) {
+            this["w"] = 0;
+        }
+        if (!("h" in $$source)) {
+            this["h"] = 0;
+        }
+        if (!("props" in $$source)) {
+            this["props"] = null;
+        }
+        if (!("defaults" in $$source)) {
+            this["defaults"] = null;
+        }
+        if (!("layout" in $$source)) {
+            this["layout"] = null;
+        }
+        if (!("version" in $$source)) {
+            this["version"] = 0;
+        }
+        if (!("origin" in $$source)) {
+            this["origin"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BlockDef instance from a string or object.
+     */
+    static createFrom($$source: any = {}): BlockDef {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new BlockDef($$parsedSource as Partial<BlockDef>);
+    }
+}
+
+/**
  * Board is one whiteboard, exactly as it is saved.
  * 
  * Coordinates are world units (CSS pixels at zoom 1), x to the right and y
@@ -107,6 +224,13 @@ export class Board {
     "blocks": Block[];
     "links": Link[];
     "ink": Stroke[];
+
+    /**
+     * Types are the custom block types the board's blocks use (BlockDef),
+     * copied in when a block of one is first placed, so the board renders
+     * on any Toru, in shared boards and in exports. Left out when none.
+     */
+    "types"?: BlockDef[];
 
     /** Creates a new Board instance. */
     constructor($$source: Partial<Board> = {}) {
@@ -155,6 +279,7 @@ export class Board {
         const $$createField8_0 = $$createType3;
         const $$createField9_0 = $$createType5;
         const $$createField10_0 = $$createType7;
+        const $$createField11_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("frames" in $$parsedSource) {
             $$parsedSource["frames"] = $$createField7_0($$parsedSource["frames"]);
@@ -168,7 +293,39 @@ export class Board {
         if ("ink" in $$parsedSource) {
             $$parsedSource["ink"] = $$createField10_0($$parsedSource["ink"]);
         }
+        if ("types" in $$parsedSource) {
+            $$parsedSource["types"] = $$createField11_0($$parsedSource["types"]);
+        }
         return new Board($$parsedSource as Partial<Board>);
+    }
+}
+
+/**
+ * BrokenBlock is a library file that can't be read, listed so it isn't
+ * silently lost.
+ */
+export class BrokenBlock {
+    "file": string;
+    "error": string;
+
+    /** Creates a new BrokenBlock instance. */
+    constructor($$source: Partial<BrokenBlock> = {}) {
+        if (!("file" in $$source)) {
+            this["file"] = "";
+        }
+        if (!("error" in $$source)) {
+            this["error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BrokenBlock instance from a string or object.
+     */
+    static createFrom($$source: any = {}): BrokenBlock {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new BrokenBlock($$parsedSource as Partial<BrokenBlock>);
     }
 }
 
@@ -309,6 +466,40 @@ export class LibraryImage {
 }
 
 /**
+ * LibraryList is the library as board.block.list and the board window see
+ * it: every block, by label, and the files that couldn't be read.
+ */
+export class LibraryList {
+    "blocks": BlockDef[];
+    "broken"?: BrokenBlock[];
+
+    /** Creates a new LibraryList instance. */
+    constructor($$source: Partial<LibraryList> = {}) {
+        if (!("blocks" in $$source)) {
+            this["blocks"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LibraryList instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LibraryList {
+        const $$createField0_0 = $$createType9;
+        const $$createField1_0 = $$createType11;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("blocks" in $$parsedSource) {
+            $$parsedSource["blocks"] = $$createField0_0($$parsedSource["blocks"]);
+        }
+        if ("broken" in $$parsedSource) {
+            $$parsedSource["broken"] = $$createField1_0($$parsedSource["broken"]);
+        }
+        return new LibraryList($$parsedSource as Partial<LibraryList>);
+    }
+}
+
+/**
  * Link is a line from one block or frame to another.
  */
 export class Link {
@@ -386,6 +577,15 @@ export class Op {
     "links"?: Link[];
     "pos"?: { [_ in string]?: number };
 
+    /**
+     * Types puts custom block type definitions on the board (BlockDef):
+     * a new type is added, a newer version of one the board has (same
+     * Origin) replaces it. DropTypes takes types off; a type a block still
+     * uses can't go. Undo uses both to put a board's types back.
+     */
+    "types"?: BlockDef[];
+    "dropTypes"?: string[];
+
     /** Creates a new Op instance. */
     constructor($$source: Partial<Op> = {}) {
         if (!("source" in $$source)) {
@@ -399,12 +599,14 @@ export class Op {
      * Creates a new Op instance from a string or object.
      */
     static createFrom($$source: any = {}): Op {
-        const $$createField5_0 = $$createType8;
+        const $$createField5_0 = $$createType12;
         const $$createField6_0 = $$createType1;
         const $$createField7_0 = $$createType3;
         const $$createField8_0 = $$createType7;
         const $$createField9_0 = $$createType5;
-        const $$createField10_0 = $$createType9;
+        const $$createField10_0 = $$createType13;
+        const $$createField11_0 = $$createType9;
+        const $$createField12_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("delete" in $$parsedSource) {
             $$parsedSource["delete"] = $$createField5_0($$parsedSource["delete"]);
@@ -423,6 +625,12 @@ export class Op {
         }
         if ("pos" in $$parsedSource) {
             $$parsedSource["pos"] = $$createField10_0($$parsedSource["pos"]);
+        }
+        if ("types" in $$parsedSource) {
+            $$parsedSource["types"] = $$createField11_0($$parsedSource["types"]);
+        }
+        if ("dropTypes" in $$parsedSource) {
+            $$parsedSource["dropTypes"] = $$createField12_0($$parsedSource["dropTypes"]);
         }
         return new Op($$parsedSource as Partial<Op>);
     }
@@ -480,7 +688,7 @@ export class Stroke {
      * Creates a new Stroke instance from a string or object.
      */
     static createFrom($$source: any = {}): Stroke {
-        const $$createField1_0 = $$createType10;
+        const $$createField1_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("points" in $$parsedSource) {
             $$parsedSource["points"] = $$createField1_0($$parsedSource["points"]);
@@ -540,6 +748,10 @@ const $$createType4 = Link.createFrom;
 const $$createType5 = $Create.Array($$createType4);
 const $$createType6 = Stroke.createFrom;
 const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = $Create.Array($Create.Any);
-const $$createType9 = $Create.Map($Create.Any, $Create.Any);
-const $$createType10 = $Create.Array($Create.Any);
+const $$createType8 = BlockDef.createFrom;
+const $$createType9 = $Create.Array($$createType8);
+const $$createType10 = BrokenBlock.createFrom;
+const $$createType11 = $Create.Array($$createType10);
+const $$createType12 = $Create.Array($Create.Any);
+const $$createType13 = $Create.Map($Create.Any, $Create.Any);
+const $$createType14 = $Create.Array($Create.Any);

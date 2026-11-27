@@ -7,7 +7,7 @@
 //   (board_live_demo_test.go), where there's no Wails.
 // - `memoryLink`: a store in the page that applies ops the way Go does,
 //   for the sample board (no board id) and the window's checks.
-import { findItem, listKeys, put, type BoardDoc, type BoardOp, type DocItem, type ListKey } from "./document"
+import { findItem, listKeys, put, putTypes, type BoardDoc, type BoardOp, type DocItem, type ListKey } from "./document"
 import type { BoardLink } from "./live"
 
 // ── Toru ────────────────────────────────────────────────────────────────
@@ -139,10 +139,35 @@ function memoryLink(start: BoardDoc): MemoryLink {
         if (k !== "blocks" && k !== "frames") throw new Error(`link "${l.id}" ends at "${end}", which isn't a block or frame on the board`)
       }
     }
+    // Custom block types, as Go's applier.types: a type the board has is
+    // only replaced by a newer version of the same block.
+    const touchedTypes: string[] = []
+    for (const t of op.dropTypes ?? []) {
+      if (!b.types?.some((d) => d.type === t)) throw new Error(`the board has no custom block type "${t}"`)
+      touchedTypes.push(t)
+    }
+    const putting = (op.types ?? []).filter((d) => {
+      const was = b.types?.find((x) => x.type === d.type)
+      if (!was || restore) return true
+      if (was.origin !== d.origin) throw new Error(`this board already has a different block type called "${d.type}"`)
+      if (d.version < was.version) throw new Error(`this board has a newer version of block type "${d.type}"`)
+      return d.version > was.version
+    })
+    for (const d of putting) touchedTypes.push(d.type)
+    if (touchedTypes.length) b.types = putTypes(b.types, structuredClone(putting), op.dropTypes)
     if (op.name !== undefined) b.name = op.name
     b = { ...b, rev: before.rev + 1, updatedAt: new Date().toISOString() }
     const fwd = { ...restoreOp(b, touched), rev: b.rev, at: b.updatedAt, kind, source: op.source } as BoardOp
     const inv = restoreOp(before, touched)
+    const typesIn = (d: BoardDoc, into: BoardOp) => {
+      for (const t of touchedTypes) {
+        const def = d.types?.find((x) => x.type === t)
+        if (def) (into.types ??= []).push(structuredClone(def))
+        else (into.dropTypes ??= []).push(t)
+      }
+    }
+    typesIn(b, fwd)
+    typesIn(before, inv)
     if (op.name !== undefined) {
       fwd.name = b.name
       inv.name = before.name

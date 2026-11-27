@@ -55,6 +55,10 @@ type Board struct {
 	Blocks []Block  `json:"blocks"`
 	Links  []Link   `json:"links"`
 	Ink    []Stroke `json:"ink"`
+	// Types are the custom block types the board's blocks use (BlockDef),
+	// copied in when a block of one is first placed, so the board renders
+	// on any Toru, in shared boards and in exports. Left out when none.
+	Types []BlockDef `json:"types,omitempty"`
 }
 
 // Meta says who made an item and who last changed it, as Sources. Apply
@@ -206,10 +210,38 @@ func Decode(data []byte) (Board, error) {
 		return Board{}, errors.New("not a Toru board file: extra data after the board")
 	}
 	b.fill()
+	b.dropBadTypes()
 	if err := b.Validate(); err != nil {
 		return Board{}, err
 	}
 	return b, nil
+}
+
+// dropBadTypes leaves out custom block types a file carries that don't
+// pass their check (or repeat a name), so a board from a newer or broken
+// Toru still opens: its blocks of those types show as plain placeholder
+// cards.
+func (b *Board) dropBadTypes() {
+	if len(b.Types) == 0 {
+		b.Types = nil
+		return
+	}
+	seen := map[string]bool{}
+	out := make([]BlockDef, 0, len(b.Types))
+	for _, d := range b.Types {
+		if seen[d.Type] || d.Check() != nil {
+			continue
+		}
+		seen[d.Type] = true
+		out = append(out, d)
+	}
+	if len(out) > MaxBoardTypes {
+		out = out[:MaxBoardTypes]
+	}
+	if len(out) == 0 {
+		out = nil
+	}
+	b.Types = out
 }
 
 // fill gives a board's nil lists their empty value, so they save as [].
@@ -287,7 +319,28 @@ func (b *Board) Validate() error {
 			return err
 		}
 	}
+	if err := b.checkTypes(); err != nil {
+		return err
+	}
 	return b.checkRefs(kinds)
+}
+
+// checkTypes checks the board's custom block types.
+func (b *Board) checkTypes() error {
+	if len(b.Types) > MaxBoardTypes {
+		return fmt.Errorf("the board has %d custom block types, more than %d", len(b.Types), MaxBoardTypes)
+	}
+	seen := map[string]bool{}
+	for i := range b.Types {
+		if err := b.Types[i].Check(); err != nil {
+			return err
+		}
+		if seen[b.Types[i].Type] {
+			return fmt.Errorf("custom block type %q is on the board twice", b.Types[i].Type)
+		}
+		seen[b.Types[i].Type] = true
+	}
+	return nil
 }
 
 // checkRefs checks that frames and link ends exist. kinds maps every id on

@@ -106,6 +106,9 @@ type Exporter struct {
 	WebViewDir string
 	// Now is the export's time (time.Now if nil).
 	Now func() time.Time
+	// Theme is the whiteboard theme the HTML, PNG and PDF are drawn in,
+	// "light" or "dark" (light if nil or empty).
+	Theme func() string
 
 	mu sync.Mutex // one export WebView2 at a time
 }
@@ -141,8 +144,15 @@ func (e *Exporter) now() time.Time {
 	return time.Now()
 }
 
-// HTML is b as one standalone page: the board viewer with the board and its
-// pictures (as data: URLs) inside.
+func (e *Exporter) theme() string {
+	if e.Theme != nil && e.Theme() == "dark" {
+		return "dark"
+	}
+	return "light"
+}
+
+// HTML is b as one standalone page: the board viewer with the board, its
+// pictures (as data: URLs) and the whiteboard theme inside.
 func (e *Exporter) HTML(b board.Board) ([]byte, error) {
 	if e.Viewer == nil {
 		return nil, ErrNoViewer
@@ -164,7 +174,7 @@ func (e *Exporter) HTML(b board.Board) ([]byte, error) {
 	}
 	// json.Marshal escapes <, > and &, so nothing in the board (a note
 	// saying "</script>") can end the script early.
-	payload, err := json.Marshal(map[string]any{"board": b, "images": images, "exportedAt": e.now().UTC().Format(time.RFC3339)})
+	payload, err := json.Marshal(map[string]any{"board": b, "images": images, "theme": e.theme(), "exportedAt": e.now().UTC().Format(time.RFC3339)})
 	if err != nil {
 		return nil, err
 	}
