@@ -25,6 +25,12 @@ import { StreamService, StreamState } from "@/lib/api";
 // element kept attached but muted so Chromium keeps the remote track
 // flowing. Deafen silences both paths; the speaking meter always reads the
 // unscaled stream.
+//
+// While the call is being transcribed (call.transcribe.mine: on, this PC has
+// the speech model, and we're not muted), a second worklet cuts our own mic
+// as sent into stretches of speech and hands them to
+// StreamService.TranscribeSegment, which transcribes them on this PC and
+// sends only the text to the room (internal/stream/transcribe.go).
 
 // iceServers is the shared ICE list (STUN, plus TURN with fresh
 // credentials when a relay is set up), asked for before each connection.
@@ -82,7 +88,73 @@ class Meter extends AudioWorkletProcessor {
   }
 }
 registerProcessor("toru-meter", Meter);
+
+// Speech: while on, cuts the mic (as sent) into stretches of speech for
+// transcription. It brings the audio down to 16 kHz mono, measures 20 ms
+// frames, and starts a stretch at the first loud frame (with 300 ms before
+// it), ending it after 700 ms of quiet or at 20 s. Stretches with under
+// 300 ms of speech are dropped. Each goes to the window as 16-bit samples
+// with its start and end on the audio clock.
+class Speech extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.on = false;
+    this.step = Math.max(1, Math.round(sampleRate / 16000));
+    this.acc = 0; this.accN = 0;
+    this.frame = new Float32Array(320); this.fn = 0;
+    this.pre = []; this.seg = null;
+    this.port.onmessage = (e) => { this.on = !!e.data.on; if (!this.on) { this.pre = []; this.seg = null; this.fn = 0; } };
+  }
+  flush(now) {
+    const seg = this.seg; this.seg = null;
+    if (!seg || seg.speech < 15) return;
+    const keep = Math.max(seg.frames.length - Math.max(seg.silence - 15, 0), 1);
+    const pcm = new Int16Array(keep * 320);
+    for (let f = 0; f < keep; f++) {
+      const fr = seg.frames[f];
+      for (let i = 0; i < 320; i++) { const v = Math.max(-1, Math.min(1, fr[i])); pcm[f * 320 + i] = v < 0 ? v * 32768 : v * 32767; }
+    }
+    const end = now - Math.max(seg.silence - 15, 0) * 0.02;
+    this.port.postMessage({ start: seg.start, end, pcm: pcm.buffer }, [pcm.buffer]);
+  }
+  process(inputs) {
+    if (!this.on) return true;
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) return true;
+    for (let i = 0; i < ch.length; i++) {
+      this.acc += ch[i]; this.accN++;
+      if (this.accN < this.step) continue;
+      this.frame[this.fn++] = this.acc / this.accN; this.acc = 0; this.accN = 0;
+      if (this.fn < 320) continue;
+      this.fn = 0;
+      const fr = this.frame.slice();
+      let e = 0; for (let k = 0; k < 320; k++) e += fr[k] * fr[k];
+      const loud = Math.sqrt(e / 320) > 0.01;
+      const now = currentTime + i / sampleRate;
+      if (!this.seg) {
+        this.pre.push(fr); if (this.pre.length > 15) this.pre.shift();
+        if (loud) { this.seg = { frames: this.pre, start: now - this.pre.length * 0.02, speech: 1, silence: 0 }; this.pre = []; }
+        continue;
+      }
+      this.seg.frames.push(fr);
+      if (loud) { this.seg.speech++; this.seg.silence = 0; } else this.seg.silence++;
+      if (this.seg.silence >= 35 || this.seg.frames.length >= 1000) this.flush(now);
+    }
+    return true;
+  }
+}
+registerProcessor("toru-speech", Speech);
 `;
+
+// base64 of a byte buffer, in chunks (a 20 s stretch is 640 KB).
+function toBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
 
 function payload<T>(d: unknown): T | null {
   const v = Array.isArray(d) ? d[0] : d;
@@ -139,12 +211,18 @@ class CallEngine {
   // listens to it.
   micBus: GainNode;
   denoiser: Promise<Denoiser> | null = null;
+  // speech cuts our own (sent) mic into stretches for transcription while
+  // the call is being transcribed (call.transcribe.mine).
+  speech?: AudioWorkletNode;
+  transcribing = false;
   muted = false;
   deafened = false;
   speaker = "";
   volumes: Record<string, number> = {};
   lastSpeak = new Map<string, number>();
   lastReport = "";
+  lastStats = 0;
+  audioStats: Record<string, Record<string, number>> | null = null;
   closed = false;
   reportTimer: number;
 
@@ -177,10 +255,40 @@ class CallEngine {
     const peers: Record<string, string> = {};
     this.peers.forEach((p, id) => (peers[id] = p.pc.connectionState));
     speaking.sort();
+    if (now - this.lastStats > 3000) {
+      this.lastStats = now;
+      void this.collectStats();
+    }
+    const audio = this.audioStats;
+    this.audioStats = null;
     const key = JSON.stringify([speaking, peers]);
-    if (key === this.lastReport) return;
+    if (key === this.lastReport && !audio) return;
     this.lastReport = key;
-    void StreamService.CallReport({ speaking, peers }).catch(() => {});
+    void StreamService.CallReport({ speaking, peers, audio: audio ?? undefined } as Parameters<typeof StreamService.CallReport>[0]).catch(() => {});
+  }
+
+  // collectStats reads each peer's incoming audio stats (loss, jitter,
+  // concealment) for the next report: call.status shows them.
+  async collectStats() {
+    const out: Record<string, Record<string, number>> = {};
+    for (const [id, p] of this.peers) {
+      try {
+        const stats = await p.pc.getStats();
+        stats.forEach((r: Record<string, unknown>) => {
+          if (r.type !== "inbound-rtp" || r.kind !== "audio") return;
+          out[id] = {
+            packetsReceived: Number(r.packetsReceived ?? 0),
+            packetsLost: Number(r.packetsLost ?? 0),
+            jitter: Number(r.jitter ?? 0),
+            concealedSamples: Number(r.concealedSamples ?? 0),
+            totalSamples: Number(r.totalSamplesReceived ?? 0),
+          };
+        });
+      } catch {
+        // closed mid-read
+      }
+    }
+    this.audioStats = out;
   }
 
   // apply brings the engine in line with the Go side's state.
@@ -211,6 +319,8 @@ class CallEngine {
       if (ctx.setSinkId) void ctx.setSinkId(this.speaker).catch(() => {});
     }
 
+    void this.setTranscribing(!!call.transcribe?.mine && !call.muted);
+
     const want = new Set((st.room?.members ?? []).filter((m) => m.inCall).map((m) => m.id));
     for (const id of [...this.peers.keys()]) {
       if (!want.has(id)) {
@@ -224,6 +334,31 @@ class CallEngine {
         else void StreamService.CallSend(id, "hello", "").catch(() => {});
       }
     }
+  }
+
+  // setTranscribing starts or stops sending our own speech to be
+  // transcribed (on this PC; only the text goes to the room).
+  async setTranscribing(on: boolean) {
+    if (on === this.transcribing) return;
+    this.transcribing = on;
+    if (on && !this.speech) {
+      await this.workletReady;
+      if (this.closed) return;
+      const node = new AudioWorkletNode(this.ctx, "toru-speech");
+      node.port.onmessage = (e) => {
+        const d = e.data as { start: number; end: number; pcm: ArrayBuffer };
+        // Audio clock -> wall clock.
+        const now = Date.now();
+        const at = Math.round(now - (this.ctx.currentTime - d.start) * 1000);
+        const end = Math.round(now - (this.ctx.currentTime - d.end) * 1000);
+        void StreamService.TranscribeSegment(at, end, toBase64(d.pcm)).catch(() => {});
+      };
+      const sink = this.ctx.createGain();
+      sink.gain.value = 0;
+      this.micBus.connect(node).connect(sink).connect(this.ctx.destination);
+      this.speech = node;
+    }
+    this.speech?.port.postMessage({ on: this.transcribing });
   }
 
   setSink(a: HTMLAudioElement) {

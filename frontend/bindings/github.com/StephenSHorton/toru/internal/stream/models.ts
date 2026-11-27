@@ -5,6 +5,10 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as transcript$0 from "../transcript/models.js";
+
 /**
  * CallReport is what the call window reports a few times a second.
  */
@@ -14,6 +18,12 @@ export class CallReport {
      */
     "speaking": string[];
     "peers": { [_ in string]?: string };
+
+    /**
+     * Audio is each peer's incoming audio so far (WebRTC inbound-rtp
+     * stats), refreshed every few seconds; nil = unchanged.
+     */
+    "audio"?: { [_ in string]?: PeerAudio };
 
     /** Creates a new CallReport instance. */
     constructor($$source: Partial<CallReport> = {}) {
@@ -33,12 +43,16 @@ export class CallReport {
     static createFrom($$source: any = {}): CallReport {
         const $$createField0_0 = $$createType0;
         const $$createField1_0 = $$createType1;
+        const $$createField2_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("speaking" in $$parsedSource) {
             $$parsedSource["speaking"] = $$createField0_0($$parsedSource["speaking"]);
         }
         if ("peers" in $$parsedSource) {
             $$parsedSource["peers"] = $$createField1_0($$parsedSource["peers"]);
+        }
+        if ("audio" in $$parsedSource) {
+            $$parsedSource["audio"] = $$createField2_0($$parsedSource["audio"]);
         }
         return new CallReport($$parsedSource as Partial<CallReport>);
     }
@@ -116,6 +130,16 @@ export class CallState {
      */
     "volumes": { [_ in string]?: number };
 
+    /**
+     * Transcribe is the call's transcription (transcribe.go).
+     */
+    "transcribe": TranscribeState;
+
+    /**
+     * Audio is how each other person's audio is arriving (see PeerAudio).
+     */
+    "audio": { [_ in string]?: PeerAudio };
+
     /** Creates a new CallState instance. */
     constructor($$source: Partial<CallState> = {}) {
         if (!("inCall" in $$source)) {
@@ -145,6 +169,12 @@ export class CallState {
         if (!("volumes" in $$source)) {
             this["volumes"] = {};
         }
+        if (!("transcribe" in $$source)) {
+            this["transcribe"] = (new TranscribeState());
+        }
+        if (!("audio" in $$source)) {
+            this["audio"] = {};
+        }
 
         Object.assign(this, $$source);
     }
@@ -154,13 +184,21 @@ export class CallState {
      */
     static createFrom($$source: any = {}): CallState {
         const $$createField7_0 = $$createType1;
-        const $$createField8_0 = $$createType2;
+        const $$createField8_0 = $$createType4;
+        const $$createField9_0 = $$createType5;
+        const $$createField10_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("peers" in $$parsedSource) {
             $$parsedSource["peers"] = $$createField7_0($$parsedSource["peers"]);
         }
         if ("volumes" in $$parsedSource) {
             $$parsedSource["volumes"] = $$createField8_0($$parsedSource["volumes"]);
+        }
+        if ("transcribe" in $$parsedSource) {
+            $$parsedSource["transcribe"] = $$createField9_0($$parsedSource["transcribe"]);
+        }
+        if ("audio" in $$parsedSource) {
+            $$parsedSource["audio"] = $$createField10_0($$parsedSource["audio"]);
         }
         return new CallState($$parsedSource as Partial<CallState>);
     }
@@ -400,7 +438,7 @@ export class LanState {
      * Creates a new LanState instance from a string or object.
      */
     static createFrom($$source: any = {}): LanState {
-        const $$createField10_0 = $$createType4;
+        const $$createField10_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("peers" in $$parsedSource) {
             $$parsedSource["peers"] = $$createField10_0($$parsedSource["peers"]);
@@ -533,8 +571,8 @@ export class LiveStatus {
      * Creates a new LiveStatus instance from a string or object.
      */
     static createFrom($$source: any = {}): LiveStatus {
-        const $$createField4_0 = $$createType5;
-        const $$createField5_0 = $$createType7;
+        const $$createField4_0 = $$createType8;
+        const $$createField5_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("info" in $$parsedSource) {
             $$parsedSource["info"] = $$createField4_0($$parsedSource["info"]);
@@ -601,8 +639,8 @@ export class Member {
      * Creates a new Member instance from a string or object.
      */
     static createFrom($$source: any = {}): Member {
-        const $$createField2_0 = $$createType8;
-        const $$createField7_0 = $$createType10;
+        const $$createField2_0 = $$createType11;
+        const $$createField7_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("live" in $$parsedSource) {
             $$parsedSource["live"] = $$createField2_0($$parsedSource["live"]);
@@ -685,12 +723,55 @@ export class Offer {
      * Creates a new Offer instance from a string or object.
      */
     static createFrom($$source: any = {}): Offer {
-        const $$createField3_0 = $$createType5;
+        const $$createField3_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("info" in $$parsedSource) {
             $$parsedSource["info"] = $$createField3_0($$parsedSource["info"]);
         }
         return new Offer($$parsedSource as Partial<Offer>);
+    }
+}
+
+/**
+ * PeerAudio is how one person's audio has been arriving since the
+ * connection started: packets received and lost, the jitter now (seconds),
+ * and how many samples had to be concealed (made up to cover gaps) out of
+ * all played.
+ */
+export class PeerAudio {
+    "packetsReceived": number;
+    "packetsLost": number;
+    "jitter": number;
+    "concealedSamples": number;
+    "totalSamples": number;
+
+    /** Creates a new PeerAudio instance. */
+    constructor($$source: Partial<PeerAudio> = {}) {
+        if (!("packetsReceived" in $$source)) {
+            this["packetsReceived"] = 0;
+        }
+        if (!("packetsLost" in $$source)) {
+            this["packetsLost"] = 0;
+        }
+        if (!("jitter" in $$source)) {
+            this["jitter"] = 0;
+        }
+        if (!("concealedSamples" in $$source)) {
+            this["concealedSamples"] = 0;
+        }
+        if (!("totalSamples" in $$source)) {
+            this["totalSamples"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PeerAudio instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PeerAudio {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PeerAudio($$parsedSource as Partial<PeerAudio>);
     }
 }
 
@@ -767,7 +848,7 @@ export class RoomState {
      * Creates a new RoomState instance from a string or object.
      */
     static createFrom($$source: any = {}): RoomState {
-        const $$createField3_0 = $$createType12;
+        const $$createField3_0 = $$createType15;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("members" in $$parsedSource) {
             $$parsedSource["members"] = $$createField3_0($$parsedSource["members"]);
@@ -993,7 +1074,7 @@ export class Settings {
      * Creates a new Settings instance from a string or object.
      */
     static createFrom($$source: any = {}): Settings {
-        const $$createField20_0 = $$createType2;
+        const $$createField20_0 = $$createType4;
         const $$createField21_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("peerVolumes" in $$parsedSource) {
@@ -1057,10 +1138,10 @@ export class State {
      * Creates a new State instance from a string or object.
      */
     static createFrom($$source: any = {}): State {
-        const $$createField2_0 = $$createType14;
-        const $$createField3_0 = $$createType15;
-        const $$createField4_0 = $$createType16;
-        const $$createField5_0 = $$createType17;
+        const $$createField2_0 = $$createType17;
+        const $$createField3_0 = $$createType18;
+        const $$createField4_0 = $$createType19;
+        const $$createField5_0 = $$createType20;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("room" in $$parsedSource) {
             $$parsedSource["room"] = $$createField2_0($$parsedSource["room"]);
@@ -1075,6 +1156,106 @@ export class State {
             $$parsedSource["relay"] = $$createField5_0($$parsedSource["relay"]);
         }
         return new State($$parsedSource as Partial<State>);
+    }
+}
+
+/**
+ * TranscribeState is the call's transcription as the call card shows it.
+ */
+export class TranscribeState {
+    "on": boolean;
+
+    /**
+     * who turned it on (or off)
+     */
+    "by": string;
+
+    /**
+     * when, unix ms
+     */
+    "since": number;
+
+    /**
+     * the id this call's lines are saved under, "" before any
+     */
+    "transcript": string;
+
+    /**
+     * this PC's speech model
+     */
+    "engine": transcript$0.EngineStatus;
+
+    /**
+     * our own speech is being transcribed now
+     */
+    "mine": boolean;
+
+    /** Creates a new TranscribeState instance. */
+    constructor($$source: Partial<TranscribeState> = {}) {
+        if (!("on" in $$source)) {
+            this["on"] = false;
+        }
+        if (!("by" in $$source)) {
+            this["by"] = "";
+        }
+        if (!("since" in $$source)) {
+            this["since"] = 0;
+        }
+        if (!("transcript" in $$source)) {
+            this["transcript"] = "";
+        }
+        if (!("engine" in $$source)) {
+            this["engine"] = (new transcript$0.EngineStatus());
+        }
+        if (!("mine" in $$source)) {
+            this["mine"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TranscribeState instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TranscribeState {
+        const $$createField4_0 = $$createType21;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("engine" in $$parsedSource) {
+            $$parsedSource["engine"] = $$createField4_0($$parsedSource["engine"]);
+        }
+        return new TranscribeState($$parsedSource as Partial<TranscribeState>);
+    }
+}
+
+/**
+ * TranscriptEntry is one new entry of the call's transcript.
+ */
+export class TranscriptEntry {
+    "transcript": string;
+    "entry": transcript$0.Entry;
+
+    /** Creates a new TranscriptEntry instance. */
+    constructor($$source: Partial<TranscriptEntry> = {}) {
+        if (!("transcript" in $$source)) {
+            this["transcript"] = "";
+        }
+        if (!("entry" in $$source)) {
+            this["entry"] = (new transcript$0.Entry());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TranscriptEntry instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TranscriptEntry {
+        const $$createField1_0 = $$createType22;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("entry" in $$parsedSource) {
+            $$parsedSource["entry"] = $$createField1_0($$parsedSource["entry"]);
+        }
+        return new TranscriptEntry($$parsedSource as Partial<TranscriptEntry>);
     }
 }
 
@@ -1113,19 +1294,24 @@ export class ViewerInfo {
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
 const $$createType1 = $Create.Map($Create.Any, $Create.Any);
-const $$createType2 = $Create.Map($Create.Any, $Create.Any);
-const $$createType3 = LanPeer.createFrom;
-const $$createType4 = $Create.Map($Create.Any, $$createType3);
-const $$createType5 = LiveInfo.createFrom;
-const $$createType6 = ViewerInfo.createFrom;
-const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = $Create.Nullable($$createType5);
-const $$createType9 = LanInfo.createFrom;
-const $$createType10 = $Create.Nullable($$createType9);
-const $$createType11 = Member.createFrom;
-const $$createType12 = $Create.Array($$createType11);
-const $$createType13 = RoomState.createFrom;
-const $$createType14 = $Create.Nullable($$createType13);
-const $$createType15 = LiveStatus.createFrom;
-const $$createType16 = CallState.createFrom;
-const $$createType17 = RelayStatus.createFrom;
+const $$createType2 = PeerAudio.createFrom;
+const $$createType3 = $Create.Map($Create.Any, $$createType2);
+const $$createType4 = $Create.Map($Create.Any, $Create.Any);
+const $$createType5 = TranscribeState.createFrom;
+const $$createType6 = LanPeer.createFrom;
+const $$createType7 = $Create.Map($Create.Any, $$createType6);
+const $$createType8 = LiveInfo.createFrom;
+const $$createType9 = ViewerInfo.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = $Create.Nullable($$createType8);
+const $$createType12 = LanInfo.createFrom;
+const $$createType13 = $Create.Nullable($$createType12);
+const $$createType14 = Member.createFrom;
+const $$createType15 = $Create.Array($$createType14);
+const $$createType16 = RoomState.createFrom;
+const $$createType17 = $Create.Nullable($$createType16);
+const $$createType18 = LiveStatus.createFrom;
+const $$createType19 = CallState.createFrom;
+const $$createType20 = RelayStatus.createFrom;
+const $$createType21 = transcript$0.EngineStatus.createFrom;
+const $$createType22 = transcript$0.Entry.createFrom;

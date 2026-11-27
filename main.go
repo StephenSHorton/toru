@@ -35,6 +35,7 @@ import (
 	"github.com/StephenSHorton/toru/internal/share"
 	"github.com/StephenSHorton/toru/internal/shot"
 	"github.com/StephenSHorton/toru/internal/stream"
+	"github.com/StephenSHorton/toru/internal/transcript"
 	"github.com/StephenSHorton/toru/internal/transfer"
 	"github.com/StephenSHorton/toru/internal/update"
 	"github.com/StephenSHorton/toru/internal/upload"
@@ -97,6 +98,7 @@ func init() {
 	application.RegisterEvent[stream.CallSignal](stream.EventCallSignal)
 	application.RegisterEvent[application.Void](stream.EventCallEnd)
 	application.RegisterEvent[stream.LanState](stream.EventLan)
+	application.RegisterEvent[stream.TranscriptEntry](stream.EventTranscriptEntry)
 }
 
 func main() {
@@ -228,6 +230,15 @@ func main() {
 	// LAN: the Call page's virtual LAN card, talking to the toru-lan service
 	// (docs/lan.md). Nothing starts until the user turns LAN on.
 	lanSvc := stream.NewLanService(streamSvc, version)
+	// Call transcripts (internal/transcript): saved per call in
+	// %APPDATA%	oru	ranscripts; the call's transcription runs in streamSvc.
+	transcriptDir, err := transcript.DefaultDir()
+	if err != nil {
+		log.Printf("toru: transcripts: %v", err)
+	}
+	transcriptStore := transcript.NewStore(transcriptDir)
+	streamSvc.SetTranscripts(transcriptStore)
+	transcriptSvc := &TranscriptService{store: transcriptStore}
 
 	app := application.New(application.Options{
 		Name:        "Toru",
@@ -256,6 +267,7 @@ func main() {
 			application.NewService(clickerSvc),
 			application.NewService(streamSvc),
 			application.NewService(lanSvc),
+			application.NewService(transcriptSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -274,7 +286,7 @@ func main() {
 		Windows: application.WindowsOptions{
 			DisableQuitOnLastWindowClosed: true,
 			// Watch windows start a stream's sound without a click first.
-			AdditionalBrowserArgs: []string{"--autoplay-policy=no-user-gesture-required"},
+			AdditionalBrowserArgs: append([]string{"--autoplay-policy=no-user-gesture-required"}, agentctl.ProfileBrowserArgs()...),
 		},
 		// Toru is a single-instance tray app. Without this, launching it again
 		// (e.g. the user double-clicks the desktop icon while the login-started
@@ -284,7 +296,7 @@ func main() {
 		// second launch hands off to the running instance, which surfaces the
 		// Settings/home window, then the second process exits.
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: "com.stephenshorton.toru",
+			UniqueID: "com.stephenshorton.toru" + agentctl.ProfileSuffix(), // TORU_PROFILE: a second copy for testing
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
 				windowsSvc.OpenSettings()
 			},
@@ -311,6 +323,8 @@ func main() {
 	streamSvc.SetApp(app)
 	streamSvc.SetWatchOpener(windowsSvc.OpenWatch)
 	streamSvc.SetCallOpener(windowsSvc.OpenCall)
+	transcriptSvc.app = app
+	transcriptSvc.copy = exportSvc.CopyTextAs
 	// App-wide agent commands (agent_commands.go); windows add their own.
 	registerAppAgentCommands(agentReg, &appAgentDeps{
 		version: version, overlay: overlaySvc, capturer: capturer, recorder: recorder,
@@ -318,6 +332,10 @@ func main() {
 		app: func() *application.App { return app },
 	})
 	registerStreamAgentCommands(agentReg, streamSvc, lanSvc) // agent_commands_stream.go
+	registerTranscriptAgentCommands(agentReg, transcriptDeps{ // agent_commands_transcripts.go
+		store: transcriptStore,
+		call:  func() stream.CallState { return streamSvc.GetState().Call },
+	})
 	registerMoreAgentCommands(agentReg, moreAgentDeps{       // agent_commands_more.go
 		clicker: clickerSvc, transfer: transferSvc, upload: uploadSvc, hotkeys: hotkeySvc,
 		settings: settingsSvc, replay: replaySvc, update: updateSvc,

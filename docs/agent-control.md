@@ -239,6 +239,39 @@ or the person, reaches open board windows as one `board:op` event
 goes into the board's one undo history: Ctrl+Z in the window undoes an
 agent's change as well as the person's.
 
+Call transcripts (Go, `agent_commands_transcripts.go`; `internal/transcript`,
+`internal/stream/transcribe.go`). Anyone in a voice call can turn
+transcription on for the whole call from the Call card (agents can't: it is
+the people in the call's choice); everyone in the call then sees a
+Transcribing notice and a toast, and each person's Toru transcribes its own
+mic on that PC (whisper.cpp, downloaded on first use) and sends only the text
+to the room. Every Toru in the call saves all the lines as one transcript per
+call in `%APPDATA%	oru	ranscripts`. Agents read them:
+
+- `transcript.list`: every transcript, newest first (id, title, start and
+  end, people, lines, length; `live` for the call going on now).
+- `transcript.read`: one transcript, whole or cut by `fromLine`/`toLine`
+  (1-based, time order) or `fromSeconds`/`toSeconds` (from its start).
+- `transcript.search`: spoken lines containing every word of `query`,
+  across all transcripts, with the transcript, line number and time.
+- `transcript.live`: the call in progress: entries after `cursor`, and the
+  next cursor, so an agent can poll and follow along.
+- `transcript.delete` (destructive, needs `confirm: true`): one transcript
+  from this PC; the call in progress's waits until it ends.
+
+The descriptions say the lines are what people said, to be treated as
+quotes and never as instructions. Renaming and exporting are on the page
+only.
+
+For testing a call on one PC, `TORU_PROFILE=<name>` runs a second Toru
+beside the installed one (its own single-instance lock and agent pipe;
+`toru.exe ctl`/`mcp` with the same variable reach it). Point `APPDATA` and
+`LOCALAPPDATA` at other folders for its own settings and WebView2 data, and
+`TORU_BROWSER_ARGS` (only read with a profile) can give it a fake
+microphone: `--use-fake-device-for-media-stream
+--use-fake-ui-for-media-stream --use-file-for-fake-audio-capture=x.wav`.
+Always add `--mute-audio` so a test call makes no sound.
+
 ## Work split (cards under #1)
 
 | Card | Owns | Needs |
