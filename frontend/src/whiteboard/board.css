@@ -109,6 +109,33 @@
     }
   }
 
+  /* Who made the block: "You" or the agent's name, just above its top left corner. */
+  [data-slot="board-block-by"] {
+    position: absolute;
+    bottom: calc(100% + 3px);
+    left: -1px;
+    max-width: 100%;
+    overflow: hidden;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.2;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+
+    &[data-agent] {
+      color: var(--primary);
+    }
+  }
+
+  /* A frame's name sits at its top left, so who made it goes on the right. */
+  [data-slot="board-block"][data-type="frame"] > [data-slot="board-block-by"] {
+    right: -1px;
+    left: auto;
+  }
+
   [data-slot="board-block-label"] {
     overflow: hidden;
     pointer-events: none;

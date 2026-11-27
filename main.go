@@ -178,6 +178,12 @@ func main() {
 	// Pictures for the whiteboard's image blocks: chosen files and Library
 	// screenshots, served at /__board/ (internal/board/images.go).
 	boardImageSvc := board.NewImageService(boardLibrary(hist))
+	// boardStore is the one store of whiteboards. The board window's service
+	// shares it with the agents' board commands, so the person and agents
+	// share one undo history, and every change reaches open board windows
+	// as a board:op event (wired below, once app exists).
+	boardStore := board.NewStore()
+	boardSvc := board.NewService(boardStore)
 
 	// App-level preferences ("launch at Windows login", notifications). Launch
 	// at login is backed by Wails' AutostartManager; app is injected after
@@ -230,6 +236,7 @@ func main() {
 			application.NewService(settingsSvc),
 			application.NewService(histSvc),
 			application.NewService(boardImageSvc),
+			application.NewService(boardSvc),
 			application.NewService(replaySvc),
 			application.NewService(uploadSvc),
 			application.NewService(transferSvc),
@@ -313,9 +320,7 @@ func main() {
 	})
 	// Whiteboards: the board document lives in Go, so agents build boards
 	// with the window open or closed (agent_commands_boards.go).
-	// boardStore is the one store of whiteboards: the board window's service
-	// must share it, so agents and the person share one undo history.
-	boardStore := board.NewStore()
+	boardStore.OnOp(func(id string, op board.Op) { app.Event.Emit(evBoardOp, boardOpEvent(id, op)) })
 	registerBoardAgentCommands(agentReg, boardAgentDeps{
 		boards: boardStore,
 		open:   windowsSvc.OpenWhiteboard,

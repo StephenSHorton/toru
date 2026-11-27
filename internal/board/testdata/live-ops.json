@@ -1,0 +1,576 @@
+{
+  "note": "Written by internal/board/live_test.go (TORU_UPDATE_LIVE=1 go test ./internal/board -run TestLiveOpsGolden). Don't edit by hand.",
+  "start": {
+    "format": "toruboard",
+    "version": 1,
+    "id": "brd-live",
+    "name": "Live board",
+    "createdAt": "2026-11-27T12:00:00Z",
+    "updatedAt": "2026-11-27T12:00:00Z",
+    "rev": 0,
+    "frames": [],
+    "blocks": [],
+    "links": [],
+    "ink": []
+  },
+  "ops": [
+    {
+      "rev": 1,
+      "at": "2026-11-27T12:00:01Z",
+      "kind": "change",
+      "source": "agent:Claude Code",
+      "frames": [
+        {
+          "id": "frm-ideas",
+          "name": "Ideas",
+          "x": -20,
+          "y": -40,
+          "w": 700,
+          "h": 300,
+          "color": "blue",
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "blk-a",
+          "type": "sticky",
+          "x": 0,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "A",
+            "color": "yellow"
+          },
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        },
+        {
+          "id": "blk-b",
+          "type": "sticky",
+          "x": 240,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "group": "g1",
+          "props": {
+            "text": "B",
+            "color": "yellow"
+          },
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        },
+        {
+          "id": "blk-c",
+          "type": "sticky",
+          "x": 480,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "rotation": 3,
+          "frame": "frm-ideas",
+          "props": {
+            "text": "C",
+            "color": "yellow"
+          },
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ],
+      "ink": [
+        {
+          "id": "ink-1",
+          "points": [
+            0,
+            300,
+            0.5,
+            40,
+            320,
+            0.7
+          ],
+          "color": "ink-blue",
+          "width": 4,
+          "frame": "frm-ideas",
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ],
+      "links": [
+        {
+          "id": "lnk-ab",
+          "from": "blk-a",
+          "to": "blk-b",
+          "fromPort": "right",
+          "toPort": "left",
+          "label": "then",
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ],
+      "pos": {
+        "blk-a": 0,
+        "blk-b": 1,
+        "blk-c": 2,
+        "frm-ideas": 0,
+        "ink-1": 0,
+        "lnk-ab": 0
+      }
+    },
+    {
+      "rev": 2,
+      "at": "2026-11-27T12:00:02Z",
+      "kind": "change",
+      "source": "person",
+      "blocks": [
+        {
+          "id": "blk-a",
+          "type": "sticky",
+          "x": 16,
+          "y": 400,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "A",
+            "color": "yellow"
+          },
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "person"
+        }
+      ],
+      "pos": {
+        "blk-a": 0
+      }
+    },
+    {
+      "rev": 3,
+      "at": "2026-11-27T12:00:03Z",
+      "kind": "change",
+      "source": "person",
+      "links": [
+        {
+          "id": "lnk-bc",
+          "from": "blk-b",
+          "to": "blk-c",
+          "fromPort": "right",
+          "toPort": "left",
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ],
+      "pos": {
+        "lnk-bc": 1
+      }
+    },
+    {
+      "rev": 4,
+      "at": "2026-11-27T12:00:04Z",
+      "kind": "change",
+      "source": "agent:Claude Code",
+      "blocks": [
+        {
+          "id": "blk-b",
+          "type": "sticky",
+          "x": 240,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "group": "g1",
+          "props": {
+            "text": "B, voted up",
+            "color": "yellow"
+          },
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ],
+      "pos": {
+        "blk-b": 0
+      }
+    },
+    {
+      "rev": 5,
+      "at": "2026-11-27T12:00:05Z",
+      "kind": "change",
+      "source": "person",
+      "delete": [
+        "frm-ideas"
+      ],
+      "blocks": [
+        {
+          "id": "blk-c",
+          "type": "sticky",
+          "x": 480,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "rotation": 3,
+          "props": {
+            "text": "C",
+            "color": "yellow"
+          },
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "person"
+        }
+      ],
+      "ink": [
+        {
+          "id": "ink-1",
+          "points": [
+            0,
+            300,
+            0.5,
+            40,
+            320,
+            0.7
+          ],
+          "color": "ink-blue",
+          "width": 4,
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "person"
+        }
+      ],
+      "pos": {
+        "blk-c": 2,
+        "ink-1": 0
+      }
+    },
+    {
+      "rev": 6,
+      "at": "2026-11-27T12:00:06Z",
+      "kind": "change",
+      "source": "agent:Claude Code",
+      "delete": [
+        "blk-b",
+        "lnk-ab",
+        "lnk-bc"
+      ]
+    },
+    {
+      "rev": 7,
+      "at": "2026-11-27T12:00:07Z",
+      "kind": "undo",
+      "source": "person",
+      "blocks": [
+        {
+          "id": "blk-b",
+          "type": "sticky",
+          "x": 240,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "group": "g1",
+          "props": {
+            "text": "B, voted up",
+            "color": "yellow"
+          },
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ],
+      "links": [
+        {
+          "id": "lnk-ab",
+          "from": "blk-a",
+          "to": "blk-b",
+          "fromPort": "right",
+          "toPort": "left",
+          "label": "then",
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        },
+        {
+          "id": "lnk-bc",
+          "from": "blk-b",
+          "to": "blk-c",
+          "fromPort": "right",
+          "toPort": "left",
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ],
+      "pos": {
+        "blk-b": 0,
+        "lnk-ab": 0,
+        "lnk-bc": 1
+      }
+    },
+    {
+      "rev": 8,
+      "at": "2026-11-27T12:00:08Z",
+      "kind": "undo",
+      "source": "person",
+      "frames": [
+        {
+          "id": "frm-ideas",
+          "name": "Ideas",
+          "x": -20,
+          "y": -40,
+          "w": 700,
+          "h": 300,
+          "color": "blue",
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "blk-c",
+          "type": "sticky",
+          "x": 480,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "rotation": 3,
+          "frame": "frm-ideas",
+          "props": {
+            "text": "C",
+            "color": "yellow"
+          },
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ],
+      "ink": [
+        {
+          "id": "ink-1",
+          "points": [
+            0,
+            300,
+            0.5,
+            40,
+            320,
+            0.7
+          ],
+          "color": "ink-blue",
+          "width": 4,
+          "frame": "frm-ideas",
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "agent:Claude Code"
+        }
+      ],
+      "pos": {
+        "blk-c": 2,
+        "frm-ideas": 0,
+        "ink-1": 0
+      }
+    },
+    {
+      "rev": 9,
+      "at": "2026-11-27T12:00:09Z",
+      "kind": "redo",
+      "source": "person",
+      "delete": [
+        "frm-ideas"
+      ],
+      "blocks": [
+        {
+          "id": "blk-c",
+          "type": "sticky",
+          "x": 480,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "rotation": 3,
+          "props": {
+            "text": "C",
+            "color": "yellow"
+          },
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "person"
+        }
+      ],
+      "ink": [
+        {
+          "id": "ink-1",
+          "points": [
+            0,
+            300,
+            0.5,
+            40,
+            320,
+            0.7
+          ],
+          "color": "ink-blue",
+          "width": 4,
+          "createdBy": "agent:Claude Code",
+          "updatedBy": "person"
+        }
+      ],
+      "pos": {
+        "blk-c": 2,
+        "ink-1": 0
+      }
+    },
+    {
+      "rev": 10,
+      "at": "2026-11-27T12:00:10Z",
+      "kind": "change",
+      "source": "person",
+      "name": "Live board, renamed"
+    },
+    {
+      "rev": 11,
+      "at": "2026-11-27T12:00:11Z",
+      "kind": "change",
+      "source": "person",
+      "blocks": [
+        {
+          "id": "blk-d",
+          "type": "sticky",
+          "x": 0,
+          "y": 700,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "D",
+            "color": "yellow"
+          },
+          "createdBy": "person",
+          "updatedBy": "person"
+        },
+        {
+          "id": "blk-e",
+          "type": "sticky",
+          "x": 160,
+          "y": 700,
+          "w": 120,
+          "h": 120,
+          "props": {
+            "text": "E",
+            "color": "yellow"
+          },
+          "createdBy": "person",
+          "updatedBy": "person"
+        }
+      ],
+      "pos": {
+        "blk-d": 0,
+        "blk-e": 2
+      }
+    }
+  ],
+  "end": {
+    "format": "toruboard",
+    "version": 1,
+    "id": "brd-live",
+    "name": "Live board, renamed",
+    "createdAt": "2026-11-27T12:00:00Z",
+    "updatedAt": "2026-11-27T12:00:11Z",
+    "rev": 11,
+    "frames": [],
+    "blocks": [
+      {
+        "id": "blk-d",
+        "type": "sticky",
+        "x": 0,
+        "y": 700,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "D",
+          "color": "yellow"
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "blk-b",
+        "type": "sticky",
+        "x": 240,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "group": "g1",
+        "props": {
+          "text": "B, voted up",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "blk-e",
+        "type": "sticky",
+        "x": 160,
+        "y": 700,
+        "w": 120,
+        "h": 120,
+        "props": {
+          "text": "E",
+          "color": "yellow"
+        },
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
+        "id": "blk-a",
+        "type": "sticky",
+        "x": 16,
+        "y": 400,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "A",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "person"
+      },
+      {
+        "id": "blk-c",
+        "type": "sticky",
+        "x": 480,
+        "y": 0,
+        "w": 200,
+        "h": 200,
+        "rotation": 3,
+        "props": {
+          "text": "C",
+          "color": "yellow"
+        },
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "person"
+      }
+    ],
+    "links": [
+      {
+        "id": "lnk-ab",
+        "from": "blk-a",
+        "to": "blk-b",
+        "fromPort": "right",
+        "toPort": "left",
+        "label": "then",
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "agent:Claude Code"
+      },
+      {
+        "id": "lnk-bc",
+        "from": "blk-b",
+        "to": "blk-c",
+        "fromPort": "right",
+        "toPort": "left",
+        "createdBy": "person",
+        "updatedBy": "person"
+      }
+    ],
+    "ink": [
+      {
+        "id": "ink-1",
+        "points": [
+          0,
+          300,
+          0.5,
+          40,
+          320,
+          0.7
+        ],
+        "color": "ink-blue",
+        "width": 4,
+        "createdBy": "agent:Claude Code",
+        "updatedBy": "person"
+      }
+    ]
+  }
+}

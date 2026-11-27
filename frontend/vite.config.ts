@@ -85,6 +85,48 @@ function boardImagesWithoutGo(): Plugin {
   };
 }
 
+// boardLiveDemo, in `vite --mode board-demo` (or with TORU_BOARD_DEMO=1), starts Go's live board demo server
+// (board_live_demo_test.go: Toru's real board store and agent board commands
+// on a temporary folder, an agent building a board once a window watches)
+// and passes /__board/live/ to it, so the whiteboard window runs live in a
+// browser at /?view=whiteboard&id=brd-demo&link=http. Vite listens once Go
+// answers; Go stops when Vite does.
+function boardLiveDemo(): Plugin {
+  const port = 47_900 + Math.floor(Math.random() * 90);
+  const target = `http://127.0.0.1:${port}`;
+  let on = false;
+  return {
+    name: "toru-board-live-demo",
+    apply: "serve",
+    config: (_, env) => {
+      on = env.mode === "board-demo" || !!process.env.TORU_BOARD_DEMO;
+      return on ? { server: { proxy: { "/__board/live/": target } } } : {};
+    },
+    async configureServer() {
+      if (!on) return;
+      const { spawn } = await import("node:child_process");
+      const root = fileURLToPath(new URL("..", import.meta.url));
+      const go = spawn("go", ["test", "-run", "^TestBoardLiveDemo$", "-count=1", "-timeout", "0", "."], {
+        cwd: root,
+        env: { ...process.env, TORU_BOARD_DEMO_PORT: String(port), TORU_BOARD_DEMO_PARENT: String(process.pid) },
+        stdio: ["ignore", "inherit", "inherit"],
+      });
+      process.on("exit", () => go.kill());
+      for (let i = 0; i < 600; i++) {
+        if (go.exitCode !== null) throw new Error("the live board demo server stopped");
+        try {
+          const res = await fetch(`${target}/__board/live/load`, { method: "POST", body: '{"board":"brd-demo"}' });
+          if (res.ok) return;
+        } catch {
+          /* not up yet */
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      throw new Error("the live board demo server didn't start");
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   resolve: {
@@ -100,5 +142,5 @@ export default defineConfig({
     // the dev server may serve files from the whole repo.
     fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] },
   },
-  plugins: [react(), tailwindcss(), wails("./bindings"), stripWasmCustomSections(), keepDistPlaceholder(), boardImagesWithoutGo()],
+  plugins: [react(), tailwindcss(), wails("./bindings"), stripWasmCustomSections(), keepDistPlaceholder(), boardImagesWithoutGo(), boardLiveDemo()],
 });

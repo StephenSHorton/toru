@@ -7,7 +7,214 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as json$0 from "../../../../../encoding/json/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as time$0 from "../../../../../time/models.js";
+
+/**
+ * Block is one piece of live UI on the board: a sticky, a poll, a
+ * checklist... Type names its block catalog entry and Props are that
+ * entry's props.
+ */
+export class Block {
+    "id": string;
+    "type": string;
+    "x": number;
+    "y": number;
+    "w": number;
+    "h": number;
+
+    /**
+     * degrees, clockwise
+     */
+    "rotation"?: number;
+
+    /**
+     * the frame it sits in, if any
+     */
+    "frame"?: string;
+
+    /**
+     * blocks with the same group move together
+     */
+    "group"?: string;
+    "props": json$0.RawMessage;
+    "createdBy"?: Source;
+    "updatedBy"?: Source;
+
+    /** Creates a new Block instance. */
+    constructor($$source: Partial<Block> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("type" in $$source)) {
+            this["type"] = "";
+        }
+        if (!("x" in $$source)) {
+            this["x"] = 0;
+        }
+        if (!("y" in $$source)) {
+            this["y"] = 0;
+        }
+        if (!("w" in $$source)) {
+            this["w"] = 0;
+        }
+        if (!("h" in $$source)) {
+            this["h"] = 0;
+        }
+        if (!("props" in $$source)) {
+            this["props"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Block instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Block {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Block($$parsedSource as Partial<Block>);
+    }
+}
+
+/**
+ * Board is one whiteboard, exactly as it is saved.
+ * 
+ * Coordinates are world units (CSS pixels at zoom 1), x to the right and y
+ * down. The order of Blocks, Ink and Frames is their stacking order, first
+ * at the back.
+ */
+export class Board {
+    "format": string;
+    "version": number;
+    "id": string;
+    "name": string;
+    "createdAt": time$0.Time;
+    "updatedAt": time$0.Time;
+
+    /**
+     * Rev counts the ops applied to the board since it was made. Each op
+     * carries the Rev it produced, so a window can tell what it has seen.
+     */
+    "rev": number;
+    "frames": Frame[];
+    "blocks": Block[];
+    "links": Link[];
+    "ink": Stroke[];
+
+    /** Creates a new Board instance. */
+    constructor($$source: Partial<Board> = {}) {
+        if (!("format" in $$source)) {
+            this["format"] = "";
+        }
+        if (!("version" in $$source)) {
+            this["version"] = 0;
+        }
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("createdAt" in $$source)) {
+            this["createdAt"] = null;
+        }
+        if (!("updatedAt" in $$source)) {
+            this["updatedAt"] = null;
+        }
+        if (!("rev" in $$source)) {
+            this["rev"] = 0;
+        }
+        if (!("frames" in $$source)) {
+            this["frames"] = [];
+        }
+        if (!("blocks" in $$source)) {
+            this["blocks"] = [];
+        }
+        if (!("links" in $$source)) {
+            this["links"] = [];
+        }
+        if (!("ink" in $$source)) {
+            this["ink"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Board instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Board {
+        const $$createField7_0 = $$createType1;
+        const $$createField8_0 = $$createType3;
+        const $$createField9_0 = $$createType5;
+        const $$createField10_0 = $$createType7;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("frames" in $$parsedSource) {
+            $$parsedSource["frames"] = $$createField7_0($$parsedSource["frames"]);
+        }
+        if ("blocks" in $$parsedSource) {
+            $$parsedSource["blocks"] = $$createField8_0($$parsedSource["blocks"]);
+        }
+        if ("links" in $$parsedSource) {
+            $$parsedSource["links"] = $$createField9_0($$parsedSource["links"]);
+        }
+        if ("ink" in $$parsedSource) {
+            $$parsedSource["ink"] = $$createField10_0($$parsedSource["ink"]);
+        }
+        return new Board($$parsedSource as Partial<Board>);
+    }
+}
+
+/**
+ * Frame is a named region that holds blocks and ink, like a section of the
+ * board.
+ */
+export class Frame {
+    "id": string;
+    "name": string;
+    "x": number;
+    "y": number;
+    "w": number;
+    "h": number;
+    "color"?: string;
+    "createdBy"?: Source;
+    "updatedBy"?: Source;
+
+    /** Creates a new Frame instance. */
+    constructor($$source: Partial<Frame> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("x" in $$source)) {
+            this["x"] = 0;
+        }
+        if (!("y" in $$source)) {
+            this["y"] = 0;
+        }
+        if (!("w" in $$source)) {
+            this["w"] = 0;
+        }
+        if (!("h" in $$source)) {
+            this["h"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Frame instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Frame {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Frame($$parsedSource as Partial<Frame>);
+    }
+}
 
 /**
  * Image is a picture copied into the board images.
@@ -95,3 +302,195 @@ export class LibraryImage {
         return new LibraryImage($$parsedSource as Partial<LibraryImage>);
     }
 }
+
+/**
+ * Link is a line from one block or frame to another.
+ */
+export class Link {
+    "id": string;
+    "from": string;
+    "to": string;
+    "fromPort"?: string;
+    "toPort"?: string;
+    "label"?: string;
+
+    /**
+     * style: arrow heads, dash, colour
+     */
+    "props"?: json$0.RawMessage;
+    "createdBy"?: Source;
+    "updatedBy"?: Source;
+
+    /** Creates a new Link instance. */
+    constructor($$source: Partial<Link> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("from" in $$source)) {
+            this["from"] = "";
+        }
+        if (!("to" in $$source)) {
+            this["to"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Link instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Link {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Link($$parsedSource as Partial<Link>);
+    }
+}
+
+/**
+ * Op is one change to a board, applied whole or not at all.
+ * 
+ * Applying an op: first everything in Delete goes, then the frames, blocks,
+ * strokes and links are put (an item whose id is on the board replaces it,
+ * a new one is added; an empty id gets a new one), then the board takes
+ * Name if it is set.
+ * 
+ * Deleting a block or frame also deletes the links to it, and the blocks
+ * and strokes in a deleted frame stay where they are, out of the frame.
+ * 
+ * Pos places put items in their list's stacking order (0 is the back).
+ * Without it a replaced item keeps its place and a new one goes on top.
+ * 
+ * Apply returns the op as applied: every item it touched in its final
+ * state (with who made and changed it, and where it sits in Pos) and every
+ * id it removed. Sending that op to another copy of the board makes the
+ * same change, which is how the board window follows.
+ */
+export class Op {
+    /**
+     * Rev, At and Kind are set by Apply.
+     */
+    "rev"?: number;
+    "at"?: time$0.Time;
+    "kind"?: string;
+    "source": Source;
+    "name"?: string | null;
+    "delete"?: string[];
+    "frames"?: Frame[];
+    "blocks"?: Block[];
+    "ink"?: Stroke[];
+    "links"?: Link[];
+    "pos"?: { [_ in string]?: number };
+
+    /** Creates a new Op instance. */
+    constructor($$source: Partial<Op> = {}) {
+        if (!("source" in $$source)) {
+            this["source"] = Source.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Op instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Op {
+        const $$createField5_0 = $$createType8;
+        const $$createField6_0 = $$createType1;
+        const $$createField7_0 = $$createType3;
+        const $$createField8_0 = $$createType7;
+        const $$createField9_0 = $$createType5;
+        const $$createField10_0 = $$createType9;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("delete" in $$parsedSource) {
+            $$parsedSource["delete"] = $$createField5_0($$parsedSource["delete"]);
+        }
+        if ("frames" in $$parsedSource) {
+            $$parsedSource["frames"] = $$createField6_0($$parsedSource["frames"]);
+        }
+        if ("blocks" in $$parsedSource) {
+            $$parsedSource["blocks"] = $$createField7_0($$parsedSource["blocks"]);
+        }
+        if ("ink" in $$parsedSource) {
+            $$parsedSource["ink"] = $$createField8_0($$parsedSource["ink"]);
+        }
+        if ("links" in $$parsedSource) {
+            $$parsedSource["links"] = $$createField9_0($$parsedSource["links"]);
+        }
+        if ("pos" in $$parsedSource) {
+            $$parsedSource["pos"] = $$createField10_0($$parsedSource["pos"]);
+        }
+        return new Op($$parsedSource as Partial<Op>);
+    }
+}
+
+/**
+ * Source is who made a change: "person" for the person at the board, or
+ * "agent:<name>" for an agent (its MCP client's name).
+ */
+export enum Source {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * Person is the person at the board.
+     */
+    Person = "person",
+};
+
+/**
+ * Stroke is one freehand ink line. Points is flat: x, y, pressure for each
+ * point (pressure 0..1; 0.5 when the device has none).
+ */
+export class Stroke {
+    "id": string;
+    "points": number[];
+    "color": string;
+    "width": number;
+    "frame"?: string;
+    "createdBy"?: Source;
+    "updatedBy"?: Source;
+
+    /** Creates a new Stroke instance. */
+    constructor($$source: Partial<Stroke> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("points" in $$source)) {
+            this["points"] = [];
+        }
+        if (!("color" in $$source)) {
+            this["color"] = "";
+        }
+        if (!("width" in $$source)) {
+            this["width"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Stroke instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Stroke {
+        const $$createField1_0 = $$createType10;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("points" in $$parsedSource) {
+            $$parsedSource["points"] = $$createField1_0($$parsedSource["points"]);
+        }
+        return new Stroke($$parsedSource as Partial<Stroke>);
+    }
+}
+
+// Private type creation functions
+const $$createType0 = Frame.createFrom;
+const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = Block.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = Link.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = Stroke.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = $Create.Array($Create.Any);
+const $$createType9 = $Create.Map($Create.Any, $Create.Any);
+const $$createType10 = $Create.Array($Create.Any);

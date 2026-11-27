@@ -63,6 +63,9 @@ type BoardBlock = {
   type?: string
   props?: Record<string, unknown>
   ink?: InkStroke
+  /** Who made it and who last changed it: "person" or "agent:<name>" (Go's board.Source). The canvas shows `createdBy` and never reads either. */
+  createdBy?: string
+  updatedBy?: string
 }
 
 /** Every block, by id. Ids don't contain ":". */

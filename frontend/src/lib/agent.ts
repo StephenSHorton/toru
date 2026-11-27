@@ -24,8 +24,11 @@ export interface AgentCommandSpec {
   timeoutSec?: number; // how long the handler may take (default 30s, max 30 min)
 }
 
+/** Who called a window command: the MCP client's name, or "toru-ctl"; "" when Go wasn't told. */
+export type AgentCall = { caller: string };
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- inputs are whatever the schema says
-export type AgentHandler = (input: any) => unknown | Promise<unknown>;
+export type AgentHandler = (input: any, call?: AgentCall) => unknown | Promise<unknown>;
 
 type Entry = { spec: AgentCommandSpec; handler: AgentHandler };
 
@@ -97,7 +100,7 @@ function start() {
 }
 
 async function onCall(data: unknown) {
-  const call = data as { id?: string; window?: string; name?: string; input?: unknown };
+  const call = data as { id?: string; window?: string; name?: string; input?: unknown; caller?: string };
   if (!call?.id || !call.name) return;
   if (call.window !== (await myWindow())) return; // another window's call
   const entry = commands.get(call.name);
@@ -107,7 +110,7 @@ async function onCall(data: unknown) {
     error = `${call.name} isn't available in this window any more`;
   } else {
     try {
-      result = (await entry.handler(call.input ?? {})) ?? null;
+      result = (await entry.handler(call.input ?? {}, { caller: call.caller ?? "" })) ?? null;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }

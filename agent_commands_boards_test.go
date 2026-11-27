@@ -38,8 +38,15 @@ func newBoardRegistry(t *testing.T) (*agentctl.Registry, *boardEvents) {
 	t.Cleanup(func() { board.Dir = old })
 	ev := &boardEvents{}
 	reg := agentctl.NewRegistry()
+	store := board.NewStore()
+	// As main.go wires it: the store sends every change as board:op.
+	store.OnOp(func(id string, op board.Op) {
+		ev.mu.Lock()
+		ev.names = append(ev.names, evBoardOp)
+		ev.mu.Unlock()
+	})
 	registerBoardAgentCommands(reg, boardAgentDeps{
-		boards: board.NewStore(),
+		boards: store,
 		open: func(id string) {
 			ev.mu.Lock()
 			ev.opened = append(ev.opened, id)
