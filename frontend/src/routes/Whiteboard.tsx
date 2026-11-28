@@ -11,7 +11,7 @@ import { CheckIcon, ChevronDownIcon, DownloadIcon, LayoutGridIcon, LayoutTemplat
 import { registerAgentCommand } from "@/lib/agent";
 import { AskPerson, createAskPerson } from "@/whiteboard/ask-person";
 import { BlockGallery } from "@/whiteboard/BlockGallery";
-import { Board, useBoard } from "@/whiteboard/BoardView";
+import { Board, useBoard, type BoardProps } from "@/whiteboard/BoardView";
 import { dotGrid, onGrid, type BoardBlocks } from "@/whiteboard/board";
 import { BlockBody, type PropsChange } from "@/whiteboard/blocks";
 import { useBlockLibrary } from "@/whiteboard/block-library";
@@ -250,6 +250,32 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
   const rename = useCallback((next: string) => live.rename(next), [live]);
   const ask = useMemo(() => <AskPerson api={askPerson} />, []);
   const panelSource = useCallback(() => sourceOf(), []);
+  // The right panel follows the document a moment later, in a render React
+  // may put off: after a drop it only rewrites the block's X and Y, and doing
+  // that in the drop's own frame took the frame past two refreshes at 238 Hz
+  // (whiteboard#54).
+  const panelDoc = React.useDeferredValue(doc);
+  // The board's own props, kept the same while its blocks and lines are: Go's
+  // answer to a drop or a key changes the document (for the right panel) but
+  // not the view, and the board then needn't render or check its parts again
+  // (whiteboard#54).
+  const onBlocksChange = useCallback<NonNullable<BoardProps["onBlocksChange"]>>(
+    (blocks, details) => live.edit({ blocks }, { source: sourceOf(details) }),
+    [live],
+  );
+  const onLinesChange = useCallback<NonNullable<BoardProps["onLinesChange"]>>(
+    (lines, details) => live.edit({ lines }, { source: sourceOf(details) }),
+    [live],
+  );
+  const overBoard = useMemo(
+    () => (
+      <>
+        {chrome}
+        {pick.bridge}
+      </>
+    ),
+    [chrome, pick.bridge],
+  );
 
   return (
     <div className="relative h-full overflow-hidden" onPointerDownCapture={pick.onPointerDownCapture} onKeyDownCapture={pick.onKeyDownCapture}>
@@ -258,17 +284,16 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         aria-label={doc ? `Whiteboard ${doc.name}` : `Whiteboard ${id}`}
         className="h-full w-full"
         blocks={view.blocks}
-        onBlocksChange={(blocks, details) => live.edit({ blocks }, { source: sourceOf(details) })}
+        onBlocksChange={onBlocksChange}
         lines={view.lines}
-        onLinesChange={(lines, details) => live.edit({ lines }, { source: sourceOf(details) })}
+        onLinesChange={onLinesChange}
         renderBlock={renderBlock}
         drawing={drawing}
         grid={grid}
       >
-        {chrome}
-        {pick.bridge}
+        {overBoard}
       </Board>
-      <PropsPanel live={live} doc={doc} source={panelSource} {...pick.panel} />
+      <PropsPanel live={live} doc={panelDoc} source={panelSource} {...pick.panel} />
       {doc && <BoardName name={doc.name} onRename={rename} />}
       {error && (
         <div role="alert" data-slot="board-error" className="frost absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-2 px-3 py-2">

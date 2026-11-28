@@ -99,6 +99,8 @@ class LiveBoard {
   // Canvas blocks made from document items, so an item Go didn't touch
   // keeps its block (and React doesn't redraw it).
   private made = new WeakMap<DocItem, BoardBlock>()
+  // The canvas made from the copy, for the copy it was made from.
+  private based: { doc: BoardDoc; blocks: BoardBlocks; lines: BoardLine[] } | null = null
 
   constructor(id: string, link: BoardLink, opts: LiveOptions = {}) {
     this.id = id
@@ -142,21 +144,8 @@ class LiveBoard {
   /** Lays the pending edits over the copy. */
   private render() {
     if (!this.doc) return
-    setBoardTypes(this.doc.types)
-    const base = toCanvas(this.doc)
-    // Reuse the blocks made for items Go didn't touch.
-    const blocks: BoardBlocks = {}
-    const itemsById = new Map<string, DocItem>()
-    for (const key of listKeys) for (const x of this.doc[key] as DocItem[]) itemsById.set(x.id, x)
-    for (const [id, b] of Object.entries(base.blocks)) {
-      const item = itemsById.get(id)
-      const was = item && this.made.get(item)
-      if (was && sameBlock(was, b)) blocks[id] = was
-      else {
-        blocks[id] = b
-        if (item) this.made.set(item, b)
-      }
-    }
+    const base = this.base()
+    const blocks: BoardBlocks = { ...base.blocks }
     let lines = base.lines
     for (const [id, p] of this.pending) {
       if (p.kind !== "block") continue
@@ -175,7 +164,61 @@ class LiveBoard {
     const ends = (l: BoardLine) => !!blocks[l.from.slice(0, l.from.lastIndexOf(":"))] && !!blocks[l.to.slice(0, l.to.lastIndexOf(":"))]
     // Named as the canvas names them, so handing them to it changes nothing.
     lines = nameLines(blocks, lines.filter(ends))
-    this.set({ doc: this.doc, view: { blocks, lines } })
+    const view = this.same(blocks, lines)
+    if (view === this.state.view && this.doc === this.state.doc) return
+    this.set({ doc: this.doc, view })
+  }
+
+  /**
+   * The copy's blocks and lines, as the canvas has them, made again only when
+   * the copy changes: an edit lays itself over the same copy, and remaking
+   * every block from it then was a tenth of a drop's frame (whiteboard#54).
+   */
+  private base(): { blocks: BoardBlocks; lines: BoardLine[] } {
+    const doc = this.doc!
+    if (this.based?.doc === doc) return this.based
+    setBoardTypes(doc.types)
+    const canvas = toCanvas(doc)
+    // Reuse the blocks made for items Go didn't touch.
+    const blocks: BoardBlocks = {}
+    const itemsById = new Map<string, DocItem>()
+    for (const key of listKeys) for (const x of doc[key] as DocItem[]) itemsById.set(x.id, x)
+    for (const [id, b] of Object.entries(canvas.blocks)) {
+      const item = itemsById.get(id)
+      const was = item && this.made.get(item)
+      if (was && sameBlock(was, b)) blocks[id] = was
+      else {
+        blocks[id] = b
+        if (item) this.made.set(item, b)
+      }
+    }
+    this.based = { doc, blocks, lines: canvas.lines }
+    return this.based
+  }
+
+  /**
+   * The view for these blocks and lines, keeping what the window shows now
+   * wherever they draw the same: a block the board handed over and Go then
+   * confirmed keeps the board's object, and a view that changes nothing is
+   * the same view. Go's answer to a drop then hands the board nothing new, so
+   * the board neither renders nor checks its parts again (whiteboard#54).
+   */
+  private same(blocks: BoardBlocks, lines: BoardLine[]): View {
+    const was = this.state.view
+    let kept = Object.keys(blocks).length === Object.keys(was.blocks).length
+    for (const [id, b] of Object.entries(blocks)) {
+      const old = was.blocks[id]
+      if (old && old !== b && sameBlock(old, b)) blocks[id] = old
+      if (blocks[id] !== old) kept = false
+    }
+    const sameLines =
+      lines.length === was.lines.length &&
+      lines.every((l, i) => {
+        const o = was.lines[i]
+        return l === o || (l.id === o.id && l.from === o.from && l.to === o.to && l.name === o.name && sameItem(l, o))
+      })
+    if (kept && sameLines) return was
+    return { blocks: kept ? was.blocks : blocks, lines: sameLines ? was.lines : lines }
   }
 
   // ── Go → window ─────────────────────────────────────────────────────
@@ -264,7 +307,7 @@ class LiveBoard {
       changed = true
     }
     if (next.blocks) {
-      for (const [id, b] of Object.entries(next.blocks)) if (view.blocks[id] !== b) mark(id, "block", b)
+      for (const [id, b] of Object.entries(next.blocks)) if (view.blocks[id] !== b) mark(id, "block", this.stamped(id, b, source))
       for (const id of Object.keys(view.blocks)) if (!(id in next.blocks)) mark(id, "block", null)
     }
     if (next.lines) {
@@ -292,6 +335,22 @@ class LiveBoard {
         void this.flush()
       })
     }
+  }
+
+  /**
+   * A block as Go will have it once it takes the edit: a change to it is
+   * this source's, so Go sets "last changed by" (and "made by", on a new
+   * block) to it. The view shows that at once, so Go's answer brings back
+   * the block the view already has, and the board needn't render and check
+   * its parts again for it (whiteboard#54). A block that doesn't change the
+   * board's copy goes as it is, since Go is sent nothing for it.
+   */
+  private stamped(id: string, b: BoardBlock, source: string): BoardBlock {
+    if (b.updatedBy === source && b.createdBy) return b
+    const was = this.doc && findItem(this.doc, id)
+    const item = toDocItem(id, b, was?.item)
+    if (!item || (was && sameItem(item.item, was.item))) return b
+    return { ...b, createdBy: b.createdBy ?? source, updatedBy: source }
   }
 
   /** Sends every edit not yet sent, one op per source, one op at a time. Resolves once Go has answered. */

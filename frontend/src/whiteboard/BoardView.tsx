@@ -5,7 +5,7 @@
 import * as React from "react";
 import { createParts, usePart, usePrimitive, type PartProps, type PrimitiveHandle } from "@ui-sdk/react/primitive";
 import { LockIcon, MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
-import { board, boardInstructions, handleNames, sides, type BoardBlocks, type BoardBlockState, type BoardOptions } from "./board";
+import { board, boardInstructions, handleNames, nameLines, sides, type BoardBlocks, type BoardBlockState, type BoardOptions } from "./board";
 import { InkDraft, InkLine, InkSurface, usePen } from "./InkView";
 import type { DrawingSettings } from "./drawing";
 import { createTools, editText, ToolLayer, ToolSurface } from "./DrawingTools";
@@ -13,7 +13,17 @@ import "./board.css";
 
 const handles = ["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const;
 
-const parts = createParts(board, {
+/**
+ * The board under another name (UI SDK keys its parts' context by the
+ * primitive), with its schema, for the parts on the steady handle: see
+ * `useSteadyHandle`.
+ */
+const steadyBoard = Object.assign(((...args: Parameters<typeof board>) => board(...args)) as typeof board, {
+  options: board.options,
+  slots: board.slots,
+});
+
+const parts = createParts(steadyBoard, {
   root: "div",
   world: "div",
   wire: "path",
@@ -78,9 +88,21 @@ type BoardProps = BoardOptions & {
 
 const dashes = { solid: undefined, dashed: "8 6", dotted: "1 5" } as const;
 
-function Board({ renderBlock, children, className, drawing, lineLook, selectedLine, onLinePress, "aria-label": label, ...options }: BoardProps) {
+/**
+ * The board. It renders again only when one of its props changes: the window
+ * renders when Go answers a change, and that answer changes the document
+ * (for the right panel) but, once the board's change is in it, not the
+ * board's blocks or lines (whiteboard#54).
+ */
+const Board = React.memo(function Board({ renderBlock, children, className, drawing, lineLook, selectedLine, onLinePress, "aria-label": label, ...options }: BoardProps) {
+  counted("board");
   const handle = usePrimitive(board, options);
   const steady = useSteadyHandle(handle);
+  // The blocks and lines to draw: the board's own while they're controlled,
+  // as they are here. The root is on the steady handle, so its state is the
+  // board's as it was before this render's options are set.
+  const lineList = options.lines;
+  const named = React.useMemo(() => (options.blocks && lineList ? nameLines(options.blocks, lineList) : undefined), [options.blocks, lineList]);
   const [tools] = React.useState(createTools);
   const tool = drawing?.tool ?? "select";
   const highlight = tool === "highlighter";
@@ -95,10 +117,19 @@ function Board({ renderBlock, children, className, drawing, lineLook, selectedLi
       handle.api.addBlock(id, stroke);
     },
   });
-  const root = usePart(handle, "root", {}, {
+  // The root is on the steady handle too, so the handle it shares with the
+  // parts under it never changes. On the previewing handle, which is new on
+  // each change to the blocks, React walked every part of the board on each
+  // key and drop to find who reads it (whiteboard#54).
+  const root = usePart(steady, "root", {}, {
     "aria-label": label,
     className,
-    children: ({ blocks, lines }) => (
+    // Read the state only for what the props don't give, so the root doesn't
+    // render again once the new options are set.
+    children: (state) => {
+      const blocks = options.blocks ?? state.blocks;
+      const lines = named ?? state.lines;
+      return (
       <>
         <parts.World>
           <svg data-slot="board-lines" width="1" height="1">
@@ -162,10 +193,11 @@ function Board({ renderBlock, children, className, drawing, lineLook, selectedLi
         <parts.Instructions>{boardInstructions}</parts.Instructions>
         {children}
       </>
-    ),
+      );
+    },
   });
   return <BoardContext.Provider value={steady}>{root}</BoardContext.Provider>;
-}
+});
 
 /**
  * The board's parts that are drawn once per block (the block and its ports
@@ -184,13 +216,16 @@ function Board({ renderBlock, children, className, drawing, lineLook, selectedLi
  * name: UI SDK keys its context by the primitive), so the root's context
  * never reaches them. React leaves them alone; once the new options are set
  * (in the board's layout effect, before paint) UI SDK checks each part and
- * renders again only those whose state or attributes changed. The root keeps
- * the previewing handle, so its `blocks` and `lines` are the new ones in the
- * same render. `useBoard()` gets the steady handle too, so the toolbars and
- * the panel don't render on each change either.
+ * renders again only those whose state or attributes changed. `useBoard()`
+ * gets the steady handle too, so the toolbars and the panel don't render on
+ * each change either.
+ *
+ * The root is on it as well (whiteboard#54): on the previewing handle, the
+ * context it gives its parts changed on each change, and React then walked
+ * every part under the board to find the few that read it, a tenth of a
+ * drop's frame. Its state is then the board's as it was before this
+ * render's options are set, so it draws the blocks and lines from its props.
  */
-const steadyBoard = ((...args: Parameters<typeof board>) => board(...args)) as typeof board;
-
 function useSteadyHandle(handle: BoardHandle): BoardHandle {
   const { instance } = handle;
   return React.useMemo(
@@ -217,7 +252,7 @@ function useSteady() {
 }
 
 /** Render counts for scripts/board-perf.ts, when board-perf.html asks for them. */
-function counted(kind: "item" | "block" | "part") {
+function counted(kind: "board" | "item" | "block" | "part") {
   const counts = (globalThis as { __boardRenders?: Record<string, number> }).__boardRenders;
   if (counts) counts[kind] = (counts[kind] ?? 0) + 1;
 }
