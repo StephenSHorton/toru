@@ -767,6 +767,106 @@ three-run set one run each had a single 75–85 ms frame, which six runs didn't
 show again. The press's long frame (its restyle and the right panel putting
 in its sections) is untouched here.
 
+### Typing, press and drop in WebView2 at 238 Hz after whiteboard#50 (whiteboard#52)
+
+Measured as whiteboard#46 was: the same copy of "Boxes Inc: the game on one
+board" (rev 9; `board-perf.ts` counts 63 blocks, 15 links, 15 ink strokes),
+WebView2 on DESKTOP-STEPHEN, window 1384×861 at 1×, 238 Hz (two intervals
+are 8.4 ms), production build of `board-perf.html`, the `board-perf-host`
+window, `bun scripts/board-perf.ts --no-profile --only idle,drag,type`.
+
+**What whiteboard#50 left, measured first.** A key now renders 1 block item,
+1 block and 12 ports and handles (the typed sticky's own; whiteboard#46 had
+68 blocks and 636 ports and handles), and a drop 1 block item, 2 blocks and
+12 ports and handles. Typing still had 8–12 frames over 2 intervals in about
+150 keys and 130 ms of script a second. Counting React's renders by
+component (a DevTools hook on the page) showed why: each key still rendered
+about 375 components, because the whole window renders on each key (its
+board's blocks are its state) and made new props for everything in it. The
+drawing bar was 81 of them, the right panel 74, the toolbar 40, the gallery,
+export and share menus about 35, and the lines the board's root draws (each
+line, its press target, label and disconnect button) about 65.
+
+**What this card changed:**
+
+- **The window's controls over the board are made once** (`routes/Whiteboard.tsx`):
+  the toolbar, block gallery, arrange command, drawing bar, board name and
+  ask dialog are kept with `useMemo`, `useCallback` and `React.memo`. They are
+  made again only when their own settings change.
+- **The right panel renders only when its own props change**
+  (`PropsPanel.tsx`: `PropsPanel` is memoized, and the window keeps `source`
+  and the selection's `bridge` steady). The board's document doesn't change
+  while typing, so neither does the panel.
+- **Lines are on the steady handle** (`BoardView.tsx`: `LineItem`, `LineHit`,
+  `Unlink`, `LineLabel`), like whiteboard#50's blocks. Each renders again only
+  when its own look or selection changes. UI SDK moves a line's path itself
+  when its blocks move, during a drag and after the drop, as before. A drop
+  rendered 200 components drawn by the root (the root renders twice on a drop);
+  now it renders 40.
+
+Before the lines change, a key rendered about 135 components. About half of
+them were the lines, which no longer render on a key. Script while typing
+fell from 130–133 to 84–91 ms a second.
+
+`board-perf.ts` now prints typing twice. The whole run counts the press and
+double click that put the cursor in the sticky. **The keys alone** counts
+only the frames from the first key on. `idle` measures the same 2.5 s
+runs with no input and a DevTools message every 50 ms. It is the noise floor:
+frames the computer and browser lose alone.
+
+| Action | whiteboard#46, light | whiteboard#46, dark | After #50, light | After #50, dark | This card, light | This card, dark |
+| --- | --- | --- | --- | --- | --- | --- |
+| Idle (no input), per set of three runs | not measured | not measured | not measured | not measured | 0–2 over 2 intervals, worst 4.5–17 ms | 0–2 over 2, worst 8.4–21 ms |
+| Type, the keys alone (about 150 keys a set) | not split | not split | not split | not split | 0 over 2 in four sets, 1 in a fifth; worst 8.5–16.6 ms | 0 over 2 in three sets, 2 in a fourth; worst 8.5–12.5 ms |
+| Type, the whole run | 207–209 fps, worst 38–46 ms, 107–111 over 2 | 205–209 fps, worst 38–50 ms, 100–106 over 2 | 228 fps, worst 21 ms, 8 over 2 | 228 fps, worst 21 ms, 12 over 2 | 236–237 fps, worst 13–25 ms, 4 over 2 | 235–237 fps, worst 17–25 ms, 2–5 over 2 |
+| Typing's script | about 225 ms a second | | 133 ms a second | 130 ms a second | 84–91 ms a second | 85–90 ms a second |
+| Move a block (3 drags of 2.5 s) | 229–230 fps, worst 54–104 ms, 8 over 2 | 233–234 fps, worst 42 ms, 6–7 over 2 | 235 fps, worst 58 ms, 7 over 2 | 236 fps, worst 29 ms, 6 over 2 | 236–238 fps, worst 17–29 ms, 5–6 over 2 | 237–238 fps, worst 17–21 ms, 5–7 over 2 |
+| The press, one frame a drag | 42–75 ms | | | | 12–21 ms | 12–21 ms |
+| The drop, one frame a drag | 46–62 ms | | | | 12.5–29 ms | 12.5–21 ms |
+
+"After #50" is one set of three runs a theme, on this card's base before its
+changes. "This card" is four to five sets a theme. The first two of each were
+taken before the lines change, and they measure the same: the lines change
+cut the drop's renders, not its long frame. whiteboard#48 (the right panel
+no longer rebuilt on each selection) came into this card between the two
+columns, so the drag and whole-run columns differ by it too. The fall in
+typing's script was measured before it came in.
+
+So typing itself holds the refresh rate. In 9 sets (about 1,350 keys), 3
+frames went over 2 intervals, while idle lost 0–2 frames in each set of the
+same length with no input. The press and the drop still take one frame of 3
+to 7 intervals each, every drag. The first and second clicks into a sticky
+take one or two such frames each. That is all of typing's "whole run" count.
+
+**What's left, traced in WebView2** (an unminified build, so times run long;
+given as what the frame spent):
+
+- **The press** (also the first click into a sticky): Wails' own `mousedown`
+  listener (`@wailsio/runtime`'s `primaryDown`, reading `--wails-draggable`
+  with `getPropertyValue`) forces a restyle of about 167 elements inside the
+  event, after the block took `data-selected`, `aria-selected` and
+  `tabindex`. React then renders the about 4 blocks whose selection changed,
+  and the right panel follows in a transition. This is selecting a block.
+  whiteboard#51 is working on it, so this card leaves it alone.
+- **The double click into a sticky's text** (`editBlock` in `board.ts`): it
+  sets `data-editing` on the block, and `elementFromPoint` then forces a
+  restyle of about 168 elements and a layout. The caret goes in, focus moves
+  to the field, and React renders the `editing` change. A sticky has only 31
+  elements, so the restyle reaches well past the block. The press and the
+  drop restyle about the same 167–168 elements, so it is one set wider than
+  the block, likely through UI SDK's `:has()` rules. Which rule brings it in
+  isn't found here; that needs a trace with style invalidation tracking. In
+  the page, flipping `data-editing` on a sticky costs about 1.2 ms with its
+  restyle, and moving focus into its field 2.1 ms. The rest of the frame is
+  React's render of the change and of the panel.
+- **The drop**: about a third is React's render (the root twice, the dropped
+  block twice, the right panel's X and Y fields). A quarter is UI SDK's
+  check of every part once the board's new options are set (`setOptions`
+  in the board's layout effect, whiteboard#50). About a third is UI SDK's
+  drag end (`onEnd`, `setBoxes`, port points). Then about 168 elements
+  restyle as the block stops dragging. The check of every part is UI SDK's
+  own work for a controlled primitive, so this card leaves it.
+
 ### Selecting a block with the properties panel (whiteboard#42)
 
 The properties panel (whiteboard#29) brought back one long frame per click

@@ -87,7 +87,15 @@ function useFollowed(selection: Selection) {
   return ids;
 }
 
-function PropsPanel({ live, doc, selection, selected, link, onPickLink, onSelect, source }: PropsPanelProps) {
+/**
+ * The panel, drawn again only when its own props change. The window renders
+ * on every key typed in a block, and drawing the panel's form again then
+ * (some 75 components for a sticky) cost frames in WebView2 at 238 Hz; the
+ * board's document doesn't change while typing, so the panel's props don't
+ * either (whiteboard#52). The window keeps `source` and the selection's
+ * callbacks steady for it.
+ */
+const PropsPanel = React.memo(function PropsPanel({ live, doc, selection, selected, link, onPickLink, onSelect, source }: PropsPanelProps) {
   // AI-built block types (custom-types.ts) can arrive after the first draw:
   // draw again then, so their blocks get their own form.
   React.useSyncExternalStore(subscribeTypes, typesStamp, typesStamp);
@@ -123,7 +131,7 @@ function PropsPanel({ live, doc, selection, selected, link, onPickLink, onSelect
       )}
     </aside>
   );
-}
+});
 
 /**
  * Sends one change. It's built from the board as it is when it goes, after
@@ -1243,6 +1251,7 @@ function usePropsSelection(doc: BoardDoc | null) {
   const links = doc?.links;
   const looks = React.useMemo(() => new Map((links ?? []).map((l) => [l.id, lineLook(l)])), [links]);
   const look = React.useCallback((id: string) => looks.get(id), [looks]);
+  const [bridge] = React.useState(() => <BoardApiInto to={api} />);
   return {
     board: {
       onSelectedChange,
@@ -1250,7 +1259,7 @@ function usePropsSelection(doc: BoardDoc | null) {
       onLinePress: pickLink,
       lineLook: look,
     },
-    bridge: <BoardApiInto to={api} />,
+    bridge,
     panel: {
       selection,
       link,

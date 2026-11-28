@@ -12,12 +12,13 @@
 // argument, WS_EX_NOACTIVATE and IgnoreMouseEvents keeps it out of the way.
 // Without --board the sample board opens.
 //
-// The actions: pan (drag empty space), scroll (the wheel, which pans), zoom
+// The actions: idle (no input, the noise floor), pan (drag empty space), scroll (the wheel, which pans), zoom
 // (Ctrl and the wheel), drag (a block, then drop it; each run a block not
 // moved yet, so on an agent-made block the drop is its first change, which
 // changes its "last changed by"; the first run is also the page's first
 // drop), select (click one block after another) and
-// type (click into a sticky and type in it). Per action it prints the time between frames
+// type (click into a sticky and type in it; also printed for the keys alone,
+// past the clicks). Per action it prints the time between frames
 // (requestAnimationFrame): median, 95th and 99th percentile, worst, frames per second, and how many
 // frames took longer than 1.5 and 2 refresh intervals; how many times the board's
 // block items, blocks, and ports and handles rendered per key, press, the moves
@@ -252,6 +253,9 @@ async function typeInSticky(at: Point) {
   const focused = await evaluate<boolean>(`document.activeElement?.tagName === "TEXTAREA"`);
   if (!focused) throw new Error("the double-click didn't put the cursor in the sticky's text");
   await renders();
+  // What's measured past here is the keys alone, without the clicks that
+  // put the cursor in the sticky (selecting it, then editing).
+  await evaluate(`__perf.mark()`);
   const t0 = performance.now();
   let keys = 0;
   for (let i = 0; performance.now() - t0 < DURATION; i++) {
@@ -263,7 +267,18 @@ async function typeInSticky(at: Point) {
   note("key", await renders(), keys);
 }
 
+// No input, the same DevTools traffic as typing (a message every 50 ms):
+// the frames any action would lose to the computer and the browser alone.
+async function stillFor() {
+  const t0 = performance.now();
+  while (performance.now() - t0 < DURATION) {
+    await evaluate(`0`);
+    await sleep(50);
+  }
+}
+
 const actions: Record<string, (spots: Spots, run: number) => Promise<void>> = {
+  idle: stillFor,
   pan: (s) => dragFrom(spot(s, "empty"), 260),
   scroll: (s) => wheelPan(spot(s, "empty")),
   zoom: (s) => wheelZoom(spot(s, "empty")),
@@ -350,7 +365,15 @@ for (const [name, run] of Object.entries(actions)) {
     slowPct: (100 * slow) / all.length,
     over2,
     // Past the first click: the worst frame, and how many took over 1.5 refreshes.
-    pastFirst: pastFirst.length ? { frames: pastFirst.length, worst: Math.max(...pastFirst), slow: pastFirst.filter((d) => d > refresh * 1.5).length } : undefined,
+    // For type, past the clicks into the sticky: the keys alone.
+    pastFirst: pastFirst.length
+      ? {
+          frames: pastFirst.length,
+          worst: Math.max(...pastFirst),
+          slow: pastFirst.filter((d) => d > refresh * 1.5).length,
+          over2: pastFirst.filter((d) => Math.round(d / refresh) > 2).length,
+        }
+      : undefined,
     // Main-thread milliseconds per second of the action.
     scriptMsPerS: busy("ScriptDuration"),
     styleMsPerS: busy("RecalcStyleDuration"),
@@ -366,7 +389,7 @@ for (const [name, run] of Object.entries(actions)) {
   );
   if (row.pastFirst) {
     console.log(
-      `  past the first click: worst ${row.pastFirst.worst.toFixed(1)} ms, ${row.pastFirst.slow} of ${row.pastFirst.frames} frames over 1.5× refresh (${(refresh * 1.5).toFixed(1)} ms)`,
+      `  ${name === "type" ? "the keys alone" : "past the first click"}: worst ${row.pastFirst.worst.toFixed(1)} ms, ${row.pastFirst.slow} of ${row.pastFirst.frames} frames over 1.5× refresh (${(refresh * 1.5).toFixed(1)} ms), ${row.pastFirst.over2} over 2×`,
     );
   }
   for (const [stage, n] of Object.entries(row.renders)) {
