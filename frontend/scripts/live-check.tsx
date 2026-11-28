@@ -77,6 +77,11 @@ function canon(v: unknown): string {
 const sameBoard = (a: BoardDoc | null, b: BoardDoc) => !!a && canon(a) === canon(b);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const settle = () => wait(30);
+/** Wait until `cond` holds, up to `ms`: for what React does in a later task than the render (a passive effect), whose timing a fixed wait can miss on a busy computer. */
+const until = async (cond: () => boolean, ms = 2000) => {
+  for (const end = Date.now() + ms; !cond() && Date.now() < end; ) await wait(5);
+  return cond();
+};
 
 const goFile = new URL("../../internal/board/testdata/live-ops.json", import.meta.url);
 const windowFile = new URL("../../internal/board/testdata/window-ops.json", import.meta.url);
@@ -211,7 +216,9 @@ const agentDoes = (op: Omit<BoardOp, "source">) => {
 };
 
 const agent = createAgent();
-const live = new LiveBoard(start.id, store, { typingMs: 60, gapMs: 80 });
+// The typing pause is long enough that the check's own keys, 10 ms apart, stay
+// inside it on a busy computer (whiteboard#57).
+const live = new LiveBoard(start.id, store, { typingMs: 400, gapMs: 80 });
 const host = document.createElement("div");
 document.body.append(host);
 createRoot(host).render(<Whiteboard live={live} />);
@@ -272,7 +279,7 @@ ok("a key renders the typed block's item alone", renders.item === 3, renders);
 ok("... its ports and handles alone, not every block's", renders.part === 3 * 12, { renders, allBlocks });
 ok("... and not every block", (renders.block ?? 0) <= 3 * 2 && allBlocks > 2, { renders, allBlocks });
 ok("typing waits for a pause", sent.length === 1, sent.length);
-await wait(120);
+await until(() => sent.length === 2);
 ok("typing goes as one op after the pause", sent.length === 2 && sent[1].blocks?.[0]?.props?.text === "First idea, typed", sent.length);
 ok("... and the frame and group stay", memBlock("s2")!.group === "g" && mem.board().blocks.find((b) => b.id === "s3")!.frame === "frm-plan");
 
@@ -348,7 +355,7 @@ ok("undo brings the block and its line back", !!memBlock("s2") && mem.board().li
   input.focus();
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Plan, renamed");
   input.dispatchEvent(new Event("input", { bubbles: true }));
-  await wait(120);
+  await until(() => f().name === "Plan, renamed");
   ok("renaming a frame saves its name", f().name === "Plan, renamed" && f().y > 260 && inSync(), f());
   ok("... and the blocks stay in it", mem.board().blocks.find((b) => b.id === "s3")!.frame === "frm-plan");
 }
@@ -398,6 +405,7 @@ ok("undo brings the block and its line back", !!memBlock("s2") && mem.board().li
     await wait(5);
   }
   await wait(150);
+  await until(inSync);
   ok("doubled, reordered events: the window ends on the store's board", inSync(), { window: live.rev, store: mem.board().rev });
   ok("... every agent block once", Object.keys(view().blocks).filter((k) => /^b\d$/.test(k)).length === 8);
 
@@ -412,7 +420,7 @@ ok("undo brings the block and its line back", !!memBlock("s2") && mem.board().li
   };
   agentDoes({ blocks: [{ id: "lost", type: "sticky", x: 0, y: 600, w: 120, h: 120, props: sticky("Its event was lost") }] });
   agentDoes({ blocks: [{ id: "after", type: "sticky", x: 160, y: 600, w: 120, h: 120, props: sticky("After it") }] });
-  await wait(200);
+  await until(() => inSync() && !!el("lost") && !!el("after"));
   ok("a lost event: the window reloads and has both blocks", inSync() && !!el("lost") && !!el("after"), Object.keys(view().blocks));
   mem.deliver = (op, send) => queueMicrotask(() => send(op));
 }
@@ -551,8 +559,10 @@ ok("no error shown", live.getState().error === null, live.getState().error);
   // Shortcuts pick tools, not while typing; the choice is saved.
   key(document.body, "r");
   await settle();
-  ok("R picks the rectangle", pressed("rect") && surface().hasAttribute("data-active"), toolButton("rect").outerHTML.slice(0, 120));
-  ok("the tool is saved", JSON.parse(localStorage.getItem("toru.whiteboard.drawing") ?? "{}").tool === "rect", localStorage.getItem("toru.whiteboard.drawing"));
+  ok("R picks the rectangle", (await until(() => pressed("rect"))) && surface().hasAttribute("data-active"), toolButton("rect").outerHTML.slice(0, 120));
+  // The bar saves its settings in an effect, which React runs in a task after the render.
+  const savedTool = () => JSON.parse(localStorage.getItem("toru.whiteboard.drawing") ?? "{}").tool;
+  ok("the tool is saved", await until(() => savedTool() === "rect"), localStorage.getItem("toru.whiteboard.drawing"));
   ok("the fill toggle shows for a rectangle", !!bar().querySelector('[data-part="drawing-fill"]'));
 
   // A rectangle: one drag, one op, one stroke of kind rect.
