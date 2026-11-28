@@ -699,6 +699,57 @@ changed (rules keyed on `[data-selected]` and Tailwind's `group-hover`) and
 half UI SDK's selection and roving focus code. That was there before the
 panel.
 
+**Two refreshes in WebView2 on DESKTOP-STEPHEN (whiteboard#49).** Does
+clicking from block to block hold every frame within 2 refresh intervals
+(8.4 ms at 238 Hz)? No: about one frame a click goes over, in both themes.
+Measured on a copy of Boxes Inc (`brd-f69a6b74ac65797b`, rev 9: 45 blocks,
+8 frames, 15 links, 15 ink strokes; 45 clickable blocks), window 1384×861,
+238 Hz (4.2 ms), `main` at whiteboard#45 (641cc53), production build of
+`board-perf.html`. `bun scripts/board-perf.ts --only select --cdp 9339
+--board <copy> --theme light|dark --no-profile`, three runs of 2.5 s each
+(a click every 250 ms, about 27 clicks past each run's first). "Over 2×"
+counts frames that missed more than one refresh; the script now prints it
+for the frames past the first click too.
+
+| Theme | All frames | Over 2×, all | Over 2×, past the first click | Worst, past the first click |
+| --- | --- | --- | --- | --- |
+| Light | 2021 | 36 | — | 41.8 ms (first run of a new page: 66.7 ms overall) |
+| Dark | 2019 | 29 | — | 29.3 ms |
+| Light | 2107 | 30 | 27 of 1878 | 25.1 ms |
+| Dark | 2069 | 27 | 24 of 1872 | 25.1 ms |
+| Light | 2072 | 29 | 26 of 1854 | 33.4 ms |
+| Dark | 2016 | 28 | 24 of 1817 | 25.0 ms |
+
+(The first two rows ran before the script printed over 2× past the first
+click.) Median 4.2 ms, 223–229 fps, main thread per second: script 36–39 ms,
+style 58–64 ms, layout 4–5 ms. The themes measure the same.
+
+What each frame over 2× spent, from DevTools traces of twelve clicks in
+each theme (main thread self time per frame, counted between
+`BeginMainThreadFrame` ticks). Tracing with invalidation tracking and stack
+sampling makes every task slower, so the traced click shows two or three
+frames over 2× where an untraced one shows about one; the kinds are the same:
+
+- **The press, every click: style first, then script.** 14–31 ms frames,
+  about 6–16 ms of style and 5–10 ms of script. The style is the restyle of
+  the two blocks whose selection changed, forced inside `mousedown` by Wails'
+  `primaryDown` (`@wailsio/runtime` reading `--wails-draggable`: an
+  `UpdateLayoutTree` inside that call); the script is UI SDK's `pointerdown`
+  (selection store, roving focus) and the `focus` that follows. This is the
+  frame left untraced: it alone is two to three refreshes.
+- **About 20–50 ms later: script only.** 10–17 ms traced, one task: React's
+  scheduled render (a `MessageChannel` task, no input event), the properties
+  panel's transition committing (see whiteboard#43, #48). Untraced it is
+  6–12 ms, so sometimes over 2×, sometimes just under.
+- **About 25–75 ms later, some clicks: style.** 11–15 ms traced, 5–9 ms of
+  style with a little paint: the restyle after the release and the CSS
+  transitions the selection started.
+- Layout is under 1.1 ms in every slow frame: not a cost.
+
+So the frame budget is lost to style (the press's restyle of the two
+blocks, forced early by Wails' read) and script (UI SDK's press handling,
+then the panel's render), not layout. whiteboard#51 takes these on.
+
 **Measuring again.** `frontend/board-perf.html` (Vite only) opens the
 whiteboard window on a board in memory; `frontend/scripts/board-perf.ts`
 drives it over the DevTools protocol with synthetic input only, so it never
@@ -740,7 +791,8 @@ Export the board to `.toruboard` first and measure the file; the page keeps
 the board in memory and never touches Toru's store.
 
 `--only select` also prints the frames past each run's first click (the
-first opens the panel), which is what "no long frame when selecting" counts.
+first opens the panel), which is what "no long frame when selecting" counts,
+and how many of them go over 2 refreshes.
 `--cpu 4` slows the page with DevTools' CPU throttling, for measuring on a
 computer much faster than the one people use. Any Chrome or Edge started with
 `--remote-debugging-port=9339` serves as the browser off Windows.

@@ -323,8 +323,10 @@ for (const [name, run] of Object.entries(actions)) {
     fps: 1000 / (all.reduce((a, b) => a + b, 0) / all.length),
     slowPct: (100 * slow) / all.length,
     over2,
-    // Past the first click: the worst frame, and how many took over 1.5 refreshes.
-    pastFirst: pastFirst.length ? { frames: pastFirst.length, worst: Math.max(...pastFirst), slow: pastFirst.filter((d) => d > refresh * 1.5).length } : undefined,
+    // Past the first click: the worst frame, and how many took over 1.5 and 2 refreshes.
+    pastFirst: pastFirst.length
+      ? { frames: pastFirst.length, worst: Math.max(...pastFirst), slow: pastFirst.filter((d) => d > refresh * 1.5).length, over2: pastFirst.filter((d) => Math.round(d / refresh) > 2).length }
+      : undefined,
     // Main-thread milliseconds per second of the action.
     scriptMsPerS: busy("ScriptDuration"),
     styleMsPerS: busy("RecalcStyleDuration"),
@@ -337,7 +339,7 @@ for (const [name, run] of Object.entries(actions)) {
   );
   if (row.pastFirst) {
     console.log(
-      `  past the first click: worst ${row.pastFirst.worst.toFixed(1)} ms, ${row.pastFirst.slow} of ${row.pastFirst.frames} frames over 1.5× refresh (${(refresh * 1.5).toFixed(1)} ms)`,
+      `  past the first click: worst ${row.pastFirst.worst.toFixed(1)} ms, ${row.pastFirst.slow} of ${row.pastFirst.frames} frames over 1.5× refresh (${(refresh * 1.5).toFixed(1)} ms), ${row.pastFirst.over2} over 2×`,
     );
   }
   console.log(
