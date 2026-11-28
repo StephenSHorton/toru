@@ -98,7 +98,7 @@
   }
 
   /* While the pen is on, strokes and blocks under it don't show hover. */
-  [data-slot="board"]:has([data-slot="ink-surface"][data-active]) [data-slot="board-port"] {
+  [data-slot="board"]:has([data-slot="ink-surface"][data-active]) .board-port {
     opacity: 0;
   }
 

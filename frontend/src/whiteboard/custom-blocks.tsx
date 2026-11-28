@@ -479,6 +479,7 @@ function ListPart({ c, prop, label, numbered }: { c: Ctx; prop: string; label: s
             <Button
               aria-label={`Remove item ${i + 1} from ${what} in ${c.name}`}
               data-part="block-remove"
+              className="block-extra"
               data-agent-confirm={`Removes "${it}" from ${what} in ${c.name}`}
               onClick={() => c.set(prop, items.filter((_, j) => j !== i), {})}
             >

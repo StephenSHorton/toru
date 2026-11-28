@@ -221,7 +221,7 @@
   }
 
   /* While the hand, eraser or a shape tool is on, blocks don't show hover. */
-  [data-slot="board"]:has([data-slot="tool-surface"][data-active]) [data-slot="board-port"] {
+  [data-slot="board"]:has([data-slot="tool-surface"][data-active]) .board-port {
     opacity: 0;
   }
 }

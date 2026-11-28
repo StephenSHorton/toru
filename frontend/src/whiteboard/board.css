@@ -17,7 +17,11 @@
     cursor: grab;
     outline: none;
 
-    &:active {
+    /* Only while panning (board.ts), not :active: the board is :active
+       while any block in it is pressed, and cursor is inherited, so each
+       click on a block restyled ~140 elements on the press and again on the
+       release (whiteboard#51). */
+    &[data-panning] {
       cursor: grabbing;
     }
 
@@ -235,7 +239,11 @@
     translate: -50% -50%;
     opacity: 0;
     cursor: crosshair;
-    transition-property: scale, background-color, opacity;
+    /* No fade on opacity: a click shows the new block's ports and hides the
+       old one's at once. Their 120 ms fade ran on the main thread for the
+       frames after each click, which at 238 Hz cost one of them a refresh
+       most clicks (whiteboard#51). */
+    transition-property: scale, background-color;
     transition-duration: 120ms;
 
     &[data-side="top"] {
@@ -268,8 +276,14 @@
     }
   }
 
-  [data-slot="board-block"]:is(:hover, :focus-visible, [data-selected]) [data-slot="board-port"],
-  [data-slot="board"][data-connecting] [data-slot="board-port"] {
+  /* Rules that follow a block's or the board's state reach its ports and
+     handles by their classes (BoardView.tsx), not by data-slot: Blink restyles
+     every descendant that has the attribute a rule's last part names, so
+     `[data-selected] [data-slot="board-port"]` restyled each of the block's
+     data-slot elements on a click, and the board's ~2,000 on a connect
+     (whiteboard#51). A class reaches only the elements that carry it. */
+  [data-slot="board-block"]:is(:hover, :focus-visible, [data-selected]) .board-port,
+  [data-slot="board"][data-connecting] .board-port {
     opacity: 1;
   }
 
@@ -300,7 +314,7 @@
     }
   }
 
-  [data-slot="board-block"][data-selected] [data-slot="board-handle"] {
+  [data-slot="board-block"][data-selected] .board-handle {
     display: block;
   }
 
