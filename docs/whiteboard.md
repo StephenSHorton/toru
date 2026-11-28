@@ -1127,6 +1127,69 @@ change before whiteboard#52 came into it; the table above is on `c1ddeeb`:
 `--only pan,drag,type` on `main` and on this change, light: the same render
 counts and frames within one set's spread.
 
+### Double-clicking into a sticky's text (whiteboard#53)
+
+**The 168 elements were the board's `:active` cursor, not `data-editing`.**
+Traced in WebView2 with style invalidation tracking on a build of `main` at
+whiteboard#52 (`c1ddeeb`). The press restyles 136 elements: the board takes
+`:active`, and `[data-slot="board"]:active { cursor: grabbing }` (board.css)
+changes an inherited property. The release takes `:active` off again, and
+that restyle waits for the next style read. That read is `editBlock`'s
+`elementFromPoint`, in the same task as the `data-editing` change. So
+`elementFromPoint` restyled 136 elements for `:active` plus 32 for
+`data-editing`, 168 in all. Deleting only that one rule in the page (CSSOM,
+same build) gave 33 elements in the double click and no restyle in the press.
+whiteboard#51 had already replaced the rule with `[data-panning]`. On `main`
+now (`640f90e`), the double click restyles 33 elements, then 6 as focus moves.
+
+The 33 left come from the block's own rules. `[data-slot="board-block"][data-editing]
+{ cursor: default }` changes an inherited property on the block, so its 31
+elements restyle. The text-field rules (`pointer-events`, `cursor: text`)
+restyle the field.
+
+**What the double click spends now**, traced on `640f90e`:
+- `editBlock`'s `store.set({ editing })`. UI SDK ran the live attributes of
+  every block, port and handle, because `editing` wasn't narrowed. That was
+  about a third of the handler's script. **Changed:** blocks follow `editing`
+  by their own key (`selects` in `board.ts`), and ports, handles and lines
+  ignore it (`ignoresSelection`). Only the block that starts or stops editing
+  wakes. Traced, this part fell from 5.0 to 1.2 ms.
+- `elementFromPoint`: the 33-element restyle and a hit test.
+- `focus()` on the field: the 6-element restyle, focus events, and native
+  work that the trace doesn't break down (about 2–3 ms untraced in production).
+- Then paint and layers, about 2–3 ms.
+
+**Measured** as whiteboard#52 was: the same Boxes Inc copy, window and
+`board-perf-host`, production builds of `board-perf.html`. Each set is three
+runs of `--only idle,type --no-profile`, about 150 keys plus the two clicks
+into the sticky; the builds are taken in turn. Frames over 2 intervals
+(3 or more, 12.5 ms and up), whole run with the clicks:
+
+| Build | Light, by set | Dark, by set | Worst frame in the run | Idle, by set |
+| --- | --- | --- | --- | --- |
+| `c1ddeeb` (whiteboard#52) | 1, 0 | 1, 0 | 12.5–12.6 ms in 3 of 4 sets | 0 in all |
+| `640f90e` (`main`, whiteboard#51) | 0, 1, 1 | 1, 0, 0 | 12.4–12.5 ms in 4 of 6 sets | 0–1 |
+| This change | 0, 0, 0 | 0, 0, 0 | 8.3–8.5 ms in all 6 sets | 0–1 |
+
+The keys alone: 0 over 2 intervals in every set of every build. Script while
+typing: 62–70 ms a second on all three builds. In 18 runs on this change no
+frame went past 2 intervals; idle, with no input, lost one such frame in 4 of
+the same 6 sets. So the whole run sits at the idle floor. On `main` the
+double click still costs one 12.5 ms frame in about a third of runs. Two
+intervals are 8.4 ms at 238 Hz.
+
+These were taken at 33–44% CPU, with two idle Roblox Studio windows open.
+Earlier runs this session were taken at 80–100% CPU (a game and another
+program). There every build, `c1ddeeb` too, lost 3–17 frames over 2 intervals
+on the keys alone, so those runs aren't in the table. whiteboard#52's 2–5
+"whole run" count was on `c1ddeeb`, which measures 0–1 here. Part of it was
+the clicks' 168-element restyle (removed by whiteboard#51), part the
+computer's load at the time.
+
+Checked in the page: after Escape, after a click outside, and when editing
+moves straight from one sticky to another, `data-editing` is on at most one
+block. `scripts/board-check.ts` passes (91).
+
 **Measuring again.** `frontend/board-perf.html` (Vite only) opens the
 whiteboard window on a board in memory; `frontend/scripts/board-perf.ts`
 drives it over the DevTools protocol with synthetic input only, so it never
