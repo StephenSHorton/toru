@@ -601,8 +601,9 @@ What costs a frame, found by removing rules and by DevTools traces: with
 UI SDK's `:has()` rules on the page (any one of several, among them the
 board's own `[data-slot="board"]:has(…) [data-slot="board-port"]`), Blink
 restyles every `[data-slot]` and `svg` under the board, 17–30 ms, whenever
-**an element is put into or taken out of the app**, or **an element's last
-text is taken out**. Text added, text changed in place, and attribute
+**an element is put into or taken out of the board** (or straight into
+`#root`; not the right panel, see below), or **an element's last text is
+taken out**. Text added, text changed in place, and attribute
 changes cost nothing. Overriding the rules can't help (a rule's selector
 costs whatever it declares), so the window now avoids those changes where
 nothing on screen changes (`whiteboard/restyle-guards.ts`, loaded by the
@@ -623,11 +624,24 @@ window):
   sections each render beat `TilePreview`'s memo): script time only, now
   kept.
 
-Still there, not from this: selecting a block of another type puts the
-right panel's rows in (one restyle, about 25 ms), and each drop renders
-every block's UI SDK canvas item and handles again (script, under a frame
-here). Not measured again in WebView2 on DESKTOP-STEPHEN (238 Hz), where two
-refresh intervals are 8.4 ms.
+Still there, not from this: each drop renders every block's UI SDK canvas
+item and handles again (script, under a frame here). Not measured again in
+WebView2 on DESKTOP-STEPHEN (238 Hz), where two refresh intervals are 8.4 ms.
+
+**Where an element goes matters (whiteboard#45).** Measured again on the same
+board in Chrome on MACBOOK-STEPHEN, 120 Hz, production build, both themes,
+by putting one element in and taking it out again: inside the board
+(`[data-slot="board"]`) or straight into `#root`, that restyles about 2,200
+elements, 17–23 ms; inside the right panel (`[data-slot="props-panel"]`, a
+child of `#root` beside the board, not inside it), about 6 elements, under
+1 ms, with the panel open or closed. So the right panel can put in and take
+out its rows freely. It does so on every selection change (its body is keyed
+by what's selected, so even sticky to sticky makes it again), and a click
+costs about 4 ms of style over about 300 elements and 8–9 ms of script.
+`bun scripts/board-perf.ts --only select`: 119–120 fps, worst 9–18 ms, no
+frame over 2 intervals in 17 of 18 measurements across both themes; the
+other was the first in a browser just started (worst 50 ms, 2 frames), and a
+new browser profile didn't bring it back. Not measured in WebView2.
 
 The dots stay on the board: one every 24 board units from (0, 0), the same
 grid Snap to grid uses (whiteboard#24).
