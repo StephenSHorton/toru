@@ -18,7 +18,8 @@
 // changes its "last changed by"; the first run is also the page's first
 // drop), select (click one block after another) and
 // type (click into a sticky and type in it; also printed for the keys alone,
-// past the clicks). Per action it prints the time between frames
+// past the clicks). For drag it also prints the drop's frame (the longest
+// from the release on) in each run, in refresh intervals. Per action it prints the time between frames
 // (requestAnimationFrame): median, 95th and 99th percentile, worst, frames per second, and how many
 // frames took longer than 1.5 and 2 refresh intervals; how many times the board's
 // block items, blocks, and ports and handles rendered per key, press, the moves
@@ -167,22 +168,24 @@ const mouse = (type: string, x: number, y: number, extra: object = {}) =>
 
 const DURATION = 2500;
 
-// How many times the board's block items, blocks and ports or handles
+// How many times the board itself, its block items, blocks and ports or handles
 // rendered (BoardView.tsx counts them on board-perf.html), by stage of the
 // action: what renders() read since its last call, added up over the runs.
-type Renders = { item: number; block: number; part: number };
+type Renders = { board?: number; item: number; block: number; part: number };
 const renders = () => evaluate<Renders>(`__perf.renders()`);
 let stages: Record<string, Renders & { times: number }> = {};
 function note(stage: string, got: Renders, times = 1) {
-  const s = (stages[stage] ??= { item: 0, block: 0, part: 0, times: 0 });
+  const s = (stages[stage] ??= { board: 0, item: 0, block: 0, part: 0, times: 0 });
+  s.board! += got.board ?? 0;
   s.item += got.item;
   s.block += got.block;
   s.part += got.part;
   s.times += times;
 }
 // Drags from a point in a figure of eight that ends where it began, one move
-// every few ms (a mouse reports at hundreds of Hz), for DURATION.
-async function dragFrom(at: Point, size: number) {
+// every few ms (a mouse reports at hundreds of Hz), for DURATION. With
+// `drop`, the frames from the release on are marked as the drop's.
+async function dragFrom(at: Point, size: number, drop = false) {
   await mouse("mouseMoved", at.x, at.y, { buttons: 0 });
   await renders();
   await mouse("mousePressed", at.x, at.y, { clickCount: 1 });
@@ -198,6 +201,7 @@ async function dragFrom(at: Point, size: number) {
     await sleep(2);
   }
   note("moves", await renders());
+  if (drop) await evaluate(`__perf.mark()`);
   await mouse("mouseReleased", x, y, { clickCount: 1 });
 }
 
@@ -283,7 +287,7 @@ const actions: Record<string, (spots: Spots, run: number) => Promise<void>> = {
   scroll: (s) => wheelPan(spot(s, "empty")),
   zoom: (s) => wheelZoom(spot(s, "empty")),
   // Each run a block not moved yet: on an agent's block, the drop is its first change.
-  drag: (s, run) => dragFrom(spot(s, "block", run), 180),
+  drag: (s, run) => dragFrom(spot(s, "block", run), 180, true),
   select: selectBlocks,
   type: (s) => typeInSticky(spot(s, "sticky")),
 };
@@ -324,8 +328,11 @@ for (const [name, run] of Object.entries(actions)) {
   await load();
   const all: number[] = [];
   const worstByRun: number[] = [];
-  // Frames past each run's first click (select only).
+  // Frames past each run's first click (select), the keys alone (type), or
+  // the release (drag).
   const pastFirst: number[] = [];
+  // The drop's frame: the longest from the release on, a run (drag only).
+  const dropByRun: number[] = [];
   stages = {};
   const before = await metrics();
   if (profiling) {
@@ -342,6 +349,7 @@ for (const [name, run] of Object.entries(actions)) {
     const got = await evaluate<number[]>(`__perf.stop()`);
     const markAt = await evaluate<number>(`__perf.marked()`);
     if (markAt > 0) pastFirst.push(...got.slice(markAt));
+    if (name === "drag" && markAt > 0) dropByRun.push(Math.max(...got.slice(markAt)));
     worstByRun.push(Math.max(...got));
     all.push(...got);
     await sleep(400);
@@ -374,26 +382,32 @@ for (const [name, run] of Object.entries(actions)) {
           over2: pastFirst.filter((d) => Math.round(d / refresh) > 2).length,
         }
       : undefined,
+    // The drop's frame in each run, and how many refresh intervals it took.
+    drop: dropByRun.length ? { byRun: dropByRun, intervals: dropByRun.map((d) => Math.round(d / refresh)) } : undefined,
     // Main-thread milliseconds per second of the action.
     scriptMsPerS: busy("ScriptDuration"),
     styleMsPerS: busy("RecalcStyleDuration"),
     layoutMsPerS: busy("LayoutDuration"),
     top: profile ? topFunctions(profile) : [],
     renders: Object.fromEntries(
-      Object.entries(stages).map(([stage, s]) => [stage, { item: s.item / s.times, block: s.block / s.times, part: s.part / s.times }]),
+      Object.entries(stages).map(([stage, s]) => [stage, { board: s.board! / s.times, item: s.item / s.times, block: s.block / s.times, part: s.part / s.times }]),
     ),
   };
   results.actions[name] = row;
   console.log(
     `\n${name}: ${row.frames} frames, median ${row.p50.toFixed(2)} ms, p95 ${row.p95.toFixed(2)}, p99 ${row.p99.toFixed(2)}, worst ${row.worst.toFixed(1)} (by run: ${row.worstByRun.map((w) => w.toFixed(0)).join(", ")}); ${row.fps.toFixed(0)} fps; ${row.slowPct.toFixed(1)}% frames over 1.5× refresh, ${row.over2} over 2×`,
   );
-  if (row.pastFirst) {
+  if (row.drop) {
+    console.log(
+      `  the drop: ${row.drop.byRun.map((d) => `${d.toFixed(1)} ms`).join(", ")} (${row.drop.intervals.join(", ")} refresh intervals; at most 2 in ${row.drop.intervals.filter((n) => n <= 2).length} of ${row.drop.intervals.length})`,
+    );
+  } else if (row.pastFirst) {
     console.log(
       `  ${name === "type" ? "the keys alone" : "past the first click"}: worst ${row.pastFirst.worst.toFixed(1)} ms, ${row.pastFirst.slow} of ${row.pastFirst.frames} frames over 1.5× refresh (${(refresh * 1.5).toFixed(1)} ms), ${row.pastFirst.over2} over 2×`,
     );
   }
   for (const [stage, n] of Object.entries(row.renders)) {
-    console.log(`  renders a ${stage}: ${n.item.toFixed(1)} block items, ${n.block.toFixed(1)} blocks, ${n.part.toFixed(1)} ports and handles`);
+    console.log(`  renders a ${stage}: ${n.board.toFixed(1)} boards, ${n.item.toFixed(1)} block items, ${n.block.toFixed(1)} blocks, ${n.part.toFixed(1)} ports and handles`);
   }
   console.log(
     `  main thread per second: script ${row.scriptMsPerS.toFixed(0)} ms, style ${row.styleMsPerS.toFixed(0)} ms, layout ${row.layoutMsPerS.toFixed(0)} ms`,

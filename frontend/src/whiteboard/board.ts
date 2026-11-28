@@ -150,6 +150,13 @@ const sides: EdgeSide[] = ["top", "right", "bottom", "left"]
  * (whiteboard#53).
  */
 const ignoresSelection = () => selects({ selected: [], focused: [], editing: [] })
+/**
+ * For a block's ports and resize handles, which read neither the board's
+ * blocks nor its lines: without this every one of them woke on each change to
+ * a block, so a drop or a key checked all 636 on Boxes Inc, twice (the move,
+ * then Go's answer), to find nothing changed (whiteboard#54).
+ */
+const ignoresBoard = () => selects({ selected: [], focused: [], editing: [], blocks: [], lines: [] })
 const handles: ResizeHandle[] = ["n", "ne", "e", "se", "s", "sw", "w", "nw"]
 const sideNames: Record<EdgeSide, string> = {
   top: "top",
@@ -1297,11 +1304,31 @@ const board = /* @__PURE__ */ definePrimitive({
       props: { value: "string" },
       // A selection change wakes only the blocks it adds or drops, a focus
       // change the two blocks it moves between (whiteboard#51), and editing
-      // the block that starts or stops it (whiteboard#53).
+      // the block that starts or stops it (whiteboard#53). A change to the
+      // blocks wakes only the blocks it changes: a block reads
+      // only its own, and its neighbours' labels through the lines, which
+      // nameLines renames with them (whiteboard#54).
       selects: selects({
         focused: ({ key }) => [key, null],
         selected: ({ key }) => [key],
         editing: ({ key }) => [key],
+        blocks: ({ key }) => [key],
+        // A drag or resize wakes only the blocks it moves or sizes: each
+        // pointer move and the drop used to check all 78 blocks on Boxes Inc
+        // (whiteboard#54).
+        moving: {
+          values: ({ key }) => [key],
+          moved: (before, after, notify) => {
+            for (const key of new Set([...(before?.keys ?? []), ...(after?.keys ?? [])])) notify(key)
+          },
+        },
+        resizing: {
+          values: ({ key }) => [key],
+          moved: (before, after, notify) => {
+            if (before) notify(before.key)
+            if (after && after.key !== before?.key) notify(after.key)
+          },
+        },
       }),
       state: (state, { key }) => ({ selected: state.selected.includes(key) }),
       attrs: (state, part) => {
@@ -1378,7 +1405,7 @@ const board = /* @__PURE__ */ definePrimitive({
     // A resize handle, keyed `<block>:<handle>`, like `idea:se`.
     handle: slot<{ value: string }>({
       props: { value: "string" },
-      selects: ignoresSelection(),
+      selects: ignoresBoard(),
       attrs: (_state, { key, api }) => ({
         "aria-hidden": "true",
         ...api.resize.handleAttrs(endOf(key) as ResizeHandle),
@@ -1391,7 +1418,7 @@ const board = /* @__PURE__ */ definePrimitive({
     // A port lines start and end at, keyed `<block>:<side>`, like `idea:right`.
     port: slot<{ value: string }>({
       props: { value: "string" },
-      selects: ignoresSelection(),
+      selects: ignoresBoard(),
       attrs: (_state, { key }) => ({
         "aria-hidden": "true",
         "data-side": endOf(key),
