@@ -43,17 +43,21 @@ if (desc?.get && desc.set && !(desc.set as { guarded?: boolean }).guarded) {
 
 // Rules this window can't match, taken out of its style sheets
 // (whiteboard#51). Blink keys what a hover or focus change restyles by the
-// pseudo-class alone, so a rule like Tailwind's `group-hover:` utility,
-// `.x:is(:where(.group):hover *)`, restyles the whole subtree of every
-// element that's hovered, focused or left, a block's 30–40 elements on each
-// click and on each move onto a block. UI SDK's Tree rule
+// pseudo-class alone, so a rule like Tailwind's `group-hover:` utility as
+// Tailwind builds it, `.x:is(:where(.group):hover *)`, restyled the whole
+// subtree of every element that's hovered, focused or left, a block's 30–40
+// elements on each click and on each move onto a block. The build now turns
+// those round (`:where(.group):hover .x`, group-selectors.ts, whiteboard#56),
+// so they restyle only elements with their class; they're still taken out
+// here, since none can match in this window. UI SDK's Tree rule
 // (`[data-slot="tree-item"]:focus-visible > [data-slot="tree-label"]`)
 // restyles every [data-slot] in a block whose focus changes, the click's two
 // blocks. Nothing in this window has a Tailwind `group` class or a Tree:
 // the Toru pages that use them are other windows', sharing one style sheet.
 // Other rules in the same list are kept.
 const unmatchable = [
-  // Tailwind's group-* variants, named groups (group/edge) included.
+  // Tailwind's group-* variants, named groups (group/edge) included, in
+  // either form.
   /:where\(\.group(?:\\\/[\w-]+)?\)/,
   // UI SDK's Tree item's focus ring on its label.
   /\[data-slot="tree-item"\]\)?:focus-visible/,

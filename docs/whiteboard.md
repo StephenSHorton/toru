@@ -1094,7 +1094,11 @@ Chrome:
   a `group` class or a Tree: the pages that use them belong to other windows,
   which share the one style sheet. So `restyle-guards.ts` takes those
   selectors out of this window's style sheets when it opens and as more
-  sheets arrive, and keeps the other selectors in the same rules. In 40
+  sheets arrive, and keeps the other selectors in the same rules. The
+  other windows use `group` classes, so the build now writes Tailwind's
+  `group-*` rules the other way round instead, `:where(.group):hover .x`
+  (`frontend/group-selectors.ts`, whiteboard#56): a hover there restyles
+  only the elements with that class. See "Tailwind's group rules" below. In 40
   clicks timed as `board-perf.ts` times them, dropping the fade or these
   rules alone left 11–26 frames over 1.5×, and doing both left 2–5 (main:
   49–50).
@@ -1240,6 +1244,52 @@ and how many of them go over 2 refreshes.
 `--cpu 4` slows the page with DevTools' CPU throttling, for measuring on a
 computer much faster than the one people use. Any Chrome or Edge started with
 `--remote-debugging-port=9339` serves as the browser off Windows.
+
+### Tailwind's group rules, in every window (whiteboard#56)
+
+Tailwind v4 builds `group-hover:x` as `.x:is(:where(.group):hover *)`. Blink
+picks what a hover or focus change restyles by the pseudo-class, and this
+rule's subject inside `:is()` is `*`, so every `group` element that was
+hovered, focused or left had its whole subtree restyled. The whiteboard
+window takes these rules out (whiteboard#51); the editor, the timeline, the
+library browsers and the main window use them.
+
+- **The rewrite.** `frontend/group-selectors.ts` is a PostCSS step in both
+  Vite configs (`css.postcss`), after Tailwind. It writes each group variant
+  the other way round, `:where(.group):hover .x`: the same meaning and the
+  same specificity, and Blink restyles only descendants with class `x`.
+  Named groups (`group/edge`) work the same. In the dev server Tailwind's
+  rules are still nested (`&:is(…)`), and those become `:where(.group):hover &`.
+- **Stacked variants.** `group-enabled:group-hover:x` is
+  `.x:is(G1 *):is(G2 *)`: an ancestor matching each, in either order or the
+  same one. The groups on a pointer or focus state go in front and the
+  others stay where they were: `:where(.group):hover .x:is(:where(.group):enabled *)`,
+  the same meaning and specificity. Only a change of `:enabled` (rare) still
+  restyles a subtree. With several pointer or focus groups stacked, it's the
+  list of every way they can sit on one line of ancestors
+  (`G1 G2 .x, G2 G1 .x, G1G2 .x`). The list would do for the first kind too,
+  but Blink restyles the hovered element itself whenever a group compound
+  sits above the hovered one, even where nothing changes (a disabled effect
+  tile: 5 elements restyled over 10 hovers became 62).
+- **Checked by** `bun run test:group-selectors`: no rule left with a hover
+  or focus state in a subtree-wide `:is()`, in the build or the dev server;
+  and, in Chrome or Edge, each old and new selector matches the same
+  elements of random trees and wins the cascade the same (a wrong order for
+  stacked variants is caught).
+- **Measured by** `bun scripts/hover-trace.ts` (headless Chrome, style
+  invalidation tracking, the same hovers with and without the rewrite, on
+  the dev server and a production build) on `hover-trace.html`, the editor's
+  timeline and library browsers on a sample project, and on the main
+  window's Whiteboards page. Whole-subtree invalidations went from 147 to 0
+  and from 15 to 0. On the editor page the elements restyled stayed at 484,
+  the same for each kind of group hovered (effect, filter and transition
+  tiles, trim edges): those have few children, and Blink restyled as many
+  of them either way. Only how they were invalidated changed. On the Whiteboards page they fell from about 1,150 to about 850;
+  hovering a board card restyles 88 elements over 5 hovers, from about 260.
+  With `--looks` it forces each group look (hover, focus-visible,
+  focus-within, a named group, a stacked variant on an enabled and a
+  disabled tile) and finds every computed property of each element and its
+  descendants the same before and after.
 
 ## 6. Build, split into cards
 

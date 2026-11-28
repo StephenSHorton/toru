@@ -70,6 +70,7 @@ go test ./internal/... ./cmd/...
 golangci-lint run ./internal/... ./cmd/...   # v2.12.2
 cd frontend && bun install --frozen-lockfile && bun run build && cd ..   # tsc + vite
 cd frontend && bun run test:frost && cd ..   # .frost keeps its blur in the built CSS
+cd frontend && bun run test:group-selectors && cd ..   # Tailwind's group-* rules rewritten so a hover restyles only what changes; same matches in Chrome or Edge
 cd frontend && bun run test:board && cd ..   # the whiteboard canvas (happy-dom)
 cd frontend && bun run test:ink && cd ..     # the whiteboard pen; `bun scripts/ink-check.ts` rewrites its Go fixture
 cd frontend && bun run test:blocks && cd ..  # whiteboard blocks: agent-ready, match the Go catalog
