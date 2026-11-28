@@ -142,19 +142,21 @@ type BoardBlockState = { selected: boolean }
 const sides: EdgeSide[] = ["top", "right", "bottom", "left"]
 
 /**
- * For parts that never read the selection or which block has focus (ports,
- * handles, lines): UI SDK checks every part that follows the whole store on
- * each change, so without this a click woke all 636 ports and handles on a
- * board like Boxes Inc to find nothing changed (whiteboard#51).
+ * For parts that never read the selection, which block has focus or which
+ * block is being edited (ports, handles, lines): UI SDK checks every part
+ * that follows the whole store on each change, so without this a click woke
+ * all 636 ports and handles on a board like Boxes Inc to find nothing changed
+ * (whiteboard#51), and so did a double-click into a block's text
+ * (whiteboard#53).
  */
-const ignoresSelection = () => selects({ selected: [], focused: [] })
+const ignoresSelection = () => selects({ selected: [], focused: [], editing: [] })
 /**
  * For a block's ports and resize handles, which read neither the board's
  * blocks nor its lines: without this every one of them woke on each change to
  * a block, so a drop or a key checked all 636 on Boxes Inc, twice (the move,
  * then Go's answer), to find nothing changed (whiteboard#54).
  */
-const ignoresBoard = () => selects({ selected: [], focused: [], blocks: [], lines: [] })
+const ignoresBoard = () => selects({ selected: [], focused: [], editing: [], blocks: [], lines: [] })
 const handles: ResizeHandle[] = ["n", "ne", "e", "se", "s", "sw", "w", "nw"]
 const sideNames: Record<EdgeSide, string> = {
   top: "top",
@@ -1300,14 +1302,16 @@ const board = /* @__PURE__ */ definePrimitive({
     }),
     block: slot<{ value: string }, BoardBlockState>({
       props: { value: "string" },
-      // A selection change wakes only the blocks it adds or drops, and a
-      // focus change the two blocks it moves between (whiteboard#51). A
-      // change to the blocks wakes only the blocks it changes: a block reads
+      // A selection change wakes only the blocks it adds or drops, a focus
+      // change the two blocks it moves between (whiteboard#51), and editing
+      // the block that starts or stops it (whiteboard#53). A change to the
+      // blocks wakes only the blocks it changes: a block reads
       // only its own, and its neighbours' labels through the lines, which
       // nameLines renames with them (whiteboard#54).
       selects: selects({
         focused: ({ key }) => [key, null],
         selected: ({ key }) => [key],
+        editing: ({ key }) => [key],
         blocks: ({ key }) => [key],
         // A drag or resize wakes only the blocks it moves or sizes: each
         // pointer move and the drop used to check all 78 blocks on Boxes Inc

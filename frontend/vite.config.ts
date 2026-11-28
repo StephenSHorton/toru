@@ -5,6 +5,7 @@ import { join } from "node:path";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import wails from "@wailsio/runtime/plugins/vite";
+import { groupSelectors } from "./group-selectors";
 
 // stripWasmCustomSections drops the custom sections (debug names, producer
 // info) from bundled .wasm files. Nothing reads them at run time, and in
@@ -141,6 +142,9 @@ function boardLiveDemo(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Tailwind's group-* rules, turned round so a hover restyles only the
+  // elements that use them (group-selectors.ts, whiteboard#56).
+  css: { postcss: { plugins: [groupSelectors()] } },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

@@ -25,6 +25,7 @@
     "test:colorspace": "bun scripts/colorspace-check.ts",
     "test:text-style": "bun scripts/text-style-check.ts",
     "test:frost": "bun scripts/frost-check.ts",
+    "test:group-selectors": "bun scripts/group-selectors-check.ts",
     "test:board": "bun scripts/board-check.ts",
     "test:ink": "bun scripts/ink-check.ts --check",
     "test:blocks": "bun scripts/blocks-check.tsx",
