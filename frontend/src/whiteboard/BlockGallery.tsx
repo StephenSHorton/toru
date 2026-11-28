@@ -117,8 +117,12 @@ type Drag = {
 };
 
 /** The gallery panel. Render it inside <Board>. grid: the board's snap grid (1: no snapping). */
-function BlockGallery({ sections = catalogSections(), grid = 1 }: { sections?: GallerySection[]; grid?: number }) {
+function BlockGallery({ sections: given, grid = 1 }: { sections?: GallerySection[]; grid?: number }) {
   const board = useBoard();
+  // The gallery renders again on every change to the board (useBoard); the
+  // same sections keep each tile's preview (TilePreview, memoized) from
+  // rendering again with it.
+  const sections = React.useMemo(() => given ?? catalogSections(), [given]);
   const [open, setOpen] = React.useState(readOpen);
   const [drag, setDrag] = React.useState<Drag | null>(null);
   const dragRef = React.useRef<Drag | null>(null);

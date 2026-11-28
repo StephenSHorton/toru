@@ -1078,16 +1078,15 @@ function WhoSection({ targets }: { targets: Target[] }) {
   if (!made.length && !changed.length) return null;
   return (
     <footer data-slot="props-panel-who">
-      {made.length > 0 && (
-        <p>
-          Made by <strong>{made.join(", ")}</strong>
-        </p>
-      )}
-      {changed.length > 0 && (
-        <p>
-          Last changed by <strong>{changed.join(", ")}</strong>
-        </p>
-      )}
+      {/* Both lines stay in the page and hide when empty: a line put in or
+          taken out restyles the whole board (UI SDK's :has() rules), and
+          "Last changed by" first shows on the first change to an agent's block. */}
+      <p hidden={!made.length}>
+        Made by <strong>{made.join(", ")}</strong>
+      </p>
+      <p hidden={!changed.length}>
+        Last changed by <strong>{changed.join(", ")}</strong>
+      </p>
     </footer>
   );
 }

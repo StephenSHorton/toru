@@ -13,10 +13,13 @@
 // Without --board the sample board opens.
 //
 // The actions: pan (drag empty space), scroll (the wheel, which pans), zoom
-// (Ctrl and the wheel), drag (a block, then drop it) and select (click one
-// block after another). Per action it prints the time between frames
+// (Ctrl and the wheel), drag (a block, then drop it; each run a block not
+// moved yet, so on an agent-made block the drop is its first change, which
+// changes its "last changed by"; the first run is also the page's first
+// drop), select (click one block after another) and
+// type (click into a sticky and type in it). Per action it prints the time between frames
 // (requestAnimationFrame): median, 95th and 99th percentile, worst, frames per second, and how many
-// frames took longer than 1.5 refresh intervals; then where the main thread's
+// frames took longer than 1.5 and 2 refresh intervals; then where the main thread's
 // time went (script, style, layout) and the functions that took the most.
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -115,7 +118,7 @@ console.log(
 // select), found again before each run since the board moves.
 type Point = { x: number; y: number };
 const findSpots = () =>
-  evaluate<{ empty: Point | null; blocks: Point[] }>(`(() => {
+  evaluate<{ empty: Point | null; blocks: Point[]; sticky: Point | null }>(`(() => {
   const board = document.querySelector('[data-slot="board"]');
   const r = board.getBoundingClientRect();
   let empty = null;
@@ -134,12 +137,19 @@ const findSpots = () =>
       }
     }
   }
-  return { empty, blocks };
+  // The middle of the first sticky's text field fully in view, to type in.
+  let sticky = null;
+  for (const t of document.querySelectorAll('[data-slot="board-block"][data-type="sticky"] textarea')) {
+    const b = t.getBoundingClientRect();
+    const x = b.left + b.width / 2, y = b.top + b.height / 2;
+    if (b.width > 20 && b.height > 20 && x > r.left + 80 && x < r.right - 80 && y > r.top + 80 && y < r.bottom - 80 && document.elementFromPoint(x, y)?.closest('[data-slot="board-block"]') === t.closest('[data-slot="board-block"]')) { sticky = { x, y }; break; }
+  }
+  return { empty, blocks, sticky };
 })()`);
 type Spots = Awaited<ReturnType<typeof findSpots>>;
-function spot(found: Spots, kind: "empty" | "block") {
-  const at = kind === "empty" ? found.empty : found.blocks[0];
-  if (!at) throw new Error(`no ${kind === "empty" ? "empty spot" : "block"} to press on`);
+function spot(found: Spots, kind: "empty" | "block" | "sticky", run = 0) {
+  const at = kind === "empty" ? found.empty : kind === "sticky" ? found.sticky : found.blocks[run % Math.max(1, found.blocks.length)];
+  if (!at) throw new Error(`no ${kind === "empty" ? "empty spot" : kind} to press on`);
   return at;
 }
 
@@ -203,12 +213,33 @@ async function selectBlocks({ blocks }: Spots) {
   }
 }
 
-const actions: Record<string, (spots: Spots) => Promise<void>> = {
+// Double-clicks a sticky's text to edit it and types into it, a key every
+// 50 ms (a fast typist), each key a change to the board as a person's
+// typing is.
+async function typeInSticky(at: Point) {
+  await mouse("mouseMoved", at.x, at.y, { buttons: 0 });
+  for (const clickCount of [1, 2]) {
+    await mouse("mousePressed", at.x, at.y, { clickCount });
+    await mouse("mouseReleased", at.x, at.y, { clickCount });
+  }
+  await sleep(300);
+  const focused = await evaluate<boolean>(`document.activeElement?.tagName === "TEXTAREA"`);
+  if (!focused) throw new Error("the double-click didn't put the cursor in the sticky's text");
+  const t0 = performance.now();
+  for (let i = 0; performance.now() - t0 < DURATION; i++) {
+    await send("Input.insertText", { text: i % 6 === 5 ? " " : "abcdefghij"[i % 10] });
+    await sleep(50);
+  }
+}
+
+const actions: Record<string, (spots: Spots, run: number) => Promise<void>> = {
   pan: (s) => dragFrom(spot(s, "empty"), 260),
   scroll: (s) => wheelPan(spot(s, "empty")),
   zoom: (s) => wheelZoom(spot(s, "empty")),
-  drag: (s) => dragFrom(spot(s, "block"), 180),
+  // Each run a block not moved yet: on an agent's block, the drop is its first change.
+  drag: (s, run) => dragFrom(spot(s, "block", run), 180),
   select: selectBlocks,
+  type: (s) => typeInSticky(spot(s, "sticky")),
 };
 
 // ── Measure ──────────────────────────────────────────────────────────────
@@ -255,7 +286,7 @@ for (const [name, run] of Object.entries(actions)) {
   for (let r = 0; r < runs; r++) {
     const spots = await findSpots();
     await evaluate(`__perf.start()`);
-    await run(spots);
+    await run(spots, r);
     // Keep recording a little past the release, which commits the change.
     await sleep(300);
     const got = await evaluate<number[]>(`__perf.stop()`);
@@ -267,6 +298,10 @@ for (const [name, run] of Object.entries(actions)) {
   const after = await metrics();
   const busy = (k: string) => ((after[k] - before[k]) * 1000) / (runs * DURATION / 1000);
   const slow = all.filter((d) => d > refresh * 1.5).length;
+  // Frames that took more than two refresh intervals. A frame lasts a whole
+  // number of intervals give or take a fraction of a millisecond, so one that
+  // missed a single refresh (16.9 ms at 120 Hz) counts as two, not more.
+  const over2 = all.filter((d) => Math.round(d / refresh) > 2).length;
   const row = {
     frames: all.length,
     p50: median(all),
@@ -276,6 +311,7 @@ for (const [name, run] of Object.entries(actions)) {
     worstByRun,
     fps: 1000 / (all.reduce((a, b) => a + b, 0) / all.length),
     slowPct: (100 * slow) / all.length,
+    over2,
     // Main-thread milliseconds per second of the action.
     scriptMsPerS: busy("ScriptDuration"),
     styleMsPerS: busy("RecalcStyleDuration"),
@@ -284,7 +320,7 @@ for (const [name, run] of Object.entries(actions)) {
   };
   results.actions[name] = row;
   console.log(
-    `\n${name}: ${row.frames} frames, median ${row.p50.toFixed(2)} ms, p95 ${row.p95.toFixed(2)}, p99 ${row.p99.toFixed(2)}, worst ${row.worst.toFixed(1)} (by run: ${row.worstByRun.map((w) => w.toFixed(0)).join(", ")}); ${row.fps.toFixed(0)} fps; ${row.slowPct.toFixed(1)}% frames over 1.5× refresh`,
+    `\n${name}: ${row.frames} frames, median ${row.p50.toFixed(2)} ms, p95 ${row.p95.toFixed(2)}, p99 ${row.p99.toFixed(2)}, worst ${row.worst.toFixed(1)} (by run: ${row.worstByRun.map((w) => w.toFixed(0)).join(", ")}); ${row.fps.toFixed(0)} fps; ${row.slowPct.toFixed(1)}% frames over 1.5× refresh, ${row.over2} over 2×`,
   );
   console.log(
     `  main thread per second: script ${row.scriptMsPerS.toFixed(0)} ms, style ${row.styleMsPerS.toFixed(0)} ms, layout ${row.layoutMsPerS.toFixed(0)} ms`,
