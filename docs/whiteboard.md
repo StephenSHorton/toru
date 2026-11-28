@@ -601,8 +601,9 @@ What costs a frame, found by removing rules and by DevTools traces: with
 UI SDK's `:has()` rules on the page (any one of several, among them the
 board's own `[data-slot="board"]:has(…) [data-slot="board-port"]`), Blink
 restyles every `[data-slot]` and `svg` under the board, 17–30 ms, whenever
-**an element is put into or taken out of the app**, or **an element's last
-text is taken out**. Text added, text changed in place, and attribute
+**an element is put into or taken out of the board** (or straight into
+`#root`; not the right panel, see below), or **an element's last text is
+taken out**. Text added, text changed in place, and attribute
 changes cost nothing. Overriding the rules can't help (a rule's selector
 costs whatever it declares), so the window now avoids those changes where
 nothing on screen changes (`whiteboard/restyle-guards.ts`, loaded by the
@@ -623,10 +624,24 @@ window):
   sections each render beat `TilePreview`'s memo): script time only, now
   kept.
 
-Still there, not from this: selecting a block of another type puts the
-right panel's rows in (one restyle, about 25 ms), and each drop renders
-every block's UI SDK canvas item and handles again (script, under a frame
-here). In WebView2 at 238 Hz both cost frames: see whiteboard#46 below.
+Still there, not from this: each drop renders every block's UI SDK canvas
+item and handles again (script, under a frame here). In WebView2 at 238 Hz it
+costs frames: see whiteboard#46 below.
+
+**Where an element goes matters (whiteboard#45).** Measured again on the same
+board in Chrome on MACBOOK-STEPHEN, 120 Hz, production build, both themes,
+by putting one element in and taking it out again: inside the board
+(`[data-slot="board"]`) or straight into `#root`, that restyles about 2,200
+elements, 17–23 ms; inside the right panel (`[data-slot="props-panel"]`, a
+child of `#root` beside the board, not inside it), about 6 elements, under
+1 ms, with the panel open or closed. So the right panel can put in and take
+out its rows freely. It does so on every selection change (its body is keyed
+by what's selected, so even sticky to sticky makes it again), and a click
+costs about 4 ms of style over about 300 elements and 8–9 ms of script.
+`bun scripts/board-perf.ts --only select`: 119–120 fps, worst 9–18 ms, no
+frame over 2 intervals in 17 of 18 measurements across both themes; the
+other was the first in a browser just started (worst 50 ms, 2 frames), and a
+new browser profile didn't bring it back. Not measured in WebView2.
 
 ### Typing and first moves in WebView2 at 238 Hz (whiteboard#46)
 
@@ -666,12 +681,14 @@ given as shares):
   this and stayed under 2 intervals; at 238 Hz it takes 2–3.
 - **The press, 42–75 ms, every drag.** Selecting a block not selected yet:
   React renders the board's parts again (as above), the right panel puts in
-  its header, "made by" line and four sections (elements put into the app,
-  so UI SDK's `:has()` rules restyle the board, 228 elements), and the Wails
-  runtime's own `mousedown` listener (`@wailsio/runtime`, checking
-  `--wails-draggable` with `getComputedStyle`) makes that restyle happen at
-  once inside the event, about a quarter of the frame. The restyle and the
-  renders would cost the frame without Wails too.
+  its header, "made by" line and four sections, and the block takes
+  `data-selected`, `aria-selected` and `tabindex`; then 228 elements are
+  restyled. whiteboard#45 measured the panel's rows at about 6 elements, so
+  most of that restyle is the selection's change on the board, not narrowed
+  further here. The Wails runtime's own `mousedown` listener
+  (`@wailsio/runtime`, checking `--wails-draggable` with `getComputedStyle`)
+  makes the restyle happen at once inside the event, about a quarter of the
+  frame. The restyle and the renders would cost the frame without Wails too.
 - **The drop, 46–62 ms, every drag, not only the first.** The move is
   committed to the board, and React renders every block and port and handle
   part again, twice (1,272 port and handle renders in one drop), with the
@@ -692,6 +709,59 @@ and the drop.
 
 The dots stay on the board: one every 24 board units from (0, 0), the same
 grid Snap to grid uses (whiteboard#24).
+
+### Selecting a block with the properties panel (whiteboard#42)
+
+The properties panel (whiteboard#29) brought back one long frame per click
+that changes the selection. What cost it, found with a mutation observer and
+DevTools traces on a board like Boxes Inc (8 frames, 48 blocks, 8 links, 16
+ink strokes):
+
+- **The board's selection was controlled** (`selected` passed back to
+  `<Board>`), and UI SDK rechecks every part of a primitive when a
+  controlled option changes value: every block, port and handle rendered
+  again on each click (74 blocks and 672 ports and handles here). The board
+  now keeps its own selection; `usePropsSelection` hears of it through
+  `onSelectedChange` into a small store the panel follows, and the panel's
+  own picks (a line's ends, a line from a block's list) go through the
+  board's `select`.
+- **The whole window rendered again on each click**, since the selection was
+  its state. That drew the block gallery's previews again (`catalogSections()`
+  made new items each render, so `TilePreview`'s memo never held) and the
+  toolbars, and their fields rewritten inside the board set off the
+  board-wide `:has()` restyle. Now nothing outside the panel renders, and the
+  gallery's sections are rebuilt only when the block library changes.
+- **The panel built its new form in the click's own frame.** It now follows
+  the selection as a React transition: the click paints the block selected,
+  and the panel's render comes in the frames after, split into small tasks.
+- The ink section read its pen widths from their tokens (a computed-style
+  read) on every render; it reads them once.
+
+Not a cost: UI SDK's popup code reading `display` reads an inline style, which
+doesn't restyle. The computed-style read in the profiles comes from Wails'
+drag code (`@wailsio/runtime`'s `primaryDown`), which reads
+`--wails-draggable` on every mouse press and so pays, there, for whatever the
+press changed.
+
+Measured on this card in Chrome on a Mac (120 Hz), production build, with
+DevTools' CPU throttling standing in for a slower computer: frames over 1.5
+refreshes past each run's first click, three runs of 2.5 s.
+
+| CPU | Main, light | This card, light | Main, dark | This card, dark |
+| --- | --- | --- | --- | --- |
+| 1× | 21 of 906, worst 33 ms | 7 of 995, worst 19 ms (reruns: 2, then 0) | 10 of 937, worst 25 ms | 0 of 985, worst 10 ms |
+| 2× | 26 of 903, worst 35 ms | 11 of 909, worst 19 ms | 25 of 906, worst 43 ms | 17 of 900, worst 33 ms |
+| 4× | 24 of 800, worst 100 ms | 35 of 905, worst 50 ms | 28 of 803, worst 93 ms | 35 of 906, worst 50 ms |
+
+The Mac was busy with other work while measuring, so single runs vary. At 4×
+there are more slow frames than on main but each is half as long: the click's
+own frame and, separately, the panel's.
+
+What's left is the board's own cost of selecting: at 4× throttling a click
+still takes about 25 ms, half of it restyling the two blocks whose selection
+changed (rules keyed on `[data-selected]` and Tailwind's `group-hover`) and
+half UI SDK's selection and roving focus code. That was there before the
+panel.
 
 **Measuring again.** `frontend/board-perf.html` (Vite only) opens the
 whiteboard window on a board in memory; `frontend/scripts/board-perf.ts`
@@ -732,6 +802,12 @@ production React, build `board-perf.html` with a Vite config that adds it as
 
 Export the board to `.toruboard` first and measure the file; the page keeps
 the board in memory and never touches Toru's store.
+
+`--only select` also prints the frames past each run's first click (the
+first opens the panel), which is what "no long frame when selecting" counts.
+`--cpu 4` slows the page with DevTools' CPU throttling, for measuring on a
+computer much faster than the one people use. Any Chrome or Edge started with
+`--remote-debugging-port=9339` serves as the browser off Windows.
 
 ## 6. Build, split into cards
 
