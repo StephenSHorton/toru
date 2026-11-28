@@ -699,6 +699,63 @@ changed (rules keyed on `[data-selected]` and Tailwind's `group-hover`) and
 half UI SDK's selection and roving focus code. That was there before the
 panel.
 
+**In WebView2 on DESKTOP-STEPHEN (whiteboard#43).** Measured on the copy of
+Boxes Inc the earlier WebView2 numbers used (board `brd-f69a6b74ac65797b`,
+rev 9, taken from Toru's board folder: 45 blocks, 8 frames, 15 links, 15 ink
+strokes; the script counts 63 `board-block` elements, 45 of them clickable),
+window 1384×861, 238 Hz (4.2 ms a frame, so 1.5 refreshes is 6.3 ms), with
+`main` at whiteboard#45 (641cc53). `bun scripts/board-perf.ts --cdp 9339
+--board <copy> --only select --no-profile --theme light|dark`, three runs of
+2.5 s, a click every 250 ms, about 27 clicks measured past each run's first:
+
+| Build | Theme | Past the first click |
+| --- | --- | --- |
+| Vite dev server (47830) | light | worst 58.4 ms, 78 of 1723 frames over 1.5× refresh (6.3 ms) |
+| Vite dev server | dark | worst 41.7 ms, 62 of 1710 frames over 1.5× refresh |
+| Vite dev server | light, again | worst 37.6 ms, 62 of 1688 frames over 1.5× refresh |
+| Vite dev server | dark, again | worst 41.7 ms, 68 of 1704 frames over 1.5× refresh |
+| Production | light | worst 33.4 ms, 55 of 1773 frames over 1.5× refresh |
+| Production | dark | worst 25.1 ms, 49 of 1749 frames over 1.5× refresh |
+| Production | light, again | worst 21.0 ms, 48 of 1793 frames over 1.5× refresh |
+| Production | dark, again | worst 20.9 ms, 47 of 1792 frames over 1.5× refresh |
+
+Runs taken again for the card's proof landed in the same range (dev: 56 and
+59 frames; production: 47 and 56), except one production dark run with a
+single 67 ms frame, not seen in any other run. So every click still brings
+about two frames over 1.5 refreshes; the themes measure the same. On a 238 Hz screen 6.3 ms is a tight budget: the click's
+own task alone is twice that. A DevTools trace of ten clicks (production
+build, light; frames counted from the compositor's begin-frame ticks, 22
+slow frames over 9 clicks) names each one:
+
+- **The press, every click: 13–22 ms.** UI SDK's `pointerdown` (its
+  selection store `set` notifying every block part's listener, `choose` /
+  `replace`, then roving focus's `setStop` / `focused`) is 3–4 ms of script,
+  and the restyle of the two blocks whose selection changes (about 200
+  elements: UI SDK rewrites `data-slot` / `data-part` on their spans,
+  inputs and buttons, and each block's handles come and go) is 5–7 ms. That
+  restyle is the one Wails' `primaryDown` forces with its
+  `--wails-draggable` read on `mousedown`; the read only moves it earlier,
+  but the focus change after it costs two more small restyles (about 35
+  elements, 1–2 ms). Not the board-wide `:has()` restyle: the press restyles
+  no more than 202 elements.
+- **The release, most clicks: 6.4–10 ms.** On `pointerup` Blink restyles
+  about 136 elements (4–5 ms) for the `:active` / `:hover` change on the
+  board's `h-full w-full` wrapper, in the same frame as the CSS transitions
+  the selection started (on spans inside the two blocks; which rules, not
+  traced).
+- **The panel's commit, some clicks: 8 ms.** The React transition that
+  rebuilds the properties panel commits in one task (about 6–12 ms, taking
+  out and putting in about 30 rows). It restyles only the panel (see
+  whiteboard#45), but its script and layout run over the budget in one
+  frame.
+- **Not selection:** moving the mouse onto the next block (the hover before
+  the press) sometimes takes 7–10 ms: a `:hover` restyle of 50–70 elements,
+  forced in the `mousemove` by the same Wails read.
+
+whiteboard#23 measured clicking in WebView2 at worst 13 ms before the panel
+existed; the press's frame is that same cost, and the release and panel
+frames come on top. whiteboard#51 takes these on.
+
 **Measuring again.** `frontend/board-perf.html` (Vite only) opens the
 whiteboard window on a board in memory; `frontend/scripts/board-perf.ts`
 drives it over the DevTools protocol with synthetic input only, so it never
