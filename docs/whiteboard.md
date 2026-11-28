@@ -710,6 +710,63 @@ and the drop.
 The dots stay on the board: one every 24 board units from (0, 0), the same
 grid Snap to grid uses (whiteboard#24).
 
+### Only the changed block renders on a key or a drop (whiteboard#50)
+
+whiteboard#46's board-wide render on each change is gone. Every part under
+the board got the board's handle from one React context, keyed by the
+primitive, and a controlled board gets a new handle each render (UI SDK's
+"previewing" handle), so React rendered every block, port and handle on each
+key and twice on each drop. A provider further in with a steady value
+doesn't stop that: React still renders a part whose context changed above it.
+
+`BoardView.tsx` now gives the block, port and handle parts a steady handle
+(`useSteadyHandle`) under a primitive of their own (`steadyBoard`, the board
+under another name), so the root's context never reaches them. The root
+keeps the previewing handle, so its `blocks` and `lines` are new in the same
+render; once the new options are set, in the board's layout effect before
+paint, UI SDK checks each part and renders again only those whose state or
+attributes changed. `useBoard()` gets the steady handle too. Lines, their
+press targets, labels and disconnect buttons are drawn by the root itself
+and still render on each change (about 60 small parts here).
+
+`bun scripts/board-perf.ts` now also counts renders, from counters
+`BoardView.tsx` keeps when `board-perf.html` asks: block items, blocks, and
+ports and handles, per key, per press, during the moves and per drop.
+
+Measured in Chrome on MACBOOK-STEPHEN, 120 Hz, production build of
+`board-perf.html`, on a stand-in the size of Boxes Inc (66 blocks, 15 links,
+15 ink strokes; not the real board, which is on DESKTOP-STEPHEN), three runs
+of each, main (with only the counters added) against this change. Not yet
+measured in WebView2 at 238 Hz:
+
+| Renders | Main | This change |
+| --- | --- | --- |
+| A key in a sticky | 1 block item, 71 blocks, 672 ports and handles | 1 block item, 1 block, 12 ports and handles (the typed sticky's own) |
+| The press | about 4 blocks (those whose selection changed), no ports or handles | the same |
+| The moves | none | none |
+| A drop that changes the board | the whole board twice: 142 blocks, 1,344 ports and handles | the dropped block twice: 2 blocks, 12 ports and handles |
+
+The press was never board-wide here; whiteboard#46's press cost is its
+restyle and the right panel's sections. The drag's figure of eight ends where
+it began, so most drops change nothing: of three drops, one or two changed
+the board (the first change to an agent's block, which sets "last changed
+by", or a block left a little off its place), and only those render. A sticky
+with lines can also render its neighbours' blocks once a key, since a block's
+`aria-description` names the blocks it links to by their labels.
+
+| Frames, CPU 4× (DevTools throttling) | Main, light | This change, light | Main, dark | This change, dark |
+| --- | --- | --- | --- | --- |
+| Type (a key every 50 ms), six runs | 98 fps, p95 25.1 ms, worst 41 ms, 176 over 2 intervals | 109 fps, p95 16.6 ms, worst 43 ms, 6 over 2 | 98 fps, p95 25.1 ms, worst 42 ms, 166 over 2 | 109 fps, p95 16.6 ms, worst 49 ms, 14 over 2 |
+| Typing's script, three runs | 351 ms a second | 234 ms a second | 336 ms a second | 232 ms a second |
+| Drag (press, 2.5 s, drop) | 113 fps, worst 25–75 ms, 5 over 2 | 114 fps, worst 32–59 ms, 4 over 2 | 112 fps, worst 18–85 ms, 4 over 2 | 115 fps, worst 32–42 ms, 4 over 2 |
+
+At CPU 1× both hold 120 fps with no frame over 2 intervals; typing's script
+falls from about 110 to about 70 ms a second. At 4× the worst typing frame
+is still 40–50 ms, mostly in each page's first run, as on main; in an earlier
+three-run set one run each had a single 75–85 ms frame, which six runs didn't
+show again. The press's long frame (its restyle and the right panel putting
+in its sections) is untouched here.
+
 ### Selecting a block with the properties panel (whiteboard#42)
 
 The properties panel (whiteboard#29) brought back one long frame per click

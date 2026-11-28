@@ -14,9 +14,13 @@ import { sampleDoc } from "./window";
 declare global {
   interface Window {
     __perfBoard?: BoardDoc;
-    __perf?: { start(): void; mark(): void; stop(): number[]; marked(): number };
+    __perf?: { start(): void; mark(): void; stop(): number[]; marked(): number; renders(): Record<string, number> };
+    /** How many times BoardView's block items, blocks and ports or handles rendered (BoardView.tsx counts them). */
+    __boardRenders?: Record<string, number>;
   }
 }
+
+window.__boardRenders = {};
 
 // The time between frames, from requestAnimationFrame, while recording.
 let frames: number[] = [];
@@ -46,6 +50,12 @@ window.__perf = {
   stop() {
     recording = false;
     return frames;
+  },
+  // The renders since the last call, then counts from zero again.
+  renders() {
+    const got = { item: 0, block: 0, part: 0, ...window.__boardRenders };
+    window.__boardRenders = {};
+    return got;
   },
 };
 
