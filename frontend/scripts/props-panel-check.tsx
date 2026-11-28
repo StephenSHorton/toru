@@ -22,6 +22,9 @@
 //   10. AI-built block types (whiteboard#27): a block of a type the board
 //      carries gets a form from that type's schema, and one whose type
 //      arrives after the panel drew is drawn again with its form.
+//   11. Sticky after sticky keeps the panel's elements and changes their
+//      values (whiteboard#48); a field half-typed when the selection
+//      changes is sent to the block it was typed for.
 //   9. The ops the panel sent go to internal/board/testdata/panel-ops.json,
 //      which Go's TestPanelOps applies through the real store.
 //
@@ -86,6 +89,7 @@ const start: BoardDoc = {
   blocks: [
     { id: "s1", type: "sticky", x: 0, y: 0, w: 200, h: 200, props: { text: "First idea", tags: ["a"] }, ...meta },
     { id: "s2", type: "sticky", x: 320, y: 0, w: 200, h: 200, props: { text: "Second", color: "pink", tags: ["a", "b"] }, createdBy: "agent:Claude Code", updatedBy: "agent:Claude Code" },
+    { id: "s3", type: "sticky", x: 1000, y: 300, w: 200, h: 200, props: { text: "Locked, no lines" }, locked: true, ...meta },
     { id: "c1", type: "card", x: 640, y: 0, w: 240, h: 160, props: { title: "A card", color: "blue" }, ...meta },
     { id: "k1", type: "checklist", x: 0, y: 600, w: 240, h: 200, props: { title: "Todo", items: [{ text: "One" }, { text: "Two", done: true }] }, ...meta },
   ],
@@ -409,6 +413,95 @@ ok("the window ends in step with the store", JSON.stringify(live.getState().doc)
   ok("... checked against its type's schema", byLabel<HTMLInputElement>(/^Title of /)?.value === "Save fails on Mac");
   await undo();
   ok("... and Ctrl+Z takes it back", item("u1").props.title === "Save fails", item("u1").props.title);
+  await none();
+}
+
+// 11. A new selection keeps the panel's elements (whiteboard#48): sticky
+// after sticky changes values and text, not the form.
+{
+  press(block("s1"));
+  await settle();
+  // A tag is a value: its chip comes and goes with the block's tags.
+  const form = () => [...panel().querySelectorAll("*")].filter((e) => !e.closest('[data-slot="props-panel-words"] > li'));
+  const was = form();
+  const textWas = byLabel<HTMLTextAreaElement>(/^Text of /)!;
+  const changed: string[] = [];
+  const watch = new MutationObserver((records) => {
+    for (const r of records) {
+      if (r.type !== "childList") continue;
+      for (const nd of [...r.addedNodes, ...r.removedNodes]) {
+        if (nd.nodeType === Node.TEXT_NODE || (nd as Element).closest?.('[data-slot="props-panel-words"] > li') || (r.target as Element).closest?.('[data-slot="props-panel-words"]')) continue;
+        changed.push((nd as Element).outerHTML?.slice(0, 80) ?? nd.nodeName);
+      }
+    }
+  });
+  watch.observe(panel(), { childList: true, subtree: true });
+  press(block("s2"));
+  await settle();
+  watch.disconnect();
+  const now = form();
+  ok("selecting another sticky shows its values", byLabel<HTMLTextAreaElement>(/^Text of /)?.value === item("s2").props.text, byLabel<HTMLTextAreaElement>(/^Text of /)?.value);
+  ok("... in the same elements", now.length === was.length && now.every((e, i) => e === was[i]) && byLabel(/^Text of /) === textWas, [was.length, now.length]);
+  ok("... with no element put in or taken out but tags", changed.length === 0, changed.slice(0, 5));
+
+  // One with no lines, locked and with no tags: the Lines section hides, the rest stays.
+  const watch3 = new MutationObserver((records) => {
+    for (const r of records) {
+      if (r.type !== "childList") continue;
+      for (const nd of [...r.addedNodes, ...r.removedNodes]) {
+        // A tag's chip and a line's button are values: they come and go with the block's.
+        const list = (e: Node) => !!(e as Element).closest?.('[data-slot="props-panel-words"], [data-slot="props-panel-lines"]');
+        if (nd.nodeType === Node.TEXT_NODE || list(r.target)) continue;
+        changed.push((nd as Element).outerHTML?.slice(0, 80) ?? nd.nodeName);
+      }
+    }
+  });
+  const values = '[data-slot="props-panel-words"] > li, [data-slot="props-panel-lines"] > li';
+  const form3 = () => [...panel().querySelectorAll("*")].filter((e) => !e.closest(values));
+  const was3 = form3();
+  watch3.observe(panel(), { childList: true, subtree: true });
+  press(block("s3"));
+  await settle();
+  watch3.disconnect();
+  const now3 = form3();
+  ok("a locked sticky with no lines shows as locked", byLabel("Locked")?.getAttribute("aria-checked") === "true" && byLabel<HTMLTextAreaElement>(/^Text of /)?.value === "Locked, no lines", byLabel("Locked")?.outerHTML.slice(0, 120));
+  ok("... its Lines section hidden, not taken out", panel().querySelector<HTMLElement>('[aria-label="Lines"]')?.hidden === true);
+  ok("... in the same elements", now3.length === was3.length && now3.every((e, i) => e === was3[i]), [was3.length, now3.length]);
+  ok("... with none put in or taken out but tags and lines", changed.length === 0, changed.slice(0, 5));
+
+  // A real click on another block leaves the field first: still one op, to the block it was typed for.
+  {
+    const n = sent.length;
+    const f = byLabel<HTMLTextAreaElement>(/^Text of /)!;
+    await type(f, "Left, then s2");
+    leave(f);
+    press(block("s2"));
+    await settle();
+    ok("leaving a field then selecting another sends one op, to its block", sent.length === n + 1 && sent[n].blocks?.[0].id === "s3" && item("s3").props.text === "Left, then s2", sent.slice(n));
+    await undo();
+    ok("... and Ctrl+Z takes it back", item("s3").props.text === "Locked, no lines", item("s3").props.text);
+  }
+
+  // A field half-typed when the selection changes goes to what it was typed for.
+  const s1Text = item("s1").props.text;
+  const s2Text = item("s2").props.text;
+  let n = sent.length;
+  await type(byLabel<HTMLTextAreaElement>(/^Text of /)!, "Half typed for s2");
+  press(block("s1"));
+  await settle();
+  ok("text half-typed when the selection changes is sent to its block", item("s2").props.text === "Half typed for s2" && item("s1").props.text === s1Text, [item("s1").props.text, item("s2").props.text]);
+  ok("... as one op", sent.length === n + 1 && sent[n].blocks?.length === 1 && sent[n].blocks?.[0].id === "s2", sent.slice(n));
+  ok("... and the field shows the new block's text", byLabel<HTMLTextAreaElement>(/^Text of /)?.value === s1Text && !byLabel(/^Text of /)!.hasAttribute("data-dirty"), byLabel<HTMLTextAreaElement>(/^Text of /)?.value);
+  n = sent.length;
+  const s1Tags = [...(item("s1").props.tags ?? [])];
+  await type(byLabel<HTMLInputElement>(/^Add to Tags of /)!, "half");
+  press(block("s2"));
+  await settle();
+  ok("a tag half-typed goes to its block", JSON.stringify(item("s1").props.tags) === JSON.stringify([...s1Tags, "half"]) && !item("s2").props.tags.includes("half"), [item("s1").props.tags, item("s2").props.tags]);
+  ok("... and the field is empty for the new one", byLabel<HTMLInputElement>(/^Add to Tags of /)?.value === "" && sent.length === n + 1, byLabel<HTMLInputElement>(/^Add to Tags of /)?.value);
+  await undo();
+  await undo();
+  ok("Ctrl+Z takes both back", item("s2").props.text === s2Text && JSON.stringify(item("s1").props.tags) === JSON.stringify(s1Tags), [item("s2").props.text, item("s1").props.tags]);
   await none();
 }
 

@@ -54,6 +54,20 @@
         "updatedBy": "agent:Claude Code"
       },
       {
+        "id": "s3",
+        "type": "sticky",
+        "x": 1000,
+        "y": 300,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "Locked, no lines"
+        },
+        "locked": true,
+        "createdBy": "person",
+        "updatedBy": "person"
+      },
+      {
         "id": "c1",
         "type": "card",
         "x": 640,
@@ -844,6 +858,79 @@
     {
       "kind": "undo",
       "source": "person"
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s3",
+          "type": "sticky",
+          "x": 1000,
+          "y": 300,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Left, then s2"
+          },
+          "locked": true
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s2",
+          "type": "sticky",
+          "x": 320,
+          "y": 0,
+          "w": 200,
+          "h": 200,
+          "props": {
+            "text": "Half typed for s2",
+            "color": "yellow",
+            "tags": [
+              "a",
+              "b",
+              "quick"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "source": "person",
+      "blocks": [
+        {
+          "id": "s1",
+          "type": "sticky",
+          "x": 40,
+          "y": 0,
+          "w": 260,
+          "h": 200,
+          "props": {
+            "text": "First idea",
+            "tags": [
+              "new",
+              "half"
+            ],
+            "color": "blue"
+          },
+          "rotation": 10
+        }
+      ]
+    },
+    {
+      "kind": "undo",
+      "source": "person"
+    },
+    {
+      "kind": "undo",
+      "source": "person"
     }
   ],
   "end": {
@@ -851,7 +938,7 @@
     "version": 1,
     "id": "props",
     "name": "Props",
-    "rev": 29,
+    "rev": 35,
     "frames": [
       {
         "id": "frm-plan",
@@ -900,6 +987,20 @@
           ]
         },
         "createdBy": "agent:Claude Code",
+        "updatedBy": "person"
+      },
+      {
+        "id": "s3",
+        "type": "sticky",
+        "x": 1000,
+        "y": 300,
+        "w": 200,
+        "h": 200,
+        "props": {
+          "text": "Locked, no lines"
+        },
+        "locked": true,
+        "createdBy": "person",
         "updatedBy": "person"
       },
       {
