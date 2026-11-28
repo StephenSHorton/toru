@@ -19,7 +19,9 @@
 // drop), select (click one block after another) and
 // type (click into a sticky and type in it). Per action it prints the time between frames
 // (requestAnimationFrame): median, 95th and 99th percentile, worst, frames per second, and how many
-// frames took longer than 1.5 and 2 refresh intervals; then where the main thread's
+// frames took longer than 1.5 and 2 refresh intervals; how many times the board's
+// block items, blocks, and ports and handles rendered per key, press, the moves
+// and drop (BoardView.tsx counts them on this page); then where the main thread's
 // time went (script, style, layout) and the functions that took the most.
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -163,11 +165,27 @@ const mouse = (type: string, x: number, y: number, extra: object = {}) =>
   send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons: type === "mouseReleased" ? 0 : 1, pointerType: "mouse", ...extra });
 
 const DURATION = 2500;
+
+// How many times the board's block items, blocks and ports or handles
+// rendered (BoardView.tsx counts them on board-perf.html), by stage of the
+// action: what renders() read since its last call, added up over the runs.
+type Renders = { item: number; block: number; part: number };
+const renders = () => evaluate<Renders>(`__perf.renders()`);
+let stages: Record<string, Renders & { times: number }> = {};
+function note(stage: string, got: Renders, times = 1) {
+  const s = (stages[stage] ??= { item: 0, block: 0, part: 0, times: 0 });
+  s.item += got.item;
+  s.block += got.block;
+  s.part += got.part;
+  s.times += times;
+}
 // Drags from a point in a figure of eight that ends where it began, one move
 // every few ms (a mouse reports at hundreds of Hz), for DURATION.
 async function dragFrom(at: Point, size: number) {
   await mouse("mouseMoved", at.x, at.y, { buttons: 0 });
+  await renders();
   await mouse("mousePressed", at.x, at.y, { clickCount: 1 });
+  note("press", await renders());
   const t0 = performance.now();
   let x = at.x,
     y = at.y;
@@ -178,6 +196,7 @@ async function dragFrom(at: Point, size: number) {
     await mouse("mouseMoved", x, y);
     await sleep(2);
   }
+  note("moves", await renders());
   await mouse("mouseReleased", x, y, { clickCount: 1 });
 }
 
@@ -232,11 +251,16 @@ async function typeInSticky(at: Point) {
   await sleep(300);
   const focused = await evaluate<boolean>(`document.activeElement?.tagName === "TEXTAREA"`);
   if (!focused) throw new Error("the double-click didn't put the cursor in the sticky's text");
+  await renders();
   const t0 = performance.now();
+  let keys = 0;
   for (let i = 0; performance.now() - t0 < DURATION; i++) {
     await send("Input.insertText", { text: i % 6 === 5 ? " " : "abcdefghij"[i % 10] });
+    keys++;
     await sleep(50);
   }
+  await sleep(100);
+  note("key", await renders(), keys);
 }
 
 const actions: Record<string, (spots: Spots, run: number) => Promise<void>> = {
@@ -287,6 +311,7 @@ for (const [name, run] of Object.entries(actions)) {
   const worstByRun: number[] = [];
   // Frames past each run's first click (select only).
   const pastFirst: number[] = [];
+  stages = {};
   const before = await metrics();
   if (profiling) {
     await send("Profiler.setSamplingInterval", { interval: 200 });
@@ -298,6 +323,7 @@ for (const [name, run] of Object.entries(actions)) {
     await run(spots, r);
     // Keep recording a little past the release, which commits the change.
     await sleep(300);
+    if (name === "drag") note("drop", await renders());
     const got = await evaluate<number[]>(`__perf.stop()`);
     const markAt = await evaluate<number>(`__perf.marked()`);
     if (markAt > 0) pastFirst.push(...got.slice(markAt));
@@ -332,6 +358,9 @@ for (const [name, run] of Object.entries(actions)) {
     styleMsPerS: busy("RecalcStyleDuration"),
     layoutMsPerS: busy("LayoutDuration"),
     top: profile ? topFunctions(profile) : [],
+    renders: Object.fromEntries(
+      Object.entries(stages).map(([stage, s]) => [stage, { item: s.item / s.times, block: s.block / s.times, part: s.part / s.times }]),
+    ),
   };
   results.actions[name] = row;
   console.log(
@@ -341,6 +370,9 @@ for (const [name, run] of Object.entries(actions)) {
     console.log(
       `  past the first click: worst ${row.pastFirst.worst.toFixed(1)} ms, ${row.pastFirst.slow} of ${row.pastFirst.frames} frames over 1.5× refresh (${(refresh * 1.5).toFixed(1)} ms), ${row.pastFirst.over2} over 2×`,
     );
+  }
+  for (const [stage, n] of Object.entries(row.renders)) {
+    console.log(`  renders a ${stage}: ${n.item.toFixed(1)} block items, ${n.block.toFixed(1)} blocks, ${n.part.toFixed(1)} ports and handles`);
   }
   console.log(
     `  main thread per second: script ${row.scriptMsPerS.toFixed(0)} ms, style ${row.styleMsPerS.toFixed(0)} ms, layout ${row.layoutMsPerS.toFixed(0)} ms`,

@@ -92,6 +92,11 @@
     gap: 10px;
     padding-top: 12px;
     border-top: 1px solid var(--border);
+
+    /* A block's lines stay in the page when it has none (whiteboard#48). */
+    &[hidden] {
+      display: none;
+    }
   }
 
   [data-slot="props-panel-row"] {

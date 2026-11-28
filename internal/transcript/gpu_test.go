@@ -152,3 +152,42 @@ func TestGPUBuildFallsBackToCPU(t *testing.T) {
 		})
 	}
 }
+
+func TestVoiceDetectorWhenDownloaded(t *testing.T) {
+	// Without the voice detector whisper starts as before; with it on disk
+	// it starts with --vad.
+	e := fakeEngine(t, GPU{}, "")
+	if got := transcribeWith(t, e); got != "cpu" {
+		t.Fatalf("without the detector: %q", got)
+	}
+	e.Stop()
+	_ = os.WriteFile(e.vadPath(), []byte("x"), 0o644)
+	if got := transcribeWith(t, e); got != "cpu+vad" {
+		t.Fatalf("with the detector: %q", got)
+	}
+}
+
+func TestVoiceDetectorFetchedOnceOnStart(t *testing.T) {
+	// An engine downloaded before the detector was added fetches it on the
+	// next start, once a session; a failed fetch still transcribes.
+	e := fakeEngine(t, GPU{}, "")
+	calls := 0
+	e.fetchVAD = func(context.Context) error {
+		calls++
+		return os.ErrNotExist
+	}
+	if got := transcribeWith(t, e); got != "cpu" {
+		t.Fatalf("after a failed fetch: %q", got)
+	}
+	e.Stop()
+	_ = transcribeWith(t, e)
+	if calls != 1 {
+		t.Fatalf("fetched %d times, want 1", calls)
+	}
+	e.Stop()
+	e.vadTried = false
+	e.fetchVAD = func(context.Context) error { return os.WriteFile(e.vadPath(), []byte("x"), 0o644) }
+	if got := transcribeWith(t, e); got != "cpu+vad" {
+		t.Fatalf("after fetching: %q", got)
+	}
+}

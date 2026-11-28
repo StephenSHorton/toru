@@ -383,6 +383,9 @@ func (s *StreamService) transcribeOne(seg segment) {
 	}
 	text = cleanText(text)
 	if text == "" {
+		// whisper's voice detector heard no speech, or the text was only
+		// non-speech marks or a stock subtitle line.
+		logf("transcribe: no words in %v of audio (voiced %v)", time.Duration(len(seg.pcm))*time.Second/transcript.SampleRate, seg.voice.voiced)
 		return
 	}
 	if why := madeUp(text, seg.voice); why != "" {

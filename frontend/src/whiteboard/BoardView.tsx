@@ -3,7 +3,7 @@
 // examples/experiments/react/canvas.tsx and board.tsx (Apache-2.0, Copyright
 // Vercel, Inc.); see board.ts for what changed.
 import * as React from "react";
-import { createParts, usePart, usePrimitive, type PartProps } from "@ui-sdk/react/primitive";
+import { createParts, usePart, usePrimitive, type PartProps, type PrimitiveHandle } from "@ui-sdk/react/primitive";
 import { LockIcon, MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { board, boardInstructions, handleNames, sides, type BoardBlocks, type BoardBlockState, type BoardOptions } from "./board";
 import { InkDraft, InkLine, InkSurface, usePen } from "./InkView";
@@ -84,6 +84,7 @@ const dashes = { solid: undefined, dashed: "8 6", dotted: "1 5" } as const;
 
 function Board({ renderBlock, children, className, drawing, lineLook, selectedLine, onLinePress, "aria-label": label, ...options }: BoardProps) {
   const handle = usePrimitive(board, options);
+  const steady = useSteadyHandle(handle);
   const [tools] = React.useState(createTools);
   const tool = drawing?.tool ?? "select";
   const highlight = tool === "highlighter";
@@ -198,7 +199,62 @@ function Board({ renderBlock, children, className, drawing, lineLook, selectedLi
       </>
     ),
   });
-  return <BoardContext.Provider value={handle}>{root}</BoardContext.Provider>;
+  return <BoardContext.Provider value={steady}>{root}</BoardContext.Provider>;
+}
+
+/**
+ * The board's parts that are drawn once per block (the block and its ports
+ * and handles), on a handle of their own.
+ *
+ * While the board's blocks are controlled, each change hands `usePrimitive`
+ * new options, and it returns a new "previewing" handle for that render. The
+ * root shares it with every part under it by a React context, which changes
+ * with it, so every block, port and handle rendered again on each key and
+ * each drop, through `BlockItem`'s memo (whiteboard#46, #50). A provider
+ * further in with a steady value doesn't stop that: React still renders a
+ * part whose context changed above it.
+ *
+ * So these parts use a handle that never changes for the instance's life,
+ * under a primitive of their own (`steadyBoard`, the board under another
+ * name: UI SDK keys its context by the primitive), so the root's context
+ * never reaches them. React leaves them alone; once the new options are set
+ * (in the board's layout effect, before paint) UI SDK checks each part and
+ * renders again only those whose state or attributes changed. The root keeps
+ * the previewing handle, so its `blocks` and `lines` are the new ones in the
+ * same render. `useBoard()` gets the steady handle too, so the toolbars and
+ * the panel don't render on each change either.
+ */
+const steadyBoard = ((...args: Parameters<typeof board>) => board(...args)) as typeof board;
+
+function useSteadyHandle(handle: BoardHandle): BoardHandle {
+  const { instance } = handle;
+  return React.useMemo(
+    () =>
+      ({
+        primitive: steadyBoard,
+        instance,
+        get state() {
+          return instance.get();
+        },
+        get api() {
+          return instance.api;
+        },
+      }) as PrimitiveHandle<typeof board>,
+    [instance],
+  );
+}
+
+/** The steady handle, for a block's parts. */
+function useSteady() {
+  const handle = React.useContext(BoardContext);
+  if (!handle) throw new Error("A board block must be inside <Board>.");
+  return handle;
+}
+
+/** Render counts for scripts/board-perf.ts, when board-perf.html asks for them. */
+function counted(kind: "item" | "block" | "part") {
+  const counts = (globalThis as { __boardRenders?: Record<string, number> }).__boardRenders;
+  if (counts) counts[kind] = (counts[kind] ?? 0) + 1;
 }
 
 /** The badge on a locked block. */
@@ -263,6 +319,7 @@ type BlockItemProps = {
  */
 const BlockItem = React.memo(
   function BlockItem({ id, block, blocks, renderBlock, tool, tools }: BlockItemProps) {
+    counted("item");
     // A freehand stroke or a shape shows its ink, with no ports or resize
     // handles (a selected shape's handles are DrawingTools'). A double click
     // on a text label changes its words.
@@ -335,12 +392,14 @@ function sameLook(a: BoardBlocks[string], b: BoardBlocks[string]) {
 }
 
 function BoardBlock({ value, ...props }: { value: string } & PartProps<"div", BoardBlockState>) {
-  return usePart(board, "block", { value }, props);
+  counted("block");
+  return usePart(useSteady(), "block", { value }, props);
 }
 
 // A port or resize handle on a block's edge, keyed `<block>:<side or handle>`.
 function BoardPart({ slot, value, ...props }: { slot: "port" | "handle"; value: string } & PartProps<"span">) {
-  return usePart(board, slot, { value }, props, "span");
+  counted("part");
+  return usePart(useSteady(), slot, { value }, props, "span");
 }
 
 export { Board, madeBy, useBoard, who, type BoardHandle, type BoardProps, type LineLook };

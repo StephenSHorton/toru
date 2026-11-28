@@ -32,6 +32,9 @@ whisper.cpp b5907, the Windows x64 CUDA 12.4 build (whisper-bin-win-cuda-
 Whisper "base" model, converted for whisper.cpp and 5-bit quantized
   (ggml-base-q5_1.bin, from https://huggingface.co/ggerganov/whisper.cpp)
   License: MIT. Copyright (c) 2022 OpenAI (the Whisper model weights).
+Silero VAD v5.1.2, the voice detector, converted for whisper.cpp
+  (ggml-silero-v5.1.2.bin, from https://huggingface.co/ggml-org/whisper-vad)
+  License: MIT. Copyright (c) 2020-present Silero Team.
 
 
 LAN (toru-lan.exe, wintun.dll)

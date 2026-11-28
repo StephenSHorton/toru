@@ -625,8 +625,8 @@ window):
   kept.
 
 Still there, not from this: each drop renders every block's UI SDK canvas
-item and handles again (script, under a frame here). Not measured again in
-WebView2 on DESKTOP-STEPHEN (238 Hz), where two refresh intervals are 8.4 ms.
+item and handles again (script, under a frame here). In WebView2 at 238 Hz it
+costs frames: see whiteboard#46 below.
 
 **Where an element goes matters (whiteboard#45).** Measured again on the same
 board in Chrome on MACBOOK-STEPHEN, 120 Hz, production build, both themes,
@@ -643,8 +643,129 @@ frame over 2 intervals in 17 of 18 measurements across both themes; the
 other was the first in a browser just started (worst 50 ms, 2 frames), and a
 new browser profile didn't bring it back. Not measured in WebView2.
 
+### Typing and first moves in WebView2 at 238 Hz (whiteboard#46)
+
+Measured on a copy of the real "Boxes Inc: the game on one board" (rev 9: 8
+frames, 45 blocks, 15 links, 15 ink strokes; 212 ports and 424 resize
+handles), in WebView2 on DESKTOP-STEPHEN, window 1384×861 at 1×, monitor at
+238 Hz (4.2 ms a frame, so two intervals are 8.4 ms), production build of
+`board-perf.html` served with `vite preview`, the `board-perf-host` window
+from **Measuring again** below. `bun scripts/board-perf.ts --no-profile --only
+drag,type`, two runs of three in each theme:
+
+| Action | Light | Dark |
+| --- | --- | --- |
+| Move a block (press, drag 2.5 s, drop) | 229–230 fps, p95 4.3 ms, worst 54–104 ms, 8 frames over 2 intervals in 3 drags | 233–234 fps, p95 4.3 ms, worst 42 ms, 6–7 over 2 intervals |
+| Type in a sticky (a key every 50 ms) | 207–209 fps, p95 12.4 ms, p99 16.7 ms, worst 38–46 ms, 107–111 over 2 intervals in about 150 keys | 205–209 fps, p95 12.4 ms, p99 16.7–20.9 ms, worst 38–50 ms, 100–106 over 2 intervals |
+
+Main thread a second: drag about 150 ms script, 100 ms style; typing about
+225 ms script, under 10 ms style. The themes cost the same; the causes below
+were traced in light. Dragging holds 238 fps between the press and the drop.
+The long frames are these, timed by frame in all six drags and found in
+DevTools traces of an unminified build (traced times run longer, so they are
+given as shares):
+
+- **Every keystroke, 8–17 ms (two in three keys over 2 intervals).** Script
+  in the `input` event: React renders every block and every port and handle
+  again, 68 block parts and 636 port and handle parts a key, though
+  `BlockItem`'s memo lets only the typed sticky's own `BlockItem` through.
+  The board is a controlled UI SDK primitive: its blocks change with each
+  key, so UI SDK's `usePrimitive` hands the board a new "preview" handle that
+  render (counted: one a key), and `usePart` passes the handle to every part
+  under the board by React context, which no memo stops. React's render pass
+  is about two thirds of the key's script, half of it these block, port and
+  handle parts, and its commit about a third, though nothing on the board
+  changes in the page. The right panel's radio and check inputs
+  rewrite their `name` and `type` on each key too (attributes, so no
+  restyle; a little script). The 120 Hz Mac had a whole 8.3 ms interval for
+  this and stayed under 2 intervals; at 238 Hz it takes 2–3.
+- **The press, 42–75 ms, every drag.** Selecting a block not selected yet:
+  React renders the board's parts again (as above), the right panel puts in
+  its header, "made by" line and four sections, and the block takes
+  `data-selected`, `aria-selected` and `tabindex`; then 228 elements are
+  restyled. whiteboard#45 measured the panel's rows at about 6 elements, so
+  most of that restyle is the selection's change on the board, not narrowed
+  further here. The Wails runtime's own `mousedown` listener
+  (`@wailsio/runtime`, checking `--wails-draggable` with `getComputedStyle`)
+  makes the restyle happen at once inside the event, about a quarter of the
+  frame. The restyle and the renders would cost the frame without Wails too.
+- **The drop, 46–62 ms, every drag, not only the first.** The move is
+  committed to the board, and React renders every block and port and handle
+  part again, twice (1,272 port and handle renders in one drop), with the
+  right panel's fields; about four fifths script, then a restyle of about
+  150 elements in the frame. This is whiteboard#37's "each drop renders every
+  block's UI SDK canvas item and handles again", which is no longer under a
+  frame here.
+- **The first moves, 12–17 ms, in four drags of six.** For about 350 ms after
+  the press, frames restyle 30–50 elements, layerize and paint while the
+  ports' 120 ms fade (`board.css`, `[data-slot="board-port"]`'s transition)
+  runs and the dragged block takes its shadow. Three such frames halfway through one drag
+  weren't caught in a trace. One 10 ms minor garbage collection showed in a
+  trace just after a press.
+
+So the one thing to take out at 238 Hz is the board-wide re-render on each
+change to the board: one cause of the typing frames and most of the press
+and the drop.
+
 The dots stay on the board: one every 24 board units from (0, 0), the same
 grid Snap to grid uses (whiteboard#24).
+
+### Only the changed block renders on a key or a drop (whiteboard#50)
+
+whiteboard#46's board-wide render on each change is gone. Every part under
+the board got the board's handle from one React context, keyed by the
+primitive, and a controlled board gets a new handle each render (UI SDK's
+"previewing" handle), so React rendered every block, port and handle on each
+key and twice on each drop. A provider further in with a steady value
+doesn't stop that: React still renders a part whose context changed above it.
+
+`BoardView.tsx` now gives the block, port and handle parts a steady handle
+(`useSteadyHandle`) under a primitive of their own (`steadyBoard`, the board
+under another name), so the root's context never reaches them. The root
+keeps the previewing handle, so its `blocks` and `lines` are new in the same
+render; once the new options are set, in the board's layout effect before
+paint, UI SDK checks each part and renders again only those whose state or
+attributes changed. `useBoard()` gets the steady handle too. Lines, their
+press targets, labels and disconnect buttons are drawn by the root itself
+and still render on each change (about 60 small parts here).
+
+`bun scripts/board-perf.ts` now also counts renders, from counters
+`BoardView.tsx` keeps when `board-perf.html` asks: block items, blocks, and
+ports and handles, per key, per press, during the moves and per drop.
+
+Measured in Chrome on MACBOOK-STEPHEN, 120 Hz, production build of
+`board-perf.html`, on a stand-in the size of Boxes Inc (66 blocks, 15 links,
+15 ink strokes; not the real board, which is on DESKTOP-STEPHEN), three runs
+of each, main (with only the counters added) against this change. Not yet
+measured in WebView2 at 238 Hz:
+
+| Renders | Main | This change |
+| --- | --- | --- |
+| A key in a sticky | 1 block item, 71 blocks, 672 ports and handles | 1 block item, 1 block, 12 ports and handles (the typed sticky's own) |
+| The press | about 4 blocks (those whose selection changed), no ports or handles | the same |
+| The moves | none | none |
+| A drop that changes the board | the whole board twice: 142 blocks, 1,344 ports and handles | the dropped block twice: 2 blocks, 12 ports and handles |
+
+The press was never board-wide here; whiteboard#46's press cost is its
+restyle and the right panel's sections. The drag's figure of eight ends where
+it began, so most drops change nothing: of three drops, one or two changed
+the board (the first change to an agent's block, which sets "last changed
+by", or a block left a little off its place), and only those render. A sticky
+with lines can also render its neighbours' blocks once a key, since a block's
+`aria-description` names the blocks it links to by their labels.
+
+| Frames, CPU 4× (DevTools throttling) | Main, light | This change, light | Main, dark | This change, dark |
+| --- | --- | --- | --- | --- |
+| Type (a key every 50 ms), six runs | 98 fps, p95 25.1 ms, worst 41 ms, 176 over 2 intervals | 109 fps, p95 16.6 ms, worst 43 ms, 6 over 2 | 98 fps, p95 25.1 ms, worst 42 ms, 166 over 2 | 109 fps, p95 16.6 ms, worst 49 ms, 14 over 2 |
+| Typing's script, three runs | 351 ms a second | 234 ms a second | 336 ms a second | 232 ms a second |
+| Drag (press, 2.5 s, drop) | 113 fps, worst 25–75 ms, 5 over 2 | 114 fps, worst 32–59 ms, 4 over 2 | 112 fps, worst 18–85 ms, 4 over 2 | 115 fps, worst 32–42 ms, 4 over 2 |
+
+At CPU 1× both hold 120 fps with no frame over 2 intervals; typing's script
+falls from about 110 to about 70 ms a second. At 4× the worst typing frame
+is still 40–50 ms, mostly in each page's first run, as on main; in an earlier
+three-run set one run each had a single 75–85 ms frame, which six runs didn't
+show again. The press's long frame (its restyle and the right panel putting
+in its sections) is untouched here.
 
 ### Selecting a block with the properties panel (whiteboard#42)
 
