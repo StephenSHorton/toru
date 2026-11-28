@@ -16,10 +16,6 @@ const handles = ["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const;
 const parts = createParts(board, {
   root: "div",
   world: "div",
-  line: "path",
-  "line-hit": "path",
-  "line-label": "span",
-  unlink: "button",
   wire: "path",
   lasso: "div",
   "zoom-in": "button",
@@ -112,22 +108,9 @@ function Board({ renderBlock, children, className, drawing, lineLook, selectedLi
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" />
               </marker>
             </defs>
-            {lines.map((line) => {
-              const look = lineLook?.(line.id);
-              return (
-                <parts.Line
-                  key={line.id}
-                  value={line.id}
-                  strokeWidth={2}
-                  strokeDasharray={look?.dash ? dashes[look.dash] : undefined}
-                  strokeLinecap={look?.dash === "dotted" ? "round" : undefined}
-                  markerStart={look?.start === "arrow" ? "url(#board-arrow)" : undefined}
-                  markerEnd={look?.end === "arrow" ? "url(#board-arrow)" : undefined}
-                  data-color={look?.color}
-                  data-selected={selectedLine === line.id ? "" : undefined}
-                />
-              );
-            })}
+            {lines.map((line) => (
+              <LineItem key={line.id} id={line.id} look={lineLook?.(line.id)} selected={selectedLine === line.id} />
+            ))}
             <parts.Wire strokeWidth={2} strokeDasharray="6 4" />
           </svg>
           {(() => {
@@ -140,38 +123,20 @@ function Board({ renderBlock, children, className, drawing, lineLook, selectedLi
             const hits = onLinePress && (
               <svg key="board-line-hits" data-slot="board-lines" width="1" height="1">
                 {lines.map((line) => (
-                  <parts.LineHit
-                    key={line.id}
-                    value={line.id}
-                    strokeWidth={14}
-                    data-line={line.id}
-                    onPointerDown={(e: React.PointerEvent) => {
-                      if (e.button === 0) onLinePress(line.id);
-                    }}
-                  />
+                  <LineHit key={line.id} id={line.id} onPress={onLinePress} />
                 ))}
               </svg>
             );
             const ids = frameFirst(blocks);
             const frames = ids.filter((id) => blocks[id].type === "frame");
             // Each line's disconnect button, over its press target.
-            const unlinks = lines.map((line) =>
-              lineLook?.(line.id)?.locked ? null : (
-                <parts.Unlink key={`unlink:${line.id}`} value={line.id}>
-                  <XIcon aria-hidden="true" />
-                </parts.Unlink>
-              ),
-            );
+            const unlinks = lines.map((line) => (lineLook?.(line.id)?.locked ? null : <Unlink key={`unlink:${line.id}`} id={line.id} />));
             return [...frames.map(draw), hits, ...unlinks, ...ids.slice(frames.length).map(draw)];
           })()}
           {/* Line labels, above the blocks. */}
           {lines.map((line) => {
-            const text = lineLook?.(line.id)?.label;
-            return text ? (
-              <parts.LineLabel key={line.id} value={line.id} data-color={lineLook?.(line.id)?.color}>
-                {text}
-              </parts.LineLabel>
-            ) : null;
+            const look = lineLook?.(line.id);
+            return look?.label ? <LineLabel key={line.id} id={line.id} text={look.label} color={look.color} /> : null;
           })}
           {/* The stroke being drawn, above the blocks. */}
           <svg data-slot="board-lines" width="1" height="1">
@@ -401,5 +366,65 @@ function BoardPart({ slot, value, ...props }: { slot: "port" | "handle"; value: 
   counted("part");
   return usePart(useSteady(), slot, { value }, props, "span");
 }
+
+/**
+ * A line and its press target, label and disconnect button, on the steady
+ * handle like a block's parts: the board's root draws them, and it renders on
+ * every key typed in a block and twice on each drop, which drew every line's
+ * four parts again each time (about 65 parts a key and 130 a drop on Boxes
+ * Inc; whiteboard#52). Each renders again only when its own look changes;
+ * UI SDK moves a line's path itself when its blocks move, as it does while a
+ * block is dragged.
+ */
+const LineItem = React.memo(
+  function LineItem({ id, look, selected }: { id: string; look?: LineLook; selected: boolean }) {
+    return usePart(
+      useSteady(),
+      "line",
+      { value: id },
+      {
+        strokeWidth: 2,
+        strokeDasharray: look?.dash ? dashes[look.dash] : undefined,
+        strokeLinecap: look?.dash === "dotted" ? "round" : undefined,
+        markerStart: look?.start === "arrow" ? "url(#board-arrow)" : undefined,
+        markerEnd: look?.end === "arrow" ? "url(#board-arrow)" : undefined,
+        "data-color": look?.color,
+        "data-selected": selected ? "" : undefined,
+      } as PartProps<"path">,
+      "path",
+    );
+  },
+  (a, b) => a.id === b.id && a.selected === b.selected && sameLineLook(a.look, b.look),
+);
+
+function sameLineLook(a?: LineLook, b?: LineLook) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.label === b.label && a.start === b.start && a.end === b.end && a.dash === b.dash && a.color === b.color && a.locked === b.locked;
+}
+
+const LineHit = React.memo(function LineHit({ id, onPress }: { id: string; onPress: (id: string) => void }) {
+  return usePart(
+    useSteady(),
+    "line-hit",
+    { value: id },
+    {
+      strokeWidth: 14,
+      "data-line": id,
+      onPointerDown: (e: React.PointerEvent) => {
+        if (e.button === 0) onPress(id);
+      },
+    } as PartProps<"path">,
+    "path",
+  );
+});
+
+const Unlink = React.memo(function Unlink({ id }: { id: string }) {
+  return usePart(useSteady(), "unlink", { value: id }, { children: <XIcon aria-hidden="true" /> }, "button");
+});
+
+const LineLabel = React.memo(function LineLabel({ id, text, color }: { id: string; text: string; color?: string }) {
+  return usePart(useSteady(), "line-label", { value: id }, { "data-color": color, children: text } as PartProps<"span">, "span");
+});
 
 export { Board, madeBy, useBoard, who, type BoardHandle, type BoardProps, type LineLook };

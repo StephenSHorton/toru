@@ -767,6 +767,106 @@ three-run set one run each had a single 75–85 ms frame, which six runs didn't
 show again. The press's long frame (its restyle and the right panel putting
 in its sections) is untouched here.
 
+### Typing, press and drop in WebView2 at 238 Hz after whiteboard#50 (whiteboard#52)
+
+Measured as whiteboard#46 was: the same copy of "Boxes Inc: the game on one
+board" (rev 9; `board-perf.ts` counts 63 blocks, 15 links, 15 ink strokes),
+WebView2 on DESKTOP-STEPHEN, window 1384×861 at 1×, 238 Hz (two intervals
+are 8.4 ms), production build of `board-perf.html`, the `board-perf-host`
+window, `bun scripts/board-perf.ts --no-profile --only idle,drag,type`.
+
+**What whiteboard#50 left, measured first.** A key now renders 1 block item,
+1 block and 12 ports and handles (the typed sticky's own; whiteboard#46 had
+68 blocks and 636 ports and handles), and a drop 1 block item, 2 blocks and
+12 ports and handles. Typing still had 8–12 frames over 2 intervals in about
+150 keys and 130 ms of script a second. Counting React's renders by
+component (a DevTools hook on the page) showed why: each key still rendered
+about 375 components, because the whole window renders on each key (its
+board's blocks are its state) and made new props for everything in it. The
+drawing bar was 81 of them, the right panel 74, the toolbar 40, the gallery,
+export and share menus about 35, and the lines the board's root draws (each
+line, its press target, label and disconnect button) about 65.
+
+**What this card changed:**
+
+- **The window's controls over the board are made once** (`routes/Whiteboard.tsx`):
+  the toolbar, block gallery, arrange command, drawing bar, board name and
+  ask dialog are kept with `useMemo`, `useCallback` and `React.memo`. They are
+  made again only when their own settings change.
+- **The right panel renders only when its own props change**
+  (`PropsPanel.tsx`: `PropsPanel` is memoized, and the window keeps `source`
+  and the selection's `bridge` steady). The board's document doesn't change
+  while typing, so neither does the panel.
+- **Lines are on the steady handle** (`BoardView.tsx`: `LineItem`, `LineHit`,
+  `Unlink`, `LineLabel`), like whiteboard#50's blocks. Each renders again only
+  when its own look or selection changes. UI SDK moves a line's path itself
+  when its blocks move, during a drag and after the drop, as before. A drop
+  rendered 200 components drawn by the root (the root renders twice on a drop);
+  now it renders 40.
+
+Before the lines change, a key rendered about 135 components. About half of
+them were the lines, which no longer render on a key. Script while typing
+fell from 130–133 to 84–91 ms a second.
+
+`board-perf.ts` now prints typing twice. The whole run counts the press and
+double click that put the cursor in the sticky. **The keys alone** counts
+only the frames from the first key on. `idle` measures the same 2.5 s
+runs with no input and a DevTools message every 50 ms. It is the noise floor:
+frames the computer and browser lose alone.
+
+| Action | whiteboard#46, light | whiteboard#46, dark | After #50, light | After #50, dark | This card, light | This card, dark |
+| --- | --- | --- | --- | --- | --- | --- |
+| Idle (no input), per set of three runs | not measured | not measured | not measured | not measured | 0–2 over 2 intervals, worst 4.5–17 ms | 0–2 over 2, worst 8.4–21 ms |
+| Type, the keys alone (about 150 keys a set) | not split | not split | not split | not split | 0 over 2 in four sets, 1 in a fifth; worst 8.5–16.6 ms | 0 over 2 in three sets, 2 in a fourth; worst 8.5–12.5 ms |
+| Type, the whole run | 207–209 fps, worst 38–46 ms, 107–111 over 2 | 205–209 fps, worst 38–50 ms, 100–106 over 2 | 228 fps, worst 21 ms, 8 over 2 | 228 fps, worst 21 ms, 12 over 2 | 236–237 fps, worst 13–25 ms, 4 over 2 | 235–237 fps, worst 17–25 ms, 2–5 over 2 |
+| Typing's script | about 225 ms a second | | 133 ms a second | 130 ms a second | 84–91 ms a second | 85–90 ms a second |
+| Move a block (3 drags of 2.5 s) | 229–230 fps, worst 54–104 ms, 8 over 2 | 233–234 fps, worst 42 ms, 6–7 over 2 | 235 fps, worst 58 ms, 7 over 2 | 236 fps, worst 29 ms, 6 over 2 | 236–238 fps, worst 17–29 ms, 5–6 over 2 | 237–238 fps, worst 17–21 ms, 5–7 over 2 |
+| The press, one frame a drag | 42–75 ms | | | | 12–21 ms | 12–21 ms |
+| The drop, one frame a drag | 46–62 ms | | | | 12.5–29 ms | 12.5–21 ms |
+
+"After #50" is one set of three runs a theme, on this card's base before its
+changes. "This card" is four to five sets a theme. The first two of each were
+taken before the lines change, and they measure the same: the lines change
+cut the drop's renders, not its long frame. whiteboard#48 (the right panel
+no longer rebuilt on each selection) came into this card between the two
+columns, so the drag and whole-run columns differ by it too. The fall in
+typing's script was measured before it came in.
+
+So typing itself holds the refresh rate. In 9 sets (about 1,350 keys), 3
+frames went over 2 intervals, while idle lost 0–2 frames in each set of the
+same length with no input. The press and the drop still take one frame of 3
+to 7 intervals each, every drag. The first and second clicks into a sticky
+take one or two such frames each. That is all of typing's "whole run" count.
+
+**What's left, traced in WebView2** (an unminified build, so times run long;
+given as what the frame spent):
+
+- **The press** (also the first click into a sticky): Wails' own `mousedown`
+  listener (`@wailsio/runtime`'s `primaryDown`, reading `--wails-draggable`
+  with `getPropertyValue`) forces a restyle of about 167 elements inside the
+  event, after the block took `data-selected`, `aria-selected` and
+  `tabindex`. React then renders the about 4 blocks whose selection changed,
+  and the right panel follows in a transition. This is selecting a block.
+  whiteboard#51 is working on it, so this card leaves it alone.
+- **The double click into a sticky's text** (`editBlock` in `board.ts`): it
+  sets `data-editing` on the block, and `elementFromPoint` then forces a
+  restyle of about 168 elements and a layout. The caret goes in, focus moves
+  to the field, and React renders the `editing` change. A sticky has only 31
+  elements, so the restyle reaches well past the block. The press and the
+  drop restyle about the same 167–168 elements, so it is one set wider than
+  the block, likely through UI SDK's `:has()` rules. Which rule brings it in
+  isn't found here; that needs a trace with style invalidation tracking. In
+  the page, flipping `data-editing` on a sticky costs about 1.2 ms with its
+  restyle, and moving focus into its field 2.1 ms. The rest of the frame is
+  React's render of the change and of the panel.
+- **The drop**: about a third is React's render (the root twice, the dropped
+  block twice, the right panel's X and Y fields). A quarter is UI SDK's
+  check of every part once the board's new options are set (`setOptions`
+  in the board's layout effect, whiteboard#50). About a third is UI SDK's
+  drag end (`onEnd`, `setBoxes`, port points). Then about 168 elements
+  restyle as the block stops dragging. The check of every part is UI SDK's
+  own work for a controlled primitive, so this card leaves it.
+
 ### Selecting a block with the properties panel (whiteboard#42)
 
 The properties panel (whiteboard#29) brought back one long frame per click
@@ -820,56 +920,112 @@ changed (rules keyed on `[data-selected]` and Tailwind's `group-hover`) and
 half UI SDK's selection and roving focus code. That was there before the
 panel.
 
+**In WebView2 on DESKTOP-STEPHEN (whiteboard#43).** Measured on the copy of
+Boxes Inc the earlier WebView2 numbers used (board `brd-f69a6b74ac65797b`,
+rev 9, taken from Toru's board folder: 45 blocks, 8 frames, 15 links, 15 ink
+strokes; the script counts 63 `board-block` elements, 45 of them clickable),
+window 1384×861, 238 Hz (4.2 ms a frame, so 1.5 refreshes is 6.3 ms), with
+`main` at whiteboard#45 (641cc53). `bun scripts/board-perf.ts --cdp 9339
+--board <copy> --only select --no-profile --theme light|dark`, three runs of
+2.5 s, a click every 250 ms, about 27 clicks measured past each run's first:
+
+| Build | Theme | Past the first click |
+| --- | --- | --- |
+| Vite dev server (47830) | light | worst 58.4 ms, 78 of 1723 frames over 1.5× refresh (6.3 ms) |
+| Vite dev server | dark | worst 41.7 ms, 62 of 1710 frames over 1.5× refresh |
+| Vite dev server | light, again | worst 37.6 ms, 62 of 1688 frames over 1.5× refresh |
+| Vite dev server | dark, again | worst 41.7 ms, 68 of 1704 frames over 1.5× refresh |
+| Production | light | worst 33.4 ms, 55 of 1773 frames over 1.5× refresh |
+| Production | dark | worst 25.1 ms, 49 of 1749 frames over 1.5× refresh |
+| Production | light, again | worst 21.0 ms, 48 of 1793 frames over 1.5× refresh |
+| Production | dark, again | worst 20.9 ms, 47 of 1792 frames over 1.5× refresh |
+
+Runs taken again for the card's proof landed in the same range (dev: 56 and
+59 frames; production: 47 and 56), except one production dark run with a
+single 67 ms frame, not seen in any other run. So every click still brings
+about two frames over 1.5 refreshes; the themes measure the same. On a 238 Hz screen 6.3 ms is a tight budget: the click's
+own task alone is twice that. A DevTools trace of ten clicks (production
+build, light; frames counted from the compositor's begin-frame ticks, 22
+slow frames over 9 clicks) names each one:
+
+- **The press, every click: 13–22 ms.** UI SDK's `pointerdown` (its
+  selection store `set` notifying every block part's listener, `choose` /
+  `replace`, then roving focus's `setStop` / `focused`) is 3–4 ms of script,
+  and the restyle of the two blocks whose selection changes (about 200
+  elements: UI SDK rewrites `data-slot` / `data-part` on their spans,
+  inputs and buttons, and each block's handles come and go) is 5–7 ms. That
+  restyle is the one Wails' `primaryDown` forces with its
+  `--wails-draggable` read on `mousedown`; the read only moves it earlier,
+  but the focus change after it costs two more small restyles (about 35
+  elements, 1–2 ms). Not the board-wide `:has()` restyle: the press restyles
+  no more than 202 elements.
+- **The release, most clicks: 6.4–10 ms.** On `pointerup` Blink restyles
+  about 136 elements (4–5 ms) for the `:active` / `:hover` change on the
+  board's `h-full w-full` wrapper, in the same frame as the CSS transitions
+  the selection started (on spans inside the two blocks; which rules, not
+  traced).
+- **The panel's commit, some clicks: 8 ms.** The React transition that
+  rebuilds the properties panel commits in one task (about 6–12 ms, taking
+  out and putting in about 30 rows). It restyles only the panel (see
+  whiteboard#45), but its script and layout run over the budget in one
+  frame.
+- **Not selection:** moving the mouse onto the next block (the hover before
+  the press) sometimes takes 7–10 ms: a `:hover` restyle of 50–70 elements,
+  forced in the `mousemove` by the same Wails read.
+
+whiteboard#23 measured clicking in WebView2 at worst 13 ms before the panel
+existed; the press's frame is that same cost, and the release and panel
+frames come on top. whiteboard#51 takes these on.
+
 **Two refreshes in WebView2 on DESKTOP-STEPHEN (whiteboard#49).** Does
 clicking from block to block hold every frame within 2 refresh intervals
-(8.4 ms at 238 Hz)? No: about one frame a click goes over, in both themes.
+(8.4 ms at 238 Hz)? Not yet: after whiteboard#48 (the panel no longer
+rebuilt on each selection), #50 and #52, about one click in five to eight
+still has one frame over, in both themes. Before #48 it was about one frame
+every click.
+
 Measured on a copy of Boxes Inc (`brd-f69a6b74ac65797b`, rev 9: 45 blocks,
 8 frames, 15 links, 15 ink strokes; 45 clickable blocks), window 1384×861,
-238 Hz (4.2 ms), `main` at whiteboard#45 (641cc53), production build of
-`board-perf.html`. `bun scripts/board-perf.ts --only select --cdp 9339
---board <copy> --theme light|dark --no-profile`, three runs of 2.5 s each
-(a click every 250 ms, about 27 clicks past each run's first). "Over 2×"
-counts frames that missed more than one refresh; the script now prints it
-for the frames past the first click too.
+238 Hz (4.2 ms), production build of `board-perf.html`. `bun
+scripts/board-perf.ts --only select --cdp 9339 --board <copy> --theme
+light|dark --no-profile`: each line is three runs of 2.5 s, a click every
+250 ms, about 80 clicks past each run's first. "Over 2×" counts frames that
+missed more than one refresh.
 
-| Theme | All frames | Over 2×, all | Over 2×, past the first click | Worst, past the first click |
+| `main` | Theme | Over 2×, past the first click | Over 1.5× | Worst |
 | --- | --- | --- | --- | --- |
-| Light | 2021 | 36 | — | 41.8 ms (first run of a new page: 66.7 ms overall) |
-| Dark | 2019 | 29 | — | 29.3 ms |
-| Light | 2107 | 30 | 27 of 1878 | 25.1 ms |
-| Dark | 2069 | 27 | 24 of 1872 | 25.1 ms |
-| Light | 2072 | 29 | 26 of 1854 | 33.4 ms |
-| Dark | 2016 | 28 | 24 of 1817 | 25.0 ms |
+| Before #48 (641cc53) | light | 27, 26 of about 1,870 | 40, 51 | 25.1, 33.4 ms |
+| Before #48 | dark | 24, 24 of about 1,850 | 42, 37 | 25.1, 25.0 ms |
+| With #48, #50, #52 (c1ddeeb) | light | 18, 10, 14 of about 1,910 | 31, 32, 32 | 16.7, 17.2, 16.7 ms |
+| With #48, #50, #52 | dark | 12, 13, 11 of about 1,930 | 29, 35, 30 | 16.8, 16.8, 20.8 ms |
 
-(The first two rows ran before the script printed over 2× past the first
-click.) Median 4.2 ms, 223–229 fps, main thread per second: script 36–39 ms,
-style 58–64 ms, layout 4–5 ms. The themes measure the same.
+Median 4.2 ms and 233–234 fps with #48; main thread per second went from
+script 36–39, style 58–64, layout 4–5 ms to script 26–28, style 44–47,
+layout 3 ms. The themes measure the same. whiteboard#51 measured the same
+`main` and found the same (6–15 over 2× past the first click).
 
-What each frame over 2× spent, from DevTools traces of twelve clicks in
-each theme (main thread self time per frame, counted between
-`BeginMainThreadFrame` ticks). Tracing with invalidation tracking and stack
-sampling makes every task slower, so the traced click shows two or three
-frames over 2× where an untraced one shows about one; the kinds are the same:
+What each frame over 2× spends, from DevTools traces of twelve clicks in
+each theme on `c1ddeeb` (main thread self time per frame, between
+`BeginMainThreadFrame` ticks). Tracing makes every task slower, so the
+traced click shows one or two frames over 2× where an untraced one shows
+one now and then; the kinds are the same:
 
-- **The press, every click: style first, then script.** 14–31 ms frames,
-  about 6–16 ms of style and 5–10 ms of script. The style is the restyle of
-  the two blocks whose selection changed, forced inside `mousedown` by Wails'
-  `primaryDown` (`@wailsio/runtime` reading `--wails-draggable`: an
-  `UpdateLayoutTree` inside that call); the script is UI SDK's `pointerdown`
-  (selection store, roving focus) and the `focus` that follows. This is the
-  frame left untraced: it alone is two to three refreshes.
-- **About 20–50 ms later: script only.** 10–17 ms traced, one task: React's
-  scheduled render (a `MessageChannel` task, no input event), the properties
-  panel's transition committing (see whiteboard#43, #48). Untraced it is
-  6–12 ms, so sometimes over 2×, sometimes just under.
-- **About 25–75 ms later, some clicks: style.** 11–15 ms traced, 5–9 ms of
-  style with a little paint: the restyle after the release and the CSS
-  transitions the selection started.
-- Layout is under 1.1 ms in every slow frame: not a cost.
+- **The press, every click: style, then script.** 11–20 ms traced (12.6–17
+  ms untraced, so over 2× whenever it misses a third refresh), about 5–11 ms
+  of style and 4–6 ms of script. The style is the restyle of the two blocks
+  whose selection changed, forced inside `mousedown` by Wails' `primaryDown`
+  (`@wailsio/runtime` reading `--wails-draggable`: an `UpdateLayoutTree`
+  inside that call); the script is UI SDK's `pointerdown` (selection store,
+  roving focus) and the `focus` that follows.
+- **15–30 ms later, about one click in three: script.** 11–14 ms traced,
+  7–10 ms script and 1–4 ms style: React's scheduled render of the
+  properties panel. Before #48 it was 10–17 ms of script on every click.
+- **Gone since #48:** the separate style frame 25–75 ms after the click.
+- Layout is under 1 ms in every slow frame: not a cost.
 
-So the frame budget is lost to style (the press's restyle of the two
-blocks, forced early by Wails' read) and script (UI SDK's press handling,
-then the panel's render), not layout. whiteboard#51 takes these on.
+So what is left is style (the press's restyle of the two blocks, forced
+early by Wails' read) and script (UI SDK's press, then the panel's smaller
+render), not layout. whiteboard#51 takes these on.
 
 **Measuring again.** `frontend/board-perf.html` (Vite only) opens the
 whiteboard window on a board in memory; `frontend/scripts/board-perf.ts`
