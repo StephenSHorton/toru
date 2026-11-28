@@ -1127,6 +1127,42 @@ change before whiteboard#52 came into it; the table above is on `c1ddeeb`:
 `--only pan,drag,type` on `main` and on this change, light: the same render
 counts and frames within one set's spread.
 
+### Double-clicking into a sticky's text (whiteboard#53)
+
+**The 168 elements were the board's `:active` cursor, not `data-editing`.**
+Traced in WebView2 with style invalidation tracking on a build of `main` at
+whiteboard#52 (`c1ddeeb`). The press restyles 136 elements: the board takes
+`:active`, and `[data-slot="board"]:active { cursor: grabbing }` (board.css)
+changes an inherited property. The release takes `:active` off again, and
+that restyle waits for the next style read. That read is `editBlock`'s
+`elementFromPoint`, in the same task as the `data-editing` change. So
+`elementFromPoint` restyled 136 elements for `:active` plus 32 for
+`data-editing`, 168 in all. Deleting only that one rule in the page (CSSOM,
+same build) gave 33 elements in the double click and no restyle in the press.
+whiteboard#51 had already replaced the rule with `[data-panning]`. On `main`
+now (`640f90e`), the double click restyles 33 elements, then 6 as focus moves.
+
+The 33 left come from the block's own rules. `[data-slot="board-block"][data-editing]
+{ cursor: default }` changes an inherited property on the block, so its 31
+elements restyle. The text-field rules (`pointer-events`, `cursor: text`)
+restyle the field.
+
+**What the double click spends now**, traced on `640f90e`:
+- `editBlock`'s `store.set({ editing })`. UI SDK ran the live attributes of
+  every block, port and handle, because `editing` wasn't narrowed. That was
+  about a third of the handler's script. **Changed:** blocks follow `editing`
+  by their own key (`selects` in `board.ts`), and ports, handles and lines
+  ignore it (`ignoresSelection`). Only the block that starts or stops editing
+  wakes. Traced, this part fell from 5.0 to 1.2 ms.
+- `elementFromPoint`: the 33-element restyle and a hit test.
+- `focus()` on the field: the 6-element restyle, focus events, and native
+  work that the trace doesn't break down (about 2–3 ms untraced in production).
+- Then paint and layers, about 2–3 ms.
+
+Checked in the page: after Escape, after a click outside, and when editing
+moves straight from one sticky to another, `data-editing` is on at most one
+block. `scripts/board-check.ts` passes (91).
+
 **Measuring again.** `frontend/board-perf.html` (Vite only) opens the
 whiteboard window on a board in memory; `frontend/scripts/board-perf.ts`
 drives it over the DevTools protocol with synthetic input only, so it never
