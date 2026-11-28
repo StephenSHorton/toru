@@ -977,6 +977,56 @@ whiteboard#23 measured clicking in WebView2 at worst 13 ms before the panel
 existed; the press's frame is that same cost, and the release and panel
 frames come on top. whiteboard#51 takes these on.
 
+**Two refreshes in WebView2 on DESKTOP-STEPHEN (whiteboard#49).** Does
+clicking from block to block hold every frame within 2 refresh intervals
+(8.4 ms at 238 Hz)? Not yet: after whiteboard#48 (the panel no longer
+rebuilt on each selection), #50 and #52, about one click in five to eight
+still has one frame over, in both themes. Before #48 it was about one frame
+every click.
+
+Measured on a copy of Boxes Inc (`brd-f69a6b74ac65797b`, rev 9: 45 blocks,
+8 frames, 15 links, 15 ink strokes; 45 clickable blocks), window 1384×861,
+238 Hz (4.2 ms), production build of `board-perf.html`. `bun
+scripts/board-perf.ts --only select --cdp 9339 --board <copy> --theme
+light|dark --no-profile`: each line is three runs of 2.5 s, a click every
+250 ms, about 80 clicks past each run's first. "Over 2×" counts frames that
+missed more than one refresh.
+
+| `main` | Theme | Over 2×, past the first click | Over 1.5× | Worst |
+| --- | --- | --- | --- | --- |
+| Before #48 (641cc53) | light | 27, 26 of about 1,870 | 40, 51 | 25.1, 33.4 ms |
+| Before #48 | dark | 24, 24 of about 1,850 | 42, 37 | 25.1, 25.0 ms |
+| With #48, #50, #52 (c1ddeeb) | light | 18, 10, 14 of about 1,910 | 31, 32, 32 | 16.7, 17.2, 16.7 ms |
+| With #48, #50, #52 | dark | 12, 13, 11 of about 1,930 | 29, 35, 30 | 16.8, 16.8, 20.8 ms |
+
+Median 4.2 ms and 233–234 fps with #48; main thread per second went from
+script 36–39, style 58–64, layout 4–5 ms to script 26–28, style 44–47,
+layout 3 ms. The themes measure the same. whiteboard#51 measured the same
+`main` and found the same (6–15 over 2× past the first click).
+
+What each frame over 2× spends, from DevTools traces of twelve clicks in
+each theme on `c1ddeeb` (main thread self time per frame, between
+`BeginMainThreadFrame` ticks). Tracing makes every task slower, so the
+traced click shows one or two frames over 2× where an untraced one shows
+one now and then; the kinds are the same:
+
+- **The press, every click: style, then script.** 11–20 ms traced (12.6–17
+  ms untraced, so over 2× whenever it misses a third refresh), about 5–11 ms
+  of style and 4–6 ms of script. The style is the restyle of the two blocks
+  whose selection changed, forced inside `mousedown` by Wails' `primaryDown`
+  (`@wailsio/runtime` reading `--wails-draggable`: an `UpdateLayoutTree`
+  inside that call); the script is UI SDK's `pointerdown` (selection store,
+  roving focus) and the `focus` that follows.
+- **15–30 ms later, about one click in three: script.** 11–14 ms traced,
+  7–10 ms script and 1–4 ms style: React's scheduled render of the
+  properties panel. Before #48 it was 10–17 ms of script on every click.
+- **Gone since #48:** the separate style frame 25–75 ms after the click.
+- Layout is under 1 ms in every slow frame: not a cost.
+
+So what is left is style (the press's restyle of the two blocks, forced
+early by Wails' read) and script (UI SDK's press, then the panel's smaller
+render), not layout. whiteboard#51 takes these on.
+
 **Measuring again.** `frontend/board-perf.html` (Vite only) opens the
 whiteboard window on a board in memory; `frontend/scripts/board-perf.ts`
 drives it over the DevTools protocol with synthetic input only, so it never
@@ -1018,7 +1068,8 @@ Export the board to `.toruboard` first and measure the file; the page keeps
 the board in memory and never touches Toru's store.
 
 `--only select` also prints the frames past each run's first click (the
-first opens the panel), which is what "no long frame when selecting" counts.
+first opens the panel), which is what "no long frame when selecting" counts,
+and how many of them go over 2 refreshes.
 `--cpu 4` slows the page with DevTools' CPU throttling, for measuring on a
 computer much faster than the one people use. Any Chrome or Edge started with
 `--remote-debugging-port=9339` serves as the browser off Windows.
