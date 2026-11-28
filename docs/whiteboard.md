@@ -578,12 +578,56 @@ Checked and not a cost here: the four `.frost` toolbars' backdrop blur
 (under 1 ms of script a frame in all), and paint or layers (no culling
 needed at this size).
 
-What's left: one long frame (about 75 ms) the first time a person moves or
-edits a block an agent made, as its "last changed by" label changes and the
-block renders again, and any re-render of a block with a text field (typing
-in it, a vote) costs one board-wide restyle of about 30–40 ms. Both come
-from UI SDK's `:has()` rules reacting to a text node change anywhere in the
-board.
+What was left after that: one long frame the first time a person moves or
+edits a block an agent made, and a board-wide restyle of about 30–40 ms for
+each keystroke or vote in a block. whiteboard#37 took those out.
+
+### Typing and first moves (whiteboard#37)
+
+Measured on a board the size of Boxes Inc (8 frames, 48 blocks, all made by
+an agent, 15 links, 15 ink strokes; 2,646 elements), in Chrome on
+MACBOOK-STEPHEN, window 1400×900, 120 Hz (8.3 ms a frame), production build
+of `board-perf.html`, main before this change and after it, two runs of each
+in each theme. `type` double-clicks a sticky and types a key every 50 ms;
+`drag` moves a block not moved yet in each of its three runs, so each drop
+is the first change to an agent's block.
+
+| Action | Before | After |
+| --- | --- | --- |
+| Type in a sticky | 103–106 fps, worst 27–32 ms, 38–59 frames over 2 intervals; style 245 ms a second | 120 fps, worst 10–17 ms, none over 2 intervals; style 4 ms a second |
+| Move an agent's block the first time | worst 32–35 ms (the first drop), 1 frame over 2 intervals a run | worst 10–17 ms, none over 2 intervals |
+
+What costs a frame, found by removing rules and by DevTools traces: with
+UI SDK's `:has()` rules on the page (any one of several, among them the
+board's own `[data-slot="board"]:has(…) [data-slot="board-port"]`), Blink
+restyles every `[data-slot]` and `svg` under the board, 17–30 ms, whenever
+**an element is put into or taken out of the app**, or **an element's last
+text is taken out**. Text added, text changed in place, and attribute
+changes cost nothing. Overriding the rules can't help (a rule's selector
+costs whatever it declares), so the window now avoids those changes where
+nothing on screen changes (`whiteboard/restyle-guards.ts`, loaded by the
+window):
+
+- **A textarea's words were rewritten on every keystroke.** React sets a
+  controlled `<textarea>`'s `defaultValue` (its text node) after each change
+  to its value, and sets an uncontrolled one's on every render (UI SDK's
+  hidden form field in a Select, in the right panel). The window skips a
+  `defaultValue` write that changes nothing: the same default, or the words
+  the field already shows when it isn't in a form.
+- **UI SDK's screen-reader announcer made its live regions on the first
+  drop** ("Moved"). They're made when the window opens
+  (`prepareAnnouncements`).
+- **The right panel put in its "Last changed by" line** on the first change
+  to an agent's block. Both lines now stay in the panel, hidden when empty.
+- **The block gallery's tiles rendered again on every board change** (new
+  sections each render beat `TilePreview`'s memo): script time only, now
+  kept.
+
+Still there, not from this: selecting a block of another type puts the
+right panel's rows in (one restyle, about 25 ms), and each drop renders
+every block's UI SDK canvas item and handles again (script, under a frame
+here). Not measured again in WebView2 on DESKTOP-STEPHEN (238 Hz), where two
+refresh intervals are 8.4 ms.
 
 The dots stay on the board: one every 24 board units from (0, 0), the same
 grid Snap to grid uses (whiteboard#24).
@@ -618,6 +662,12 @@ cd frontend && bunx vite --host 127.0.0.1 --port 47830
 host.exe http://127.0.0.1:47830/board-perf.html <profile dir>
 bun scripts/board-perf.ts --cdp 9339 --board <copy.toruboard> --no-profile --theme dark
 ```
+
+In Chrome, start it with `--remote-debugging-port` and its own
+`--user-data-dir`, plus `--disable-backgrounding-occluded-windows
+--disable-renderer-backgrounding`, and pass that port as `--cdp`. For
+production React, build `board-perf.html` with a Vite config that adds it as
+`build.rollupOptions.input` and serve it with `vite preview`.
 
 Export the board to `.toruboard` first and measure the file; the page keeps
 the board in memory and never touches Toru's store.
