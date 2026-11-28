@@ -2,7 +2,8 @@
 // file "mode" next to it says how it behaves: "gpu" says it put the model
 // on the GPU (as the CUDA build does) and serves, "nogpu" serves without
 // saying so, "exit" quits at once. /inference answers with the mode, so a
-// test can tell which build transcribed.
+// test can tell which build transcribed (and "+vad" after it when started
+// with the voice detector).
 package main
 
 import (
@@ -24,6 +25,9 @@ func main() {
 	flag.String("public", "", "")
 	flag.Bool("nt", false, "")
 	flag.Bool("suppress-nst", false, "")
+	vad := flag.Bool("vad", false, "")
+	flag.String("vm", "", "")
+	flag.String("vp", "", "")
 	flag.Parse()
 	exe, _ := os.Executable()
 	raw, _ := os.ReadFile(filepath.Join(filepath.Dir(exe), "mode"))
@@ -34,8 +38,12 @@ func main() {
 	case "gpu":
 		fmt.Fprintln(os.Stderr, "whisper_backend_init_gpu: using CUDA0 backend")
 	}
+	answer := mode
+	if *vad {
+		answer += "+vad"
+	}
 	http.HandleFunc("/inference", func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintf(w, `{"text":%q}`, mode)
+		fmt.Fprintf(w, `{"text":%q}`, answer)
 	})
 	_ = http.ListenAndServe("127.0.0.1:"+*port, nil)
 }

@@ -56,8 +56,21 @@ const (
 	modelSHA256 = "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898"
 	modelBytes  = 59707625
 
+	// Silero's voice detector (v5.1.2, the version whisper b5907 knows), from
+	// the ggml-org/whisper-vad repo at a fixed revision. whisper runs it
+	// first and transcribes only the parts with speech, so a hum, a chime or
+	// a tune that passes the call's own voice check (internal/stream's
+	// voice.go) comes back as no text instead of a made-up word.
+	vadName   = "ggml-silero-v5.1.2.bin"
+	vadURL    = "https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/" + vadName
+	vadSHA256 = "29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf"
+	vadBytes  = 885098
+	// vadPadMS is how much audio around each part the detector keeps: its
+	// default (30 ms) clipped the first or last word of real speech.
+	vadPadMS = "250"
+
 	// DownloadBytes is everything the first use downloads.
-	DownloadBytes = whisperBytes + modelBytes
+	DownloadBytes = whisperBytes + modelBytes + vadBytes
 
 	// The CUDA 12.4 build of the same release, for NVIDIA GPUs. It ships
 	// CUDA's runtime and cuBLAS next to whisper, so nothing else needs
@@ -139,6 +152,12 @@ type Engine struct {
 	gpuFailed bool   // it didn't work this session: run the CPU build
 	device    string // what the running server uses ("" when none runs)
 
+	// fetchVAD downloads the voice detector for a PC that got the engine
+	// before it was added (nil in tests: never downloads). vadTried: it
+	// was tried this session.
+	fetchVAD func(ctx context.Context) error
+	vadTried bool
+
 	srvMu sync.Mutex // one transcription (and one server start) at a time
 	cmd   *exec.Cmd
 	port  int
@@ -154,7 +173,11 @@ func NewEngine(onChange func()) *Engine {
 			root = filepath.Join(cache, "toru", "whisper")
 		}
 	}
-	return newEngineAt(root, onChange, probeGPU)
+	e := newEngineAt(root, onChange, probeGPU)
+	e.fetchVAD = func(ctx context.Context) error {
+		return fetchFile(ctx, vadURL, vadSHA256, vadBytes, e.vadPath(), nil)
+	}
+	return e
 }
 
 // NewEngineAt is NewEngine rooted at root ("" = unsupported: nothing is
@@ -189,6 +212,7 @@ func newEngineAt(root string, onChange func(), probe func() GPU) *Engine {
 func (e *Engine) binDir() string    { return filepath.Join(e.root, whisperBuild) }
 func (e *Engine) gpuDir() string    { return filepath.Join(e.root, gpuBuild) }
 func (e *Engine) modelPath() string { return filepath.Join(e.root, "models", modelName) }
+func (e *Engine) vadPath() string   { return filepath.Join(e.root, "models", vadName) }
 func (e *Engine) serverPath() string {
 	return filepath.Join(e.binDir(), "whisper-server.exe")
 }
@@ -350,7 +374,9 @@ func (e *Engine) warmGPU() {
 	if err := e.startLocked(ctx); err != nil {
 		return
 	}
-	if _, err := e.inferLocked(ctx, make([]int16, SampleRate)); err != nil {
+	// With the voice detector on, silence would skip the model (and so the
+	// compile): this one request runs without it.
+	if _, err := e.inferLocked(ctx, make([]int16, SampleRate), false); err != nil {
 		logf("whisper GPU warm-up: %v", err)
 	}
 	if !was {
@@ -381,8 +407,16 @@ func (e *Engine) fetchAll(ctx context.Context) error {
 		if err := fetchFile(ctx, modelURL, modelSHA256, modelBytes, e.modelPath(), progress); err != nil {
 			return err
 		}
-		pruneOthers(filepath.Dir(e.modelPath()), modelName)
 	}
+	base += modelBytes
+	if !fileExists(e.vadPath()) {
+		// Not needed to transcribe: without it whisper runs as before,
+		// and the next server start tries again.
+		if err := fetchFile(ctx, vadURL, vadSHA256, vadBytes, e.vadPath(), progress); err != nil {
+			logf("whisper voice detector download: %v", err)
+		}
+	}
+	pruneOthers(filepath.Dir(e.modelPath()), modelName, vadName)
 	return nil
 }
 
@@ -569,7 +603,7 @@ func (e *Engine) Transcribe(ctx context.Context, pcm []int16) (string, error) {
 	if err := e.startLocked(ctx); err != nil {
 		return "", err
 	}
-	text, err := e.inferLocked(ctx, pcm)
+	text, err := e.inferLocked(ctx, pcm, true)
 	if err != nil && !e.aliveLocked() {
 		// It died mid-request: start it again once (on the CPU if it
 		// was the GPU build that died).
@@ -580,7 +614,7 @@ func (e *Engine) Transcribe(ctx context.Context, pcm []int16) (string, error) {
 		if err2 := e.startLocked(ctx); err2 != nil {
 			return "", err2
 		}
-		text, err = e.inferLocked(ctx, pcm)
+		text, err = e.inferLocked(ctx, pcm, true)
 	}
 	return text, err
 }
@@ -604,6 +638,7 @@ func (e *Engine) startLocked(ctx context.Context) error {
 		return nil
 	}
 	e.stopLocked()
+	e.ensureVADLocked(ctx)
 	if e.useGPU() {
 		err := e.launchLocked(ctx, true)
 		if err == nil {
@@ -615,6 +650,21 @@ func (e *Engine) startLocked(ctx context.Context) error {
 		e.failGPU(err)
 	}
 	return e.launchLocked(ctx, false)
+}
+
+// ensureVADLocked fetches the voice detector once a session when it is
+// missing (an engine downloaded before it was added). If that fails whisper
+// runs without it: the call's own voice check still applies.
+func (e *Engine) ensureVADLocked(ctx context.Context) {
+	if e.vadTried || e.fetchVAD == nil || fileExists(e.vadPath()) {
+		return
+	}
+	e.vadTried = true
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	if err := e.fetchVAD(ctx); err != nil {
+		logf("whisper voice detector download: %v", err)
+	}
 }
 
 // failGPU gives up on the GPU build for this session: whisper runs on the
@@ -647,7 +697,7 @@ func (e *Engine) launchLocked(ctx context.Context, gpu bool) error {
 	if gpu {
 		dir, exe = e.gpuDir(), e.gpuServerPath()
 	}
-	cmd := exec.Command(exe,
+	args := []string{
 		"-m", e.modelPath(),
 		"--host", "127.0.0.1", "--port", strconv.Itoa(port),
 		"-t", strconv.Itoa(threads()),
@@ -656,7 +706,12 @@ func (e *Engine) launchLocked(ctx context.Context, gpu bool) error {
 		"--suppress-nst", // no [music] / (coughs) tokens
 		"-nth", "0.6",    // skip segments whisper thinks are not speech
 		"--public", dir, // no web page to serve
-	)
+	}
+	if fileExists(e.vadPath()) {
+		// Transcribe only what Silero's voice detector hears as speech.
+		args = append(args, "--vad", "-vm", e.vadPath(), "-vp", vadPadMS)
+	}
+	cmd := exec.Command(exe, args...)
 	cmd.Dir = dir
 	slog := &serverLog{}
 	cmd.Stderr = slog
@@ -786,7 +841,9 @@ func freePort() (int, error) {
 
 var inferClient = &http.Client{Timeout: 90 * time.Second}
 
-func (e *Engine) inferLocked(ctx context.Context, pcm []int16) (string, error) {
+// inferLocked transcribes pcm; vad false turns the voice detector off for
+// this request only (whisper-server copies its settings per request).
+func (e *Engine) inferLocked(ctx context.Context, pcm []int16, vad bool) (string, error) {
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, err := mw.CreateFormFile("file", "speech.wav")
@@ -798,6 +855,9 @@ func (e *Engine) inferLocked(ctx context.Context, pcm []int16) (string, error) {
 	}
 	_ = mw.WriteField("response_format", "json")
 	_ = mw.WriteField("temperature", "0")
+	if !vad {
+		_ = mw.WriteField("vad", "false")
+	}
 	if err := mw.Close(); err != nil {
 		return "", err
 	}
