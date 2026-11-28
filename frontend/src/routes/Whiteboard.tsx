@@ -246,6 +246,7 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         <BlockGallery grid={grid} />
         <ArrangeCommand live={live} />
         <DrawingBar settings={drawing} onChange={setDrawing} onUndo={() => void live.undo()} onRedo={() => void live.redo()} />
+        {pick.bridge}
       </Board>
       <PropsPanel live={live} doc={doc} source={() => sourceOf()} {...pick.panel} />
       {doc && <BoardName name={doc.name} onRename={(next) => live.rename(next)} />}

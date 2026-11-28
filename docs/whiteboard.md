@@ -580,6 +580,59 @@ board.
 The dots stay on the board: one every 24 board units from (0, 0), the same
 grid Snap to grid uses (whiteboard#24).
 
+### Selecting a block with the properties panel (whiteboard#42)
+
+The properties panel (whiteboard#29) brought back one long frame per click
+that changes the selection. What cost it, found with a mutation observer and
+DevTools traces on a board like Boxes Inc (8 frames, 48 blocks, 8 links, 16
+ink strokes):
+
+- **The board's selection was controlled** (`selected` passed back to
+  `<Board>`), and UI SDK rechecks every part of a primitive when a
+  controlled option changes value: every block, port and handle rendered
+  again on each click (74 blocks and 672 ports and handles here). The board
+  now keeps its own selection; `usePropsSelection` hears of it through
+  `onSelectedChange` into a small store the panel follows, and the panel's
+  own picks (a line's ends, a line from a block's list) go through the
+  board's `select`.
+- **The whole window rendered again on each click**, since the selection was
+  its state. That drew the block gallery's previews again (`catalogSections()`
+  made new items each render, so `TilePreview`'s memo never held) and the
+  toolbars, and their fields rewritten inside the board set off the
+  board-wide `:has()` restyle. Now nothing outside the panel renders, and the
+  gallery's sections are made once.
+- **The panel built its new form in the click's own frame.** It now follows
+  the selection as a React transition: the click paints the block selected,
+  and the panel's render comes in the frames after, split into small tasks.
+- The ink section read its pen widths from their tokens (a computed-style
+  read) on every render; it reads them once.
+
+Not a cost: UI SDK's popup code reading `display` reads an inline style, which
+doesn't restyle. The computed-style read in the profiles comes from Wails'
+drag code (`@wailsio/runtime`'s `primaryDown`), which reads
+`--wails-draggable` on every mouse press and so pays, there, for whatever the
+press changed.
+
+Measured on this card in Chrome on a Mac (120 Hz), production build, with
+DevTools' CPU throttling standing in for a slower computer: frames over 1.5
+refreshes past each run's first click, three runs of 2.5 s.
+
+| CPU | Main, light | This card, light | Main, dark | This card, dark |
+| --- | --- | --- | --- | --- |
+| 1× | 21 of 906, worst 33 ms | 7 of 995, worst 19 ms (reruns: 2, then 0) | 10 of 937, worst 25 ms | 0 of 985, worst 10 ms |
+| 2× | 26 of 903, worst 35 ms | 11 of 909, worst 19 ms | 25 of 906, worst 43 ms | 17 of 900, worst 33 ms |
+| 4× | 24 of 800, worst 100 ms | 35 of 905, worst 50 ms | 28 of 803, worst 93 ms | 35 of 906, worst 50 ms |
+
+The Mac was busy with other work while measuring, so single runs vary. At 4×
+there are more slow frames than on main but each is half as long: the click's
+own frame and, separately, the panel's.
+
+What's left is the board's own cost of selecting: at 4× throttling a click
+still takes about 25 ms, half of it restyling the two blocks whose selection
+changed (rules keyed on `[data-selected]` and Tailwind's `group-hover`) and
+half UI SDK's selection and roving focus code. That was there before the
+panel.
+
 **Measuring again.** `frontend/board-perf.html` (Vite only) opens the
 whiteboard window on a board in memory; `frontend/scripts/board-perf.ts`
 drives it over the DevTools protocol with synthetic input only, so it never
@@ -613,6 +666,12 @@ bun scripts/board-perf.ts --cdp 9339 --board <copy.toruboard> --no-profile --the
 
 Export the board to `.toruboard` first and measure the file; the page keeps
 the board in memory and never touches Toru's store.
+
+`--only select` also prints the frames past each run's first click (the
+first opens the panel), which is what "no long frame when selecting" counts.
+`--cpu 4` slows the page with DevTools' CPU throttling, for measuring on a
+computer much faster than the one people use. Any Chrome or Edge started with
+`--remote-debugging-port=9339` serves as the browser off Windows.
 
 ## 6. Build, split into cards
 

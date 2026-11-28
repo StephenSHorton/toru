@@ -296,6 +296,7 @@ click(lineButton);
 await settle();
 ok("picking a line shows the line's props", $("h2", panel())?.textContent === "Line" && !!byLabel("Line label"), $("h2", panel())?.textContent);
 ok("... and marks it on the canvas", !!$('[data-slot="board-line"][data-selected]'));
+ok("... and the canvas lets go of its blocks", !$('[data-slot="board-block"][data-selected]'));
 n = sent.length;
 const label = byLabel<HTMLTextAreaElement>("Line label")!;
 await type(label, "depends on");
@@ -325,6 +326,16 @@ ok("each line has a press target", !!hit);
 hit && press(hit);
 await settle();
 ok("pressing a line picks it", $("h2", panel())?.textContent === "Line", $("h2", panel())?.textContent);
+// A line's end selects that block, on the canvas and in the panel.
+const toEnd = [...panel().querySelectorAll("button")].find((b) => b.textContent!.startsWith("To "));
+toEnd && click(toEnd);
+await settle();
+ok(
+  "a line's end selects its block",
+  block("s2").hasAttribute("data-selected") && !block("s1").hasAttribute("data-selected") && $("h2", panel())?.textContent === "Sticky note",
+  $("h2", panel())?.textContent,
+);
+ok("... and lets go of the line", !$('[data-slot="board-line"][data-selected]'));
 
 // 6. Ink.
 await none();

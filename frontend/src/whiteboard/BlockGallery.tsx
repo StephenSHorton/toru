@@ -80,6 +80,14 @@ function catalogSections(): GallerySection[] {
   ];
 }
 
+// The catalog's sections, made once: new items on every render would draw
+// every tile's preview again (TilePreview is memoized on its item), and each
+// preview's fields rewritten inside the board restyle the whole board (UI
+// SDK's :has() rules), a long frame on each click that changes the selection
+// (whiteboard#42).
+let catalogDefaults: GallerySection[] | undefined;
+const defaultSections = () => (catalogDefaults ??= catalogSections());
+
 const openKey = "toru.whiteboard.gallery.open";
 // How far a repeat press shifts the new block off the last one, when there's no grid.
 const nudgeStep = 24;
@@ -117,7 +125,7 @@ type Drag = {
 };
 
 /** The gallery panel. Render it inside <Board>. grid: the board's snap grid (1: no snapping). */
-function BlockGallery({ sections = catalogSections(), grid = 1 }: { sections?: GallerySection[]; grid?: number }) {
+function BlockGallery({ sections = defaultSections(), grid = 1 }: { sections?: GallerySection[]; grid?: number }) {
   const board = useBoard();
   const [open, setOpen] = React.useState(readOpen);
   const [drag, setDrag] = React.useState<Drag | null>(null);
