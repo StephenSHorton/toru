@@ -83,7 +83,20 @@ function useFollowed(selection: Selection) {
   return ids;
 }
 
-function PropsPanel({ live, doc, selection, selected, link, onPickLink, onSelect, source }: PropsPanelProps) {
+/**
+ * The panel follows the board a step behind, at low priority: the window
+ * renders on every key typed in a block, and the panel's form (some 75
+ * components for a sticky) drawn in the key's own frame cost frames in
+ * WebView2 at 238 Hz (whiteboard#52). React draws the key first, then the
+ * panel with the new board in the frames after, where it can be cut short by
+ * the next key.
+ */
+function PropsPanel(props: PropsPanelProps) {
+  const doc = React.useDeferredValue(props.doc);
+  return <PanelView {...props} doc={doc} />;
+}
+
+const PanelView = React.memo(function PanelView({ live, doc, selection, selected, link, onPickLink, onSelect, source }: PropsPanelProps) {
   // AI-built block types (custom-types.ts) can arrive after the first draw:
   // draw again then, so their blocks get their own form.
   React.useSyncExternalStore(subscribeTypes, typesStamp, typesStamp);
@@ -119,7 +132,7 @@ function PropsPanel({ live, doc, selection, selected, link, onPickLink, onSelect
       )}
     </aside>
   );
-}
+});
 
 /**
  * Sends one change. It's built from the board as it is when it goes, after
@@ -1197,6 +1210,7 @@ function usePropsSelection(doc: BoardDoc | null) {
   const links = doc?.links;
   const looks = React.useMemo(() => new Map((links ?? []).map((l) => [l.id, lineLook(l)])), [links]);
   const look = React.useCallback((id: string) => looks.get(id), [looks]);
+  const [bridge] = React.useState(() => <BoardApiInto to={api} />);
   return {
     board: {
       onSelectedChange,
@@ -1204,7 +1218,7 @@ function usePropsSelection(doc: BoardDoc | null) {
       onLinePress: pickLink,
       lineLook: look,
     },
-    bridge: <BoardApiInto to={api} />,
+    bridge,
     panel: {
       selection,
       link,

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useCallback, useEffect, useState, useSyncExternalStore, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createAgent } from "@ui-sdk/react/agent";
 import { Button } from "@ui-sdk/react/button";
 import { Input } from "@ui-sdk/react/input";
@@ -223,6 +223,34 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
     [setProps],
   );
 
+  // The controls over the board, made again only when what they show
+  // changes, not on each change to the board: the window renders on every
+  // key typed in a block, and drawing the drawing bar, toolbar, gallery and
+  // menus again then was most of the key's script in WebView2 at 238 Hz
+  // (about 165 of the 375 components a key rendered; whiteboard#52).
+  const undo = useCallback(() => void live.undo(), [live]);
+  const redo = useCallback(() => void live.redo(), [live]);
+  const chrome = useMemo(
+    () => (
+      <>
+        <SampleToolbar
+          grid={grid}
+          snap={snap}
+          onSnap={setSnap}
+          exportMenu={<ExportMenu live={live} />}
+          share={<SharePopover boardId={id} api={shareApi} />}
+        />
+        <BlockGallery grid={grid} />
+        <ArrangeCommand live={live} />
+        <DrawingBar settings={drawing} onChange={setDrawing} onUndo={undo} onRedo={redo} />
+      </>
+    ),
+    [grid, snap, setSnap, live, id, shareApi, drawing, setDrawing, undo, redo],
+  );
+  const rename = useCallback((next: string) => live.rename(next), [live]);
+  const ask = useMemo(() => <AskPerson api={askPerson} />, []);
+  const panelSource = useCallback(() => sourceOf(), []);
+
   return (
     <div className="relative h-full overflow-hidden" onPointerDownCapture={pick.onPointerDownCapture} onKeyDownCapture={pick.onKeyDownCapture}>
       <Board
@@ -237,20 +265,11 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
         drawing={drawing}
         grid={grid}
       >
-        <SampleToolbar
-          grid={grid}
-          snap={snap}
-          onSnap={setSnap}
-          exportMenu={<ExportMenu live={live} />}
-          share={<SharePopover boardId={id} api={shareApi} />}
-        />
-        <BlockGallery grid={grid} />
-        <ArrangeCommand live={live} />
-        <DrawingBar settings={drawing} onChange={setDrawing} onUndo={() => void live.undo()} onRedo={() => void live.redo()} />
+        {chrome}
         {pick.bridge}
       </Board>
-      <PropsPanel live={live} doc={doc} source={() => sourceOf()} {...pick.panel} />
-      {doc && <BoardName name={doc.name} onRename={(next) => live.rename(next)} />}
+      <PropsPanel live={live} doc={doc} source={panelSource} {...pick.panel} />
+      {doc && <BoardName name={doc.name} onRename={rename} />}
       {error && (
         <div role="alert" data-slot="board-error" className="frost absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-2 px-3 py-2">
           {error}
@@ -259,7 +278,7 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
           </Button>
         </div>
       )}
-      <AskPerson api={askPerson} />
+      {ask}
     </div>
   );
 }
@@ -269,7 +288,7 @@ export default function Whiteboard({ live: given }: { live?: LiveBoard } = {}) {
  * into a field: Enter or leaving it renames the board, as one undoable
  * change; Escape keeps the old name.
  */
-function BoardName({ name, onRename }: { name: string; onRename: (name: string) => Promise<boolean> }) {
+const BoardName = React.memo(function BoardName({ name, onRename }: { name: string; onRename: (name: string) => Promise<boolean> }) {
   const [draft, setDraft] = useState<string | null>(null);
   const finish = (save: boolean) => {
     if (draft === null) return;
@@ -316,7 +335,7 @@ function BoardName({ name, onRename }: { name: string; onRename: (name: string) 
       )}
     </div>
   );
-}
+});
 
 // The toolbar: Fit, Template, Layout and Export work; Snap to grid lands
 // what the person drags, resizes and adds on the dots. Blocks are added from
