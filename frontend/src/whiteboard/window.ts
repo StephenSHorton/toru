@@ -11,14 +11,28 @@ import { boardTemplates } from "./templates"
  * Toru's store (over Wails, or `&link=http` over Go's live board demo
  * server); no id is a board in a store of its own: the brainstorm template
  * `?template=<name>` names, else the sample board, one block of every type.
+ * On Vite alone (a screenshot, no Go to list a library), `&library=sample`
+ * gives such a board the person's library of two custom blocks
+ * (internal/board/testdata/custom-blocks.json), for the gallery's Your blocks.
  */
 function openLive(search = window.location.search): LiveBoard {
   const params = new URLSearchParams(search)
   const id = params.get("id") ?? ""
   if (id) return new LiveBoard(id, params.get("link") === "http" ? httpLink(httpBase(params)) : wailsLink())
+  if (import.meta.env.DEV && params.get("library") === "sample") void sampleLibrary()
   const t = boardTemplates.find((t) => t.name === params.get("template"))
   if (t) return new LiveBoard(t.name, memoryLink(fileDoc(t.name, t.title, t)))
   return new LiveBoard("sample", memoryLink(sampleDoc()))
+}
+
+/** The two custom blocks Go's tests define, as the person's library: dev only, never in a build. */
+async function sampleLibrary() {
+  const [{ setLibraryTypes }, file] = await Promise.all([
+    import("./custom-types"),
+    import("../../../internal/board/testdata/custom-blocks.json"),
+  ])
+  const blocks = (file.default as { blocks: object[] }).blocks
+  setLibraryTypes(blocks.map((b, i) => ({ ...b, version: 1, origin: `blt-sample${i}` })) as never)
 }
 
 /** The demo server's address for this window: `&base=/__board/live-b` is the second Toru in the shared board demo. */
