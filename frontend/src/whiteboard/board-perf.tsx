@@ -14,7 +14,7 @@ import { sampleDoc } from "./window";
 declare global {
   interface Window {
     __perfBoard?: BoardDoc;
-    __perf?: { start(): void; stop(): number[] };
+    __perf?: { start(): void; mark(): void; stop(): number[]; marked(): number };
   }
 }
 
@@ -22,6 +22,8 @@ declare global {
 let frames: number[] = [];
 let recording = false;
 let last = 0;
+// How many frames there were at the last mark (the end of a select run's first click).
+let markAt = 0;
 const tick = (t: number) => {
   if (recording && last) frames.push(t - last);
   last = t;
@@ -32,7 +34,14 @@ window.__perf = {
   start() {
     frames = [];
     last = 0;
+    markAt = 0;
     recording = true;
+  },
+  mark() {
+    markAt = frames.length;
+  },
+  marked() {
+    return markAt;
   },
   stop() {
     recording = false;

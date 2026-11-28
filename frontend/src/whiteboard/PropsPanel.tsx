@@ -23,13 +23,15 @@ import { Radio, RadioGroup } from "@ui-sdk/react/radio";
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { Textarea } from "@ui-sdk/react/textarea";
 import { CheckIcon, ChevronDownIcon, PlusIcon, XIcon } from "lucide-react";
-import { who, type LineLook } from "./BoardView";
+import { useBoard, who, type BoardHandle, type LineLook } from "./BoardView";
 import { blockColors, blockLabel, blockType, checkProps, type Schema } from "./catalog";
 import { subscribeTypes, typesStamp } from "./custom-types";
 import { findItem, type BoardDoc, type DocBlock, type DocFrame, type DocItem, type DocLink, type DocStroke, type ListKey } from "./document";
 import { inkColor, inkColors, inkWidths, tokenWidth } from "./ink";
 import type { DocPatch, LiveBoard } from "./live";
 import "./props-panel.css";
+
+type BoardApi = BoardHandle["api"];
 
 /** One selected thing, as the document has it. */
 type Target = { id: string; key: ListKey; item: DocItem };
@@ -38,8 +40,10 @@ type PropsPanelProps = {
   live: LiveBoard;
   /** The board as Go has it. */
   doc: BoardDoc | null;
-  /** The canvas's selection: blocks, frames and strokes, by id. */
-  selected: readonly string[];
+  /** The canvas's selection: blocks, frames and strokes, by id (usePropsSelection's store)… */
+  selection?: Selection;
+  /** …or as a list. */
+  selected?: readonly string[];
   /** A line picked out on its own, if any. */
   link: string | null;
   /** Pick a line (from a block's list of lines). */
@@ -62,11 +66,29 @@ function targetsOf(doc: BoardDoc | null, selected: readonly string[], link: stri
   return out;
 }
 
-function PropsPanel({ live, doc, selected, link, onPickLink, onSelect, source }: PropsPanelProps) {
+const noSelection = createSelection();
+
+/**
+ * The selection, followed as a transition: a click shows its block selected
+ * in the frame it happens, and the panel catches up in the frames after,
+ * where React can split its work, so a click never waits on the panel
+ * (whiteboard#42).
+ */
+function useFollowed(selection: Selection) {
+  const [ids, setIds] = React.useState(selection.get);
+  React.useEffect(() => {
+    setIds(selection.get());
+    return selection.subscribe(() => React.startTransition(() => setIds(selection.get())));
+  }, [selection]);
+  return ids;
+}
+
+function PropsPanel({ live, doc, selection, selected, link, onPickLink, onSelect, source }: PropsPanelProps) {
   // AI-built block types (custom-types.ts) can arrive after the first draw:
   // draw again then, so their blocks get their own form.
   React.useSyncExternalStore(subscribeTypes, typesStamp, typesStamp);
-  const targets = targetsOf(doc, selected, link);
+  const ids = useFollowed(selection ?? noSelection);
+  const targets = targetsOf(doc, selection ? ids : (selected ?? []), link);
   const open = targets.length > 0;
   // While it slides away it keeps showing what it showed.
   const last = React.useRef<Target[]>([]);
@@ -905,11 +927,17 @@ function LockSection({ targets, send }: { targets: Target[]; send: Send }) {
   );
 }
 
+// The pen widths' values, read from their tokens once: reading a token is a
+// computed-style read, which makes the browser restyle what changed first,
+// and the panel draws again on every selection (whiteboard#42).
+let penWidthValues: { token: string; name: string; fallback: number; value: number }[] | undefined;
+const penWidths = () => (penWidthValues ??= inkWidths.map((w) => ({ ...w, value: tokenWidth(w.token, w.fallback) })));
+
 function InkSection({ targets, send }: { targets: Target[]; send: Send }) {
   const strokes = targets.map((t) => t.item as DocStroke);
   const color = shared(strokes.map((s) => s.color));
   const width = shared(strokes.map((s) => s.width));
-  const widths = inkWidths.map((w) => ({ ...w, value: tokenWidth(w.token, w.fallback) }));
+  const widths = penWidths();
   return (
     <section data-slot="props-panel-section" aria-label="Ink">
       <Row name="Colour" mixed={color === MIXED}>
@@ -1092,39 +1120,96 @@ function WhoSection({ targets }: { targets: Target[] }) {
 }
 
 /**
+ * The canvas's selection, kept outside React state: the panel follows it, and
+ * nothing else in the window renders when it changes (whiteboard#42).
+ */
+type Selection = {
+  get(): readonly string[];
+  subscribe(listener: () => void): () => void;
+  set(ids: readonly string[]): void;
+};
+
+function createSelection(): Selection {
+  let ids: readonly string[] = [];
+  const listeners = new Set<() => void>();
+  return {
+    get: () => ids,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    set(next) {
+      if (next.length === ids.length && next.every((id, i) => id === ids[i])) return;
+      ids = next;
+      for (const l of listeners) l();
+    },
+  };
+}
+
+/** Hands the board's api to the window's selection. Render it inside <Board>. */
+function BoardApiInto({ to }: { to: React.MutableRefObject<BoardApi | null> }) {
+  const api = useBoard();
+  React.useLayoutEffect(() => {
+    to.current = api;
+    return () => {
+      if (to.current === api) to.current = null;
+    };
+  }, [api, to]);
+  return null;
+}
+
+/**
  * The window's selection for the canvas and the panel together: the
- * canvas's blocks (controlled, so the panel sees them) or one picked line.
- * Spread `board` on <Board>, `panel` on <PropsPanel>, and `onPointerDownCapture`
- * on what holds them, so a press elsewhere on the board lets go of a line.
+ * canvas's blocks or one picked line. Spread `board` on <Board>, render
+ * `bridge` inside it, spread `panel` on <PropsPanel>, and put
+ * `onPointerDownCapture` on what holds them, so a press elsewhere on the
+ * board lets go of a line.
+ *
+ * The board keeps its own selection (it isn't controlled) and the panel hears
+ * of it through a store, so a click on a block renders the board's parts that
+ * change and the panel, not the window: a controlled selection made UI SDK
+ * check every block, port and handle on the board on each click, and the
+ * window rendering again rewrote the fields of the gallery and toolbars inside
+ * the board, which restyles all of it (whiteboard#42).
  */
 function usePropsSelection(doc: BoardDoc | null) {
-  const [selected, setSelected] = React.useState<string[]>([]);
+  const [selection] = React.useState(createSelection);
+  const api = React.useRef<BoardApi | null>(null);
   const [link, setLink] = React.useState<string | null>(null);
+  const linkNow = React.useRef(link);
+  linkNow.current = link;
   const pickLink = React.useCallback((id: string) => {
-    setSelected([]);
+    api.current?.select([]);
+    selection.set([]);
     setLink(id);
+  }, [selection]);
+  const onSelectedChange = React.useCallback(
+    (next: string[]) => {
+      selection.set(next);
+      if (next.length && linkNow.current !== null) setLink(null);
+    },
+    [selection],
+  );
+  const onSelect = React.useCallback((ids: string[]) => {
+    setLink(null);
+    api.current?.select(ids);
   }, []);
   const links = doc?.links;
   const looks = React.useMemo(() => new Map((links ?? []).map((l) => [l.id, lineLook(l)])), [links]);
+  const look = React.useCallback((id: string) => looks.get(id), [looks]);
   return {
     board: {
-      selected,
-      onSelectedChange: (next: string[]) => {
-        setSelected(next);
-        if (next.length) setLink(null);
-      },
+      onSelectedChange,
       selectedLine: link,
       onLinePress: pickLink,
-      lineLook: (id: string) => looks.get(id),
+      lineLook: look,
     },
+    bridge: <BoardApiInto to={api} />,
     panel: {
-      selected,
+      selection,
       link,
       onPickLink: pickLink,
-      onSelect: (ids: string[]) => {
-        setLink(null);
-        setSelected(ids);
-      },
+      onSelect,
     },
     // F6 hops from the board to the panel and back, so the keyboard reaches it
     // without tabbing past every block.

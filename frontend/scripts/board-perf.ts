@@ -5,7 +5,7 @@
 // synthetic input only: it never moves the real mouse or takes focus.
 //
 //   bunx vite --host 127.0.0.1 --port 47830          # in another terminal
-//   bun scripts/board-perf.ts --cdp 9339 --board <file.toruboard> [--url http://127.0.0.1:47830] [--runs 3] [--only pan,zoom] [--no-profile] [--theme light|dark] [--json out.json]
+//   bun scripts/board-perf.ts --cdp 9339 --board <file.toruboard> [--url http://127.0.0.1:47830] [--runs 3] [--only pan,zoom] [--no-profile] [--theme light|dark] [--cpu 4] [--json out.json]
 //
 // --cdp is the port of a WebView2 (or Edge) started with
 // --remote-debugging-port. For WebView2, a tiny Wails app with that browser
@@ -38,6 +38,9 @@ const only = arg("only")?.split(",");
 // The CPU profiler's sampling can itself cost a frame now and then; leave it
 // off for clean frame times.
 const profiling = !process.argv.includes("--no-profile");
+// Slows the page's CPU this many times (DevTools' CPU throttling), to stand
+// in for a slower computer when the one at hand is fast.
+const cpu = Number(arg("cpu", "1"));
 
 // ── CDP ──────────────────────────────────────────────────────────────────
 
@@ -83,6 +86,7 @@ await send("Page.enable");
 await send("Runtime.enable");
 await send("Performance.enable");
 await send("Profiler.enable");
+if (cpu > 1) await send("Emulation.setCPUThrottlingRate", { rate: cpu });
 if (boardFile) {
   const doc = JSON.parse(readFileSync(boardFile, "utf8"));
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `window.__perfBoard = ${JSON.stringify(doc)};` });
@@ -210,6 +214,9 @@ async function selectBlocks({ blocks }: Spots) {
     await mouse("mousePressed", at.x, at.y, { clickCount: 1 });
     await mouse("mouseReleased", at.x, at.y, { clickCount: 1 });
     await sleep(250);
+    // The first click opens the properties panel; what's measured past it is
+    // the panel changing from one selection to the next.
+    if (i === 0) await evaluate(`__perf.mark()`);
   }
 }
 
@@ -278,6 +285,8 @@ for (const [name, run] of Object.entries(actions)) {
   await load();
   const all: number[] = [];
   const worstByRun: number[] = [];
+  // Frames past each run's first click (select only).
+  const pastFirst: number[] = [];
   const before = await metrics();
   if (profiling) {
     await send("Profiler.setSamplingInterval", { interval: 200 });
@@ -290,6 +299,8 @@ for (const [name, run] of Object.entries(actions)) {
     // Keep recording a little past the release, which commits the change.
     await sleep(300);
     const got = await evaluate<number[]>(`__perf.stop()`);
+    const markAt = await evaluate<number>(`__perf.marked()`);
+    if (markAt > 0) pastFirst.push(...got.slice(markAt));
     worstByRun.push(Math.max(...got));
     all.push(...got);
     await sleep(400);
@@ -312,6 +323,8 @@ for (const [name, run] of Object.entries(actions)) {
     fps: 1000 / (all.reduce((a, b) => a + b, 0) / all.length),
     slowPct: (100 * slow) / all.length,
     over2,
+    // Past the first click: the worst frame, and how many took over 1.5 refreshes.
+    pastFirst: pastFirst.length ? { frames: pastFirst.length, worst: Math.max(...pastFirst), slow: pastFirst.filter((d) => d > refresh * 1.5).length } : undefined,
     // Main-thread milliseconds per second of the action.
     scriptMsPerS: busy("ScriptDuration"),
     styleMsPerS: busy("RecalcStyleDuration"),
@@ -322,6 +335,11 @@ for (const [name, run] of Object.entries(actions)) {
   console.log(
     `\n${name}: ${row.frames} frames, median ${row.p50.toFixed(2)} ms, p95 ${row.p95.toFixed(2)}, p99 ${row.p99.toFixed(2)}, worst ${row.worst.toFixed(1)} (by run: ${row.worstByRun.map((w) => w.toFixed(0)).join(", ")}); ${row.fps.toFixed(0)} fps; ${row.slowPct.toFixed(1)}% frames over 1.5× refresh, ${row.over2} over 2×`,
   );
+  if (row.pastFirst) {
+    console.log(
+      `  past the first click: worst ${row.pastFirst.worst.toFixed(1)} ms, ${row.pastFirst.slow} of ${row.pastFirst.frames} frames over 1.5× refresh (${(refresh * 1.5).toFixed(1)} ms)`,
+    );
+  }
   console.log(
     `  main thread per second: script ${row.scriptMsPerS.toFixed(0)} ms, style ${row.styleMsPerS.toFixed(0)} ms, layout ${row.layoutMsPerS.toFixed(0)} ms`,
   );
