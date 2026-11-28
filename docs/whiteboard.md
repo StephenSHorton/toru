@@ -1325,6 +1325,28 @@ them; the trace does. At 238 Hz two intervals are 8.4 ms. Main's 11–16 ms
 task can't fit, and this change's 5.4–8.5 ms does on all but the page's
 first drop in light, which is on the edge.
 
+**Measured again on `main` with this change (whiteboard#58).** The card
+was to take the frames at 238 Hz, but on 2026-11-28 the 238 Hz ultrawide
+was not on as a desktop screen (Windows listed it as not present), so the
+window again ran at 145 Hz (6.9 ms a frame) on a 144 Hz screen. The
+production build of `board-perf.html` at `9f1a537`, the same Boxes Inc copy
+(63 blocks, 15 links, 15 ink strokes), window 1384×861 at 1×, CPU at
+26–49% (other work on the computer):
+
+| Run | Theme | The drop, five drags |
+| --- | --- | --- |
+| First set | light | 7.0, 7.0, 7.1, 7.1, 7.1 ms (1 interval each) |
+| Second set | dark | 7.0, 7.1, 7.1, 7.1, 7.1 ms (1 interval each) |
+| Third set | light | 7.1, 7.1, 7.0, 7.1, 7.1 ms (1 interval each) |
+
+Every drop, the page's first in light included, fits in one 145 Hz interval,
+and no frame in the second and third sets went over 2 intervals. The first light set had one long
+frame (41.6 ms) during its first drag, before the drop. This
+does not show the drop at 238 Hz: that still needs the ultrawide on at 240 Hz
+and `bun scripts/board-perf.ts --only drag --runs 5 --no-profile` in light
+and dark. Whether the page's first drop in light still takes 3 intervals
+there is open.
+
 ### Tailwind's group rules, in every window (whiteboard#56)
 
 Tailwind v4 builds `group-hover:x` as `.x:is(:where(.group):hover *)`. Blink
