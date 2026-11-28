@@ -1178,6 +1178,86 @@ and how many of them go over 2 refreshes.
 computer much faster than the one people use. Any Chrome or Edge started with
 `--remote-debugging-port=9339` serves as the browser off Windows.
 
+### The drop within 2 refreshes (whiteboard#54)
+
+whiteboard#52 left the drop at one frame of 12.5–29 ms a drag at 238 Hz (3
+to 7 intervals). Traced in WebView2, a drop ran as one task: the board's
+root rendered twice, UI SDK checked every part once the board's new options
+were set, and its drag end (`onEnd`, `setBoxes`, port points) ran. Then
+about 18–39 elements restyled.
+
+**Why the root rendered twice.** The board handed the drop to the window
+(`onBlocksChange`), and the window rendered the board with the new blocks.
+Then Go answered with the same blocks, stamped with "last changed by". The
+window made new block objects for them and new props for the board, so the
+board rendered a second time. Each render handed UI SDK new options, and UI
+SDK checked all 78 blocks and 636 ports and handles on Boxes Inc to find the
+one block that moved.
+
+**What changed:**
+
+- **Go's answer to a drop hands the board nothing new** (`live.ts`). An
+  edit is stamped with its source ("last changed by", and "made by" on a new
+  block) as it goes to Go, so Go's answer brings back the block the window
+  already has. A view that draws the same as the one shown keeps its
+  objects, and the copy's blocks are made again only when the copy changes,
+  not on each edit laid over it.
+- **The board renders only when its props change** (`BoardView.tsx`:
+  `Board` is memoized, and `routes/Whiteboard.tsx` keeps its handlers and
+  the controls over it steady). The board's root is on the steady handle, like
+  its blocks and lines since whiteboard#50, and draws the blocks and lines
+  from its props. On the previewing handle, the context it gave its parts
+  changed on each change, and React walked every part under the board to
+  find the few that read it.
+- **A change to the blocks wakes only the blocks it changes** (`selects` in
+  `board.ts`). This covers a block's own entry, the blocks being moved and
+  the block being resized. Ports and resize handles ignore the blocks and
+  lines entirely, since they read neither. Before, each pointer move and the
+  drop checked all 78 blocks, and the drop checked all 636 ports and handles
+  twice.
+- **The right panel follows the drop a moment later** (`useDeferredValue`
+  in `routes/Whiteboard.tsx`). After a drop, the panel only rewrites the
+  block's X and Y, and React now does that after the drop's frame.
+
+A drop now renders the board once, 1 block item, 2 blocks and 12 ports and
+handles (`board-perf.ts` prints a `boards` count now too).
+
+**The drop's own task, traced** (`Tracing.start` in WebView2, production
+build, the Boxes Inc copy; each trace a fresh page, so each drop is the
+page's first; the 1st, 2nd and 3rd block `board-perf.ts` finds), on `main`
+at whiteboard#51 (`640f90e`) and on this change:
+
+| Build | Theme | Drop task, three blocks | Script in it |
+| --- | --- | --- | --- |
+| `main` (`640f90e`) | light | 11.3, 10.9, 16.4 ms | 8.3–11.9 ms |
+| `main` (`640f90e`) | dark | 15.7, 12.7, 12.6 ms | 9.1–12.1 ms |
+| This change | light | 8.5, 5.4, 7.2 ms | 3.0–4.9 ms |
+| This change | dark | 6.6, 5.6, 7.1 ms | 3.2–4.3 ms |
+
+Style in the drop is 0.5–1.5 ms (18 elements, or 39 when the block has
+lines) and layout under 0.5 ms, on both builds. whiteboard#52 saw about 168 elements restyle
+as the block stopped dragging. On `main` at whiteboard#51 that is already 18–39, so
+the rule changes in whiteboard#51 most likely took the rest out; this card
+changes no styles. Tracing adds to every task, so untraced
+tasks run shorter.
+
+**Frames** (`bun scripts/board-perf.ts --cdp 9339 --url <build> --board
+<copy> --only drag --runs 5 --no-profile --theme light|dark`), taken on
+2026-11-28 with the 238 Hz screen off, so the window ran at 145 Hz (6.9 ms a
+frame) on a 144 Hz screen:
+
+| Build | Theme | The drop, five drags |
+| --- | --- | --- |
+| `main` (`640f90e`) | light | 7.1, 7.1, 7.1, 7.0, 7.1 ms (1 interval each) |
+| `main` (`640f90e`) | dark | 7.1, 7.1, 13.9, 7.0, 7.1 ms (1, 1, 2, 1, 1) |
+| This change | light | 7.1 ms each (1 interval each) |
+| This change | dark | 7.0–7.1 ms (1 interval each) |
+
+At 145 Hz both builds drop within 2 intervals, so this doesn't separate
+them; the trace does. At 238 Hz two intervals are 8.4 ms. Main's 11–16 ms
+task can't fit, and this change's 5.4–8.5 ms does on all but the page's
+first drop in light, which is on the edge.
+
 ## 6. Build, split into cards
 
 In order. Cards 1 and 2 start when this plan is done; the rest wait on the
