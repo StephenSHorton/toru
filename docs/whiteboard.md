@@ -201,8 +201,16 @@ or code from an agent is ever run.** A custom block is data only.
   and a bug report and exports the board; `TORU_CUSTOM_BLOCKS_OUT=<folder>`
   keeps the PNG), `bun run test:custom-blocks` (the window draws and an
   agent fills every part; text stays text; placeholders).
-- **Gallery:** the window's block gallery (whiteboard#26) lists the
-  person's own blocks from `libraryBlocks()` in `custom-types.ts`.
+- **Gallery (built, whiteboard#31):** the window's block gallery
+  (whiteboard#26, `BlockGallery.tsx`) has a "Your blocks" section under
+  Blocks and Frames, one tile per type in `libraryBlocks()`
+  (`custom-types.ts`) showing its icon and label; no section while the
+  library is empty. It redraws on every library change
+  (`subscribeTypes`), so a type an agent defines shows up while the window
+  is open (`blocks:changed` → `block-library.ts`). Dragging or pressing a
+  tile places a block with the type's `defaults` through `LiveBoard.edit`;
+  `live.ts` copies the type onto the board in the same op, so one undo
+  takes both off. Checked by `bun run test:gallery` (section 6).
 
 ### Live board (built, whiteboard#9)
 

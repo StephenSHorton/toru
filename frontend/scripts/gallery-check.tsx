@@ -14,7 +14,14 @@
 //      centred on the pointer, as one op; a frame lands in the board's frames.
 //      Dropping on the panel, or Escape mid-drag, puts nothing.
 //   5. The panel collapses to a rail and opens again, and stays as it was
-//      when the window opens again (localStorage).
+//      when the window opens again (localStorage). Fit and the first view
+//      keep the blocks clear of the open panel, and use the full width when
+//      it's a rail (whiteboard#40).
+//   6. "Your blocks" (whiteboard#31): no section while the library is empty;
+//      a tile per custom type in the library, with its icon and label; a type
+//      added while the window is open shows up without reopening it; dragging
+//      one on puts a block with the type's defaults, and the same op copies
+//      the type onto the board, so one Ctrl+Z takes both off.
 //
 //   bun scripts/gallery-check.tsx            the checks
 //   bun scripts/gallery-check.tsx --verbose  print every check
@@ -44,6 +51,10 @@ const { memoryLink } = await import("../src/whiteboard/links");
 const { dotGrid } = await import("../src/whiteboard/board");
 const { blockTypes, checkProps } = await import("../src/whiteboard/catalog");
 const { previewProps } = await import("../src/whiteboard/BlockGallery");
+const { setLibraryTypes } = await import("../src/whiteboard/custom-types");
+const samples = (await import("../../internal/board/testdata/custom-blocks.json")).default as { blocks: Record<string, unknown>[] };
+type BlockDef = import("../src/whiteboard/custom-types").BlockDef;
+const [ideaDef, bugDef] = samples.blocks.map((b, i) => ({ ...b, version: 1, origin: `blt-gallery${i}` }) as unknown as BlockDef);
 const { default: Whiteboard } = await import("../src/routes/Whiteboard");
 
 type BoardDoc = import("../src/whiteboard/document").BoardDoc;
@@ -142,8 +153,27 @@ ok("no block-kind dropdown", !host.querySelector('[aria-label="Block kind"]'));
   ok("agents don't see the previews' controls", !["A quick idea", "Which one?", "To do", "Heading", "ideas"].some((s) => snap.includes(s)), snap.slice(0, 400));
 }
 
+// Fit and the first view keep clear of the open panel (whiteboard#40): the
+// one block's middle is mid-way across the 264 to 1200 px right of the panel,
+// and with the panel a rail, mid-way across the whole 1200 px.
+const s1Middle = () => {
+  const view = toCanvas(0, 0);
+  const zoom = Number(/scale\(([-\d.]+)\)/.exec(view.style)?.[1] ?? 1);
+  return { x: (100 - view.x) * zoom, y: (100 - view.y) * zoom };
+};
+const near = (a: { x: number; y: number }, x: number, y: number) => Math.abs(a.x - x) < 1 && Math.abs(a.y - y) < 1;
+const pressFit = async () => {
+  [...host.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent?.trim() === "Fit" || b.getAttribute("aria-label") === "Fit to content")!.click();
+  await settle();
+};
+ok("the first view fits the blocks right of the open panel", near(s1Middle(), (264 + 1200) / 2, 400), s1Middle());
+
 // 3. Pressing a tile.
 {
+  // The first view fits the one block into the space right of the panel,
+  // which is where a press puts a new one (then nudged off it): pan away first.
+  host.querySelector('[aria-roledescription="whiteboard"]')!.dispatchEvent(new WheelEvent("wheel", { deltaX: 0, deltaY: 400, bubbles: true, cancelable: true }));
+  await settle();
   const n = sent.length;
   tile("sticky")!.click();
   await settle();
@@ -280,9 +310,62 @@ ok("no block-kind dropdown", !host.querySelector('[aria-label="Block kind"]'));
   await settle();
   await settle();
   ok("the window opens with it collapsed", !!gallery() && !gallery()!.hasAttribute("data-open"));
+  ok("... and its first view uses the full width", near(s1Middle(), 600, 400), s1Middle());
+  host.querySelector('[aria-roledescription="whiteboard"]')!.dispatchEvent(new WheelEvent("wheel", { deltaX: 0, deltaY: 400, bubbles: true, cancelable: true }));
+  await settle();
+  await pressFit();
+  ok("Fit with the rail uses the full width", near(s1Middle(), 600, 400), s1Middle());
   host.querySelector<HTMLElement>('[aria-label="Show blocks"]')!.click();
   await settle();
   ok("Show blocks opens it", gallery()!.hasAttribute("data-open") && !!tile("sticky") && localStorage.getItem("toru.whiteboard.gallery.open") === "1");
+  await pressFit();
+  ok("Fit with the panel open keeps right of it", near(s1Middle(), (264 + 1200) / 2, 400), s1Middle());
+}
+
+// 6. Your blocks.
+{
+  const titles = () => [...host.querySelectorAll('[data-slot="block-gallery-section"] h3')].map((h) => h.textContent).join();
+  ok("no Your blocks section while the library is empty", titles() === "Blocks,Frames", titles());
+
+  // What block-library.ts does with BlockLibraryService.List's answer.
+  setLibraryTypes([ideaDef]);
+  await settle();
+  ok("the library's blocks get a section", titles() === "Blocks,Frames,Your blocks", titles());
+  const idea = tile(ideaDef.type);
+  ok("... a tile for the feature idea, by its label", idea?.getAttribute("aria-label") === `Add ${ideaDef.label}` && idea?.textContent === ideaDef.label, idea?.outerHTML.slice(0, 160));
+  ok("... showing its icon", !!idea?.parentElement?.querySelector('[data-slot="block-gallery-preview"][data-icon] svg[data-slot="block-gallery-icon"]'));
+
+  // An agent defines another (board.block.define, then blocks:changed and a fresh List).
+  setLibraryTypes([ideaDef, bugDef]);
+  await settle();
+  ok("a block defined while the window is open shows up", !!tile(bugDef.type) && tile(bugDef.type)!.textContent === bugDef.label);
+  ok("... in Your blocks", tile(bugDef.type)?.closest('[data-slot="block-gallery-section"]')?.querySelector("h3")?.textContent === "Your blocks");
+  ok("agents see the custom tiles", JSON.stringify(agent.snapshot()).includes(`Add ${bugDef.label}`));
+
+  const n = sent.length;
+  ok("the board doesn't carry the type yet", !mem.board().types?.some((d) => d.type === ideaDef.type));
+  const t = tile(ideaDef.type)!;
+  pointer(t, "pointerdown", 80, 500);
+  pointer(t, "pointermove", 700, 400);
+  pointer(t, "pointerup", 700, 400);
+  t.click();
+  await settle();
+  const op = sent[n];
+  const added = op?.blocks?.[0];
+  ok("dragging a custom block on sends one op", sent.length === n + 1 && added?.type === ideaDef.type, sent.slice(n));
+  ok("... with the type's defaults as props", JSON.stringify(added?.props) === JSON.stringify(ideaDef.defaults), added?.props);
+  ok("... at the type's size", added?.w === ideaDef.w && added?.h === ideaDef.h, added);
+  ok("... carrying the type", op?.types?.length === 1 && op.types[0].type === ideaDef.type, op?.types);
+  ok("the board's file carries the type", mem.board().types?.some((d) => d.type === ideaDef.type) === true && memAll().some((b) => b.id === added?.id));
+  ok("... and draws the block", !!host.querySelector(`[data-block="${added?.id}"]`));
+  key(window, "z", { ctrlKey: true });
+  await settle();
+  ok("one Ctrl+Z takes the block off", !memAll().some((b) => b.id === added?.id));
+  ok("... and the type", !mem.board().types?.some((d) => d.type === ideaDef.type), mem.board().types);
+
+  setLibraryTypes([]);
+  await settle();
+  ok("the section goes when the library empties", titles() === "Blocks,Frames" && !tile(ideaDef.type), titles());
 }
 
 root.unmount();
