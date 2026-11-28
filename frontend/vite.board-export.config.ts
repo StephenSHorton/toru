@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from "vite";
 import { fileURLToPath, URL } from "node:url";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { groupSelectors } from "./group-selectors";
 
 // The board export's viewer (src/board-export, docs/whiteboard.md section 3):
 // one HTML file, dist/board-export.html, with every script, style and asset
@@ -53,6 +54,8 @@ function singleFile(): Plugin {
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export default defineConfig({
+  // The same rewrite of group-* rules as the app (group-selectors.ts).
+  css: { postcss: { plugins: [groupSelectors()] } },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
