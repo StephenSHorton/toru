@@ -25,6 +25,7 @@ import { boardThemes, parseTheme, setBoardTheme, useBoardTheme, useWindowTheme }
 import { agentSource, httpBase, openLive, sourceOf, typing, withAgent } from "@/whiteboard/window";
 import { SharePopover, goShare, httpShare } from "@/whiteboard/share";
 import "@/whiteboard/toru-ui-sdk.css";
+import "@/whiteboard/restyle-guards";
 
 // The whiteboard window (?view=whiteboard&id=<board>, WindowsService.OpenWhiteboard).
 // The board canvas (whiteboard/board.ts on UI SDK's canvas behaviors: pan,

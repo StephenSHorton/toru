@@ -10,8 +10,12 @@
 // SDK buttons ("Add Sticky note"), which agents can press with board.act.
 //
 // Collapsed, the panel is a thin rail; open or not is kept in localStorage.
-// `sections` lets another source add its own tiles, like a person's own
-// blocks; an empty section isn't shown.
+// Under the catalog, "Your blocks" lists the person's own custom block types
+// (custom-types.ts, libraryBlocks()), each tile its icon and label, and it
+// follows the library as it changes (blocks:changed, block-library.ts). A
+// custom block goes on the board like any other: live.ts copies its type
+// onto the board in the same op. `sections` replaces the lot, for a check;
+// an empty section isn't shown.
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@ui-sdk/react/button";
@@ -20,6 +24,8 @@ import { useBoard } from "./BoardView";
 import { onGrid, type BoardBlock } from "./board";
 import { BlockBody } from "./blocks";
 import { blockLabel, blockTypes, newProps, type BlockType } from "./catalog";
+import { CustomIcon } from "./custom-blocks";
+import { libraryBlocks, subscribeTypes, typesStamp } from "./custom-types";
 import "./block-gallery.css";
 
 /** One tile: what it places (type, size, props) and what its preview shows. */
@@ -35,6 +41,8 @@ type GalleryItem = {
   preview: Record<string, unknown>;
   /** The size the preview renders at before it's scaled down, when not w × h; top is room above it, like a frame's name. */
   previewSize?: { w: number; h: number; top?: number };
+  /** A custom type's icon: the tile shows it in place of a live preview. */
+  icon?: string;
 };
 type GallerySection = { id: string; title: string; items: GalleryItem[] };
 
@@ -80,13 +88,24 @@ function catalogSections(): GallerySection[] {
   ];
 }
 
-// The catalog's sections, made once: new items on every render would draw
-// every tile's preview again (TilePreview is memoized on its item), and each
-// preview's fields rewritten inside the board restyle the whole board (UI
-// SDK's :has() rules), a long frame on each click that changes the selection
-// (whiteboard#42).
-let catalogDefaults: GallerySection[] | undefined;
-const defaultSections = () => (catalogDefaults ??= catalogSections());
+/** The person's own blocks: one tile per custom type in their library, its defaults as the new block's props. */
+function librarySection(): GallerySection {
+  return {
+    id: "mine",
+    title: "Your blocks",
+    items: libraryBlocks().map((d) => {
+      const props = structuredClone(d.defaults ?? {}) as Record<string, unknown>;
+      return { type: d.type, label: d.label, description: d.description ?? "", w: d.w, h: d.h, props, preview: props, icon: d.icon };
+    }),
+  };
+}
+
+/** The catalog's sections, then the person's own blocks, rebuilt when the library changes. */
+function useGallerySections(): GallerySection[] {
+  const stamp = React.useSyncExternalStore(subscribeTypes, typesStamp);
+  // stamp moves whenever the library (or the board's own types) does.
+  return React.useMemo(() => [...catalogSections(), librarySection()], [stamp]);
+}
 
 const openKey = "toru.whiteboard.gallery.open";
 // How far a repeat press shifts the new block off the last one, when there's no grid.
@@ -125,8 +144,10 @@ type Drag = {
 };
 
 /** The gallery panel. Render it inside <Board>. grid: the board's snap grid (1: no snapping). */
-function BlockGallery({ sections = defaultSections(), grid = 1 }: { sections?: GallerySection[]; grid?: number }) {
+function BlockGallery({ sections: given, grid = 1 }: { sections?: GallerySection[]; grid?: number }) {
   const board = useBoard();
+  const own = useGallerySections();
+  const sections = given ?? own;
   const [open, setOpen] = React.useState(readOpen);
   const [drag, setDrag] = React.useState<Drag | null>(null);
   const dragRef = React.useRef<Drag | null>(null);
@@ -257,6 +278,8 @@ function BlockGallery({ sections = defaultSections(), grid = 1 }: { sections?: G
       ref={panel}
       data-slot="block-gallery"
       data-open={open ? "" : undefined}
+      // Open, it covers the board's left edge: the board's Fit keeps clear.
+      data-board-inset={open ? "left" : undefined}
       aria-label="Block gallery"
       className="frost"
       // The board under the panel doesn't pan or take its keys.
@@ -279,7 +302,7 @@ function BlockGallery({ sections = defaultSections(), grid = 1 }: { sections?: G
                   {section.items.map((item) => (
                     // The preview sits behind the tile's button, not in it:
                     // blocks hold buttons of their own.
-                    <div key={item.type} data-slot="block-gallery-tile" data-dragging={drag?.moving && drag.item === item ? "" : undefined}>
+                    <div key={item.type} data-slot="block-gallery-tile" data-custom={item.icon !== undefined ? "" : undefined} data-dragging={drag?.moving && drag.item === item ? "" : undefined}>
                       <TilePreview item={item} />
                     <Button
                       data-part="block-gallery-tile"
@@ -345,6 +368,13 @@ function BlockGallery({ sections = defaultSections(), grid = 1 }: { sections?: G
 // The block itself at its new size, scaled into the tile. Inert: a picture
 // of the block, never its controls, and the agent bridge doesn't see it.
 const TilePreview = React.memo(function TilePreview({ item }: { item: GalleryItem }) {
+  if (item.icon !== undefined) {
+    return (
+      <span data-slot="block-gallery-preview" data-icon="" aria-hidden="true" data-agent-hidden="" inert>
+        <CustomIcon icon={item.icon} data-slot="block-gallery-icon" />
+      </span>
+    );
+  }
   const { w, h } = item.previewSize ?? item;
   const top = item.previewSize?.top ?? 0;
   const scale = Math.min(previewW / w, previewH / (h + top));
@@ -363,4 +393,4 @@ const TilePreview = React.memo(function TilePreview({ item }: { item: GalleryIte
   );
 });
 
-export { BlockGallery, catalogSections, previewProps, type GalleryItem, type GallerySection };
+export { BlockGallery, catalogSections, librarySection, previewProps, type GalleryItem, type GallerySection };
