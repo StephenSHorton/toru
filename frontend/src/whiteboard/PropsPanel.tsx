@@ -15,6 +15,10 @@
 // same store agents' board.update changes, so it's one undo. Text and
 // numbers are sent when the field is left (or Enter), not per key; a field
 // left because the selection changed is still sent, to what was selected.
+//
+// A new selection keeps the panel's elements and changes only their values
+// (whiteboard#48): each field's draft belongs to the selection it was typed
+// for (DraftScope), so it's sent there, not to what's selected now.
 import * as React from "react";
 import { Button } from "@ui-sdk/react/button";
 import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
@@ -108,8 +112,8 @@ function PropsPanel({ live, doc, selection, selected, link, onPickLink, onSelect
     >
       {doc && shown.length > 0 && (
         <PanelBody
-          // A new selection is a new form, so a half-typed field goes to what it was typed for.
-          key={shown.map((t) => t.id).join(" ")}
+          // Not keyed by the selection: a new selection changes the fields' values
+          // in place, and each draft knows what it was typed for (DraftScope).
           doc={doc}
           targets={shown}
           send={send}
@@ -143,8 +147,25 @@ type BodyProps = {
   onSelect: (ids: string[]) => void;
 };
 
+/**
+ * What's selected, as one string of ids: what a field's draft was typed for.
+ * When it changes, a draft from before is sent with the change it was typed
+ * into, and per-selection notes (a refused change, a bad number) clear.
+ */
+const DraftScope = React.createContext("");
+
+/** State that belongs to one selection: it reads as `initial` once the selection changes. */
+function useScoped<T>(initial: T): [T, (v: T) => void] {
+  const scope = React.useContext(DraftScope);
+  const [held, setHeld] = React.useState({ scope, value: initial });
+  return [held.scope === scope ? held.value : initial, (value: T) => setHeld({ scope, value })];
+}
+
 function PanelBody({ doc, targets, send, onPickLink, onSelect }: BodyProps) {
-  const [error, setError] = React.useState<string | null>(null);
+  const scope = targets.map((t) => t.id).join(" ");
+  const [held, setHeld] = React.useState<{ scope: string; text: string } | null>(null);
+  const error = held?.scope === scope ? held.text : null;
+  const setError = (text: string | null) => setHeld(text === null ? null : { scope, text });
   const kinds = new Set(targets.map((t) => t.key));
   const kind = kinds.size === 1 ? targets[0].key : null;
   const one = targets.length === 1 ? targets[0] : null;
@@ -159,7 +180,7 @@ function PanelBody({ doc, targets, send, onPickLink, onSelect }: BodyProps) {
     }
   };
   return (
-    <>
+    <DraftScope.Provider value={scope}>
       <header data-slot="props-panel-header">
         <h2>{title(targets)}</h2>
         {targets.length > 1 && <p>Changes go to all {targets.length}.</p>}
@@ -180,7 +201,7 @@ function PanelBody({ doc, targets, send, onPickLink, onSelect }: BodyProps) {
         </p>
       )}
       <WhoSection targets={targets} />
-    </>
+    </DraftScope.Provider>
   );
 }
 
@@ -350,13 +371,30 @@ function Row({ name, mixed, children, htmlFor }: { name: string; mixed?: boolean
 
 /**
  * A field's text while it's edited: shown in place of the value, sent when
- * the field is left, and still sent if the field goes away mid-edit (the
- * selection changed). After it's sent it stays until the value comes back.
+ * the field is left, and still sent if the field goes away mid-edit or the
+ * selection changes under it, to what it was typed for. After it's sent it
+ * stays until the value comes back.
  */
 function useDraft(value: string, commit: (text: string) => void) {
-  const [draft, setDraft] = React.useState<{ text: string; sent: boolean } | null>(null);
-  const latest = React.useRef({ draft, commit });
-  latest.current = { draft, commit };
+  const scope = React.useContext(DraftScope);
+  const [held, setDraft] = React.useState<{ text: string; sent: boolean; scope: string } | null>(null);
+  // A draft from another selection isn't this one's.
+  const draft = held && held.scope === scope ? held : null;
+  // The draft and commit as last drawn: the commit is the one made with the
+  // targets the draft was typed for.
+  const latest = React.useRef<{ draft: typeof draft; commit: typeof commit }>({ draft: null, commit });
+  React.useLayoutEffect(() => {
+    // The selection changed: a draft typed before it goes to what it was typed for.
+    const { draft: d, commit: c } = latest.current;
+    if (d && d.scope !== scope) {
+      if (!d.sent) c(d.text);
+      setDraft(null);
+    }
+  }, [scope]);
+  // After the effect above, so that it still sees the last selection's.
+  React.useLayoutEffect(() => {
+    latest.current = { draft, commit };
+  });
   React.useEffect(() => {
     setDraft((d) => (d?.sent ? null : d));
   }, [value]);
@@ -371,7 +409,7 @@ function useDraft(value: string, commit: (text: string) => void) {
     text: draft ? draft.text : value,
     /** Typed and not yet sent: Ctrl+Z is the field's own until then (routes/Whiteboard.tsx). */
     dirty: !!draft && !draft.sent,
-    edit: (text: string) => setDraft({ text, sent: false }),
+    edit: (text: string) => setDraft({ text, sent: false, scope }),
     done: () => {
       if (!draft || draft.sent) return;
       if (draft.text === value) setDraft(null);
@@ -379,6 +417,11 @@ function useDraft(value: string, commit: (text: string) => void) {
         setDraft({ ...draft, sent: true });
         commit(draft.text);
       }
+    },
+    /** Sends what's typed and empties the field, for a field that adds (a tag). */
+    flush: () => {
+      if (draft && !draft.sent) commit(draft.text);
+      setDraft(null);
     },
     cancel: () => setDraft(null),
   };
@@ -433,7 +476,7 @@ function TextField({ name, label, schema, required, value, nested, onChange }: F
 function NumberField({ name, label, schema, required, value, onChange }: FieldProps) {
   const id = useId();
   const mixed = value === MIXED;
-  const [invalid, setInvalid] = React.useState(false);
+  const [invalid, setInvalid] = useScoped(false);
   const draft = useDraft(mixed || typeof value !== "number" ? "" : String(value), (text) => {
     if (text.trim() === "") {
       if (!required) void onChange(() => undefined);
@@ -493,6 +536,8 @@ function NumberInput({
   );
 }
 
+// The panel's ticks stay in the page unchecked (UI SDK hides them), so a new
+// selection that ticks or unticks a box changes no element (whiteboard#48).
 function BoolField({ name, label, value, onChange }: FieldProps) {
   const mixed = value === MIXED;
   return (
@@ -502,7 +547,7 @@ function BoolField({ name, label, value, onChange }: FieldProps) {
         checked={mixed ? "indeterminate" : value === true}
         onCheckedChange={(checked) => void onChange(() => checked === true)}
       >
-        <CheckboxIndicator>
+        <CheckboxIndicator keepMounted>
           <CheckIcon aria-hidden="true" />
         </CheckboxIndicator>
       </Checkbox>
@@ -600,18 +645,18 @@ function Swatches({ label, colors, value, onColor }: { label: string; colors: re
  */
 function WordsField({ name, label, schema, value, many, onChange }: FieldProps) {
   const id = useId();
-  const [text, setText] = React.useState("");
   const words = value === MIXED ? [] : Array.isArray(value) ? (value as string[]) : [];
   const max = schema.items?.maxLength;
-  const add = () => {
-    const word = (max ? text.trim().slice(0, max) : text.trim());
+  // A word half-typed is a draft: if the selection changes, it's added to what it was typed for.
+  const draft = useDraft("", (text) => {
+    const word = max ? text.trim().slice(0, max) : text.trim();
     if (!word) return;
-    setText("");
     void onChange((was) => {
       const list = Array.isArray(was) ? (was as string[]) : [];
       return list.includes(word) ? list : [...list, word];
     });
-  };
+  });
+  const add = () => draft.flush();
   return (
     <Row name={name} mixed={value === MIXED && !many} htmlFor={id}>
       <ul data-slot="props-panel-words" aria-label={label}>
@@ -633,9 +678,9 @@ function WordsField({ name, label, schema, value, many, onChange }: FieldProps) 
         aria-label={`Add to ${label}`}
         placeholder={many ? "Add to each" : "Add, then Enter"}
         maxLength={max}
-        value={text}
-        data-dirty={text ? "" : undefined}
-        onValueChange={(t: string) => setText(t)}
+        value={draft.text}
+        data-dirty={draft.dirty ? "" : undefined}
+        onValueChange={(t: string) => (t ? draft.edit(t) : draft.cancel())}
         onKeyDown={(e: React.KeyboardEvent) => {
           if (e.key === "Enter" || e.key === ",") {
             e.preventDefault();
@@ -797,7 +842,7 @@ function ObjectField({ name, label, schema, value, onChange }: FieldProps) {
 /** A field whose schema has no form here: its JSON, sent when left if it parses. */
 function JsonField({ name, label, required, value, onChange }: FieldProps) {
   const id = useId();
-  const [bad, setBad] = React.useState(false);
+  const [bad, setBad] = useScoped(false);
   const draft = useDraft(value === MIXED || value === undefined ? "" : JSON.stringify(value, null, 2), (text) => {
     if (!text.trim()) {
       if (!required) void onChange(() => undefined);
@@ -914,7 +959,7 @@ function LockSection({ targets, send }: { targets: Target[]; send: Send }) {
           checked={value === MIXED ? "indeterminate" : value}
           onCheckedChange={(checked) => void send(() => targets.map((t) => ({ id: t.id, locked: checked === true ? true : undefined })))}
         >
-          <CheckboxIndicator>
+          <CheckboxIndicator keepMounted>
             <CheckIcon aria-hidden="true" />
           </CheckboxIndicator>
         </Checkbox>
@@ -1073,7 +1118,6 @@ function LinkSection({ doc, link, send, onSelect }: { doc: BoardDoc; link: DocLi
 /** A block's lines, each a button that picks it, so lines are reachable from the keyboard. */
 function LinesSection({ doc, id, onPickLink }: { doc: BoardDoc; id: string; onPickLink: (id: string) => void }) {
   const lines = doc.links.filter((l) => l.from === id || l.to === id);
-  if (!lines.length) return null;
   const name = (other: string) => {
     const found = findItem(doc, other);
     if (found?.key === "blocks") return blockLabel((found.item as DocBlock).type, (found.item as DocBlock).props);
@@ -1081,7 +1125,9 @@ function LinesSection({ doc, id, onPickLink }: { doc: BoardDoc; id: string; onPi
     return other;
   };
   return (
-    <section data-slot="props-panel-section" aria-label="Lines">
+    // Stays in the page, hidden, for a block with no lines, so going from one
+    // with lines to one without changes no element but the lines (whiteboard#48).
+    <section data-slot="props-panel-section" aria-label="Lines" hidden={!lines.length}>
       <h3 data-slot="props-panel-label">Lines</h3>
       <ul data-slot="props-panel-lines">
         {lines.map((l) => (
