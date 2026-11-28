@@ -49,6 +49,21 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
   String(input).includes("/wails/") ? new Response("no Go here", { status: 503 }) : realFetch(input, init)) as typeof fetch;
 
+// React's devtools hook, so settle() can see the work React still has to do:
+// each root it commits is kept, and its pendingLanes say whether a render is
+// still waiting (whiteboard#55).
+const roots = new Set<{ pendingLanes: number }>();
+(globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+  supportsFiber: true,
+  renderers: new Map(),
+  inject: () => 1,
+  checkDCE: () => {},
+  onScheduleFiberRoot: (_id: number, root: { pendingLanes: number }) => roots.add(root),
+  onCommitFiberRoot: (_id: number, root: { pendingLanes: number }) => roots.add(root),
+  onCommitFiberUnmount: () => {},
+  onPostCommitFiberRoot: () => {},
+};
+
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { LiveBoard } = await import("../src/whiteboard/live");
@@ -76,7 +91,16 @@ function ok(name: string, cond: boolean, detail?: unknown) {
   }
 }
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const settle = () => wait(40);
+/**
+ * Waits 40 ms, then until React has no render left to do (3 s at most). The
+ * panel follows a click in a React transition (PropsPanel.tsx, whiteboard#42),
+ * so on a busy computer it can catch up later than a fixed 40 ms wait, and
+ * the checks after it then read the panel as it was (whiteboard#55).
+ */
+const settle = async () => {
+  await wait(40);
+  for (const until = Date.now() + 3000; Date.now() < until && [...roots].some((r) => r.pendingLanes !== 0); ) await wait(5);
+};
 
 const meta = { createdBy: "person", updatedBy: "person" };
 const start: BoardDoc = {
@@ -591,7 +615,9 @@ madeRoot.unmount();
     } catch {
       /* missing */
     }
-    ok("panel-ops.json is current (run with --write)", have === text, have ? undefined : "missing");
+    // A Windows checkout has the file with CRLF (.gitattributes: text=auto);
+    // the repo and --write keep LF (whiteboard#55).
+    ok("panel-ops.json is current (run with --write)", have.replace(/\r\n/g, "\n") === text, have ? undefined : "missing");
   }
 }
 
