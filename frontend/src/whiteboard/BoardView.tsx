@@ -364,7 +364,8 @@ function BoardBlock({ value, ...props }: { value: string } & PartProps<"div", Bo
 // A port or resize handle on a block's edge, keyed `<block>:<side or handle>`.
 function BoardPart({ slot, value, ...props }: { slot: "port" | "handle"; value: string } & PartProps<"span">) {
   counted("part");
-  return usePart(useSteady(), slot, { value }, props, "span");
+  // board.css reaches ports and handles by these classes (whiteboard#51).
+  return usePart(useSteady(), slot, { value }, { ...props, className: `board-${slot}` }, "span");
 }
 
 /**

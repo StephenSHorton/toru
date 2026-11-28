@@ -415,15 +415,18 @@
 
 /* Block editing v2: colours, options, columns, removing and replacing.
    The extra controls show while their block is selected, hovered or in use,
-   so a board at rest shows only its content. */
+   so a board at rest shows only its content. They carry the class
+   `block-extra` (blocks.tsx, custom-blocks.tsx) for these rules: a rule
+   ending in `[data-part=…]` or `[data-slot=…]` makes Blink restyle every
+   element in the block with that attribute when the block's selection,
+   hover or focus changes (whiteboard#51). */
 @layer components {
-  [data-slot="board-block"][data-type] :is([data-part="block-swatches"], [data-part="block-remove"], [data-slot="block-image-replace"]) {
+  /* They show and hide at once, without a fade, like the ports (board.css). */
+  [data-slot="board-block"][data-type] .block-extra {
     opacity: 0;
-    transition: opacity 120ms;
   }
 
-  [data-slot="board-block"][data-type]:is([data-selected], :hover, :focus-within)
-    :is([data-part="block-swatches"], [data-part="block-remove"], [data-slot="block-image-replace"]) {
+  [data-slot="board-block"][data-type]:is([data-selected], :hover, :focus-within) .block-extra {
     opacity: 1;
   }
 

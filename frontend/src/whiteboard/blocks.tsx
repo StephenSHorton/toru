@@ -166,6 +166,7 @@ function ColorSwatches({
     <RadioGroup
       aria-label={label}
       data-part="block-swatches"
+      className="block-extra"
       value={value}
       onValueChange={(next, details) => {
         if (next != null) onColor(String(next) as BlockColor, changeOf(details));
@@ -273,6 +274,7 @@ function Checklist({ id, props, onProps }: BlockRenderProps<ChecklistProps>) {
             <Button
               aria-label={`Remove item ${i + 1} from ${name}`}
               data-part="block-remove"
+              className="block-extra"
               data-agent-confirm={`Removes "${item.text}" from ${name}`}
               onClick={() => onProps({ ...props, items: props.items.filter((_, j) => j !== i) }, {})}
             >
@@ -357,6 +359,7 @@ function Poll({ id, props, onProps }: BlockRenderProps<PollProps>) {
                 <Button
                   aria-label={`Remove option ${i + 1} from ${props.question}`}
                   data-part="block-remove"
+                  className="block-extra"
                   data-agent-confirm={`Removes the option "${o.label}" and its ${o.votes ?? 0} ${o.votes === 1 ? "vote" : "votes"} from the poll "${props.question}"`}
                   disabled={props.options.length <= 2}
                   onClick={() => removeOption(i)}
@@ -509,6 +512,7 @@ function Table({ id, props, onProps }: BlockRenderProps<TableProps>) {
                 <Button
                   aria-label={`Remove column ${c + 1} from ${name}`}
                   data-part="block-remove"
+                  className="block-extra"
                   data-agent-confirm={`Removes the column "${col}" and every cell in it from ${name}`}
                   disabled={props.columns.length <= 1}
                   onClick={() => removeColumn(c)}
@@ -762,7 +766,7 @@ function ImageBlock({ props, onProps }: BlockRenderProps<ImageProps>) {
       <figure data-slot="block-image" data-fit={props.fit ?? "contain"} aria-busy={busy || undefined}>
         <BoardPicture src={images.url(props.asset)} alt={props.alt ?? ""} />
         {props.caption && <figcaption>{props.caption}</figcaption>}
-        <div data-slot="block-image-replace">
+        <div data-slot="block-image-replace" className="block-extra">
           <PicturePicker
             fileLabel={`New picture file for ${excerpt(what)}`}
             libraryLabel={`New picture from Library for ${excerpt(what)}`}

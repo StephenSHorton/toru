@@ -127,6 +127,8 @@ type BoardState = {
   connecting: ConnectDraft | null
   /** The block whose text is being edited (blockTextFields), or null. This window's own; never saved or sent. */
   editing: string | null
+  /** Whether a press on empty space is panning the board, for its grabbing cursor. */
+  panning: boolean
   grid: number
 }
 
@@ -138,6 +140,14 @@ type BoardRootState = {
 type BoardBlockState = { selected: boolean }
 
 const sides: EdgeSide[] = ["top", "right", "bottom", "left"]
+
+/**
+ * For parts that never read the selection or which block has focus (ports,
+ * handles, lines): UI SDK checks every part that follows the whole store on
+ * each change, so without this a click woke all 636 ports and handles on a
+ * board like Boxes Inc to find nothing changed (whiteboard#51).
+ */
+const ignoresSelection = () => selects({ selected: [], focused: [] })
 const handles: ResizeHandle[] = ["n", "ne", "e", "se", "s", "sw", "w", "nw"]
 const sideNames: Record<EdgeSide, string> = {
   top: "top",
@@ -438,6 +448,7 @@ const board = /* @__PURE__ */ definePrimitive({
       viewport: { x: 0, y: 0, zoom: 1 },
       connecting: null,
       editing: null,
+      panning: false,
       grid: options.grid ?? 8,
     }
   },
@@ -450,7 +461,7 @@ const board = /* @__PURE__ */ definePrimitive({
   // The agent bridge's snapshot shows these whole: every block by id with its
   // label and box, every line with its name, and the selection.
   controlled: ["blocks", "lines", "selected"],
-  live: ["moving", "resizing", "lasso", "viewport", "connecting", "editing"],
+  live: ["moving", "resizing", "lasso", "viewport", "connecting", "editing", "panning"],
   agent: {
     actions: [
       "select",
@@ -1183,6 +1194,20 @@ const board = /* @__PURE__ */ definePrimitive({
         } else if (event.button === 0 && store.get().selected.length) {
           change("selected", [], { reason: "item-press", event })
         }
+        // The grabbing cursor (board.css) shows while this press pans, until
+        // the pointer is let go.
+        if (event.button === 0 && !store.get().panning) {
+          const view = el.ownerDocument.defaultView ?? window
+          const end = (e: PointerEvent) => {
+            if (e.pointerId !== event.pointerId) return
+            view.removeEventListener("pointerup", end, true)
+            view.removeEventListener("pointercancel", end, true)
+            store.set({ panning: false })
+          }
+          view.addEventListener("pointerup", end, true)
+          view.addEventListener("pointercancel", end, true)
+          store.set({ panning: true })
+        }
         viewport.pointerdown(event)
       },
     }
@@ -1214,6 +1239,7 @@ const board = /* @__PURE__ */ definePrimitive({
       live: live<BoardState, any, {}>((state) => ({
         "data-connecting": state.connecting ? "" : undefined,
         "data-lassoing": state.lasso ? "" : undefined,
+        "data-panning": state.panning ? "" : undefined,
         style: css(dotBackground(state.viewport)),
       })),
       on: {
@@ -1267,7 +1293,9 @@ const board = /* @__PURE__ */ definePrimitive({
     }),
     block: slot<{ value: string }, BoardBlockState>({
       props: { value: "string" },
-      selects: selects({ focused: ({ key }) => [key, null] }),
+      // A selection change wakes only the blocks it adds or drops, and a
+      // focus change the two blocks it moves between (whiteboard#51).
+      selects: selects({ focused: ({ key }) => [key, null], selected: ({ key }) => [key] }),
       state: (state, { key }) => ({ selected: state.selected.includes(key) }),
       attrs: (state, part) => {
         const selected = state.selected.includes(part.key)
@@ -1343,6 +1371,7 @@ const board = /* @__PURE__ */ definePrimitive({
     // A resize handle, keyed `<block>:<handle>`, like `idea:se`.
     handle: slot<{ value: string }>({
       props: { value: "string" },
+      selects: ignoresSelection(),
       attrs: (_state, { key, api }) => ({
         "aria-hidden": "true",
         ...api.resize.handleAttrs(endOf(key) as ResizeHandle),
@@ -1355,6 +1384,7 @@ const board = /* @__PURE__ */ definePrimitive({
     // A port lines start and end at, keyed `<block>:<side>`, like `idea:right`.
     port: slot<{ value: string }>({
       props: { value: "string" },
+      selects: ignoresSelection(),
       attrs: (_state, { key }) => ({
         "aria-hidden": "true",
         "data-side": endOf(key),
@@ -1371,12 +1401,14 @@ const board = /* @__PURE__ */ definePrimitive({
     }),
     line: slot<{ value: string }>({
       props: { value: "string" },
+      selects: ignoresSelection(),
       attrs: () => ({ fill: "none" }),
       live: lineD,
     }),
     // A wide see-through stroke along a line, so a press on it can pick the line.
     "line-hit": slot<{ value: string }>({
       props: { value: "string" },
+      selects: ignoresSelection(),
       attrs: () => ({ fill: "none", "aria-hidden": "true" }),
       live: lineD,
       on: { pointerdown: (event) => event.stopPropagation() },
@@ -1384,6 +1416,7 @@ const board = /* @__PURE__ */ definePrimitive({
     // A line's label, written above its middle.
     "line-label": slot<{ value: string }>({
       props: { value: "string" },
+      selects: ignoresSelection(),
       attrs: () => ({
         style: css({ position: "absolute", translate: "-50% calc(-100% - 12px)" }),
       }),
@@ -1398,6 +1431,7 @@ const board = /* @__PURE__ */ definePrimitive({
     }),
     unlink: slot<{ value: string }>({
       props: { value: "string" },
+      selects: ignoresSelection(),
       attrs: (state, { key }) => {
         const line = state.lines.find((l) => l.id === key)
         return {

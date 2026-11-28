@@ -1027,6 +1027,106 @@ So what is left is style (the press's restyle of the two blocks, forced
 early by Wails' read) and script (UI SDK's press, then the panel's smaller
 render), not layout. whiteboard#51 takes these on.
 
+**Selecting within 1.5 refreshes at 238 Hz (whiteboard#51).** Measured as
+whiteboard#43 was (the same Boxes Inc copy, window, `board-perf-host` and
+production build), on `main` at whiteboard#52 (`c1ddeeb`) and on this change,
+three sets of three runs a theme taken in turn, about 27 clicks a set.
+`bun scripts/board-perf.ts --cdp 9339 --url <build> --board <copy> --only
+select --no-profile --theme light|dark`:
+
+| Build | Theme | Past the first click |
+| --- | --- | --- |
+| `main` (`c1ddeeb`) | light | worst 16.8, 16.8, 12.6 ms; 35, 30, 36 of about 1,930 frames over 1.5× refresh (6.3 ms); 15, 6, 10 over 2× |
+| `main` (`c1ddeeb`) | dark | worst 12.6, 16.8, 16.7 ms; 33, 33, 34 over 1.5×; 14, 11, 6 over 2× |
+| This change | light | worst 4.5, 4.4, 4.5 ms; 0, 0, 0 over 1.5× |
+| This change | dark | worst 8.4, 4.5, 8.3 ms; 1, 0, 1 over 1.5×; 0 over 2× |
+
+Main thread a second while clicking: `main` 23–29 ms of script and 41–46 ms
+of style, this change 15–17 ms and 11–12 ms. With no input at all
+(`--only idle`, four sets) the same window also drops one 8.4 ms frame now
+and then. So the one frame left in dark is the computer's and the browser's,
+not the click's.
+
+What changed, each found with style invalidation tracking in WebView2 and in
+Chrome:
+
+- **Rules that follow a block's state ended in `[data-slot=…]` or
+  `[data-part=…]`.** Blink picks what a change restyles by the last part of
+  each rule's selector. So `[data-selected] [data-slot="board-port"]`, the
+  handles' rule and the block controls' rule (that one also follows `:hover`
+  and `:focus-within`) restyled every element in the block with a `data-slot`
+  or `data-part`, about 33 per block, two blocks a click (the rest of the
+  press's 202 elements were the cursor, below). UI SDK doesn't
+  rewrite those attributes; nothing is written to them. Ports and handles now
+  carry the classes `board-port` and `board-handle` (`BoardView.tsx`). A
+  block's colour swatches, remove buttons and picture replace carry
+  `block-extra` (`blocks.tsx`, `custom-blocks.tsx`). The rules end in those
+  classes, so the press restyles only the two blocks' 28 ports, handles and
+  controls. The pen's and tools' `:has()` rules that hide ports end in
+  `.board-port` too.
+- **The board's grabbing cursor was `:active`.** The board is `:active`
+  while any block in it is pressed, and `cursor` is inherited. So each click
+  restyled about 136 elements on the press, and again on the release. The
+  cursor now follows `data-panning`, which `board.ts` sets while a press on
+  empty space pans. The release restyles nothing now. A Shift-drag lasso
+  keeps the open hand; before, it showed the closed one, since the board
+  was `:active`.
+- **A click woke every part on the board.** UI SDK checks every part that
+  follows the whole store on each change. The selection's change ran the
+  checks of 78 blocks and 636 ports and handles to find two blocks changed,
+  about 2.6 ms of the press's script in Chrome. Blocks now follow the
+  selection by their own key, and focus by theirs (`selects` in `board.ts`).
+  Ports, handles and lines ignore both, since they never read them. The
+  press's script fell to about 0.8 ms there. A block's tab stop reads only
+  which block has focus, so it still moves as before.
+- **Ports and block controls faded in and out over 120 ms.** The fade ran on
+  the main thread in the frames after each click. With the right panel's
+  frames on top, it took one of them past a refresh most clicks. They now show
+  and hide at once, on hover as well as on selection. Ports keep their grow
+  on hover and their colour while connecting.
+- **Rules this window can't match restyled a whole block on each hover and
+  focus change.** These are Tailwind's `group-*` utilities
+  (`.x:is(:where(.group):hover *)`) and UI SDK's Tree focus ring
+  (`[data-slot="tree-item"]:focus-visible > [data-slot="tree-label"]`).
+  Blink picks what a pseudo-class change restyles by the pseudo-class alone.
+  So a block the pointer entered or left, and the two blocks focus moved
+  between, each restyled 30–40 elements. Nothing in the whiteboard window has
+  a `group` class or a Tree: the pages that use them belong to other windows,
+  which share the one style sheet. So `restyle-guards.ts` takes those
+  selectors out of this window's style sheets when it opens and as more
+  sheets arrive, and keeps the other selectors in the same rules. In 40
+  clicks timed as `board-perf.ts` times them, dropping the fade or these
+  rules alone left 11–26 frames over 1.5×, and doing both left 2–5 (main:
+  49–50).
+
+What a click costs now, traced in WebView2 (production build; traced times
+run a little long). This list and the two checks after it were taken on this
+change before whiteboard#52 came into it; the table above is on `c1ddeeb`:
+
+- **The press**, 4.3–5.6 ms in one task:
+  - two hit tests, about 1 ms;
+  - UI SDK's `pointerdown` (the selection and roving focus), about 1 ms;
+  - Wails' `mousedown` read of `--wails-draggable`, which forces the restyle
+    of the 28 elements, about 1 ms;
+  - the focus change, two restyles of 5–9 elements, under 1 ms;
+  - the block's `focus` handler, about 0.5 ms.
+  
+  Its paint and layers take 1.5–2 ms after it.
+- **The hover onto the block**, in the same frame when `board-perf.ts`
+  moves, presses and releases together. Wails' `mousemove` read forces a
+  restyle of 5–14 elements, about 1 ms. whiteboard#43 measured it at 50–70.
+- **The release**, about 0.5 ms, with no restyle.
+- **The right panel**, in the frames after. Its transition renders and
+  commits in one task of 2–4 ms, then the panel's style and layout take 2–4 ms
+  in the next frame. In 240 clicks timed against each press with
+  `requestAnimationFrame`, none of the panel's frames went over 1.5×. With the
+  CPU profiler on as well as tracing, a few of its tasks ran 7.5–10 ms. Most
+  of that was React's commit setting the fields' values (`input.value`), and
+  untraced it didn't show.
+
+`--only pan,drag,type` on `main` and on this change, light: the same render
+counts and frames within one set's spread.
+
 **Measuring again.** `frontend/board-perf.html` (Vite only) opens the
 whiteboard window on a board in memory; `frontend/scripts/board-perf.ts`
 drives it over the DevTools protocol with synthetic input only, so it never
@@ -1062,7 +1162,11 @@ In Chrome, start it with `--remote-debugging-port` and its own
 `--user-data-dir`, plus `--disable-backgrounding-occluded-windows
 --disable-renderer-backgrounding`, and pass that port as `--cdp`. For
 production React, build `board-perf.html` with a Vite config that adds it as
-`build.rollupOptions.input` and serve it with `vite preview`.
+`build.rollupOptions.input` and serve it with `vite preview`. Give that
+config an absolute `build.outDir` outside `frontend/`, and drop the
+`toru-keep-dist-placeholder` plugin from it, since that plugin joins the
+root and `outDir` again. With `emptyOutDir`, an empty or wrong `outDir`
+empties the folder it names, `frontend/` itself included.
 
 Export the board to `.toruboard` first and measure the file; the page keeps
 the board in memory and never touches Toru's store.
