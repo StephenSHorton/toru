@@ -8,7 +8,8 @@
 //   2. The real window (routes/Whiteboard.tsx) on a store in the page
 //      (links.ts, memoryLink, which applies ops as Go does): an agent's
 //      change appears live with its name on the block; the person's moves,
-//      typing and deletes go out as one op each; Ctrl+Z and Ctrl+Y step
+//      typing and deletes go out as one op each (and a key renders only the
+//      typed block's parts, whiteboard#50); Ctrl+Z and Ctrl+Y step
 //      through the person's and the agent's changes alike; board.act's
 //      changes are tagged with the agent's name; and with events doubled,
 //      delayed, reordered and dropped the window still ends on the store's
@@ -254,11 +255,22 @@ const setText = (ta: HTMLTextAreaElement, text: string) => {
   ta.dispatchEvent(new Event("input", { bubbles: true }));
 };
 textarea().focus();
+// BoardView.tsx counts its renders into this (whiteboard#50).
+const renders: Record<string, number> = {};
+(globalThis as { __boardRenders?: Record<string, number> }).__boardRenders = renders;
 for (const text of ["First idea!", "First idea!!", "First idea, typed"]) {
   setText(textarea(), text);
   await wait(10);
 }
+delete (globalThis as { __boardRenders?: Record<string, number> }).__boardRenders;
 ok("typing shows at once", view().blocks.s1.props?.text === "First idea, typed", view().blocks.s1.props);
+// A key renders the typed block and its own 4 ports and 8 resize handles, not
+// every block's (whiteboard#46, #50). A linked block may render too: its
+// description names the typed block by its words.
+const allBlocks = host.querySelectorAll('[data-slot="board-block"]').length;
+ok("a key renders the typed block's item alone", renders.item === 3, renders);
+ok("... its ports and handles alone, not every block's", renders.part === 3 * 12, { renders, allBlocks });
+ok("... and not every block", (renders.block ?? 0) <= 3 * 2 && allBlocks > 2, { renders, allBlocks });
 ok("typing waits for a pause", sent.length === 1, sent.length);
 await wait(120);
 ok("typing goes as one op after the pause", sent.length === 2 && sent[1].blocks?.[0]?.props?.text === "First idea, typed", sent.length);
