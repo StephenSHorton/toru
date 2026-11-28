@@ -1159,6 +1159,33 @@ restyle the field.
   work that the trace doesn't break down (about 2–3 ms untraced in production).
 - Then paint and layers, about 2–3 ms.
 
+**Measured** as whiteboard#52 was: the same Boxes Inc copy, window and
+`board-perf-host`, production builds of `board-perf.html`. Each set is three
+runs of `--only idle,type --no-profile`, about 150 keys plus the two clicks
+into the sticky; the builds are taken in turn. Frames over 2 intervals
+(3 or more, 12.5 ms and up), whole run with the clicks:
+
+| Build | Light, by set | Dark, by set | Worst frame in the run | Idle, by set |
+| --- | --- | --- | --- | --- |
+| `c1ddeeb` (whiteboard#52) | 1, 0 | 1, 0 | 12.5–12.6 ms in 3 of 4 sets | 0 in all |
+| `640f90e` (`main`, whiteboard#51) | 0, 1, 1 | 1, 0, 0 | 12.4–12.5 ms in 4 of 6 sets | 0–1 |
+| This change | 0, 0, 0 | 0, 0, 0 | 8.3–8.5 ms in all 6 sets | 0–1 |
+
+The keys alone: 0 over 2 intervals in every set of every build. Script while
+typing: 62–70 ms a second on all three builds. In 18 runs on this change no
+frame went past 2 intervals; idle, with no input, lost one such frame in 4 of
+the same 6 sets. So the whole run sits at the idle floor. On `main` the
+double click still costs one 12.5 ms frame in about a third of runs. Two
+intervals are 8.4 ms at 238 Hz.
+
+These were taken at 33–44% CPU, with two idle Roblox Studio windows open.
+Earlier runs this session were taken at 80–100% CPU (a game and another
+program). There every build, `c1ddeeb` too, lost 3–17 frames over 2 intervals
+on the keys alone, so those runs aren't in the table. whiteboard#52's 2–5
+"whole run" count was on `c1ddeeb`, which measures 0–1 here. Part of it was
+the clicks' 168-element restyle (removed by whiteboard#51), part the
+computer's load at the time.
+
 Checked in the page: after Escape, after a click outside, and when editing
 moves straight from one sticky to another, `data-editing` is on at most one
 block. `scripts/board-check.ts` passes (91).
